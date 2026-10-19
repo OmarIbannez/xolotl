@@ -1,13 +1,22 @@
-"""``render.yaml``, the Render Blueprint, checked against the code it deploys.
+r"""``render.yaml``, the Render Blueprint, checked against the code it deploys.
 
 Render reads the file only when a Blueprint syncs, so a misspelled variable (which
 Settings would silently ignore), a moved path or a literal secret would surface as a
 broken or leaky deploy. These tests read it as data and hold it to the Settings, the
 Dockerfile, the health route, CI and docker-compose. docs/deploy-render.md explains
 each choice.
+
+Render's own vocabulary (keys, plans, regions) is checked against the JSON Schema
+Render publishes at https://render.com/schema/render.yaml.json, vendored verbatim as
+``tests/fixtures/render-blueprint.schema.json`` on 2026-10-19 so that CI needs no
+network. It is refreshed by hand when Render's Blueprint documentation changes::
+
+    curl -sSL https://render.com/schema/render.yaml.json \
+        -o tests/fixtures/render-blueprint.schema.json
 """
 
 import base64
+import copy
 import json
 import os
 import re
@@ -17,12 +26,15 @@ from typing import Any, cast
 
 import pytest
 import yaml
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
 from sqlalchemy import make_url
 
 from xolotl.platform.api.health import router as health_router
 from xolotl.platform.config import APP_ROLE, Settings
 
 ROOT = Path(__file__).resolve().parents[1]
+SCHEMA = ROOT / "tests" / "fixtures" / "render-blueprint.schema.json"
 # Names that hold a secret: none may carry a literal value in the file.
 SECRET_NAME = re.compile(r"SECRET|PASSWORD|KEY|TOKEN|DATABASE_(ADMIN_)?URL")
 # The shape of Render's connectionString: the private network, no port.
@@ -37,6 +49,10 @@ def load(name: str) -> dict[Any, Any]:
 
 def blueprint() -> dict[str, Any]:
     return load("render.yaml")
+
+
+def schema() -> dict[str, Any]:
+    return cast("dict[str, Any]", json.loads(SCHEMA.read_text()))
 
 
 def web_service() -> dict[str, Any]:
@@ -99,6 +115,25 @@ def covered(path: str, patterns: list[str]) -> bool:
         elif path == pattern:
             return True
     return False
+
+
+def describe(error: ValidationError) -> str:
+    path = "/".join(str(p) for p in error.absolute_path) or "<root>"
+    return f"{path}: {error.message}"
+
+
+def violations(error: ValidationError) -> list[str]:
+    """Describe ``error`` down to its leaves.
+
+    Returns:
+        One ``path: message`` line per leaf: the error itself when it has no
+        branches, otherwise every leaf under its ``anyOf`` branches, which say what
+        the branch rejected where the parent only dumps the instance.
+
+    """
+    if not error.context:
+        return [describe(error)]
+    return [line for branch in error.context for line in violations(branch)]
 
 
 def test_the_service_builds_this_dockerfile_and_starts_with_its_cmd():
@@ -243,3 +278,38 @@ def test_the_environment_render_gives_is_a_valid_production_configuration(
 def test_the_database_accepts_only_private_network_connections():
     (database,) = blueprint()["databases"]
     assert database["ipAllowList"] == []
+
+
+def test_the_vendored_schema_is_renders():
+    vendored = schema()
+    assert vendored["$id"] == "https://render.com/schema/render.yaml.json"
+    Draft202012Validator.check_schema(vendored)  # raises SchemaError when malformed
+
+
+def test_the_blueprint_is_valid_against_renders_schema():
+    errors = [
+        describe(e) for e in Draft202012Validator(schema()).iter_errors(blueprint())
+    ]
+    assert errors == []
+
+
+def test_the_schema_catches_an_unknown_key_and_an_unknown_plan():
+    broken = copy.deepcopy(blueprint())
+    (service,) = [s for s in broken["services"] if s["type"] == "web"]
+    service["healthcheckPath"] = service.pop("healthCheckPath")
+    broken["databases"][0]["plan"] = "0.1c-256mbb"
+    errors = [
+        line
+        for error in Draft202012Validator(schema()).iter_errors(broken)
+        for line in violations(error)
+    ]
+    # A service is an anyOf over Render's service kinds: the web-service branch knows
+    # every other key in the file and rejects the typo alone.
+    index = broken["services"].index(service)
+    assert (
+        f"services/{index}: Additional properties are not allowed "
+        "('healthcheckPath' was unexpected)"
+    ) in errors
+    assert any(
+        e.startswith("databases/0/plan: '0.1c-256mbb' is not one of [") for e in errors
+    )

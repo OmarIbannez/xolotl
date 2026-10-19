@@ -260,7 +260,10 @@ downtime but never shrink.
 [health checks][health], [Postgres connections][pg-connect],
 [Postgres credentials][pg-credentials], [free plans][free],
 [compute plans][compute-plans], [pricing][pricing], and the Blueprint
-[JSON schema][schema], which `render.yaml` validates against.
+[JSON schema][schema]: `tests/test_render_blueprint.py` validates `render.yaml` against a
+copy vendored at `tests/fixtures/render-blueprint.schema.json` (fetched 2026-10-19;
+refresh it by hand when the Blueprint documentation changes), so CI catches a key, plan
+or region Render would reject at sync.
 
 [blueprint]: https://render.com/docs/blueprint-spec
 [deploys]: https://render.com/docs/deploys
