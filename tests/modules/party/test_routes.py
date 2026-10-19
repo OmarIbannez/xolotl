@@ -6,6 +6,7 @@ to staff, with one ``VIEW_PII`` row per field group.
 
 import json
 import logging
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -331,3 +332,79 @@ def test_no_plaintext_is_stored_or_logged(
         assert leaked(caplog.text, secret.encode()) == []
         assert leaked(stored, secret.encode()) == []
         assert secret not in payloads
+
+
+def test_patch_updates_attributes_without_an_idempotency_key(
+    client: TestClient, tenant: CreatedTenant, admin_headers
+):
+    party_id = post(client, admin_headers, PARTIES, ANA_BODY, "p1").json()["id"]
+    patched = client.patch(
+        f"{PARTIES}/{party_id}",
+        json={"person": {"pep_status": "DOMESTIC"}},
+        headers=admin_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["id"] == party_id
+    detail = client.get(f"{PARTIES}/{party_id}", headers=admin_headers).json()
+    assert detail["person"]["pep_status"] == "DOMESTIC"
+    assert audit_events(tenant.tenant_id)[-1].action == "party.updated"
+    mismatched = client.patch(
+        f"{PARTIES}/{party_id}",
+        json={"organization": {"trade_name": "x"}},
+        headers=admin_headers,
+    )
+    assert (mismatched.status_code, mismatched.json()["code"]) == (
+        422,
+        "VALIDATION_FAILED",
+    )
+    reader = machine_headers(tenant, "parties:read")
+    refused = client.patch(
+        f"{PARTIES}/{party_id}",
+        json={"person": {"pep_status": "NONE"}},
+        headers=reader,
+    )
+    assert (refused.status_code, refused.json()["code"]) == (403, "SCOPE_MISSING")
+
+
+def test_party_relationships_are_added_and_shown(
+    client: TestClient, tenant: CreatedTenant, admin_headers
+):
+    ana = post(client, admin_headers, PARTIES, ANA_BODY, "p1").json()["id"]
+    acme = post(client, admin_headers, PARTIES, ACME_BODY, "p2").json()["id"]
+    path = f"{PARTIES}/{ana}/relationships"
+    added = post(
+        client,
+        admin_headers,
+        path,
+        {"to_party_id": acme, "rel_type": "SHAREHOLDER", "ownership_pct": "51.5"},
+        "r1",
+    )
+    assert added.status_code == 201, added.text
+    body = added.json()
+    assert (body["from_party_id"], body["to_party_id"]) == (ana, acme)
+    assert Decimal(body["ownership_pct"]) == Decimal("51.5")
+    detail = client.get(f"{PARTIES}/{acme}", headers=admin_headers).json()
+    # The stored percentage carries the column's four decimal places.
+    shown = [
+        {**row, "ownership_pct": Decimal(row["ownership_pct"])}
+        for row in detail["relationships"]
+    ]
+    assert shown == [{**body, "ownership_pct": Decimal("51.5")}]
+    director = post(
+        client,
+        admin_headers,
+        path,
+        {"to_party_id": acme, "rel_type": "DIRECTOR", "ownership_pct": "10"},
+        "r2",
+    )
+    assert (director.status_code, director.json()["code"]) == (
+        422,
+        "VALIDATION_FAILED",
+    )
+    itself = post(
+        client, admin_headers, path, {"to_party_id": ana, "rel_type": "DIRECTOR"}, "r3"
+    )
+    assert (itself.status_code, itself.json()["code"]) == (422, "VALIDATION_FAILED")
+    machine = machine_headers(tenant, "parties:read")
+    seen = client.get(f"{PARTIES}/{acme}", headers=machine).json()
+    assert "relationships" not in seen
