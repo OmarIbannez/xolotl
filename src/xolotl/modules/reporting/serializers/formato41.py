@@ -327,13 +327,17 @@ def serialize_f41(
 
     Raises:
         ReportFieldError: A value is missing, malformed, outside its code table or
-            too long for a column that must not be truncated.
+            too long for a column that must not be truncated, or the legend is
+            missing for the 24-hour report or given for another kind.
         ZeroReportNotAllowedError: ``operations`` is empty for a definition
             without a zero report.
 
     """
     if definition.serializer is not SerializerFamily.DELIMITED:
         raise ReportFieldError(definition.code, "is not a DELIMITED definition")
+    if definition.legend_required != (legend is not None):
+        reason = "needs a legend" if definition.legend_required else "takes no legend"
+        raise ReportFieldError(definition.code, reason)
     layout = load_layout(defs_dir, definition.layout)
     tables = {
         column.code_table: frozenset(

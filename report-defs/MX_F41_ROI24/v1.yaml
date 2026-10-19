@@ -1,0 +1,17 @@
+# ROI de 24 horas (Formato 41, tipo 2) with a legend parameter (D14): "LISTA DE
+# PERSONAS BLOQUEADAS" for LPB hits, "REPORTE DE 24 HORAS" otherwise. The legend
+# heads column 40; that placement is UNVERIFIED.
+code: MX_F41_ROI24
+version: 1
+jurisdiction: MX
+regulator: UIF via CNBV (SITI PLD/FT)
+sources: [F41_RESOLUTION]
+serializer: DELIMITED
+encoding: ascii
+encoding_confidence: UNVERIFIED
+zero_report_rule: NOT_ALLOWED
+correction_rule: UNSUPPORTED
+valid_from: 2013-09-30
+report_type: "2"
+legend_required: true
+layout: MX_F41.v1
