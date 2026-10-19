@@ -251,12 +251,17 @@ def mx_datetime(value: datetime, *, field: str = "datetime") -> str:
         ``AAAAMMDDhhmmss`` in ``America/Mexico_City``.
 
     Raises:
-        ReportFieldError: the datetime has no time zone.
+        ReportFieldError: the datetime has no time zone or cannot be expressed
+            in Mexico City time.
 
     """
     if value.tzinfo is None or value.utcoffset() is None:
         raise ReportFieldError(field, "needs a time zone")
-    return value.astimezone(MX_TZ).strftime("%Y%m%d%H%M%S")
+    try:
+        local = value.astimezone(MX_TZ)
+    except OverflowError as exc:
+        raise ReportFieldError(field, "out of range") from exc
+    return local.strftime("%Y%m%d%H%M%S")
 
 
 def casfim_key(value: str, *, field: str = "casfim") -> str:
