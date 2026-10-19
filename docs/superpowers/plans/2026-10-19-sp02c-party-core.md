@@ -747,7 +747,7 @@ Pinned tests to update (map-api trap T5), inserting the row `("party.retention_s
 
 - [ ] **Step 1: Write the failing tests.**
 
-`tests/modules/party/test_retention.py` (`T0 = datetime(2036, 10, 20, 3, 0, tzinfo=UTC)` patched into `clock.now`; a helper `_customer(s, body, *, retention_until, legal_hold=False) -> Party` creates the party, opens and exits a relationship directly (`status=EXITED`) and sets `retention_until`):
+`tests/modules/party/test_retention.py` (`T0 = datetime(2036, 10, 20, 3, 0, tzinfo=UTC)` patched into `clock.now`; a helper `_customer(s, body, *, retention_until, legal_hold=False) -> Party` creates the party, adds an `EXITED` `customer_relationship` row directly with the C2 model (not through `open_relationship`, which would answer `POLICY_NOT_ASSIGNED`: this module assigns no pack) and sets `retention_until`; ACME's second `ACTIVE` relationship is added the same way):
 
 ```python
 def test_the_sweep_purges_due_parties_and_nothing_else(engine, tenant, local_store, tmp_path, monkeypatch, admin_engine):
