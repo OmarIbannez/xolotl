@@ -13,6 +13,7 @@ files, each with the same ``mes_reportado`` and ``sujeto_obligado``.
 """
 
 import hashlib
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -38,6 +39,11 @@ from xolotl.modules.reporting.serializers.result import SerializedReport
 from xolotl.platform.errors import ValidationFailedError
 
 _MAX_ERRORS = 10
+# Maximum lengths of the XSD's description types.
+_LONG_TEXT = 3000
+_ASSET_TEXT = 100
+# folio_modificacion_type, ASCII digits only.
+_FOLIO = re.compile(r"[2-9][0-9]{3}-[1-9][0-9]{0,8}")
 
 
 class SchemaInvalidError(ValidationFailedError):
@@ -359,8 +365,10 @@ def _t(value: str | None) -> str | None:
     return None if value is None else norm.aviso_text(value)
 
 
-def _desc(value: str | None) -> str | None:
-    return None if value is None else norm.aviso_description(value)
+def _desc(value: str | None, field: str, max_length: int) -> str | None:
+    if value is None:
+        return None
+    return norm.aviso_description(value, field=field, max_length=max_length)
 
 
 def _date(value: date | None) -> str | None:
@@ -516,7 +524,10 @@ def _asset(asset: VirtualAsset) -> Node:
     return _n(
         "activo_virtual",
         _leaf("activo_virtual_operado", asset.code),
-        _leaf("descripcion_activo_virtual", _desc(asset.description)),
+        _leaf(
+            "descripcion_activo_virtual",
+            _desc(asset.description, "descripcion_activo_virtual", _ASSET_TEXT),
+        ),
         _leaf("tipo_cambio_mn", _money(asset.rate_mxn, "tipo_cambio_mn")),
         _leaf(
             "cantidad_activo_virtual",
@@ -647,10 +658,18 @@ def _operations(ops: Operations) -> Node:
 def _modificatorio(correction: Modificatorio | None) -> Node | None:
     if correction is None:
         return None
+    folio = correction.folio.strip()
+    if not _FOLIO.fullmatch(folio):
+        where = "folio_modificacion"
+        raise ReportFieldError(where, "must be the acuse folio AAAA-n")
+    description = _desc(correction.description, "descripcion_modificacion", _LONG_TEXT)
+    if not description:
+        where = "descripcion_modificacion"
+        raise ReportFieldError(where, "is required")
     return _n(
         "modificatorio",
-        _leaf("folio_modificacion", correction.folio.strip()),
-        _leaf("descripcion_modificacion", _desc(correction.description)),
+        _leaf("folio_modificacion", folio),
+        _leaf("descripcion_modificacion", description),
     )
 
 
@@ -667,7 +686,10 @@ def _aviso(aviso: Aviso, number: int) -> Node:
         _n(
             "alerta",
             _leaf("tipo_alerta", aviso.alert_type),
-            _leaf("descripcion_alerta", _desc(aviso.alert_description)),
+            _leaf(
+                "descripcion_alerta",
+                _desc(aviso.alert_description, "descripcion_alerta", _LONG_TEXT),
+            ),
         ),
         _n(
             "operaciones_persona",

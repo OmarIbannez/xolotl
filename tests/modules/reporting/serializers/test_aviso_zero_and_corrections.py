@@ -21,7 +21,6 @@ from tests.modules.reporting.serializers.support import (
 from xolotl.modules.reporting.serializers.aviso import (
     AvisoInforme,
     Modificatorio,
-    SchemaInvalidError,
     SchemaUnavailableError,
     serialize_aviso,
 )
@@ -88,10 +87,13 @@ def test_a_modificatorio_carries_the_folio_and_the_full_aviso():
     assert aviso.find("a:operaciones_persona/a:detalle_operaciones", NS) is not None
 
 
-@pytest.mark.parametrize("folio", ["845213", "1999-1", "2027-0", "2027-1234567890"])
-def test_a_malformed_folio_is_refused_by_the_schema(folio):
+@pytest.mark.parametrize(
+    "folio",
+    ["845213", "1999-1", "2027-0", "2027-1234567890", "27-1", "2027-0123", "2027 - 15"],
+)
+def test_a_malformed_folio_is_refused(folio):
     corrected = replace(AVISO_FULL, modificatorio=replace(CORRECTION, folio=folio))
-    with pytest.raises(SchemaInvalidError, match="folio_modificacion"):
+    with pytest.raises(ReportFieldError, match="folio_modificacion"):
         _ = serialize_aviso(DEFS_DIR, AVI, replace(MARCH_2027, avisos=(corrected,)))
 
 
@@ -156,3 +158,23 @@ def test_the_selected_ror_definition_still_serializes():
     assert isinstance(definition, DelimitedDefinition)
     report = serialize_f41(DEFS_DIR, definition, HEADER_ROR, ROR_OPERATIONS)
     assert report.record_count == 3
+
+
+@pytest.mark.parametrize(
+    ("description", "message"),
+    [("¿¡", "is required"), ("palabra " * 700, "longer than 3000")],
+)
+def test_a_modificatorio_description_must_fit(description, message):
+    correction = replace(CORRECTION, description=description)
+    corrected = replace(AVISO_FULL, modificatorio=correction)
+    with pytest.raises(ReportFieldError, match=message):
+        _ = serialize_aviso(DEFS_DIR, AVI, replace(MARCH_2027, avisos=(corrected,)))
+
+
+def test_the_selector_ignores_files_that_are_not_versions(tmp_path: Path):
+    target = tmp_path / "MX_F41_ROR"
+    target.mkdir()
+    source = (DEFS_DIR / "MX_F41_ROR" / "v1.yaml").read_text(encoding="utf-8")
+    for name in ("v1.yaml", "v\u00b2.yaml", "v01.yaml", "vx.yaml"):
+        _ = (target / name).write_text(source, encoding="utf-8")
+    assert select_definition(tmp_path, "MX_F41_ROR", date(2027, 1, 1)).version == 1

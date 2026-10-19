@@ -98,20 +98,29 @@ def aviso_text(value: str | None) -> str:
     return _collapse(kept.upper())
 
 
-def aviso_description(value: str | None) -> str:
+def aviso_description(value: str | None, *, field: str, max_length: int) -> str:
     """Fit free text to the aviso description fields' character set.
 
     ``descripcion_alerta``, ``descripcion_modificacion`` and
     ``descripcion_activo_virtual`` allow letters, Ñ, digits, spaces and
     ``, . : / ' $ -`` only, and may not start with a space or ``, . : /``. Other
-    characters become spaces after :func:`aviso_text`.
+    characters become spaces after :func:`aviso_text`. Narrative is never cut:
+    text longer than ``max_length`` is refused so a person shortens it.
 
     Returns:
         The text, collapsed and trimmed, ``""`` when nothing is left.
 
+    Raises:
+        ReportFieldError: The cleaned text is longer than ``max_length``.
+
     """
     kept = _DESCRIPTION_JUNK.sub(" ", aviso_text(value))
-    return _collapse(kept).lstrip(",.:/ ")
+    # A leading apostrophe is allowed by some description patterns and not by
+    # others; dropping it everywhere keeps one rule.
+    cleaned = _collapse(kept).lstrip(",.:/' ")
+    if len(cleaned) > max_length:
+        raise ReportFieldError(field, f"longer than {max_length} characters")
+    return cleaned
 
 
 def fit(value: str, width: int) -> tuple[str, bool]:
