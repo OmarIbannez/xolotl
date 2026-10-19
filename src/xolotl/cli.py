@@ -18,7 +18,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from xolotl.app import build_key_provider, build_worker
+from xolotl.app import build_key_provider, build_object_store, build_worker
+from xolotl.modules.party.retention import RetentionSweeper
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import clock, migrate
@@ -81,6 +82,8 @@ units_app = typer.Typer(
     no_args_is_help=True, help="Monetary units: seeds and Banxico fetches"
 )
 app.add_typer(units_app, name="units")
+party_app = typer.Typer(no_args_is_help=True, help="Party retention")
+app.add_typer(party_app, name="party")
 
 _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
@@ -613,6 +616,39 @@ def units_fetch(
                 f"({first.isoformat()}..{last.isoformat()}) [{source.mode}]"
             )
     typer.echo(line)
+
+
+@party_app.command("purge-due")
+def party_purge_due(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Count the parties due for purge without changing anything",
+        ),
+    ] = False,
+) -> None:
+    """Purge the tenant's parties whose retention period has ended.
+
+    A party on legal hold or with an open customer relationship is kept. This is
+    the daily ``party.retention_sweep`` job, run by hand.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, slug = _resolve_tenant(actor, tenant)
+        _ensure_key_provider()
+        store = build_object_store(get_settings())
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            count = RetentionSweeper(store).sweep(
+                s, today=clock.now().date(), dry_run=dry_run
+            )
+    typer.echo(
+        f"{count} parties of tenant {slug} due for purge"
+        if dry_run
+        else f"purged {count} parties of tenant {slug}"
+    )
 
 
 def _short_hash(digest: bytes) -> str:

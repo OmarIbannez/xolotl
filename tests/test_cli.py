@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import NoReturn
 from uuid import UUID
@@ -34,9 +34,17 @@ from tests.helpers import (
     leaked,
     make_tenant,
     make_tenant_with_keys,
+    new_tenant,
+    staff_session,
+    system_ctx,
     wrapped_keys,
 )
 from xolotl.cli import app
+from xolotl.modules.party import documents
+from xolotl.modules.party import service as party_service
+from xolotl.modules.party.enums import DocumentType, PartyStatus, PartyType
+from xolotl.modules.party.models import Party
+from xolotl.modules.party.schemas import PartyCreateRequest, PersonInput
 from xolotl.modules.tenants import service
 from xolotl.platform import db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
@@ -48,6 +56,7 @@ from xolotl.platform.crypto import (
     set_key_provider,
 )
 from xolotl.platform.enums import KeyPurpose
+from xolotl.platform.storage.local import LocalFsObjectStore
 from xolotl.platform.units.banxico import BASE_URL as BANXICO_BASE_URL
 
 runner = CliRunner()
@@ -751,6 +760,63 @@ def test_keys_commands_use_the_key_provider_the_process_already_has(
     assert _keys("destroy", "--tenant", "acme", "--yes").exit_code == 0
     with pytest.raises(KeyDestroyedError):
         _ = provider.data_key(tenant_id, KeyPurpose.DATA)
+
+
+def _party_status(tenant_id: UUID, party_id: UUID) -> PartyStatus:
+    with db.tenant_session(system_ctx(tenant_id)) as s:
+        return s.get_one(Party, (tenant_id, party_id)).status
+
+
+def test_party_purge_due_counts_then_purges_the_due_parties(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    store = LocalFsObjectStore(tmp_path / "objects")
+    created = new_tenant()
+    request = PartyCreateRequest(
+        party_type=PartyType.PERSON,
+        person=PersonInput(given_names="Ana", first_surname="Pérez"),
+    )
+    with staff_session(created.tenant_id, created.admin_user_id) as s:
+        party = party_service.create_party(s, request)
+        _ = documents.upload_document(
+            s,
+            store,
+            party_id=party.id,
+            doc_type=DocumentType.IDENTITY,
+            content_type="application/pdf",
+            data=b"%PDF-1.4 cli",
+        )
+        # Due under the real clock, with no customer relationship to keep it.
+        party.retention_until = date(2020, 1, 1)
+    objects = tmp_path / "objects"
+    assert any(path.is_file() for path in objects.rglob("*"))
+    monkeypatch.setattr(
+        "xolotl.cli.get_settings",
+        lambda: get_settings().model_copy(update={"object_store_root": objects}),
+    )
+
+    counted = runner.invoke(
+        app, ["party", "purge-due", "--tenant", "acme", "--dry-run"]
+    )
+    assert counted.exit_code == 0, counted.output
+    assert counted.stdout == "1 parties of tenant acme due for purge\n"
+    assert _party_status(created.tenant_id, party.id) is PartyStatus.ACTIVE
+
+    purged = runner.invoke(app, ["party", "purge-due", "--tenant", "acme"])
+    assert purged.exit_code == 0, purged.output
+    assert purged.stdout == "purged 1 parties of tenant acme\n"
+    assert _party_status(created.tenant_id, party.id) is PartyStatus.PURGED
+    assert not any(path.is_file() for path in objects.rglob("*"))
+
+    unknown = runner.invoke(app, ["party", "purge-due", "--tenant", "nope"])
+    assert (unknown.exit_code, unknown.stdout) == (1, "")
+    assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
+
+
+def test_party_purge_due_help_needs_no_database():
+    result = runner.invoke(app, ["party", "purge-due", "--help"])
+    assert result.exit_code == 0
+    assert "--dry-run" in result.stdout
 
 
 def test_db_reset_requires_confirmation_and_remigrates(admin_engine: Engine):

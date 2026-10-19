@@ -108,6 +108,14 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     ] == [
         ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", {}, True),
         (
+            "party.retention_sweep",
+            "0 3 * * *",
+            "UTC",
+            "party.retention_sweep",
+            {},
+            True,
+        ),
+        (
             "units.fetch",
             "0 18 * * 1-5",
             "America/Mexico_City",
@@ -118,13 +126,19 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
         ("workflow.sweep", "0 * * * *", "UTC", "workflow.sweep", {}, True),
     ]
     # The first run is the next slot, never the current one.
-    hourly = [row for row in schedules if row.name != "units.fetch"]
+    daily = {"units.fetch", "party.retention_sweep"}
+    hourly = [row for row in schedules if row.name not in daily]
     (units,) = [row for row in schedules if row.name == "units.fetch"]
+    sweep = next(row for row in schedules if row.name == "party.retention_sweep")
     slots = {next_slot("0 * * * *", "UTC", after=moment) for moment in (before, after)}
     assert {row.next_run_at for row in hourly} <= slots
     assert units.next_run_at in {
         next_slot("0 18 * * 1-5", "America/Mexico_City", after=m)
         for m in (before, after)
+    }
+    # A daily 03:00 UTC slot is never the next full hour.
+    assert sweep.next_run_at in {
+        next_slot("0 3 * * *", "UTC", after=m) for m in (before, after)
     }
     assert all(row.last_run_at is None for row in schedules)
 
@@ -279,4 +293,9 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
     for tenant_id in (created.tenant_id, legacy):
         with tenant_session(system_ctx(tenant_id)) as s:
             names = list(s.scalars(select(JobSchedule.name).order_by(JobSchedule.name)))
-        assert names == ["idempotency.purge", "units.fetch", "workflow.sweep"]
+        assert names == [
+            "idempotency.purge",
+            "party.retention_sweep",
+            "units.fetch",
+            "workflow.sweep",
+        ]

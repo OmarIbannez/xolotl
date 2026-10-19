@@ -104,6 +104,9 @@ TENANT_JOBS = (PURGE_KIND, SWEEP_KIND)
 HOURLY = "0 * * * *"
 # The daily fetch of the Banxico units runs on XOLOTL_UNITS_FETCH_CRON in Mexico City.
 UNITS_FETCH_TZ = "America/Mexico_City"
+# The party module's daily retention sweep, named by its job kind (a literal: this
+# module never imports the party module).
+RETENTION_SWEEP_SCHEDULE = "party.retention_sweep"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -229,7 +232,8 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
     """Declare the platform's jobs for the session's tenant.
 
     The hourly ones run in UTC; ``units.fetch`` runs on ``XOLOTL_UNITS_FETCH_CRON``
-    in Mexico City.
+    in Mexico City, and ``party.retention_sweep`` on ``XOLOTL_RETENTION_PURGE_CRON``
+    in UTC.
 
     Each schedule is named after the job it runs. ``schedule`` is an upsert on the
     tenant and the name that keeps the next slot of an unchanged schedule, so
@@ -243,6 +247,14 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
         cron=get_settings().units_fetch_cron,
         tz=UNITS_FETCH_TZ,
         kind=UNITS_FETCH_KIND,
+        payload={},
+    )
+    _ = queue.schedule(
+        s,
+        name=RETENTION_SWEEP_SCHEDULE,
+        cron=get_settings().retention_purge_cron,
+        tz="UTC",
+        kind=RETENTION_SWEEP_SCHEDULE,
         payload={},
     )
 
