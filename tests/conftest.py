@@ -233,3 +233,14 @@ def owner_without_admin_option(
                     sql.Identifier(db.APP_ROLE), sql.Literal(app_url.password)
                 ),
             )
+
+
+def pytest_configure() -> None:
+    """Build every app of the suite without its worker thread.
+
+    ``build_app`` starts the embedded worker by default (``XOLOTL_EMBEDDED_WORKER``),
+    and a thread handing out events and running jobs behind every API test would race
+    the tests' own assertions and the truncation between tests. The tests of the
+    embedded worker turn it on for themselves.
+    """
+    os.environ["XOLOTL_EMBEDDED_WORKER"] = "false"

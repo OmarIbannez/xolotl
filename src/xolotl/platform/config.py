@@ -2,6 +2,8 @@
 
 import base64
 import hashlib
+import os
+import socket
 from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, Literal, Self
@@ -26,6 +28,12 @@ def _decode_master_key(encoded: str) -> bytes:
     if len(key) != MASTER_KEY_BYTES:
         raise ValueError(msg)
     return key
+
+
+def _default_worker_id() -> str:
+    # Stable for the life of one process and distinct across hosts and processes,
+    # which is what makes ``job.locked_by`` traceable to a worker.
+    return f"{socket.gethostname()}:{os.getpid()}"
 
 
 class Settings(BaseSettings):
@@ -56,6 +64,12 @@ class Settings(BaseSettings):
     # The only adapter so far; an S3 one can join the Literal when it is built.
     object_store: Literal["local"] = "local"
     object_store_root: Path = Path("./data/local/objects")
+    # Pause between ticks of the worker's dispatcher, job and scheduler loops.
+    worker_tick_seconds: float = Field(default=1.0, ge=0)
+    worker_id: str = Field(default_factory=_default_worker_id, min_length=1)
+    # The API process runs the worker loop on a thread of its own (one container);
+    # false leaves it to a separate `xolotl worker` process.
+    embedded_worker: bool = True
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -81,6 +95,18 @@ class Settings(BaseSettings):
             msg = (
                 "XOLOTL_MASTER_KEY must be set to a non-default value "
                 "when XOLOTL_ENV=prod"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_a_worker_that_never_pauses_in_prod(self) -> Self:
+        # The loop runs inside the API process: without a pause it would query the
+        # database back to back, competing with the requests for the pool and the
+        # GIL. Tests and local runs may tick without waiting.
+        if self.env == "prod" and self.worker_tick_seconds <= 0:
+            msg = (
+                "XOLOTL_WORKER_TICK_SECONDS must be greater than 0 when XOLOTL_ENV=prod"
             )
             raise ValueError(msg)
         return self

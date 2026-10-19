@@ -10,7 +10,7 @@ import typer
 import uvicorn
 from sqlalchemy import select
 
-from xolotl.app import build_key_provider
+from xolotl.app import build_key_provider, build_worker
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import migrate
@@ -111,9 +111,12 @@ def serve(
 ) -> None:
     """Run pending migrations, check the app role, then serve the API.
 
-    Exits 1 without serving when the app role can bypass row-level security.
-    uvicorn runs with ``log_config=None``, so its loggers propagate to the JSON
-    root handler that ``configure_logging`` installs, redaction filter included.
+    Unless XOLOTL_EMBEDDED_WORKER=false, the API also runs the worker loop (events,
+    jobs, schedules) on a thread of its own, from the application's startup, which
+    comes after the migrations and the role check, to its shutdown. Exits 1 without
+    serving when the app role can bypass row-level security. uvicorn runs with
+    ``log_config=None``, so its loggers propagate to the JSON root handler that
+    ``configure_logging`` installs, redaction filter included.
     """
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -128,6 +131,23 @@ def serve(
         reload=reload,
         log_config=None,
     )
+
+
+@app.command()
+def worker() -> None:
+    """Run the dispatcher, the job runner and the scheduler until SIGTERM or SIGINT.
+
+    The loop the API runs itself unless XOLOTL_EMBEDDED_WORKER=false, as a process
+    of its own. A signal ends it after the tick in progress, letting a running job
+    finish. Exits 1 without running when the app role can bypass row-level security.
+    """
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    with _cli_errors():
+        assert_app_role_safe(get_engine())
+    loop = build_worker()
+    with loop.handle_signals():
+        _ = loop.run()
 
 
 @db_app.command("bootstrap")
