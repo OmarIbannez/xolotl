@@ -6,7 +6,10 @@ store the raw answer as evidence and meter every call in ``connector_call``.
 
 from xolotl.platform.connectors.base import Connector, ConnectorDeps, redact
 from xolotl.platform.connectors.breaker import CircuitBreaker
+from xolotl.platform.connectors.defaults import DEFAULT_ROUTES, default_router
 from xolotl.platform.connectors.errors import NoRouteError
+from xolotl.platform.connectors.router import ConnectorRouter, run_check
+from xolotl.platform.connectors.sat import SatRfcConnector
 from xolotl.platform.connectors.types import (
     CheckResult,
     ConnectorCallError,
@@ -28,6 +31,7 @@ from xolotl.platform.enums import (
 )
 
 __all__ = [
+    "DEFAULT_ROUTES",
     "CallOutcome",
     "CheckResult",
     "CheckType",
@@ -39,13 +43,17 @@ __all__ = [
     "ConnectorMode",
     "ConnectorRequest",
     "ConnectorRoute",
+    "ConnectorRouter",
     "CredentialMissingError",
     "CredentialVault",
     "InterpretationError",
     "NoRouteError",
     "PermanentCallError",
     "RawResponse",
+    "SatRfcConnector",
     "TransientCallError",
     "VerificationOutcome",
+    "default_router",
     "redact",
+    "run_check",
 ]

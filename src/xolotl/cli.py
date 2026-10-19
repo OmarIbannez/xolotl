@@ -6,6 +6,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import date
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -20,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from xolotl.app import build_key_provider, build_worker
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
-from xolotl.platform import migrate
+from xolotl.platform import clock, migrate
 from xolotl.platform.audit import verify_chain
 from xolotl.platform.calendar import read_holiday_file, seed_holidays
 from xolotl.platform.config import DEV_MASTER_KEY_BYTES, Settings, get_settings
@@ -38,6 +39,7 @@ from xolotl.platform.db import (
 )
 from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
 from xolotl.platform.errors import NotFoundError, XolotlError
+from xolotl.platform.events import InAppNotifier
 from xolotl.platform.logging import configure_logging
 from xolotl.platform.policy import (
     PolicyPack,
@@ -49,6 +51,16 @@ from xolotl.platform.policy import (
     unverified_paths,
 )
 from xolotl.platform.tenancy.context import TenantContext
+from xolotl.platform.units import (
+    UNITS,
+    BanxicoSieSource,
+    SeedFileSource,
+    UnitsFetchJob,
+    fetch_missing,
+    latest_valid_from,
+    unit_spec,
+    upsert_value,
+)
 
 app = typer.Typer(no_args_is_help=True, help="xolotl: multi-tenant KYC/AML platform")
 db_app = typer.Typer(no_args_is_help=True, help="Database bootstrap and migrations")
@@ -65,6 +77,10 @@ app.add_typer(audit_app, name="audit")
 app.add_typer(keys_app, name="keys")
 app.add_typer(holidays_app, name="holidays")
 app.add_typer(packs_app, name="packs")
+units_app = typer.Typer(
+    no_args_is_help=True, help="Monetary units: seeds and Banxico fetches"
+)
+app.add_typer(units_app, name="units")
 
 _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
@@ -485,6 +501,118 @@ def holidays_seed(
     flagged = sum(1 for row in rows if row.verify)
     seeded_line = f"seeded {seeded} holidays for {countries} ({per_scope})"
     typer.echo(f"{seeded_line}; {flagged} dates still marked verify")
+
+
+@units_app.command("seed")
+def units_seed(
+    seed_dir: Annotated[
+        Path | None,
+        typer.Argument(help="Seed directory; default <packs_dir>/_units"),
+    ] = None,
+    *,
+    allow_unverified: Annotated[
+        bool,
+        typer.Option(
+            "--allow-unverified", help="Load UNVERIFIED rows too (refused in prod)"
+        ),
+    ] = False,
+) -> None:
+    """Load every unit's seed file into the shared unit_value table (idempotent).
+
+    A changed value becomes a correction; an unchanged one is left alone. Exits 1
+    with one line on stderr when a file holds an UNVERIFIED row and the flag (or
+    ``XOLOTL_ALLOW_UNVERIFIED_PACK_VALUES``) is not given.
+
+    Raises:
+        Exit: With code 2 when ``--allow-unverified`` is given in prod.
+
+    """
+    settings = get_settings()
+    if allow_unverified and settings.env == "prod":
+        typer.echo(
+            "error: --allow-unverified is refused when XOLOTL_ENV=prod", err=True
+        )
+        raise typer.Exit(code=2)
+    source = SeedFileSource(
+        seed_dir or settings.packs_dir / "_units",
+        allow_unverified=allow_unverified or settings.allow_unverified_pack_values,
+    )
+    lines: list[str] = []
+    with _cli_errors(), tenant_session(TenantContext.platform(_cli_actor())) as s:
+        for code in UNITS:
+            rows = source.fetch(code, date.min, date.max)
+            now = clock.now()
+            new = sum(
+                1 for row in rows if upsert_value(s, row, fetched_at=now) is not None
+            )
+            lines.append(
+                f"{code}: {len(rows)} rows ({new} new, {len(rows) - new} unchanged)"
+            )
+    for line in lines:
+        typer.echo(line)
+
+
+def _parse_day(option: str, value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        typer.echo(f"error: {option} must be a date (YYYY-MM-DD)", err=True)
+        raise typer.Exit(code=2) from exc
+
+
+@units_app.command("fetch")
+def units_fetch(
+    unit: Annotated[str, typer.Option("--unit", help="Unit code: UDI or USD_MXN_FIX")],
+    start: Annotated[
+        str | None, typer.Option("--from", help="First day, YYYY-MM-DD")
+    ] = None,
+    end: Annotated[
+        str | None, typer.Option("--to", help="Last day, YYYY-MM-DD")
+    ] = None,
+) -> None:
+    """Fetch a unit's values from Banxico SIE (demo mode without a token).
+
+    Without ``--from`` and ``--to`` it fetches what the store lacks, as the daily
+    job does. Exits 1 with one line on stderr when the source fails or the unit is
+    unknown.
+
+    Raises:
+        Exit: With code 2 when only one of ``--from`` and ``--to`` is given.
+
+    """
+    if (start is None) != (end is None):
+        typer.echo("error: give both --from and --to, or neither", err=True)
+        raise typer.Exit(code=2)
+    settings = get_settings()
+    source = BanxicoSieSource(
+        settings.banxico_token,
+        seed_dir=settings.packs_dir / "_units",
+        env=settings.env,
+    )
+    window = (
+        None
+        if start is None or end is None
+        else (_parse_day("--from", start), _parse_day("--to", end))
+    )
+    with _cli_errors(), tenant_session(TenantContext.platform(_cli_actor())) as s:
+        _ = unit_spec(unit)
+        if window is None:
+            job = UnitsFetchJob(source, notifier=InAppNotifier(), clock_fn=clock.now)
+            window = job.window(s, unit)
+        if window is None:
+            latest = latest_valid_from(s, unit)
+            line = f"{unit}: up to date (latest {latest})"
+        else:
+            first, last = window
+            report = fetch_missing(
+                s, source, unit, start=first, end=last, now=clock.now()
+            )
+            line = (
+                f"{unit}: fetched {report.fetched}, inserted {report.inserted}, "
+                f"corrected {report.corrected} "
+                f"({first.isoformat()}..{last.isoformat()}) [{source.mode}]"
+            )
+    typer.echo(line)
 
 
 def _short_hash(digest: bytes) -> str:

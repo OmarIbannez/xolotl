@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
+from xolotl.modules.party import routes as party_routes
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
@@ -30,6 +31,7 @@ from xolotl.platform.api.idempotency import PURGE_KIND, purge_expired_keys
 from xolotl.platform.api.static import mount_console
 from xolotl.platform.audit import routes as audit_routes
 from xolotl.platform.config import Settings, get_settings
+from xolotl.platform.connectors import default_router
 from xolotl.platform.crypto.provider import (
     KeyProvider,
     LocalKeyProvider,
@@ -48,6 +50,7 @@ from xolotl.platform.logging import configure_logging
 from xolotl.platform.services import PlatformServices
 from xolotl.platform.storage import ObjectStore
 from xolotl.platform.storage.local import LocalFsObjectStore
+from xolotl.platform.units import BanxicoSieSource, register_units
 from xolotl.platform.workflows import PostgresWorkflowRunner
 from xolotl.worker import EmbeddedWorker, Worker
 
@@ -117,6 +120,18 @@ def wire_platform(
     # webhook.deliver job, so whichever process dispatches an event or runs a job
     # (the API's embedded worker, or `xolotl worker`) reaches the tenants' endpoints.
     register_webhooks(bus, queue, settings=settings)
+    # One store for the routes and the connectors' evidence alike.
+    store = build_object_store(settings)
+    # The daily units.fetch job: Banxico SIE with a token, else the seed files
+    # (demo mode, refused in prod, where the job notifies ADMIN and MLRO instead).
+    _ = register_units(
+        source=BanxicoSieSource(
+            settings.banxico_token,
+            seed_dir=settings.packs_dir / "_units",
+            env=settings.env,
+        ),
+        notifier=InAppNotifier(),
+    )
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
@@ -125,7 +140,8 @@ def wire_platform(
         scheduler=Scheduler(queue, session_factory),
         workflows=workflows,
         notifier=InAppNotifier(),
-        object_store=build_object_store(settings),
+        object_store=store,
+        connectors=default_router(settings, store=store),
     )
 
 
@@ -215,6 +231,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             routes_staff.router,
             routes_notifications.router,
             routes_webhooks.router,
+            party_routes.router,
             audit_routes.router,
         ],
     )
