@@ -42,3 +42,6 @@ data/local/
 .claude/worktrees/
 .claude/settings.local.json
 .playwright-mcp/
+
+# Hypothesis example database
+.hypothesis/
