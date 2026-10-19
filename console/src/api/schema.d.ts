@@ -244,6 +244,280 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Notifications */
+        get: operations["list_notifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/notifications/{notification_id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read Notification */
+        post: operations["read_notification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/endpoints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Webhook Endpoints */
+        get: operations["list_webhook_endpoints"];
+        put?: never;
+        /** Create Webhook Endpoint */
+        post: operations["create_webhook_endpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/endpoints/{endpoint_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disable Webhook Endpoint */
+        delete: operations["disable_webhook_endpoint"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/endpoints/{endpoint_id}/rotate-secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rotate Webhook Secret */
+        post: operations["rotate_webhook_secret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Webhook Deliveries */
+        get: operations["list_webhook_deliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/webhooks/deliveries/{delivery_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Webhook Delivery */
+        post: operations["retry_webhook_delivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Connectors */
+        get: operations["list_connectors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Connector Usage */
+        get: operations["connector_usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/connectors/{name}/credentials/{mode}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Connector Credentials */
+        put: operations["set_connector_credentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Parties */
+        get: operations["list_parties"];
+        put?: never;
+        /** Create Party */
+        post: operations["create_party"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Party */
+        get: operations["get_party"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/pii": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reveal Party Pii */
+        get: operations["reveal_party_pii"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/identifiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Party Identifier */
+        post: operations["add_party_identifier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Party Contact */
+        post: operations["add_party_contact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/addresses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Party Address */
+        post: operations["add_party_address"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -282,6 +556,71 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AddressInput */
+        AddressInput: {
+            address_type: components["schemas"]["AddressType"];
+            lines: components["schemas"]["AddressLines"];
+            /**
+             * Country Code
+             * @default MX
+             */
+            country_code?: string;
+            /** Admin Area Code */
+            admin_area_code?: string | null;
+            /** Municipality Code */
+            municipality_code?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid To */
+            valid_to?: string | null;
+        };
+        /** AddressLines */
+        AddressLines: {
+            /** Street */
+            street: string;
+            /** Ext Number */
+            ext_number?: string | null;
+            /** Int Number */
+            int_number?: string | null;
+            /** Neighbourhood */
+            neighbourhood?: string | null;
+            /** City */
+            city?: string | null;
+        };
+        /**
+         * AddressResponse
+         * @description An address's codes; its lines are personal data, shown only by the reveal.
+         */
+        AddressResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            address_type: components["schemas"]["AddressType"];
+            /** Country Code */
+            country_code: string;
+            /** Admin Area Code */
+            admin_area_code: string | null;
+            /** Municipality Code */
+            municipality_code: string | null;
+            /** Postal Code */
+            postal_code: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Valid To */
+            valid_to: string | null;
+        };
+        /**
+         * AddressType
+         * @enum {string}
+         */
+        AddressType: "RESIDENTIAL" | "FISCAL" | "OPERATIONAL";
         /** ApiKeyCreateRequest */
         ApiKeyCreateRequest: {
             /** Name */
@@ -386,11 +725,225 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * CheckType
+         * @enum {string}
+         */
+        CheckType: "UNIT_VALUE" | "RFC_VALIDATION" | "CURP_VALIDATION";
+        /**
+         * CircuitState
+         * @enum {string}
+         */
+        CircuitState: "CLOSED" | "OPEN" | "HALF_OPEN";
+        /** ConnectorCredentialRequest */
+        ConnectorCredentialRequest: {
+            /** Fields */
+            fields: {
+                [key: string]: string;
+            };
+        };
+        /** ConnectorCredentialResponse */
+        ConnectorCredentialResponse: {
+            /** Connector */
+            connector: string;
+            mode: components["schemas"]["ConnectorMode"];
+            /** Field Names */
+            field_names: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Rotated At */
+            rotated_at: string | null;
+        };
+        /** ConnectorListResponse */
+        ConnectorListResponse: {
+            /** Items */
+            items: components["schemas"]["ConnectorResponse"][];
+        };
+        /**
+         * ConnectorMode
+         * @enum {string}
+         */
+        ConnectorMode: "SANDBOX" | "LIVE";
+        /** ConnectorResponse */
+        ConnectorResponse: {
+            /** Name */
+            name: string;
+            /** Check Types */
+            check_types: components["schemas"]["CheckType"][];
+            mode: components["schemas"]["ConnectorMode"];
+            /** Routes */
+            routes: components["schemas"]["ConnectorRouteResponse"][];
+            circuit_state: components["schemas"]["CircuitState"];
+            /** Credential Modes */
+            credential_modes: components["schemas"]["ConnectorMode"][];
+        };
+        /**
+         * ConnectorRoute
+         * @enum {string}
+         */
+        ConnectorRoute: "PRIMARY" | "FALLBACK" | "MOCK";
+        /** ConnectorRouteResponse */
+        ConnectorRouteResponse: {
+            check_type: components["schemas"]["CheckType"];
+            /** Country */
+            country: string;
+            position: components["schemas"]["ConnectorRoute"];
+        };
+        /** ConnectorUsageResponse */
+        ConnectorUsageResponse: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Items */
+            items: components["schemas"]["ConnectorUsageRow"][];
+        };
+        /** ConnectorUsageRow */
+        ConnectorUsageRow: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Connector */
+            connector: string;
+            /** Calls */
+            calls: number;
+            /** Cost Micros */
+            cost_micros: number;
+            /** Outcomes */
+            outcomes: {
+                [key: string]: number;
+            };
+        };
+        /** ContactInput */
+        ContactInput: {
+            kind: components["schemas"]["ContactKind"];
+            /** Value */
+            value: string;
+            /**
+             * Is Primary
+             * @default false
+             */
+            is_primary?: boolean;
+        };
+        /**
+         * ContactKind
+         * @enum {string}
+         */
+        ContactKind: "EMAIL" | "PHONE";
+        /** CustomerRelationshipResponse */
+        CustomerRelationshipResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /** External Ref */
+            external_ref: string;
+            /** Product */
+            product: string | null;
+            status: components["schemas"]["CustomerRelationshipStatus"];
+            /** Account Tier */
+            account_tier: string | null;
+            /** Next Review At */
+            next_review_at: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * CustomerRelationshipStatus
+         * @enum {string}
+         */
+        CustomerRelationshipStatus: "PENDING" | "ACTIVE" | "RESTRICTED" | "BLOCKED" | "EXITED";
+        /**
+         * DeliveryStatus
+         * @enum {string}
+         */
+        DeliveryStatus: "PENDING" | "DELIVERED" | "DEAD";
+        /** DocumentResponse */
+        DocumentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            doc_type: components["schemas"]["DocumentType"];
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /** Content Type */
+            content_type: string;
+            /** Uploaded By */
+            uploaded_by: string;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+        };
+        /**
+         * DocumentType
+         * @enum {string}
+         */
+        DocumentType: "IDENTITY" | "PROOF_OF_ADDRESS" | "CONSTITUTIVE_ACT" | "POWER_OF_ATTORNEY" | "TAX_CERTIFICATE" | "OTHER";
+        /**
+         * EndpointStatus
+         * @enum {string}
+         */
+        EndpointStatus: "ACTIVE" | "DISABLED";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** IdentifierInput */
+        IdentifierInput: {
+            id_type: components["schemas"]["IdentifierType"];
+            /** Value */
+            value: string;
+            /**
+             * Country Code
+             * @default MX
+             */
+            country_code?: string;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid To */
+            valid_to?: string | null;
+        };
+        /**
+         * IdentifierType
+         * @enum {string}
+         */
+        IdentifierType: "CURP" | "RFC" | "CLABE" | "INE" | "CPF" | "CNPJ" | "CUIT" | "RUT" | "NIT" | "CEDULA_CO" | "DNI_PE" | "PASSPORT";
         JsonValue: unknown;
         /** LoginRequest */
         LoginRequest: {
@@ -400,6 +953,41 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** MaskedContact */
+        MaskedContact: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["ContactKind"];
+            /** Masked Value */
+            masked_value: string;
+            /** Is Primary */
+            is_primary: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** MaskedIdentifier */
+        MaskedIdentifier: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            id_type: components["schemas"]["IdentifierType"];
+            /** Country Code */
+            country_code: string;
+            /** Masked Value */
+            masked_value: string;
+            /** Valid From */
+            valid_from: string | null;
+            /** Valid To */
+            valid_to: string | null;
         };
         /** MeResponse */
         MeResponse: {
@@ -437,6 +1025,62 @@ export interface components {
             /** Mfa Token */
             mfa_token: string;
         };
+        /** NotificationResponse */
+        NotificationResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Template */
+            template: string;
+            /** Data */
+            data: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Recipient User Id */
+            recipient_user_id: string | null;
+            recipient_role: components["schemas"]["Role"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Read At */
+            read_at: string | null;
+        };
+        /** OrganizationAttributes */
+        OrganizationAttributes: {
+            /** Trade Name */
+            trade_name: string | null;
+            /** Legal Form */
+            legal_form: string | null;
+            /** Incorporation Date */
+            incorporation_date: string | null;
+            /** Industry Code */
+            industry_code: string | null;
+            /** Registry Ref */
+            registry_ref: string | null;
+            /** Country Of Incorporation */
+            country_of_incorporation: string | null;
+        };
+        /** OrganizationInput */
+        OrganizationInput: {
+            /** Legal Name */
+            legal_name: string;
+            /** Trade Name */
+            trade_name?: string | null;
+            /** Legal Form */
+            legal_form?: string | null;
+            /** Incorporation Date */
+            incorporation_date?: string | null;
+            /** Industry Code */
+            industry_code?: string | null;
+            /** Registry Ref */
+            registry_ref?: string | null;
+            /** Country Of Incorporation */
+            country_of_incorporation?: string | null;
+        };
         /** Page[ApiKeyResponse] */
         Page_ApiKeyResponse_: {
             /** Items */
@@ -451,6 +1095,20 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[NotificationResponse] */
+        Page_NotificationResponse_: {
+            /** Items */
+            items: components["schemas"]["NotificationResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[PartyResponse] */
+        Page_PartyResponse_: {
+            /** Items */
+            items: components["schemas"]["PartyResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[StaffResponse] */
         Page_StaffResponse_: {
             /** Items */
@@ -458,12 +1116,239 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[WebhookDeliveryResponse] */
+        Page_WebhookDeliveryResponse_: {
+            /** Items */
+            items: components["schemas"]["WebhookDeliveryResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[WebhookEndpointResponse] */
+        Page_WebhookEndpointResponse_: {
+            /** Items */
+            items: components["schemas"]["WebhookEndpointResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** PartyCreateRequest */
+        PartyCreateRequest: {
+            party_type: components["schemas"]["PartyType"];
+            /**
+             * Country Code
+             * @default MX
+             */
+            country_code?: string;
+            person?: components["schemas"]["PersonInput"] | null;
+            organization?: components["schemas"]["OrganizationInput"] | null;
+            /** Identifiers */
+            identifiers?: components["schemas"]["IdentifierInput"][];
+        };
+        /** PartyPiiResponse */
+        PartyPiiResponse: {
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /** Given Names */
+            given_names: string | null;
+            /** First Surname */
+            first_surname: string | null;
+            /** Second Surname */
+            second_surname: string | null;
+            /** Birth Date */
+            birth_date: string | null;
+            /** Clave Elector */
+            clave_elector: string | null;
+            /** Legal Name */
+            legal_name: string | null;
+            /** Identifiers */
+            identifiers: components["schemas"]["RevealedIdentifier"][];
+            /** Contacts */
+            contacts: components["schemas"]["RevealedContact"][];
+            /** Addresses */
+            addresses: components["schemas"]["RevealedAddress"][];
+        };
+        /** PartyRelationshipResponse */
+        PartyRelationshipResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * From Party Id
+             * Format: uuid
+             */
+            from_party_id: string;
+            /**
+             * To Party Id
+             * Format: uuid
+             */
+            to_party_id: string;
+            rel_type: components["schemas"]["RelationshipType"];
+            /** Ownership Pct */
+            ownership_pct: string | null;
+            /** Control Basis */
+            control_basis: string | null;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Valid To */
+            valid_to: string | null;
+            /** Source Doc Id */
+            source_doc_id: string | null;
+        };
+        /** PartyResponse */
+        PartyResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            party_type: components["schemas"]["PartyType"];
+            /** Country Code */
+            country_code: string;
+            status: components["schemas"]["PartyStatus"];
+            /** Display Name */
+            display_name: string | null;
+            /** Identifiers */
+            identifiers: components["schemas"]["MaskedIdentifier"][];
+            /** Legal Hold */
+            legal_hold: boolean;
+            /** Retention Until */
+            retention_until: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** PartyStaffResponse */
+        PartyStaffResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            party_type: components["schemas"]["PartyType"];
+            /** Country Code */
+            country_code: string;
+            status: components["schemas"]["PartyStatus"];
+            /** Display Name */
+            display_name: string | null;
+            /** Identifiers */
+            identifiers: components["schemas"]["MaskedIdentifier"][];
+            /** Legal Hold */
+            legal_hold: boolean;
+            /** Retention Until */
+            retention_until: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            person: components["schemas"]["PersonAttributes"] | null;
+            organization: components["schemas"]["OrganizationAttributes"] | null;
+            /** Contacts */
+            contacts: components["schemas"]["MaskedContact"][];
+            /** Addresses */
+            addresses: components["schemas"]["AddressResponse"][];
+            /** Relationships */
+            relationships: components["schemas"]["PartyRelationshipResponse"][];
+            /** Documents */
+            documents: components["schemas"]["DocumentResponse"][];
+            /** Customer Relationships */
+            customer_relationships: components["schemas"]["CustomerRelationshipResponse"][];
+        };
+        /**
+         * PartyStatus
+         * @enum {string}
+         */
+        PartyStatus: "ACTIVE" | "MERGED" | "PURGED";
+        /**
+         * PartyType
+         * @enum {string}
+         */
+        PartyType: "PERSON" | "ORGANIZATION";
         /** PasswordChangeRequest */
         PasswordChangeRequest: {
             /** Current Password */
             current_password: string;
             /** New Password */
             new_password: string;
+        };
+        /**
+         * PepStatus
+         * @enum {string}
+         */
+        PepStatus: "NONE" | "DOMESTIC" | "FOREIGN" | "RCA" | "INTL_ORG";
+        /** PersonAttributes */
+        PersonAttributes: {
+            /** Birth Country */
+            birth_country: string | null;
+            /** Birth State */
+            birth_state: string | null;
+            /** Nationalities */
+            nationalities: string[];
+            /** Gender */
+            gender: string | null;
+            /** Occupation Code */
+            occupation_code: string | null;
+            /** Economic Activity Code */
+            economic_activity_code: string | null;
+            /** Is Resident */
+            is_resident: boolean | null;
+            pep_status: components["schemas"]["PepStatus"];
+            /** Pep Since */
+            pep_since: string | null;
+            /** Pep Until */
+            pep_until: string | null;
+        };
+        /** PersonInput */
+        PersonInput: {
+            /** Given Names */
+            given_names: string;
+            /** First Surname */
+            first_surname: string;
+            /** Second Surname */
+            second_surname?: string | null;
+            /** Birth Date */
+            birth_date?: string | null;
+            /** Birth Country */
+            birth_country?: string | null;
+            /** Birth State */
+            birth_state?: string | null;
+            /** Nationalities */
+            nationalities?: string[];
+            /** Gender */
+            gender?: string | null;
+            /** Occupation Code */
+            occupation_code?: string | null;
+            /** Economic Activity Code */
+            economic_activity_code?: string | null;
+            /** Is Resident */
+            is_resident?: boolean | null;
+            /** @default NONE */
+            pep_status?: components["schemas"]["PepStatus"];
+            /** Pep Since */
+            pep_since?: string | null;
+            /** Pep Until */
+            pep_until?: string | null;
+            /** Clave Elector */
+            clave_elector?: string | null;
         };
         /** PingRequest */
         PingRequest: {
@@ -484,6 +1369,43 @@ export interface components {
              * Format: date-time
              */
             at: string;
+        };
+        /**
+         * RelationshipType
+         * @enum {string}
+         */
+        RelationshipType: "SHAREHOLDER" | "DIRECTOR" | "LEGAL_REP" | "ATTORNEY" | "CONTROLLER";
+        /** RevealedAddress */
+        RevealedAddress: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            address_type: components["schemas"]["AddressType"];
+            lines: components["schemas"]["AddressLines"];
+        };
+        /** RevealedContact */
+        RevealedContact: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["ContactKind"];
+            /** Value */
+            value: string;
+        };
+        /** RevealedIdentifier */
+        RevealedIdentifier: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            id_type: components["schemas"]["IdentifierType"];
+            /** Value */
+            value: string;
         };
         /**
          * Role
@@ -621,6 +1543,95 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** WebhookDeliveryResponse */
+        WebhookDeliveryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Endpoint Id
+             * Format: uuid
+             */
+            endpoint_id: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Attempt */
+            attempt: number;
+            status: components["schemas"]["DeliveryStatus"];
+            /** Response Code */
+            response_code: number | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Next Attempt At */
+            next_attempt_at: string | null;
+            /** Delivered At */
+            delivered_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** WebhookEndpointCreateRequest */
+        WebhookEndpointCreateRequest: {
+            /** Url */
+            url: string;
+            /** Event Types */
+            event_types: string[];
+        };
+        /** WebhookEndpointCreatedResponse */
+        WebhookEndpointCreatedResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Url */
+            url: string;
+            /** Event Types */
+            event_types: string[];
+            status: components["schemas"]["EndpointStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Secret */
+            secret: string;
+        };
+        /** WebhookEndpointResponse */
+        WebhookEndpointResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Url */
+            url: string;
+            /** Event Types */
+            event_types: string[];
+            status: components["schemas"]["EndpointStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** WebhookSecretResponse */
+        WebhookSecretResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Secret */
+            secret: string;
         };
     };
     responses: never;
@@ -1075,6 +2086,583 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StaffResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_notifications: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_NotificationResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_notification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_webhook_endpoints: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WebhookEndpointResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_webhook_endpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebhookEndpointCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpointCreatedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    disable_webhook_endpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rotate_webhook_secret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                endpoint_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSecretResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_webhook_deliveries: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["DeliveryStatus"] | null;
+                endpoint_id?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_WebhookDeliveryResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_webhook_delivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_connectors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorListResponse"];
+                };
+            };
+        };
+    };
+    connector_usage: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorUsageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_connector_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                mode: components["schemas"]["ConnectorMode"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorCredentialResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_parties: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["PartyStatus"] | null;
+                external_ref?: string | null;
+                id_type?: components["schemas"]["IdentifierType"] | null;
+                value?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PartyResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_party: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_party: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyStaffResponse"] | components["schemas"]["PartyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reveal_party_pii: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyPiiResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_party_identifier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IdentifierInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaskedIdentifier"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_party_contact: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContactInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaskedContact"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_party_address: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddressInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddressResponse"];
                 };
             };
             /** @description Validation Error */

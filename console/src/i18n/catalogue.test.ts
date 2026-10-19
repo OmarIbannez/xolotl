@@ -31,6 +31,10 @@ const SAME_IN_BOTH = new Set([
   'staff.create.roles',
   'common.no',
   'apiKeys.scopes.placeholder', // an example scope: an API identifier, not copy
+  'connectors.mode.SANDBOX', // the product word for the environment, as env.SANDBOX
+  'connectors.checkType.UNIT_VALUE', // API identifiers, not copy
+  'connectors.checkType.RFC_VALIDATION',
+  'connectors.checkType.CURP_VALIDATION',
 ])
 
 describe('translation catalogues', () => {
@@ -70,6 +74,7 @@ describe('translation catalogues', () => {
       'IDEMPOTENCY_KEY_REUSED',
       'IDEMPOTENCY_IN_PROGRESS',
       'VALIDATION_FAILED',
+      'CONNECTOR_NO_ROUTE',
       'INTERNAL',
       'NETWORK_ERROR',
     ]
