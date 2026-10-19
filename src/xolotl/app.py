@@ -50,6 +50,7 @@ from xolotl.platform.logging import configure_logging
 from xolotl.platform.services import PlatformServices
 from xolotl.platform.storage import ObjectStore
 from xolotl.platform.storage.local import LocalFsObjectStore
+from xolotl.platform.units import BanxicoSieSource, register_units
 from xolotl.platform.workflows import PostgresWorkflowRunner
 from xolotl.worker import EmbeddedWorker, Worker
 
@@ -121,6 +122,16 @@ def wire_platform(
     register_webhooks(bus, queue, settings=settings)
     # One store for the routes and the connectors' evidence alike.
     store = build_object_store(settings)
+    # The daily units.fetch job: Banxico SIE with a token, else the seed files
+    # (demo mode, refused in prod, where the job notifies ADMIN and MLRO instead).
+    _ = register_units(
+        source=BanxicoSieSource(
+            settings.banxico_token,
+            seed_dir=settings.packs_dir / "_units",
+            env=settings.env,
+        ),
+        notifier=InAppNotifier(),
+    )
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,

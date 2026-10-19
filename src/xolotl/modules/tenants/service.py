@@ -92,6 +92,7 @@ from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs.queue import PostgresJobQueue
 from xolotl.platform.tenancy.context import TenantContext, bind_context
 from xolotl.platform.tenancy.tenants import tenant_ids
+from xolotl.platform.units import UNITS_FETCH_KIND
 from xolotl.platform.workflows import SWEEP_KIND
 
 AUTH_ACTOR = "auth"
@@ -101,6 +102,8 @@ EVENT_SOURCE = "xolotl.tenants"
 # when the tenant is created: the idempotency purge and the stranded-workflow sweep.
 TENANT_JOBS = (PURGE_KIND, SWEEP_KIND)
 HOURLY = "0 * * * *"
+# The daily fetch of the Banxico units runs on XOLOTL_UNITS_FETCH_CRON in Mexico City.
+UNITS_FETCH_TZ = "America/Mexico_City"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -223,7 +226,10 @@ def _publish_staff_created(s: Session, user: StaffUser) -> None:
 
 
 def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
-    """Declare the platform's hourly jobs for the session's tenant.
+    """Declare the platform's jobs for the session's tenant.
+
+    The hourly ones run in UTC; ``units.fetch`` runs on ``XOLOTL_UNITS_FETCH_CRON``
+    in Mexico City.
 
     Each schedule is named after the job it runs. ``schedule`` is an upsert on the
     tenant and the name that keeps the next slot of an unchanged schedule, so
@@ -231,12 +237,20 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
     """
     for kind in TENANT_JOBS:
         _ = queue.schedule(s, name=kind, cron=HOURLY, tz="UTC", kind=kind, payload={})
+    _ = queue.schedule(
+        s,
+        name=UNITS_FETCH_KIND,
+        cron=get_settings().units_fetch_cron,
+        tz=UNITS_FETCH_TZ,
+        kind=UNITS_FETCH_KIND,
+        payload={},
+    )
 
 
 def ensure_platform_schedules(
     session_factory: SessionFactory, queue: PostgresJobQueue
 ) -> int:
-    """Declare the platform's hourly jobs for every tenant, each in its own session.
+    """Declare the platform's jobs for every tenant, each in its own session.
 
     Tenant creation declares them; this reaches the tenants created before a
     schedule existed, and does nothing to the others (see
