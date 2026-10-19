@@ -1,6 +1,6 @@
 """Request and response bodies for the tenants module."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, ClassVar, Literal
 from uuid import UUID
 
@@ -8,6 +8,10 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 
 from xolotl.platform.enums import (
     ApiKeyStatus,
+    CheckType,
+    CircuitState,
+    ConnectorMode,
+    ConnectorRoute,
     DeliveryStatus,
     EndpointStatus,
     Role,
@@ -200,3 +204,50 @@ class WebhookDeliveryResponse(BaseModel):
     next_attempt_at: datetime | None
     delivered_at: datetime | None
     created_at: datetime
+
+
+class ConnectorRouteResponse(BaseModel):
+    check_type: CheckType
+    country: str
+    position: ConnectorRoute
+
+
+class ConnectorResponse(BaseModel):
+    name: str
+    check_types: list[CheckType]
+    mode: ConnectorMode
+    routes: list[ConnectorRouteResponse]
+    circuit_state: CircuitState
+    credential_modes: list[ConnectorMode]
+
+
+class ConnectorListResponse(BaseModel):
+    items: list[ConnectorResponse]
+
+
+class ConnectorUsageRow(BaseModel):
+    day: date
+    connector: str
+    calls: int
+    cost_micros: int
+    outcomes: dict[str, int]
+
+
+class ConnectorUsageResponse(BaseModel):
+    start: date
+    end: date
+    items: list[ConnectorUsageRow]
+
+
+class ConnectorCredentialRequest(BaseModel):
+    # The values are secrets: kept out of the model's repr, which logs and
+    # tracebacks show.
+    fields: dict[str, str] = Field(min_length=1, repr=False)
+
+
+class ConnectorCredentialResponse(BaseModel):
+    connector: str
+    mode: ConnectorMode
+    field_names: list[str]
+    created_at: datetime
+    rotated_at: datetime | None
