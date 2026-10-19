@@ -114,6 +114,7 @@ class _Tally:
     kind: CallOutcome = CallOutcome.ERROR
     error: str | None = None
     attempts: int = 0
+    credentials: Mapping[str, str] = field(default_factory=dict[str, str])
 
 
 @dataclass(slots=True)
@@ -203,8 +204,8 @@ class Connector(ABC):
             route = ConnectorRoute.MOCK
             tally = self._mocked(request)
         else:
-            credentials = self._deps.vault.get(session, self.name, mode)
-            tally = self._attempts(request, credentials, self.breaker(runtime.cell))
+            tally = self._live(session, request, mode, runtime.cell)
+            credentials = tally.credentials
         secrets = _secrets_longest_first(credentials.values())
         verdict = self._interpreted(tally, route, secrets)
         evidence_key: str | None = None
@@ -269,6 +270,22 @@ class Connector(ABC):
         tally.answered = True
         return tally
 
+    def _live(
+        self,
+        session: Session,
+        request: ConnectorRequest,
+        mode: ConnectorMode,
+        cell: str,
+    ) -> _Tally:
+        try:
+            credentials = self._deps.vault.get(session, self.name, mode)
+        # An unreadable credential is an outcome, like any other failure.
+        except Exception as exc:  # ruff: ignore[blind-except]
+            return _Tally(error=safe_exception_summary(exc))
+        tally = self._attempts(request, credentials, self.breaker(cell))
+        tally.credentials = credentials
+        return tally
+
     def _attempts(
         self,
         request: ConnectorRequest,
@@ -280,12 +297,20 @@ class Connector(ABC):
             tally.kind = CallOutcome.CIRCUIT_OPEN
             tally.error = "circuit open"
             return tally
-        for attempt in range(1, self.max_attempts + 1):
-            tally.attempts = attempt
-            if not self._attempt(request, credentials, breaker, tally):
-                break
-            if attempt < self.max_attempts:
-                self._deps.sleep_fn(BACKOFF_S[min(attempt, len(BACKOFF_S)) - 1])
+        # Once allowed, a breaker still half open means this run holds its trial.
+        trial = breaker.state is CircuitState.HALF_OPEN
+        try:
+            for attempt in range(1, self.max_attempts + 1):
+                tally.attempts = attempt
+                if not self._attempt(request, credentials, breaker, tally):
+                    break
+                if attempt < self.max_attempts:
+                    self._deps.sleep_fn(BACKOFF_S[min(attempt, len(BACKOFF_S)) - 1])
+        finally:
+            # A trial that ended on a 4xx or a permanent error reported nothing;
+            # releasing it lets the next call try instead of leaving the cell refused.
+            if trial:
+                breaker.release()
         return tally
 
     def _attempt(

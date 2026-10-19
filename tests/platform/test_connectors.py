@@ -2,6 +2,7 @@
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import override
 from uuid import UUID, uuid4
@@ -286,6 +287,56 @@ def test_a_failed_trial_reopens_the_circuit_for_another_thirty_seconds(
         clock.advance(1)
         assert fake.circuit_state("mx-1") is CircuitState.HALF_OPEN
     assert fake.call_count == 9
+
+
+@pytest.mark.parametrize(
+    "trial",
+    [ok(b"bad token", status=401), CredentialMissingError("no token"), ValueError("x")],
+    ids=["4xx", "permanent", "unexpected"],
+)
+def test_a_trial_that_reports_nothing_is_released_for_the_next_call(
+    tmp_path: Path, prod: UUID, trial: RawResponse | Exception
+):
+    clock = FakeMonotonic()
+    deps, _, _ = make_deps(tmp_path, clock=clock)
+    fake = FakeConnector(deps, calls=[httpx.ReadTimeout("slow")] * 6)
+    with tenant_session(system_ctx(prod)) as s:
+        for _ in range(2):
+            _ = fake.run(s, request(), mode=LIVE)
+        clock.advance(30)
+        fake.calls.extend([trial, ok()])
+        first = fake.run(s, request(), mode=LIVE)
+        assert (first.outcome, first.attempts) == (CallOutcome.ERROR, 1)
+        assert fake.circuit_state("mx-1") is CircuitState.HALF_OPEN
+        out = fake.run(s, request(), mode=LIVE)
+    assert (out.outcome, out.attempts, fake.call_count) == (CallOutcome.PASS, 1, 8)
+    assert fake.circuit_state("mx-1") is CircuitState.CLOSED
+
+
+def test_an_unreadable_credential_is_a_metered_error_outcome(
+    tmp_path: Path, prod: UUID
+):
+    class BrokenVault(CredentialVault):
+        @override
+        def get(
+            self, session: object, connector: str, mode: ConnectorMode
+        ) -> dict[str, str]:
+            msg = "cannot decrypt"
+            raise ValueError(msg)
+
+    deps, _, _ = make_deps(tmp_path)
+    deps = replace(deps, vault=BrokenVault())
+    fake = FakeConnector(deps)
+    with tenant_session(system_ctx(prod)) as s:
+        out = fake.run(s, request(), mode=LIVE)
+    assert (out.outcome, out.attempts, out.evidence_key, out.error) == (
+        CallOutcome.ERROR,
+        0,
+        None,
+        "ValueError: cannot decrypt",
+    )
+    assert fake.call_count == 0
+    assert [r.outcome for r in calls_of(prod)] == [CallOutcome.ERROR]
 
 
 def test_a_breaker_is_kept_per_cell(tmp_path: Path, admin_engine: Engine, prod: UUID):

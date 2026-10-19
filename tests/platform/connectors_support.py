@@ -65,6 +65,14 @@ def make_deps(
 type Scripted = RawResponse | BaseException
 
 
+class UnscriptedCallError(BaseException):
+    """An attempt the test did not script.
+
+    It is not an ``Exception``, so a run's blind catch cannot turn it into an outcome
+    and the test fails loudly.
+    """
+
+
 class FakeConnector(Connector):
     """A connector whose attempts follow a script a test can extend.
 
@@ -99,7 +107,7 @@ class FakeConnector(Connector):
         self.call_count += 1
         if not self.calls:
             msg = "unscripted call"
-            raise AssertionError(msg)
+            raise UnscriptedCallError(msg)
         step = self.calls.pop(0)
         if isinstance(step, BaseException):
             raise step
