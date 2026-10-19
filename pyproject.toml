@@ -36,6 +36,7 @@ xolotl = "xolotl.cli:app"
 dev = [
     "basedpyright>=1.37",
     "httpx2>=2.14.0",
+    "hypothesis>=6.170.3",
     "import-linter>=2.3",
     "jsonschema>=4.26.0",
     "pytest>=9.0",
