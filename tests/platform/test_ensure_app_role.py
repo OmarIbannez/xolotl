@@ -6,6 +6,7 @@ tests change the shared role's password; each puts the suite's password back.
 """
 
 import logging
+import re
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from typing import Any, NoReturn, cast
@@ -22,6 +23,12 @@ from xolotl.platform.db import APP_ROLE, BootstrapError
 
 MIGRATE_LOGGER = "xolotl.platform.migrate"
 ROTATED = "rotated-in-the-dashboard-5150"
+CLEAR = "clear-text-9001"
+# What libpq builds for the server's default iteration count, followed by the salt,
+# the stored key and the server key, each in base64.
+VERIFIER_PREFIX = "SCRAM-SHA-256$4096:"
+B64 = r"[A-Za-z0-9+/]+=*"
+VERIFIER_SHAPE = rf"SCRAM-SHA-256\$\d+:{B64}\${B64}:{B64}"
 
 
 @contextmanager
@@ -129,6 +136,45 @@ def test_render_shaped_settings_bootstrap_the_role_with_the_derived_url(
     assert migrate.ensure_app_role() is False  # and the next start leaves it alone
     assert migrate_messages(caplog) == ["app role cannot sign in; bootstrapping it"]
     assert ROTATED not in caplog.text  # the configured password is never logged
+
+
+def test_bootstrap_sends_the_password_as_a_scram_verifier_and_never_in_clear(
+    admin_engine: Engine, password_restored: None, monkeypatch: pytest.MonkeyPatch
+):
+    app_url = make_url(get_settings().database_url).set(password=CLEAR)
+    settings = get_settings().model_copy(
+        update={"database_url": app_url.render_as_string(hide_password=False)}
+    )
+    monkeypatch.setattr(migrate, "get_settings", lambda: settings)
+    with admin_statements(admin_engine) as statements:
+        migrate.bootstrap()
+    prefix = f'ALTER ROLE "{APP_ROLE}" WITH LOGIN PASSWORD \''
+    alters = [s for s in statements if s.startswith(prefix)]
+    assert len(alters) == 1
+    assert alters[0].removeprefix(prefix).startswith(VERIFIER_PREFIX)
+    assert not [s for s in statements if CLEAR in s]
+    # The verifier authenticates the clear password over SCRAM, and the server
+    # stores it as it is (the suite's admin is a superuser, so it may look).
+    assert signs_in(settings.database_url)
+    with admin_engine.connect() as conn:
+        stored = cast(
+            "str",
+            conn.scalar(
+                text("SELECT rolpassword FROM pg_authid WHERE rolname = :role"),
+                {"role": APP_ROLE},
+            ),
+        )
+    assert stored.startswith("SCRAM-SHA-256$")
+
+
+def test_the_verifier_is_salted_and_libpqs(admin_engine: Engine):
+    with admin_engine.connect() as conn:
+        first = migrate.scram_verifier(conn, "same")
+        second = migrate.scram_verifier(conn, "same")
+    assert first != second  # a fresh salt each time
+    for verifier in (first, second):
+        assert verifier.startswith(VERIFIER_PREFIX)
+        assert re.fullmatch(VERIFIER_SHAPE, verifier), verifier
 
 
 PLAIN_OWNER = "xolotl_plain_owner"

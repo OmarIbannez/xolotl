@@ -21,6 +21,10 @@ APP_ROLE = "xolotl_app"
 # as the psycopg2 driver or not at all.
 DRIVER_SCHEME = "postgresql+psycopg://"
 LIBPQ_SCHEMES = ("postgres://", "postgresql://")
+# The local development URLs, whose passwords are public: XOLOTL_ENV=prod refuses
+# the app URL (the admin URL is accepted; _refuse_dev_secrets_in_prod says why).
+DEV_DATABASE_URL = "postgresql+psycopg://xolotl_app:xolotl@localhost:5432/xolotl"
+DEV_DATABASE_ADMIN_URL = "postgresql+psycopg://xolotl:xolotl@localhost:5432/xolotl"
 DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-change-me-000000"  # ruff: ignore[hardcoded-password-string]
 # Public and deterministic, so for local development only: XOLOTL_ENV=prod refuses
 # it. Derived from a digest because an all-zero key would be a degenerate default.
@@ -65,19 +69,17 @@ class Settings(BaseSettings):
 
     # repr=False: the URLs carry passwords, so repr() and str() leave them out. A
     # postgres:// or postgresql:// URL gets the psycopg driver.
-    database_url: str = Field(
-        default="postgresql+psycopg://xolotl_app:xolotl@localhost:5432/xolotl",
-        repr=False,
-    )
-    database_admin_url: str = Field(
-        default="postgresql+psycopg://xolotl:xolotl@localhost:5432/xolotl",
-        repr=False,
-    )
+    database_url: str = Field(default=DEV_DATABASE_URL, repr=False)
+    database_admin_url: str = Field(default=DEV_DATABASE_ADMIN_URL, repr=False)
     # A host that hands out only the owner's URL (a Render Blueprint cannot compose
     # one) sets this instead of XOLOTL_DATABASE_URL: the app URL is then the admin
     # URL signing in as APP_ROLE with this password. An explicit XOLOTL_DATABASE_URL
     # wins, and nothing is derived from the local default admin URL.
     app_db_password: SecretStr | None = Field(default=None, min_length=1)
+    # libpq's connect_timeout, in seconds, for every engine (db.connect_args): a
+    # database that cannot be reached fails within it instead of hanging. libpq
+    # treats a value under 2 as 2, so 2 is the floor.
+    database_connect_timeout_seconds: int = Field(default=10, ge=2, le=300)
     env: Literal["dev", "test", "prod"] = "dev"
     jwt_secret: str = Field(default=DEV_JWT_SECRET, min_length=32, repr=False)
     jwt_issuer: str = "xolotl"
@@ -148,6 +150,19 @@ class Settings(BaseSettings):
         if self.env == "prod" and self.master_key_bytes == DEV_MASTER_KEY_BYTES:
             msg = (
                 "XOLOTL_MASTER_KEY must be set to a non-default value "
+                "when XOLOTL_ENV=prod"
+            )
+            raise ValueError(msg)
+        # The default app URL's password is public too. Compared by value: an
+        # explicit URL equal to the default is refused, and one derived from the
+        # admin URL (_derive_the_app_url runs first) is accepted. The admin URL's
+        # default is deliberately not refused, because a production worker may run
+        # with the app URL alone; a prod `serve` with the default admin URL fails
+        # when it cannot connect.
+        if self.env == "prod" and self.database_url == DEV_DATABASE_URL:
+            msg = (
+                "XOLOTL_DATABASE_URL must be set, or derived from "
+                "XOLOTL_DATABASE_ADMIN_URL and XOLOTL_APP_DB_PASSWORD, "
                 "when XOLOTL_ENV=prod"
             )
             raise ValueError(msg)

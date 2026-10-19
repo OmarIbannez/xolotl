@@ -3,16 +3,21 @@ import getpass
 import json
 import os
 import re
-from collections.abc import Generator
+import time
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
+from typing import NoReturn
 from uuid import UUID
 
+import psycopg
 import pytest
 import uvicorn
 from psycopg import sql
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, make_url, text
+from sqlalchemy import Engine, create_engine, event, make_url, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
 
@@ -192,6 +197,28 @@ def test_serve_says_whether_it_can_write_the_object_store(
     assert "not writable" not in said["disk"]
     assert "object store root is not writable by this process" in said["locked"]
     assert str(locked / "objects") in said["locked"]
+    records = {
+        name: [json.loads(line) for line in output.splitlines() if line.startswith("{")]
+        for name, output in said.items()
+    }
+    # The warning names the directory it checked and says what to do, so the operator
+    # needs no manual; the INFO line carries no hint.
+    (warning,) = [
+        r
+        for r in records["locked"]
+        if r["level"] == "WARNING"
+        and r["msg"] == "object store root is not writable by this process"
+    ]
+    assert warning["decided_by"] == str(locked)
+    assert "ls -ldn" in warning["hint"]
+    assert "docs/deploy-render.md" in warning["hint"]
+    assert warning["object_store_root"] == str(locked / "objects")
+    (info,) = [
+        r
+        for r in records["disk"]
+        if r["level"] == "INFO" and r["msg"] == "object store root is writable"
+    ]
+    assert "hint" not in info
 
 
 def _serve_warnings(
@@ -284,10 +311,32 @@ def test_db_bootstrap_refuses_a_role_that_can_bypass_rls_in_one_line(
     )
 
 
+@contextmanager
+def _owner_statements(owner: Engine) -> Generator[list[str]]:
+    """Record what the engine bootstrap runs on sends while the block runs.
+
+    Yields:
+        The statements, in the order they are sent.
+
+    """
+    statements: list[str] = []
+
+    def keep(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    event.listen(owner, "before_cursor_execute", keep)
+    try:
+        yield statements
+    finally:
+        event.remove(owner, "before_cursor_execute", keep)
+
+
 def test_db_bootstrap_reports_a_refused_alter_without_the_password(
-    owner_without_admin_option: str,
+    owner_without_admin_option: str, managed_owner: tuple[Engine, str]
 ):
-    result = runner.invoke(app, ["db", "bootstrap"])
+    owner, _ = managed_owner  # what migrate.get_admin_engine() returns for now
+    with _owner_statements(owner) as statements:
+        result = runner.invoke(app, ["db", "bootstrap"])
     assert result.exit_code == 1
     assert isinstance(result.exception, SystemExit), result.exception  # no traceback
     assert result.stderr == (
@@ -295,6 +344,10 @@ def test_db_bootstrap_reports_a_refused_alter_without_the_password(
         "(sqlstate 42501)\n"
     )
     assert owner_without_admin_option not in result.output
+    # The server logs the statement it refused: it carries the SCRAM verifier.
+    refused = f'ALTER ROLE "{db.APP_ROLE}" WITH LOGIN PASSWORD \'SCRAM-SHA-256$'
+    assert [s for s in statements if s.startswith(refused)]
+    assert not [s for s in statements if owner_without_admin_option in s]
 
 
 def test_tenant_create_prints_the_password_once_and_rejects_duplicates(engine: Engine):
@@ -710,3 +763,114 @@ def test_db_reset_requires_confirmation_and_remigrates(admin_engine: Engine):
             ).all()
         )
     assert {"tenant", "staff_user", "audit_event_default", "alembic_version"} <= tables
+
+
+# --- the database cannot be reached ---------------------------------------------
+# The commands build their engines from the environment: pointing them elsewhere
+# needs the settings and engine caches cleared, and cleared again afterwards so the
+# next test rebuilds the suite's (test_db_reset_requires_confirmation_and_remigrates
+# is the precedent for rebuilding engines mid-suite).
+
+CANNOT_CONNECT = "error: cannot connect to the database: "
+
+
+@pytest.fixture
+def database_at(monkeypatch: pytest.MonkeyPatch) -> Generator[Callable[..., None]]:
+    """Yield ``point(host, port, *, timeout=None)``: the next commands go there.
+
+    ``point`` sets ``XOLOTL_DATABASE_URL`` and ``XOLOTL_DATABASE_ADMIN_URL`` to the
+    suite's URLs with that host and port (user, password and database kept), sets
+    ``XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS`` when a timeout is given, and clears
+    the settings and engine caches so the commands rebuild from the environment.
+    Teardown clears them again: the next caller rebuilds from the environment
+    monkeypatch has restored by then.
+
+    Yields:
+        The ``point`` function.
+
+    """
+
+    def clear_caches() -> None:
+        # Dispose what the caches hold before dropping it: a pool that is garbage
+        # collected finalizes its connections unclosed, which is a ResourceWarning
+        # and so an error here.
+        db.get_engine().dispose()
+        db.get_admin_engine().dispose()
+        get_settings.cache_clear()
+        db.get_engine.cache_clear()
+        db.get_admin_engine.cache_clear()
+        db.get_sessionmaker.cache_clear()
+
+    def point(host: str, port: int, *, timeout: int | None = None) -> None:
+        for name in ("XOLOTL_DATABASE_URL", "XOLOTL_DATABASE_ADMIN_URL"):
+            url = make_url(os.environ[name]).set(host=host, port=port)
+            monkeypatch.setenv(name, url.render_as_string(hide_password=False))
+        if timeout is not None:
+            monkeypatch.setenv("XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS", str(timeout))
+        clear_caches()
+
+    yield point
+    clear_caches()
+
+
+def _one_error_line(result) -> str:
+    # Exit status 1 and one line on stderr: the error, never a traceback.
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert "Traceback" not in result.output
+    [line] = result.stderr.splitlines()
+    assert line.startswith(CANNOT_CONNECT)
+    return line
+
+
+def test_serve_fails_in_one_line_when_the_database_is_down(
+    engine: Engine, database_at, monkeypatch
+):
+    database_at("127.0.0.1", 1)  # a closed port: the connection is refused at once
+    ran: list[object] = []
+
+    def run(*args: object, **_options: object) -> None:
+        ran.append(args)
+
+    monkeypatch.setattr(uvicorn, "run", run)
+    result = runner.invoke(app, ["serve"])
+    assert "127.0.0.1" in _one_error_line(result)
+    assert ran == []
+
+
+def test_db_upgrade_fails_in_one_line_when_the_database_is_down(
+    engine: Engine, database_at
+):
+    database_at("127.0.0.1", 1)
+    result = runner.invoke(app, ["db", "upgrade"])
+    assert "127.0.0.1" in _one_error_line(result)
+    assert "upgraded" not in result.output  # it never claims what did not happen
+
+
+def test_db_upgrade_gives_up_within_the_connect_timeout_when_the_database_never_answers(
+    engine: Engine, database_at, silent_server: tuple[str, int]
+):
+    host, port = silent_server
+    database_at(host, port, timeout=2)
+    started = time.monotonic()
+    result = runner.invoke(app, ["db", "upgrade"])
+    assert time.monotonic() - started < 10
+    assert "timeout" in _one_error_line(result)
+
+
+def test_a_server_sent_operational_error_keeps_its_traceback(
+    engine: Engine, monkeypatch
+):
+    # A SQLSTATE means a server answered: the database was reached and something
+    # else is wrong, which the traceback says and one line would hide.
+    def shut_down() -> NoReturn:
+        cause = psycopg.errors.AdminShutdown(  # SQLSTATE 57P01
+            "terminating connection due to administrator command"
+        )
+        statement = "SELECT 1"
+        raise OperationalError(statement, {}, cause)
+
+    monkeypatch.setattr(migrate, "upgrade", shut_down)
+    result = runner.invoke(app, ["db", "upgrade"])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, OperationalError), result.exception

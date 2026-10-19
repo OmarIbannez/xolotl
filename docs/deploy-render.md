@@ -49,7 +49,8 @@ dependencies; several minutes), mounts the disk and starts the image's command,
 `xolotl serve`, which:
 
 1. **Reads the configuration.** `XOLOTL_ENV=prod` refuses the development JWT secret and
-   master key. Render hands over the database owner's URL only
+   master key, and the default database URL, which cannot happen here: Render hands over
+   the database owner's URL only
    (`XOLOTL_DATABASE_ADMIN_URL`, a `postgresql://` URL on the private network), so the
    application's URL is derived from it: the same database, signing in as `xolotl_app`
    with `XOLOTL_APP_DB_PASSWORD`.
@@ -58,9 +59,12 @@ dependencies; several minutes), mounts the disk and starts the image's command,
    role with `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB` and the generated password,
    grants it `CONNECT` on the database and `USAGE` on the `public` schema (the
    migrations grant the tables), and checks that it cannot bypass row-level security.
-   The log says `app role cannot sign in; bootstrapping it`. Render's default database
-   user is not a superuser; Render's documentation implies it may create roles, which is
-   all bootstrap needs (see [the database role](#the-database-role) below). `serve`
+   The password travels as a SCRAM-SHA-256 verifier computed by libpq on the
+   application's side, so an `ALTER ROLE` the server refuses and logs carries the
+   verifier and never the password. The log says
+   `app role cannot sign in; bootstrapping it`. Render's default database user is not a
+   superuser; Render's documentation implies it may create roles, which is all
+   bootstrap needs (see [the database role](#the-database-role) below). `serve`
    refuses to bootstrap when `XOLOTL_APP_DB_PASSWORD` (or `XOLOTL_DATABASE_URL`) is
    missing, so the role is never created with the development password.
 3. **Migrates** to the latest revision and creates the audit partitions for this month and
@@ -149,6 +153,9 @@ home page. Turn on two-step verification under **Security**. The API documentati
   and `embedded worker started`.
 - `GET https://<service>.onrender.com/readyz` answers `{"status":"ok","database":"ok"}`.
 - `object store root is writable` appears once per start.
+- A database the service cannot reach fails the start in one line,
+  `error: cannot connect to the database: ...`, after the connect timeout (10 s by
+  default, `XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS`) instead of hanging it.
 
 ## Disk permissions
 
@@ -157,9 +164,13 @@ user, and reports from other projects say disks mount owned by root. The image's
 (uid 10001) also belongs to group 1000, the group Render documents for the
 [secret files][docker-secrets] it mounts at runtime. If the start logs
 `object store root is not writable by this process`, nothing fails today, because no
-feature writes objects yet, but uploads will. Compare `id` and `ls -ldn /var/data` in the
-Shell, then ask Render support how the disk is owned, or have the image start as root to
-hand `/var/data/objects` to uid 10001 before it drops to that user.
+feature writes objects yet, but uploads will. The warning names the directory it checked
+(`decided_by`: the nearest one on the root's path that exists, `/var/data` until
+`/var/data/objects` is created), the process's `uid` and `gids`, and carries a `hint`
+that says what to compare, so the operator sees what to do without this page. Compare
+`id` and `ls -ldn` of that directory in the Shell, then ask Render support how the disk
+is owned, or have the image start as root to hand `/var/data/objects` to uid 10001
+before it drops to that user.
 
 ## The database role
 
@@ -179,8 +190,9 @@ superuser, no `BYPASSRLS`, not a member of the default user) with exactly the va
 `XOLOTL_APP_DB_PASSWORD` from the service's environment, so the sign-in succeeds and
 bootstrap never runs. With the second, every later change of that variable needs support
 again: setting another role's password takes `CREATEROLE` plus `ADMIN OPTION` on the
-role, so `ADMIN OPTION` alone is not enough. Do not point the application at the owner
-instead.
+role, so `ADMIN OPTION` alone is not enough (the refused `ALTER ROLE`, which the server
+logs, carries the password's SCRAM verifier, never the password). Do not point the
+application at the owner instead.
 
 Rotating the default user from the database's **Credentials** section is untested: the
 new default user must be able to act as the owner of the existing tables for migrations
@@ -249,7 +261,10 @@ downtime but never shrink.
 [health checks][health], [Postgres connections][pg-connect],
 [Postgres credentials][pg-credentials], [free plans][free],
 [compute plans][compute-plans], [pricing][pricing], and the Blueprint
-[JSON schema][schema], which `render.yaml` validates against.
+[JSON schema][schema]: `tests/test_render_blueprint.py` validates `render.yaml` against a
+copy vendored at `tests/fixtures/render-blueprint.schema.json` (fetched 2026-10-19;
+refresh it by hand when the Blueprint documentation changes), so CI catches a key, plan
+or region Render would reject at sync.
 
 [blueprint]: https://render.com/docs/blueprint-spec
 [deploys]: https://render.com/docs/deploys

@@ -11,6 +11,7 @@ from sqlalchemy import make_url
 
 from xolotl.platform.config import (
     APP_ROLE,
+    DEV_DATABASE_URL,
     DEV_JWT_SECRET,
     DEV_MASTER_KEY,
     Settings,
@@ -20,6 +21,8 @@ from xolotl.platform.config import (
 ENV_EXAMPLE = Path(__file__).resolve().parents[2] / ".env.example"
 CUSTOM_MASTER_KEY = base64.b64encode(b"k" * 32).decode()
 SHORT_MASTER_KEY = base64.b64encode(b"s" * 31).decode()
+# Prod refuses the default app URL, so the tests that build prod settings need one.
+PROD_DATABASE_URL = "postgresql://xolotl_app:pw-77@db.internal:5432/xolotl"
 
 
 @pytest.fixture
@@ -77,6 +80,7 @@ def test_prod_accepts_a_real_secret(monkeypatch):
     monkeypatch.setenv("XOLOTL_ENV", "prod")
     monkeypatch.setenv("XOLOTL_JWT_SECRET", "x" * 40)
     monkeypatch.setenv("XOLOTL_MASTER_KEY", CUSTOM_MASTER_KEY)
+    monkeypatch.setenv("XOLOTL_DATABASE_URL", PROD_DATABASE_URL)
     s = make_settings()
     assert s.jwt_secret != DEV_JWT_SECRET
     assert s.master_key_bytes == b"k" * 32
@@ -300,6 +304,7 @@ def _prod(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XOLOTL_ENV", "prod")
     monkeypatch.setenv("XOLOTL_JWT_SECRET", "x" * 40)
     monkeypatch.setenv("XOLOTL_MASTER_KEY", CUSTOM_MASTER_KEY)
+    monkeypatch.setenv("XOLOTL_DATABASE_URL", PROD_DATABASE_URL)
 
 
 def test_prod_refuses_a_worker_that_never_pauses(monkeypatch):
@@ -333,6 +338,26 @@ def test_the_webhook_timeout_is_read_from_the_environment(monkeypatch):
 def test_the_webhook_timeout_rejects_nonsense(monkeypatch, value):
     monkeypatch.setenv("XOLOTL_WEBHOOK_TIMEOUT_SECONDS", value)
     with pytest.raises(ValidationError, match="webhook_timeout_seconds"):
+        _ = make_settings()
+
+
+def test_the_connect_timeout_defaults_to_ten_seconds():
+    assert make_settings().database_connect_timeout_seconds == 10
+
+
+def test_the_connect_timeout_is_read_from_the_environment(monkeypatch):
+    # Settings ignores names it does not know, so setting the variable and seeing
+    # the value change proves the field reads XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS.
+    monkeypatch.setenv("XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS", "30")
+    assert make_settings().database_connect_timeout_seconds == 30
+
+
+# libpq treats a connect_timeout under 2 as 2, so 2 is the floor; five minutes is
+# longer than any start should wait to learn that the database cannot be reached.
+@pytest.mark.parametrize("value", ["0", "1", "-5", "301", "soon", "2.5"])
+def test_the_connect_timeout_rejects_nonsense(monkeypatch, value):
+    monkeypatch.setenv("XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValidationError, match="database_connect_timeout_seconds"):
         _ = make_settings()
 
 
@@ -444,3 +469,35 @@ def test_an_empty_app_password_is_refused(monkeypatch):
     monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", "")
     with pytest.raises(ValidationError, match="app_db_password"):
         _ = make_settings()
+
+
+# --- XOLOTL_ENV=prod and the database URL --------------------------------------------
+# The default app URL signs in with a public password, so prod refuses it the way it
+# refuses the development JWT secret and master key; a process that forgot its
+# database settings must not try localhost.
+def test_prod_refuses_the_default_database_url(monkeypatch):
+    monkeypatch.setenv("XOLOTL_ENV", "prod")
+    monkeypatch.setenv("XOLOTL_JWT_SECRET", "x" * 40)
+    monkeypatch.setenv("XOLOTL_MASTER_KEY", CUSTOM_MASTER_KEY)
+    with pytest.raises(ValidationError, match="DATABASE_URL"):
+        _ = make_settings()
+
+
+def test_prod_refuses_the_default_database_url_even_when_spelled_out(monkeypatch):
+    monkeypatch.setenv("XOLOTL_ENV", "prod")
+    monkeypatch.setenv("XOLOTL_JWT_SECRET", "x" * 40)
+    monkeypatch.setenv("XOLOTL_MASTER_KEY", CUSTOM_MASTER_KEY)
+    monkeypatch.setenv("XOLOTL_DATABASE_URL", DEV_DATABASE_URL)
+    with pytest.raises(ValidationError, match="DATABASE_URL"):
+        _ = make_settings()
+
+
+def test_prod_accepts_the_app_url_derived_from_the_admin_url(monkeypatch):
+    # What Render gives: the owner's URL and the app password, no app URL.
+    monkeypatch.setenv("XOLOTL_ENV", "prod")
+    monkeypatch.setenv("XOLOTL_JWT_SECRET", "x" * 40)
+    monkeypatch.setenv("XOLOTL_MASTER_KEY", CUSTOM_MASTER_KEY)
+    monkeypatch.setenv("XOLOTL_DATABASE_ADMIN_URL", OWNER_URL)
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
+    s = make_settings()
+    assert make_url(s.database_url).username == APP_ROLE

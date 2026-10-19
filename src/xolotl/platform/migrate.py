@@ -18,6 +18,7 @@ from xolotl.platform.db import (
     APP_ROLE,
     BootstrapError,
     RoleBypassError,
+    connect_args,
     get_admin_engine,
 )
 
@@ -115,9 +116,10 @@ def _app_role_ddl(conn: Connection, statement: sql.Composable, *, purpose: str) 
 
     Raises:
         BootstrapError: When the database refuses the statement. The message says
-            what could not be done and names the role and the SQLSTATE only: the
-            statement can carry the password, so ``from None`` also keeps the
-            driver's error, statement included, out of the traceback.
+            what could not be done and names the role and the SQLSTATE only. The
+            statement carries the password's SCRAM verifier, never the password
+            (``scram_verifier``), and ``from None`` still keeps the driver's error,
+            statement included, out of the traceback.
 
     """
     try:
@@ -132,13 +134,40 @@ def _app_role_ddl(conn: Connection, statement: sql.Composable, *, purpose: str) 
 def _alter_app_role(conn: Connection, clauses: sql.Composable, *, purpose: str) -> None:
     """Run ``ALTER ROLE xolotl_app WITH <clauses>``, the only way bootstrap alters it.
 
-    A refusal is a ``BootstrapError`` (see ``_app_role_ddl``).
+    A ``PASSWORD`` clause carries the password's SCRAM verifier (``scram_verifier``),
+    never the password. A refusal is a ``BootstrapError`` naming the role and the
+    SQLSTATE only (see ``_app_role_ddl``).
     """
     _app_role_ddl(
         conn,
         sql.SQL("ALTER ROLE {} WITH {}").format(sql.Identifier(APP_ROLE), clauses),
         purpose=purpose,
     )
+
+
+def scram_verifier(conn: Connection, password: str) -> str:
+    """Return the SCRAM-SHA-256 verifier of ``password`` for the app role.
+
+    libpq computes it on the application's side (``PQencryptPasswordConn``, what
+    psql's password command uses) with a fresh salt and the iteration count the
+    server reports, and applies SASLprep itself. The server stores a verifier it is
+    handed as it is, so the ``ALTER ROLE`` that sets the password carries this and
+    never the password: a refused statement reaches the server log without it.
+
+    Returns:
+        ``SCRAM-SHA-256$<iterations>:<salt>$<stored key>:<server key>``.
+
+    Raises:
+        TypeError: When psycopg, whose libpq does the work, is not behind ``conn``.
+
+    """
+    raw = conn.connection.dbapi_connection
+    if not isinstance(raw, psycopg.Connection):
+        msg = f"scram_verifier needs a psycopg connection, not {type(raw).__name__}"
+        raise TypeError(msg)
+    return raw.pgconn.encrypt_password(
+        password.encode(), APP_ROLE.encode(), b"scram-sha-256"
+    ).decode()
 
 
 def _remove_bypass_attributes(conn: Connection) -> None:
@@ -169,10 +198,12 @@ def bootstrap() -> None:
     ``SUPERUSER`` or ``BYPASSRLS`` is removed first if the role has either. A CREATE
     or ALTER the database refuses (an owner without ``CREATEROLE`` cannot create the
     role) fails the bootstrap with ``BootstrapError``, which names the role and the
-    SQLSTATE but never the statement (it can carry the password). Every run then
-    verifies the role with ``verify_app_role``, so a role that could bypass
-    row-level security fails the bootstrap (``RoleBypassError``, naming the
-    attribute). Either way nothing is changed.
+    SQLSTATE but never the statement. The password travels as its SCRAM-SHA-256
+    verifier, computed by libpq on the application's side (``scram_verifier``), so
+    an ALTER the server refuses and logs carries the verifier and never the
+    password. Every run then verifies the role with ``verify_app_role``, so a role
+    that could bypass row-level security fails the bootstrap (``RoleBypassError``,
+    naming the attribute). Either way nothing is changed.
     """
     password = _app_password()
     database = make_url(get_settings().database_admin_url).database or "xolotl"
@@ -195,7 +226,9 @@ def bootstrap() -> None:
         _remove_bypass_attributes(conn)
         _alter_app_role(
             conn,
-            sql.SQL("LOGIN PASSWORD {}").format(sql.Literal(password)),
+            sql.SQL("LOGIN PASSWORD {}").format(
+                sql.Literal(scram_verifier(conn, password))
+            ),
             purpose="set LOGIN and the password of",
         )
         exec_literal_ddl(
@@ -216,12 +249,19 @@ def bootstrap() -> None:
 def _app_role_signs_in(url: str) -> bool:
     # A connection of its own, outside the application's pool: one pooled before a
     # password change would still answer. The server reports a missing role and a
-    # wrong password alike, and either way the sign-in fails.
-    probe = create_engine(url, poolclass=NullPool, hide_parameters=True)
+    # wrong password alike, and either way the sign-in fails. It connects with the
+    # same timeout as every engine, and a database that never answers is not a role
+    # that cannot sign in: the timeout is raised as it is, since bootstrapping could
+    # not help and its own connect would wait a second timeout.
+    probe = create_engine(
+        url, poolclass=NullPool, hide_parameters=True, connect_args=connect_args()
+    )
     try:
         with probe.connect():
             pass
-    except OperationalError:
+    except OperationalError as exc:
+        if isinstance(exc.orig, psycopg.errors.ConnectionTimeout):
+            raise
         return False
     finally:
         probe.dispose()
@@ -237,8 +277,9 @@ def ensure_app_role() -> bool:
     password; both fail the sign-in, and ``bootstrap`` creates the role or sets its
     password. A role that signs in is left as it is. Nothing happens unless
     ``XOLOTL_DATABASE_ADMIN_URL`` is set: the default points at a local development
-    database. When the sign-in fails because the database is down, the bootstrap
-    fails too.
+    database. A database that refuses the connection fails the sign-in and then
+    the bootstrap's own connect, at once; one that never answers ends it with the
+    probe's connect timeout, raised as it is.
 
     Returns:
         Whether it bootstrapped the role.

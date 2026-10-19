@@ -266,7 +266,11 @@ def test_a_refused_role_alter_keeps_the_password_out_of_the_error(
     assert str(error) == (
         f"could not set LOGIN and the password of role {APP_ROLE} (sqlstate 42501)"
     )
-    assert owner_without_admin_option in str(error.__context__)  # the driver's did
+    # The driver's error quotes the refused statement, which carries the password's
+    # SCRAM verifier and never the password.
+    driver = str(error.__context__)
+    assert "SCRAM-SHA-256$" in driver
+    assert owner_without_admin_option not in driver
     shown = [str(error), repr(error), *traceback.format_exception(error)]
     assert [text for text in shown if owner_without_admin_option in text] == []
 
@@ -321,6 +325,9 @@ def test_reset_refuses_in_prod(monkeypatch):
     monkeypatch.setenv("XOLOTL_ENV", "prod")
     monkeypatch.setenv("XOLOTL_JWT_SECRET", "p" * 40)
     monkeypatch.setenv("XOLOTL_MASTER_KEY", base64.b64encode(b"p" * 32).decode())
+    # Prod refuses the default app URL; reset refuses before it connects, so any
+    # other URL does (run alone, nothing has exported the suite's database yet).
+    monkeypatch.setenv("XOLOTL_DATABASE_URL", "postgresql://xolotl_app:pw@db/xolotl")
     get_settings.cache_clear()
     try:
         with pytest.raises(RuntimeError, match="prod"):

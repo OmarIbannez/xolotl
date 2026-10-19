@@ -53,6 +53,9 @@ an app role that is already neither superuser nor `BYPASSRLS` only gets its logi
 and password set. On PostgreSQL 16 and later the owner also needs `ADMIN OPTION` on
 `xolotl_app`. It has that when bootstrap created the role; if someone else created
 it, they (or a superuser) first run `GRANT xolotl_app TO <owner> WITH ADMIN OPTION`.
+Bootstrap sends the password as a SCRAM-SHA-256 verifier computed by libpq on the
+application's side, so an `ALTER ROLE` the server refuses and logs carries the
+verifier, never the password.
 
 That image is the whole deployment: it also carries the staff console (`console/`,
 built in a Node stage and served by the API at `/`, after the API's own routes).
@@ -86,13 +89,16 @@ the single-instance and disk caveats, and the costs.
 ## Configuration
 
 Environment variables are prefixed `XOLOTL_`; see `.env.example`. `XOLOTL_ENV=prod`
-refuses the default `XOLOTL_JWT_SECRET` and the default `XOLOTL_MASTER_KEY`. Database
-URLs may be spelled `postgres://` or `postgresql://`, as hosts hand them out; the
-psycopg driver is added.
+refuses the default `XOLOTL_JWT_SECRET`, the default `XOLOTL_MASTER_KEY` and the
+default `XOLOTL_DATABASE_URL` (set it, or let it be derived from
+`XOLOTL_DATABASE_ADMIN_URL` and `XOLOTL_APP_DB_PASSWORD`, as below). Database URLs
+may be spelled `postgres://` or `postgresql://`, as hosts hand them out; the psycopg
+driver is added.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `XOLOTL_APP_DB_PASSWORD` | unset | For a host that provides only the owner's URL (Render): with `XOLOTL_DATABASE_URL` unset and `XOLOTL_DATABASE_ADMIN_URL` set, the app URL is the admin URL signing in as `xolotl_app` with this password. An explicit `XOLOTL_DATABASE_URL` wins. |
+| `XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS` | `10` | libpq's connect timeout, in seconds (2 to 300; libpq treats less than 2 as 2), for every connection the application and the CLI open. A database that cannot be reached fails `serve` and the `db` commands in one line, `error: cannot connect to the database: ...`, once it expires, instead of hanging. |
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
