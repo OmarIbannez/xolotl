@@ -24,10 +24,9 @@ from xolotl.modules.reporting.serializers import normalizers as norm
 from xolotl.modules.reporting.serializers.definitions import (
     Column,
     ColumnKind,
+    DelimitedDefinition,
     DelimitedLayout,
     Overflow,
-    ReportDefinition,
-    SerializerFamily,
     ZeroReportRule,
     load_code_table,
     load_layout,
@@ -230,7 +229,7 @@ def _description(operation: F41Operation, legend: Legend | None) -> str | None:
 
 @dataclass(slots=True)
 class _Renderer:
-    definition: ReportDefinition
+    definition: DelimitedDefinition
     layout: DelimitedLayout
     code_tables: Mapping[str, frozenset[str]]
     legend: Legend | None
@@ -367,7 +366,7 @@ def _operation_rows(
 
 def serialize_f41(
     defs_dir: Path,
-    definition: ReportDefinition,
+    definition: DelimitedDefinition,
     header: F41Header,
     operations: Sequence[F41Operation],
     *,
@@ -389,8 +388,6 @@ def serialize_f41(
             without a zero report.
 
     """
-    if definition.serializer is not SerializerFamily.DELIMITED:
-        raise ReportFieldError(definition.code, "is not a DELIMITED definition")
     if definition.legend_required != (legend is not None):
         reason = "needs a legend" if definition.legend_required else "takes no legend"
         raise ReportFieldError(definition.code, reason)

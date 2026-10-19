@@ -26,6 +26,7 @@ from xolotl.modules.reporting.serializers.definitions import (
     DefinitionError,
     load_code_table,
     load_definition,
+    load_delimited,
     load_layout,
 )
 from xolotl.modules.reporting.serializers.errors import ReportFieldError
@@ -37,7 +38,7 @@ from xolotl.modules.reporting.serializers.formato41 import (
 from xolotl.modules.reporting.serializers.normalizers import f41_text
 from xolotl.platform.enums import Confidence
 
-ROR = load_definition(DEFS_DIR, "MX_F41_ROR", 1)
+ROR = load_delimited(DEFS_DIR, "MX_F41_ROR", 1)
 LAYOUT = load_layout(DEFS_DIR, ROR.layout)
 
 
