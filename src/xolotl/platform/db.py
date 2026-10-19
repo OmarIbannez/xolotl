@@ -59,8 +59,8 @@ class RoleBypassError(RuntimeError):
 class BootstrapError(RuntimeError):
     """``xolotl db bootstrap`` could not alter the application role.
 
-    The message names the role and the SQLSTATE, never the statement, which can
-    carry the role's password.
+    The message names the role and the SQLSTATE, never the statement, which carries
+    the SCRAM verifier of the role's password rather than the password itself.
     """
 
 

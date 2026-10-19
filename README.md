@@ -53,6 +53,9 @@ an app role that is already neither superuser nor `BYPASSRLS` only gets its logi
 and password set. On PostgreSQL 16 and later the owner also needs `ADMIN OPTION` on
 `xolotl_app`. It has that when bootstrap created the role; if someone else created
 it, they (or a superuser) first run `GRANT xolotl_app TO <owner> WITH ADMIN OPTION`.
+Bootstrap sends the password as a SCRAM-SHA-256 verifier computed by libpq on the
+application's side, so an `ALTER ROLE` the server refuses and logs carries the
+verifier, never the password.
 
 That image is the whole deployment: it also carries the staff console (`console/`,
 built in a Node stage and served by the API at `/`, after the API's own routes).

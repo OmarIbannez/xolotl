@@ -58,9 +58,12 @@ dependencies; several minutes), mounts the disk and starts the image's command,
    role with `LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB` and the generated password,
    grants it `CONNECT` on the database and `USAGE` on the `public` schema (the
    migrations grant the tables), and checks that it cannot bypass row-level security.
-   The log says `app role cannot sign in; bootstrapping it`. Render's default database
-   user is not a superuser; Render's documentation implies it may create roles, which is
-   all bootstrap needs (see [the database role](#the-database-role) below). `serve`
+   The password travels as a SCRAM-SHA-256 verifier computed by libpq on the
+   application's side, so an `ALTER ROLE` the server refuses and logs carries the
+   verifier and never the password. The log says
+   `app role cannot sign in; bootstrapping it`. Render's default database user is not a
+   superuser; Render's documentation implies it may create roles, which is all
+   bootstrap needs (see [the database role](#the-database-role) below). `serve`
    refuses to bootstrap when `XOLOTL_APP_DB_PASSWORD` (or `XOLOTL_DATABASE_URL`) is
    missing, so the role is never created with the development password.
 3. **Migrates** to the latest revision and creates the audit partitions for this month and
@@ -179,8 +182,9 @@ superuser, no `BYPASSRLS`, not a member of the default user) with exactly the va
 `XOLOTL_APP_DB_PASSWORD` from the service's environment, so the sign-in succeeds and
 bootstrap never runs. With the second, every later change of that variable needs support
 again: setting another role's password takes `CREATEROLE` plus `ADMIN OPTION` on the
-role, so `ADMIN OPTION` alone is not enough. Do not point the application at the owner
-instead.
+role, so `ADMIN OPTION` alone is not enough (the refused `ALTER ROLE`, which the server
+logs, carries the password's SCRAM verifier, never the password). Do not point the
+application at the owner instead.
 
 Rotating the default user from the database's **Credentials** section is untested: the
 new default user must be able to act as the owner of the existing tables for migrations

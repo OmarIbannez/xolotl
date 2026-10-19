@@ -5,6 +5,7 @@ import os
 import re
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID
 
@@ -12,7 +13,7 @@ import pytest
 import uvicorn
 from psycopg import sql
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, make_url, text
+from sqlalchemy import Engine, create_engine, event, make_url, text
 from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
 
@@ -284,10 +285,32 @@ def test_db_bootstrap_refuses_a_role_that_can_bypass_rls_in_one_line(
     )
 
 
+@contextmanager
+def _owner_statements(owner: Engine) -> Generator[list[str]]:
+    """Record what the engine bootstrap runs on sends while the block runs.
+
+    Yields:
+        The statements, in the order they are sent.
+
+    """
+    statements: list[str] = []
+
+    def keep(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    event.listen(owner, "before_cursor_execute", keep)
+    try:
+        yield statements
+    finally:
+        event.remove(owner, "before_cursor_execute", keep)
+
+
 def test_db_bootstrap_reports_a_refused_alter_without_the_password(
-    owner_without_admin_option: str,
+    owner_without_admin_option: str, managed_owner: tuple[Engine, str]
 ):
-    result = runner.invoke(app, ["db", "bootstrap"])
+    owner, _ = managed_owner  # what migrate.get_admin_engine() returns for now
+    with _owner_statements(owner) as statements:
+        result = runner.invoke(app, ["db", "bootstrap"])
     assert result.exit_code == 1
     assert isinstance(result.exception, SystemExit), result.exception  # no traceback
     assert result.stderr == (
@@ -295,6 +318,10 @@ def test_db_bootstrap_reports_a_refused_alter_without_the_password(
         "(sqlstate 42501)\n"
     )
     assert owner_without_admin_option not in result.output
+    # The server logs the statement it refused: it carries the SCRAM verifier.
+    refused = f'ALTER ROLE "{db.APP_ROLE}" WITH LOGIN PASSWORD \'SCRAM-SHA-256$'
+    assert [s for s in statements if s.startswith(refused)]
+    assert not [s for s in statements if owner_without_admin_option in s]
 
 
 def test_tenant_create_prints_the_password_once_and_rejects_duplicates(engine: Engine):

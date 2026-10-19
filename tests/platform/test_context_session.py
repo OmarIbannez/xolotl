@@ -266,7 +266,11 @@ def test_a_refused_role_alter_keeps_the_password_out_of_the_error(
     assert str(error) == (
         f"could not set LOGIN and the password of role {APP_ROLE} (sqlstate 42501)"
     )
-    assert owner_without_admin_option in str(error.__context__)  # the driver's did
+    # The driver's error quotes the refused statement, which carries the password's
+    # SCRAM verifier and never the password.
+    driver = str(error.__context__)
+    assert "SCRAM-SHA-256$" in driver
+    assert owner_without_admin_option not in driver
     shown = [str(error), repr(error), *traceback.format_exception(error)]
     assert [text for text in shown if owner_without_admin_option in text] == []
 
