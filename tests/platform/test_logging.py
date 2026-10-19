@@ -2,15 +2,17 @@ import io
 import json
 import logging
 from types import SimpleNamespace
+from typing import override
 from uuid import uuid4
 
 import pytest
 from psycopg.errors import UniqueViolation
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.exc import DataError, IntegrityError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy.exc import DataError, IntegrityError, PendingRollbackError
 
 from tests.helpers import system_ctx
 from xolotl.platform.logging import (
+    EXCEPTION_SUMMARY_LIMIT,
     JsonFormatter,
     RedactionFilter,
     configure_logging,
@@ -18,6 +20,7 @@ from xolotl.platform.logging import (
     redact,
     register_pii_model,
     request_id_var,
+    safe_exception_summary,
 )
 from xolotl.platform.tenancy.context import bind_context
 
@@ -424,3 +427,171 @@ def test_a_database_error_that_traceback_would_not_print_keeps_the_full_tracebac
     assert "Traceback (most recent call last)" in traced
     assert "second failure" in traced
     assert "a@b.mx" not in traced
+
+
+# --- safe_exception_summary: exception text that is stored, not logged ----------------
+
+
+class Applicant(BaseModel):
+    curp: str = Field(max_length=5)
+    age: int
+
+
+def _invalid_applicant(**values) -> ValidationError:
+    with pytest.raises(ValidationError) as caught:
+        _ = Applicant(**values)
+    return caught.value
+
+
+def _unique_violation_in_sqlalchemy() -> IntegrityError:
+    statement = "INSERT INTO person (email) VALUES (%(email)s)"
+    return IntegrityError(
+        statement, {"email": "a@b.mx"}, UniqueViolation(DRIVER_MESSAGE)
+    )
+
+
+def test_a_plain_exception_keeps_its_class_and_message():
+    summary = safe_exception_summary(ValueError("quantity must be positive"))
+    assert summary == "ValueError: quantity must be positive"
+
+
+def test_an_exception_without_a_message_is_just_its_class():
+    assert safe_exception_summary(AssertionError()) == "AssertionError"
+
+
+def test_a_long_message_is_cut_to_the_limit():
+    summary = safe_exception_summary(RuntimeError("x" * 10 * EXCEPTION_SUMMARY_LIMIT))
+    assert EXCEPTION_SUMMARY_LIMIT == 500
+    assert len(summary) == EXCEPTION_SUMMARY_LIMIT
+    assert summary.startswith("RuntimeError: xxx")
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("raw psycopg", "UniqueViolation [sqlstate=23505]"),
+        ("wrapped psycopg", "IntegrityError [sqlstate=23505]"),
+        ("wrapped driver", "DataError [sqlstate=22P02]"),
+        ("no sqlstate", "IntegrityError"),
+    ],
+)
+def test_a_database_error_keeps_only_its_class_and_sqlstate(kind, expected):
+    errors = {
+        "raw psycopg": UniqueViolation(DRIVER_MESSAGE),
+        "wrapped psycopg": _unique_violation_in_sqlalchemy(),
+        "wrapped driver": DataError(
+            "SELECT 1",
+            {"email": "a@b.mx"},
+            FakeDriverError("22P02", 'invalid input syntax for type uuid: "a@b.mx"'),
+        ),
+        "no sqlstate": IntegrityError(
+            "INSERT", {"email": "a@b.mx"}, Exception(DRIVER_MESSAGE)
+        ),
+    }
+    summary = safe_exception_summary(errors[kind])
+    assert summary == expected
+    assert "a@b.mx" not in summary
+
+
+@pytest.mark.parametrize("link", ["cause", "context"])
+def test_an_exception_that_embeds_a_database_message_is_summarised_without_it(link):
+    # The ordinary `except ...: raise Domain(f"... {exc}") from exc`.
+    inner = _unique_violation_in_sqlalchemy()
+    outer = RuntimeError(f"party load failed: {inner}")
+    if link == "cause":
+        outer.__cause__ = inner
+    else:
+        outer.__context__ = inner
+    assert "a@b.mx" in str(outer)  # the message does carry the value
+    summary = safe_exception_summary(outer)
+    assert summary == "RuntimeError [sqlstate=23505]"
+
+
+def test_a_cyclic_exception_chain_is_summarised_once():
+    inner = _unique_violation_in_sqlalchemy()
+    outer = RuntimeError("wraps a@b.mx")
+    outer.__cause__ = inner
+    inner.__cause__ = outer
+    assert safe_exception_summary(outer) == "RuntimeError [sqlstate=23505]"
+
+
+def test_a_session_error_that_quotes_the_database_message_is_summarised_without_it():
+    # The session refuses further work after a failed flush and quotes the original
+    # error, row values included, in its own message.
+    original = f"(psycopg.errors.UniqueViolation) {DRIVER_MESSAGE}"
+    refusal = "This Session's transaction has been rolled back"
+    error = PendingRollbackError(f"{refusal}. Original exception was: {original}")
+    assert "a@b.mx" in str(error)
+    assert safe_exception_summary(error) == "PendingRollbackError"
+
+
+def test_a_validation_error_is_summarised_by_its_error_count():
+    invalid = _invalid_applicant(curp="ABCD010101HDFXXX01", age="not a number")
+    assert "ABCD010101HDFXXX01" in str(invalid)  # pydantic echoes the input
+    summary = safe_exception_summary(invalid)
+    assert summary == "ValidationError (2 errors)"
+
+
+def test_an_exception_that_embeds_a_validation_error_is_summarised_without_it():
+    invalid = _invalid_applicant(curp="ABCD010101HDFXXX01", age=7)
+    outer = RuntimeError(f"bad applicant: {invalid}")
+    outer.__cause__ = invalid
+    summary = safe_exception_summary(outer)
+    assert summary == "RuntimeError (caused by ValidationError, 1 errors)"
+    assert "ABCD010101HDFXXX01" not in summary
+
+
+def test_a_context_hidden_by_raise_from_none_is_still_searched_for_a_database_error():
+    # `raise Domain(f"... {exc}") from None` hides the context from tracebacks (and so
+    # from the log filter, which prints what traceback prints), but the exception is
+    # still __context__ and the message may have quoted it.
+    inner = _unique_violation_in_sqlalchemy()
+    outer = RuntimeError(f"party load failed: {inner}")
+    outer.__context__ = inner
+    outer.__suppress_context__ = True
+    assert "a@b.mx" in str(outer)
+    assert safe_exception_summary(outer) == "RuntimeError [sqlstate=23505]"
+
+
+def test_a_context_cycle_is_followed_once():
+    inner = _unique_violation_in_sqlalchemy()
+    outer = RuntimeError("wraps a@b.mx")
+    outer.__context__ = inner
+    inner.__context__ = outer
+    assert safe_exception_summary(outer) == "RuntimeError [sqlstate=23505]"
+
+
+def test_the_filter_still_prints_what_traceback_prints_for_a_suppressed_context():
+    # The summary looks further than traceback does; the log filter must not change.
+    logger, stream = _capture()
+    try:
+        _wrap_hiding_the_context()
+    except RuntimeError:
+        logger.exception("failed")
+    traced = _last_line(stream)["exc_info"]
+    assert "Traceback (most recent call last)" in traced
+    assert "IntegrityError" not in traced
+
+
+def test_an_exception_whose_str_raises_is_summarised_by_its_class():
+    class OddError(Exception):
+        @override
+        def __str__(self) -> str:
+            msg = "self.response is None"
+            raise AttributeError(msg)
+
+    assert safe_exception_summary(OddError()) == "OddError: <unprintable OddError>"
+
+
+def test_nul_characters_and_lone_surrogates_are_removed_from_the_summary():
+    summary = safe_exception_summary(ValueError("a\x00b \ud800 c\udfff"))
+    assert summary == "ValueError: ab ? c?"
+    _ = summary.encode("utf-8")  # a lone surrogate would raise here
+    assert "\x00" not in summary
+
+
+def test_the_summary_is_cleaned_before_it_is_cut():
+    # Cutting first would leave fewer characters than the limit once the NULs go.
+    summary = safe_exception_summary(RuntimeError("\x00" * 50 + "x" * 1000))
+    assert len(summary) == EXCEPTION_SUMMARY_LIMIT
+    assert summary.startswith("RuntimeError: xxx")

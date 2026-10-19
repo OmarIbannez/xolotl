@@ -38,3 +38,41 @@ class StaffStatus(StrEnum):
 class ApiKeyStatus(StrEnum):
     ACTIVE = "ACTIVE"
     REVOKED = "REVOKED"
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "PENDING"
+    PUBLISHED = "PUBLISHED"
+    DEAD = "DEAD"
+
+
+class DeliveryStatus(StrEnum):
+    PENDING = "PENDING"
+    DELIVERED = "DELIVERED"
+    DEAD = "DEAD"
+
+
+class EndpointStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+
+
+class JobStatus(StrEnum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+    DEAD = "DEAD"
+
+
+class RunStatus(StrEnum):
+    RUNNING = "RUNNING"
+    WAITING = "WAITING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
+class StepStatus(StrEnum):
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"

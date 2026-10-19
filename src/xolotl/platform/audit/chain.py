@@ -15,6 +15,7 @@ from xolotl.platform.audit.models import AuditEventRow
 from xolotl.platform.db import bound_context
 from xolotl.platform.errors import ContextMissingError
 from xolotl.platform.ids import uuid7
+from xolotl.platform.sqltypes import contains_float
 
 GENESIS_HASH = bytes(32)
 
@@ -23,29 +24,14 @@ _LOCK_SQL = text(
 )
 
 
-def _contains_float(value: JsonValue) -> bool:
-    pending: list[JsonValue] = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, float):
-            return True
-        if isinstance(item, dict):
-            pending.extend(item.values())
-        elif isinstance(item, list):
-            pending.extend(item)
-    return False
-
-
 class AuditEvent(BaseModel):
     """One event to append to a tenant's chain.
 
-    ``detail`` must not contain floats, at any depth. The digest is recomputed from
-    the JSONB value Postgres returns, and JSONB stores numbers as ``numeric``, which
-    does not round-trip every float: ``1e16`` comes back as the integer
-    ``10000000000000000`` and ``-0.0`` comes back as ``0.0``. The recomputed digest
-    would then differ from the stored one and an untouched row would fail
-    verification. Use ints or strings instead, such as an amount in minor units or a
-    decimal string.
+    ``detail`` must not contain floats, at any depth (see ``contains_float``). The
+    digest is recomputed from the JSONB value Postgres returns, and JSONB does not
+    round-trip every float, so the recomputed digest would differ from the stored
+    one and an untouched row would fail verification. Use ints or strings instead,
+    such as an amount in minor units or a decimal string.
     """
 
     action: str
@@ -58,7 +44,7 @@ class AuditEvent(BaseModel):
     def _reject_floats(
         cls, detail: dict[str, JsonValue] | None
     ) -> dict[str, JsonValue] | None:
-        if _contains_float(detail):
+        if contains_float(detail):
             msg = "audit detail must not contain floats; use ints or strings"
             raise ValueError(msg)
         return detail
