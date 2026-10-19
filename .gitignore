@@ -34,8 +34,8 @@ src/xolotl/static/
 .DS_Store
 
 # Local data
-data/
-data/local/
+/data/
+/data/local/
 *.log
 
 # Claude Code session artefacts

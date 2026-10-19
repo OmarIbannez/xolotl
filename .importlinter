@@ -1,5 +1,6 @@
 [importlinter]
 root_package = xolotl
+include_external_packages = True
 
 [importlinter:contract:platform-does-not-import-modules]
 name = platform imports nothing from modules
@@ -18,3 +19,16 @@ source_modules =
 forbidden_modules =
     xolotl.app
     xolotl.cli
+
+[importlinter:contract:screening-library-is-pure]
+name = the screening library imports only platform errors and enums (SP-03 spec section 2)
+type = forbidden
+source_modules =
+    xolotl.modules.screening.lists
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    xolotl.modules.party
+    xolotl.platform
+ignore_imports =
+    xolotl.modules.screening.lists.** -> xolotl.platform.errors
