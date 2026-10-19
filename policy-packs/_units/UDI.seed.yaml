@@ -1,6 +1,9 @@
 # Valores diarios de la UDI del 2025-12-01 al 2026-01-31, copiados el 2026-10-19 de la
 # publicación de Banxico en el DOF (dof.gob.mx, indicador UDIS, que coincide con la serie
 # SP68257 de la SIE en las fechas comparadas). Una fila por día natural, seis decimales.
+# Cotejados el 2026-10-19 fila por fila con la serie SP68257 de la gráfica pública de la
+# SIE (banxico.org.mx/SieInternet/consultaSerieGrafica.do, sin token) y con el indicador
+# UDIS del DOF (dof.gob.mx/indicadores_detalle.php): los 62 valores coinciden.
 unit_code: UDI
 quote_ccy: MXN
 source: "BANXICO_SIE:SP68257"
