@@ -13,9 +13,30 @@ from xolotl.modules.tenants.models import ApiKey, StaffCredential, StaffUser
 from xolotl.platform import clock
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.audit.models import AuditEventRow
-from xolotl.platform.enums import ApiKeyStatus, StaffStatus, TenantEnv
+from xolotl.platform.enums import (
+    ApiKeyStatus,
+    DeliveryStatus,
+    EndpointStatus,
+    RunStatus,
+    StaffStatus,
+    StepStatus,
+    TenantEnv,
+)
+from xolotl.platform.events.models import (
+    EventConsumption,
+    Notification,
+    OutboxRow,
+    WebhookDelivery,
+    WebhookEndpoint,
+)
 from xolotl.platform.ids import uuid7
+from xolotl.platform.jobs.models import JobRow, JobSchedule
 from xolotl.platform.tenancy.testing import register_isolation_factory
+from xolotl.platform.workflows.models import (
+    WorkflowRunRow,
+    WorkflowSignalRow,
+    WorkflowStepRow,
+)
 
 
 def _staff_user(session: Session, tenant_id: UUID) -> StaffUser:
@@ -92,6 +113,129 @@ def audit_event(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def outbox(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        OutboxRow(
+            tenant_id=tenant_id,
+            type="harness.row.v1",
+            key="harness",
+            payload={"data": {}},
+        )
+    )
+    session.flush()
+
+
+def event_consumption(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        EventConsumption(tenant_id=tenant_id, consumer="harness", event_id=uuid7())
+    )
+    session.flush()
+
+
+def _webhook_endpoint(session: Session, tenant_id: UUID) -> WebhookEndpoint:
+    endpoint = WebhookEndpoint(
+        tenant_id=tenant_id,
+        url="https://hooks.test/harness",
+        secret=b"\x00" * 32,
+        event_types=["*"],
+        status=EndpointStatus.ACTIVE,
+        created_by=uuid7(),
+    )
+    session.add(endpoint)
+    session.flush()
+    return endpoint
+
+
+def webhook_endpoint(session: Session, tenant_id: UUID) -> None:
+    _ = _webhook_endpoint(session, tenant_id)
+
+
+def webhook_delivery(session: Session, tenant_id: UUID) -> None:
+    endpoint = _webhook_endpoint(session, tenant_id)
+    session.add(
+        WebhookDelivery(
+            tenant_id=tenant_id,
+            endpoint_id=endpoint.id,
+            event_id=uuid7(),
+            status=DeliveryStatus.PENDING,
+        )
+    )
+    session.flush()
+
+
+def job(session: Session, tenant_id: UUID) -> None:
+    session.add(JobRow(tenant_id=tenant_id, kind="harness.noop", payload={}))
+    session.flush()
+
+
+def job_schedule(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        JobSchedule(
+            tenant_id=tenant_id,
+            name="harness",
+            cron="0 * * * *",
+            tz="UTC",
+            kind="harness.noop",
+            payload={},
+            next_run_at=clock.now(),
+        )
+    )
+    session.flush()
+
+
+def _workflow_run(session: Session, tenant_id: UUID) -> WorkflowRunRow:
+    run = WorkflowRunRow(
+        tenant_id=tenant_id,
+        definition="harness",
+        business_key=uuid7().hex,
+        status=RunStatus.RUNNING,
+        state={},
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def workflow_run(session: Session, tenant_id: UUID) -> None:
+    _ = _workflow_run(session, tenant_id)
+
+
+def workflow_step(session: Session, tenant_id: UUID) -> None:
+    run = _workflow_run(session, tenant_id)
+    session.add(
+        WorkflowStepRow(
+            tenant_id=tenant_id,
+            run_id=run.id,
+            step_id="collect",
+            attempt=1,
+            status=StepStatus.DONE,
+        )
+    )
+    session.flush()
+
+
+def workflow_signal(session: Session, tenant_id: UUID) -> None:
+    run = _workflow_run(session, tenant_id)
+    session.add(
+        WorkflowSignalRow(
+            tenant_id=tenant_id, run_id=run.id, name="approve", payload={}
+        )
+    )
+    session.flush()
+
+
+def notification(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        Notification(
+            tenant_id=tenant_id,
+            recipient_role="ADMIN",
+            template="harness.notice",
+            data={},
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -99,3 +243,13 @@ def register_all() -> None:
     register_isolation_factory("api_key", api_key)
     register_isolation_factory("idempotency_key", idempotency_key)
     register_isolation_factory("audit_event", audit_event)
+    register_isolation_factory("outbox", outbox)
+    register_isolation_factory("event_consumption", event_consumption)
+    register_isolation_factory("webhook_endpoint", webhook_endpoint)
+    register_isolation_factory("webhook_delivery", webhook_delivery)
+    register_isolation_factory("job", job)
+    register_isolation_factory("job_schedule", job_schedule)
+    register_isolation_factory("workflow_run", workflow_run)
+    register_isolation_factory("workflow_step", workflow_step)
+    register_isolation_factory("workflow_signal", workflow_signal)
+    register_isolation_factory("notification", notification)
