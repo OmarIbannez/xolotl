@@ -10,6 +10,11 @@
 # line ending, and the shape of the reporte vacío (empty_report_columns). The
 # resolution requires an empty report (Art. 2) but does not print it.
 #
+# Column 23 is required for every type: the resolution makes it mandatory for
+# inusuales and preocupantes and, from 1 April 2005, extends the 21-23 rules to
+# relevantes "en los mismos términos". Column 36 may hold an SAT-assigned key, so
+# it is a CODE, not NUMERIC.
+#
 # overflow ERROR is used where truncating would change an identifier or a code;
 # the layout's truncation rule is kept for free text.
 name: MX_F41.v1
@@ -42,7 +47,7 @@ columns:
   - {number: 20, name: APELLIDO MATERNO, field: apellido_materno, kind: TEXT, width: 30, report_types: ["1", "2", "3"]}
   - {number: 21, name: RFC, field: rfc, kind: CODE, width: 13, overflow: ERROR, report_types: ["1", "2", "3"]}
   - {number: 22, name: CURP, field: curp, kind: CODE, width: 18, overflow: ERROR, report_types: ["1", "2", "3"]}
-  - {number: 23, name: FECHA DE NACIMIENTO O CONSTITUCION, field: fecha_nacimiento_constitucion, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["2", "3"]}
+  - {number: 23, name: FECHA DE NACIMIENTO O CONSTITUCION, field: fecha_nacimiento_constitucion, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
   - {number: 24, name: DOMICILIO, field: domicilio, kind: TEXT, width: 60, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
   - {number: 25, name: COLONIA, field: colonia, kind: TEXT, width: 30, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
   - {number: 26, name: CIUDAD O POBLACION, field: ciudad_poblacion, kind: CODE, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
@@ -55,7 +60,7 @@ columns:
   - {number: 33, name: AGENTE CURP, field: agente_curp, kind: CODE, width: 18, overflow: ERROR, report_types: ["1", "2", "3"]}
   - {number: 34, name: CONSECUTIVO DE CUENTAS Y/O PERSONAS RELACIONADAS, field: consecutivo, kind: NUMERIC, width: 2, overflow: ERROR, report_types: ["2", "3"], required_for: ["2", "3"]}
   - {number: 35, name: NUMERO DE CUENTA RELACIONADA, field: cuenta_relacionada, kind: CODE, width: 16, overflow: ERROR, report_types: ["2", "3"]}
-  - {number: 36, name: CLAVE DEL SUJETO OBLIGADO RELACIONADO, field: clave_sujeto_obligado_relacionado, kind: NUMERIC, width: 6, overflow: ERROR, report_types: ["2", "3"]}
+  - {number: 36, name: CLAVE DEL SUJETO OBLIGADO RELACIONADO, field: clave_sujeto_obligado_relacionado, kind: CODE, width: 6, overflow: ERROR, report_types: ["2", "3"]}
   - {number: 37, name: NOMBRE DEL TITULAR O PERSONA RELACIONADA, field: nombre_relacionado, kind: TEXT, width: 60, report_types: ["2", "3"]}
   - {number: 38, name: APELLIDO PATERNO RELACIONADO, field: apellido_paterno_relacionado, kind: TEXT, width: 60, report_types: ["2", "3"]}
   - {number: 39, name: APELLIDO MATERNO RELACIONADO, field: apellido_materno_relacionado, kind: TEXT, width: 30, report_types: ["2", "3"]}
