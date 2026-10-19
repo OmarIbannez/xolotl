@@ -20,3 +20,9 @@ class UnitSourceError(XolotlError):
 class UnverifiedValueError(ValidationFailedError):
     default_code: ClassVar[str] = "UNVERIFIED_VALUE"
     default_detail: ClassVar[str] = "the file holds UNVERIFIED values"
+
+
+class UnitSourceAuthError(UnitSourceError):
+    """The source rejected the API token: a permanent failure, not a transient one."""
+
+    default_detail: ClassVar[str] = "the unit value source rejected the API token"
