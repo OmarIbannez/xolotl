@@ -1,0 +1,833 @@
+{
+ "lens": "ISOLATION-AND-REPRODUCIBILITY-FIRST: the first migration already contains tenant RLS (ENABLE+FORCE, non-owner app role without BYPASSRLS), composite (tenant_id, id) foreign keys on every tenant table, field-level AES-GCM encryption with HMAC blind indexes under a KeyProvider port, policy-pack snapshots pinned on every decision row, insert-only decision history, a per-tenant hash-chained append-only audit log and computed retention_until + legal_hold. Features are layered on top of that kernel and may only add tables that inherit those invariants (enforced by an auto-discovering CI test), so a regulator asking in 2031 \"why did you approve this customer in 2026?\" gets policy_snapshot hash, ruleset version, list versions, matcher version, check ids and the exact bytes filed.",
+ "summary": "Build one Python package `kycaml` (FastAPI + Pydantic + SQLAlchemy + Alembic, Python 3.13, uv) as a modular monolith with two processes from one image: `kycaml api` and `kycaml worker`. Everything deferred (Kafka, Temporal, OpenSearch, Redis, ClickHouse, KMS, S3) hides behind ten small ports whose MVP adapters are Postgres tables (outbox, job queue, workflow_run/step, agg_bucket, tenant_secret), an in-memory screening index, a local object store and a local key provider; the Notion infrastructure doc (08-infrastructure.md §2, §6) explicitly allows Python workers and an in-memory matcher at tier T1. Sub-project 0 ships the irreversible things (tenancy/RLS/composite FKs, crypto, audit chain, policy packs + snapshots, units/calendar, outbox/jobs, connector SDK, API conventions) and nothing else; then the console shell is adapted from sentinel; then screening, risk, onboarding (first end-to-end demo after SP4), cases, monitoring, KYB, reporting, calendar and hardening, in that order, each with its own spec, golden tests and demo. The sentinel repo contributes the audit chain, the tooling/CI/testcontainers setup, the typed-explanation + allowed_actions API style, the four-eyes case workflow, the identifier validators, the matcher/normalizer skeleton, the typed rule kinds and the React console shell and case/explain components. Honest effort for one developer with an AI agent: about 46 weeks to a Mexico pilot-ready platform (the Notion plan assumed 85 engineer-weeks across eight people); the first demoable onboarding flow arrives around week 20.",
+ "repo_layout": "kycaml/                                  single uv project, one deployable image, two entrypoints (api, worker)\n├── pyproject.toml                       package `kycaml`; ruff/ty/basedpyright/vulture/pytest config copied from sentinel\n├── justfile                             ci | dev-db | dev-api | dev-worker | dev-ui | migrate | seed | packs-validate\n├── docker-compose.yml                   postgres:17 (two roles: kycaml_owner for migrations, kycaml_app non-BYPASSRLS), api, worker, dev OIDC stub\n├── Dockerfile                           node build of frontend + python venv; CMD selects `kycaml api` or `kycaml worker`\n├── policy-packs/                        versioned YAML rulebooks reviewed like code (10-f00 §4): MX/ITF-IFPE/v1.yaml, MX/LFPIORPI-AVI/v1.yaml, shared/country_risk_v1.yaml\n├── report-schemas/                      official artefacts + golden files: mx/formato41_2004_5.yaml (41-column spec), mx/avi.xsd (downloaded), mx/catalogs/*.csv, golden/**\n├── src/kycaml/\n│   ├── platform/                        shared kernel; imports no feature module\n│   │   ├── config.py                    pydantic-settings (from sentinel/config.py), feature flags per adapter\n│   │   ├── db.py                        engine, TenantSession (BEGIN; SET LOCAL app.tenant_id/app.actor/app.roles), uuid7()\n│   │   ├── tenancy/                     TenantContext contextvar, middleware, RLS helpers, TenantBase mixin (tenant_id + composite UNIQUE)\n│   │   ├── crypto/                      KeyProvider port, LocalKeyProvider, EncryptedStr/EncryptedJSON types (AAD=tenant_id), blind_index(), DEK cache, shred\n│   │   ├── audit/                       audit_event (per-tenant hash chain, INSERT-only trigger from sentinel), record(), verify(), daily anchor to ObjectStore\n│   │   ├── policy/                      pack Pydantic models, loader, resolver (merge_strictest + only-tighten), policy_snapshot, golden-test harness\n│   │   ├── units/                       unit_value, UnitService.to_unit/threshold_in_ccy, ConversionRule, UnitValueFetcher port + fixture/Banxico adapters\n│   │   ├── calendar/                    holiday table, DeadlineRule DSL, due_at(), MX 2026-2028 seed\n│   │   ├── events/                      outbox table, EventEnvelope (CloudEvents-style), EventBus port, InProcessDispatcher, subscriber registry\n│   │   ├── jobs/                        JobQueue port, PostgresJobQueue (SKIP LOCKED, backoff, cron), WorkflowRunner (workflow_run/workflow_step, signals, timers)\n│   │   ├── storage/                     ObjectStore port, LocalFsObjectStore, EvidenceStore (sha256, tenant prefix, encrypt-before-put)\n│   │   ├── connectors/                  Connector base, ConnectorRouter, credential_mode, cost meter, circuit breaker, sandbox MockRegistry + magic identities\n│   │   ├── secrets/                     TenantSecrets port (encrypted rows) for tenant-held credentials\n│   │   ├── retention/                   retention_until computation, legal_hold, purge job (dry-run, crypto-shred)\n│   │   ├── webhooks/                    webhook_endpoint, webhook_delivery, HMAC signer, delivery job\n│   │   ├── api/                         app factory, auth (OIDC staff bearer + OAuth2 client-credentials API clients + scopes), Idempotency-Key, RFC 9457 errors, cursor pagination, explanations base models\n│   │   └── clock.py                     Clock port (SystemClock, FrozenClock for tests)\n│   ├── party/                           party, person, organization, party_identifier, party_address, document, customer_relationship, consent_record, party_name_index\n│   ├── screening/                       ingest/ (un, ofac_sls, eu_fsf, uk_fcdo, sat_69b, private_upload), normalize/, phonetic.py, nicknames.yaml, index (ScreeningIndex port + InMemory adapter), scorer.py, runs.py, dispositions.py, whitelist.py, rescreen.py, routes.py\n│   ├── risk/                            models (risk_model_version, factor tables), evaluator.py, assessments.py, overrides.py, simulate.py, routes.py\n│   ├── onboarding/                      journeys.py, applications.py, captures.py, checks/ (mx_renapo, mx_ine, mx_sat_rfc, mx_clabe, idv_vendor, device), validators.py (CURP/RFC/CLABE), assurance.py, decision.py, review.py, workflow.py, evidence_pack.py, routes.py\n│   ├── kyb/                             applications.py, declaration.py, graph.py (effective ownership), ubo.py, reconciliation.py, extraction.py (port + mock), routes.py\n│   ├── monitoring/                      schema.py (Txn), ingest.py, enrich.py, dsl/ (parser, compiler, aggregates), state.py (agg_bucket), evaluate.py, captures.py (reportable_event), limits.py, decide.py (sync), simulate.py, library/mx/*.yaml, routes.py\n│   ├── cases/                           alerts.py, router.py (auto-grouping), cases.py (state machine, four-eyes), clocks.py, committee.py, narratives.py, playbooks/mx_freeze.py, requests.py, workspace.py, routes.py\n│   ├── reporting/                       definitions.py, code_tables.py, normalizers.py, serializers/ (delimited_txt.py, xml_xsd.py), runs.py (period close → draft → approve → archive), filing.py (FilingChannel port + ManualUploadChannel + receipt parsers), dashboard.py, mx/ (formato41.py, aviso_avi.py), routes.py\n│   ├── obligations/                     definitions.py, generator.py, evidence.py, governance.py, board_pack.py, routes.py\n│   ├── cli.py                           kycaml api|worker|migrate|tenant create|tenant shred|seed sandbox|lists sync|packs validate|audit verify\n│   └── migrations/                      alembic; 0001_tenancy_kernel (tenant, keys, staff, api_client, audit, outbox, jobs, policy, units, calendar, secrets) → 0002_party_core → one revision per sub-project\n├── frontend/                            sentinel console forked: api/ (openapi-fetch + generated types), auth/ (OIDC), i18n/ (es-MX default), features/{admin,screening,risk,onboarding,kyb,cases,committee,monitoring,reports,calendar,audit}\n└── tests/\n    ├── conftest.py                      testcontainers Postgres, owner-vs-app roles, two-tenant fixtures, savepoint sessions, FrozenClock\n    ├── isolation/test_rls_every_table.py   information_schema-driven cross-tenant read/write test\n    ├── golden/                          policy packs, calendars, Formato 41 + aviso XML byte-identical files, capture scenarios, risk profiles\n    └── <module>/                        unit + API tests per module",
+ "modules": [
+  {
+   "name": "platform.tenancy+db",
+   "responsibility": "TenantContext per request/job, TenantSession that issues SET LOCAL app.tenant_id/actor/roles inside each transaction, TenantBase mixin (tenant_id, composite UNIQUE (tenant_id,id)), RLS policy helpers used by every migration, UUIDv7 ids. Owns the isolation CI test.",
+   "depends_on": []
+  },
+  {
+   "name": "platform.crypto",
+   "responsibility": "KeyProvider port and LocalKeyProvider; EncryptedStr/EncryptedJSON SQLAlchemy types (AES-256-GCM, AAD = tenant_id, DEK version prefix); blind_index(kind, value) HMAC with tenant index key; DEK cache; crypto-shred by tenant or DEK version.",
+   "depends_on": [
+    "platform.tenancy+db"
+   ]
+  },
+  {
+   "name": "platform.audit",
+   "responsibility": "audit_event per-tenant hash chain (prev_hash per tenant, advisory lock keyed by tenant), INSERT-only trigger, record() inside caller's transaction, verify_chain(tenant), VIEW_PII and VIEW_RESTRICTED_CASE logging helpers, daily anchor hash written to ObjectStore.",
+   "depends_on": [
+    "platform.tenancy+db",
+    "platform.storage"
+   ]
+  },
+  {
+   "name": "platform.policy",
+   "responsibility": "Policy pack Pydantic models (kyc tiers, ubo, screening, risk, reports, retention), YAML loader, resolver effective_policy(tenant, on) with merge_strictest and only-tighten overrides, policy_snapshot persistence and content hashing, golden-test harness for packs.",
+   "depends_on": [
+    "platform.tenancy+db",
+    "platform.audit"
+   ]
+  },
+  {
+   "name": "platform.units",
+   "responsibility": "Effective-dated unit_value rows (UMA, UDI, USD_MXN_FIX), UnitService.to_unit/threshold_in_ccy with ConversionRule (SAME_DAY, PRIOR_BANKING_DAY), UnitValueMissing fail-closed, UnitValueFetcher port.",
+   "depends_on": [
+    "platform.calendar",
+    "platform.jobs"
+   ]
+  },
+  {
+   "name": "platform.calendar",
+   "responsibility": "holiday table per country/regulator scope, DeadlineRule DSL (BUSINESS_DAYS_AFTER, NTH_BUSINESS_DAY, DAY_OF_NEXT_MONTH, CALENDAR_DAYS_AFTER, HOURS_AFTER, FIXED), due_at(), business-day arithmetic in America/Mexico_City.",
+   "depends_on": [
+    "platform.tenancy+db"
+   ]
+  },
+  {
+   "name": "platform.events",
+   "responsibility": "outbox table, EventEnvelope, EventBus port (publish inside the business transaction), InProcessDispatcher in the worker, subscriber registry with idempotent handlers keyed by event id, dead-letter visibility.",
+   "depends_on": [
+    "platform.tenancy+db",
+    "platform.jobs"
+   ]
+  },
+  {
+   "name": "platform.jobs",
+   "responsibility": "JobQueue port + PostgresJobQueue (FOR UPDATE SKIP LOCKED, retries with backoff, cron, per-tenant fairness), WorkflowRunner over workflow_run/workflow_step (idempotent steps, signals, timers, policy_snapshot pinned at start).",
+   "depends_on": [
+    "platform.tenancy+db",
+    "platform.clock"
+   ]
+  },
+  {
+   "name": "platform.storage",
+   "responsibility": "ObjectStore port (put/get/presign/delete/lock), LocalFsObjectStore, EvidenceStore that encrypts with the tenant DEK before put and records sha256 and tenant prefix.",
+   "depends_on": [
+    "platform.crypto"
+   ]
+  },
+  {
+   "name": "platform.connectors",
+   "responsibility": "Connector base (run = creds → circuit breaker → retry → evidence put → interpret → meter), ConnectorRouter primary/fallback per check type and tenant credential_mode, sandbox MockRegistry with deterministic magic identities, cost metering rows.",
+   "depends_on": [
+    "platform.storage",
+    "platform.secrets",
+    "platform.jobs"
+   ]
+  },
+  {
+   "name": "platform.secrets",
+   "responsibility": "TenantSecrets port for tenant-held credentials (encrypted rows via KeyProvider now, Vault later); never readable by platform operators through the API.",
+   "depends_on": [
+    "platform.crypto"
+   ]
+  },
+  {
+   "name": "platform.retention",
+   "responsibility": "retention_until = relationship end + pack retention years, legal_hold table, purge job with dry-run report and crypto-shred of expired evidence.",
+   "depends_on": [
+    "platform.policy",
+    "platform.crypto",
+    "platform.jobs"
+   ]
+  },
+  {
+   "name": "platform.webhooks",
+   "responsibility": "webhook_endpoint/webhook_delivery, HMAC-SHA256 signing, delivery job with 24 h backoff and dead-letter, subscribes to domain events and strips suspicion details.",
+   "depends_on": [
+    "platform.events",
+    "platform.jobs"
+   ]
+  },
+  {
+   "name": "platform.api",
+   "responsibility": "FastAPI app factory, staff OIDC bearer auth and tenant API-client OAuth2 client-credentials with scopes, Idempotency-Key store, RFC 9457 problem+json, cursor pagination, explanation base models (typed, generate TS types), PII redaction logging filter.",
+   "depends_on": [
+    "platform.tenancy+db",
+    "platform.audit"
+   ]
+  },
+  {
+   "name": "party",
+   "responsibility": "party, person (encrypted names/DOB + full_name_norm tokens in party_name_index), organization, party_identifier (value_enc + value_hash), party_address, document, customer_relationship (status, tier, current_risk_id, next_review_at), consent_record. Pure data core shared by every feature.",
+   "depends_on": [
+    "platform.crypto",
+    "platform.audit",
+    "platform.policy",
+    "platform.storage"
+   ]
+  },
+  {
+   "name": "screening",
+   "responsibility": "Shared list ingestion with versions/diffs, tenant-private lists (MX_LPB), normalizer + LATAM phonetic key + nicknames + IDF, ScreeningIndex port (InMemory adapter), scorer with qualifiers and bands, screening_run/match/disposition/whitelist, sync screen API, delta and periodic rescreen jobs, evaluation corpus.",
+   "depends_on": [
+    "party",
+    "platform.events",
+    "platform.jobs",
+    "platform.policy"
+   ]
+  },
+  {
+   "name": "risk",
+   "responsibility": "risk_model_version + factor tables, deterministic evaluator with hard rules, insert-only risk_assessment + factor rows and current pointer repoint, triggers from events, four-eyes overrides with legal floors, simulation and batch activation.",
+   "depends_on": [
+    "party",
+    "screening",
+    "platform.events",
+    "platform.policy"
+   ]
+  },
+  {
+   "name": "onboarding",
+   "responsibility": "Journeys from effective policy, onboarding_application with frozen policy snapshot, capture sessions, verification_check evidence, MX mock registry and IDV connectors, assurance levels, decision ruleset with stable reason codes, review tasks, step-up/refresh, evidence pack, webhooks.",
+   "depends_on": [
+    "party",
+    "screening",
+    "risk",
+    "platform.connectors",
+    "platform.jobs",
+    "platform.webhooks"
+   ]
+  },
+  {
+   "name": "kyb",
+   "responsibility": "kyb_application, signed ownership declaration, party_relationship provenance, registry snapshots (CSF/69-B), document extraction port, effective-ownership graph, policy-driven UBO determination, reconciliation issues, KYC invites for reps/UBOs, company decision ruleset.",
+   "depends_on": [
+    "party",
+    "onboarding",
+    "screening",
+    "risk",
+    "platform.connectors"
+   ]
+  },
+  {
+   "name": "monitoring",
+   "responsibility": "Canonical transactions (partitioned), accounts, counterparties, enrichment in UDI/UMA/USD-FIX, rule DSL compiled to Python, bucketed aggregates in Postgres, async evaluation, alerts + evidence, reportable_event captures, tier limits, sync decide API, behaviour profiles, simulation.",
+   "depends_on": [
+    "party",
+    "risk",
+    "screening",
+    "platform.units",
+    "platform.calendar",
+    "platform.events",
+    "platform.jobs"
+   ]
+  },
+  {
+   "name": "cases",
+   "responsibility": "Alert inbox and lifecycle, auto-grouping into aml_case, queues, RESTRICTED/INSIDER visibility (second RLS policy + case_member), SLA clocks, four-eyes decisions, MX compliance committee, narratives, attachments, regulator requests, outcome webhooks, MX freeze playbook.",
+   "depends_on": [
+    "party",
+    "screening",
+    "monitoring",
+    "onboarding",
+    "kyb",
+    "platform.calendar",
+    "platform.events",
+    "platform.webhooks"
+   ]
+  },
+  {
+   "name": "reporting",
+   "responsibility": "report_definition registry and code tables, normalizers, DelimitedTxt and XmlXsd serializers, Formato 41 ROR/ROI/24h/ROIP and LFPIORPI AVI aviso/informe en ceros/modificatorio, period-close runs, approval, immutable artifact archive, FilingChannel (manual upload + receipt parsing), deadline dashboard.",
+   "depends_on": [
+    "party",
+    "cases",
+    "monitoring",
+    "kyb",
+    "platform.units",
+    "platform.calendar",
+    "platform.storage",
+    "platform.events"
+   ]
+  },
+  {
+   "name": "obligations",
+   "responsibility": "obligation_def catalog from packs, generator cron, statuses and notifications, auto-evidence from report.filed and risk/review metrics, compliance-officer, training and policy-document registries, board pack.",
+   "depends_on": [
+    "platform.policy",
+    "platform.calendar",
+    "platform.events",
+    "reporting",
+    "risk"
+   ]
+  },
+  {
+   "name": "frontend (console)",
+   "responsibility": "Sentinel React/TS console adapted: OIDC login, tenant-scoped roles, es-MX i18n, generated API types, pages per module driven by typed explanations and allowed_actions; no business rules client-side.",
+   "depends_on": [
+    "platform.api"
+   ]
+  }
+ ],
+ "ports": [
+  {
+   "name": "EventBus (transactional outbox)",
+   "methods": [
+    "publish(session, event: EventEnvelope) -> None  # inserts outbox row in the caller's transaction",
+    "subscribe(event_type: str, handler: Callable[[EventEnvelope], None]) -> None",
+    "dispatch_pending(batch: int) -> int  # worker loop; marks published_at; handler idempotency by event id",
+    "replay(tenant_id, since) -> int"
+   ],
+   "mvp_adapter": "PostgresOutbox + InProcessDispatcher running in `kycaml worker` (poll with SKIP LOCKED, deliver to in-process subscribers, record delivery in event_delivery table)",
+   "later_adapter": "Debezium CDC → Kafka/Redpanda relay; subscribers become consumer groups (10-f00 §7)"
+  },
+  {
+   "name": "JobQueue",
+   "methods": [
+    "enqueue(job_type, payload, *, tenant_id, run_at=None, idempotency_key=None, priority=0) -> JobId",
+    "claim(worker_id, n, job_types) -> list[Job]  # FOR UPDATE SKIP LOCKED",
+    "complete(job_id) / fail(job_id, error, retry_at) / dead_letter(job_id)",
+    "schedule_cron(job_type, cron_expr, tenant_id | None) -> None"
+   ],
+   "mvp_adapter": "PostgresJobQueue (job table partitioned by status, per-tenant fairness, exponential backoff, visibility in console)",
+   "later_adapter": "SQS/Temporal activities; same JobQueue interface wrapped"
+  },
+  {
+   "name": "WorkflowRunner (durable steps)",
+   "methods": [
+    "start(workflow_code, subject_id, tenant_id, policy_snapshot_id) -> RunId",
+    "step(run_id, step_id, fn, *, idempotency_key) -> StepResult  # persisted before return",
+    "wait_for_signal(run_id, signal_name, timeout) / signal(run_id, signal_name, payload)",
+    "timer(run_id, name, fire_at)",
+    "status(run_id) -> WorkflowStatus; cancel(run_id)"
+   ],
+   "mvp_adapter": "Table-driven runner on top of JobQueue: workflow_run + workflow_step rows, each step a job, signals as rows that re-enqueue the run; payloads carry ids only",
+   "later_adapter": "Temporal worker with the same OnboardingWorkflow/KybWorkflow/ReportRun definitions ported to @workflow.defn (10-f00 §1, 11-f01 §5)"
+  },
+  {
+   "name": "ScreeningIndex",
+   "methods": [
+    "load_version(list_version_id, entries: Iterable[IndexEntry]) / drop_version(list_version_id)",
+    "load_private(tenant_id, private_list_id, entries) / drop_private(tenant_id, private_list_id)",
+    "candidates(query: NormalizedName, *, tenant_id, list_kinds, top_k) -> list[CandidateRef]  # blocking by phonetic key, folded tokens, exact ids",
+    "index_customer_names(tenant_id, rows: Iterable[(party_id, NormalizedName)])",
+    "reverse_candidates(entry: IndexEntry, tenant_id, top_k) -> list[party_id]  # delta rescreen",
+    "stats() -> IndexStats"
+   ],
+   "mvp_adapter": "InMemoryScreeningIndex built at worker/api start from Postgres list_entry + private_list_entry + party_name_index (rapidfuzz, dict blocking); pg_trgm query fallback when memory budget exceeded",
+   "later_adapter": "OpenSearch (ICU folding, phonetic plugin) via yente-compatible queries; per-tenant indices for private lists (research tech-screening §D.7, 08-infrastructure §2 row 6)"
+  },
+  {
+   "name": "ObjectStore / EvidenceStore",
+   "methods": [
+    "put(tenant_id, key, data: bytes, content_type, *, sha256) -> ObjectRef",
+    "get(ref) -> bytes; head(ref) -> ObjectMeta",
+    "presign_put(tenant_id, key, content_type, ttl) -> URL",
+    "delete(ref) / lock(ref, retain_until)  # WORM later",
+    "evidence.put_encrypted(tenant_id, kind, raw) -> ObjectRef  # encrypts with tenant DEK first"
+   ],
+   "mvp_adapter": "LocalFsObjectStore under DATA_DIR/<tenant>/<kind>/..., presign = short-lived upload token route",
+   "later_adapter": "S3 with per-tenant prefixes, SSE-KMS and Object Lock (compliance mode) for audit anchors and filed artifacts"
+  },
+  {
+   "name": "KeyProvider",
+   "methods": [
+    "get_dek(tenant_id, version: int | None = None) -> DataKey",
+    "create_dek(tenant_id, purpose: 'data' | 'biometric') -> DataKey",
+    "index_key(tenant_id) -> bytes  # HMAC key for blind indexes",
+    "rotate(tenant_id) -> int; destroy(tenant_id, version=None) -> None  # crypto-shred"
+   ],
+   "mvp_adapter": "LocalKeyProvider: master key from env/file wraps per-tenant DEKs stored in tenant_key table (versioned)",
+   "later_adapter": "KmsKeyProvider: per-tenant KEK in cloud KMS, BYOK option; same tenant_key table holds wrapped DEKs"
+  },
+  {
+   "name": "UnitValueFetcher",
+   "methods": [
+    "fetch(unit_code, date_from, date_to) -> list[UnitValue]",
+    "latest(unit_code) -> UnitValue"
+   ],
+   "mvp_adapter": "FixtureFetcher (CSV in report-schemas/mx/units) + BanxicoSieFetcher in sandbox mode behind a flag; manual `kycaml units load` CLI; values never overwritten (correction chain)",
+   "later_adapter": "Scheduled fetch jobs per source (INEGI DOF UMA, Banxico SIE UDI/FIX) with alerting on gaps"
+  },
+  {
+   "name": "Connector / VendorClient + ConnectorRouter",
+   "methods": [
+    "Connector.run(req: ConnectorRequest, ctx: ConnectorContext) -> VerificationCheck",
+    "Connector._call(req, creds) -> RawResponse; Connector._interpret(raw) -> CheckResult",
+    "ConnectorRouter.route(check_type, country, tenant_id) -> list[Connector]  # primary → fallbacks",
+    "Meter.record(tenant_id, connector, cost_minor)"
+   ],
+   "mvp_adapter": "Mock adapters with deterministic magic identities: MockRenapoCurp, MockIneBiometric (5–7 s latency + outage CURPs), MockSatRfc, MockClabeOwnership, MockIdvVendor (doc auth/liveness/face), MockDeviceRisk, MockSatCsfQr",
+   "later_adapter": "Incode (doc/liveness/INE), Nubarium or Kiban (RENAPO, SAT), Veridas/NA-AT fallback for INE, SEON/Incognia device; tenant bring-your-own convenio credentials via TenantSecrets"
+  },
+  {
+   "name": "FilingChannel",
+   "methods": [
+    "prepare(report_run_id) -> FilingPackage  # artifact bytes + sha256 + instructions",
+    "submit(package, credentials: TenantCredentialRef | None) -> FilingAttempt",
+    "parse_receipt(report_type, receipt_bytes) -> Receipt  # folio, timestamp, record count, status",
+    "status(attempt_id) -> FilingStatus"
+   ],
+   "mvp_adapter": "ManualUploadChannel: analyst downloads the exact artifact, uploads to SITI/SPPLD themselves, then uploads the acuse; parser extracts folio/timestamp; attempt recorded with method MANUAL_UPLOAD",
+   "later_adapter": "SiscoafSoapChannel (BR, zeep + e-CPF), CL automated channel; MX stays manual unless CNBV/SAT publish an API (research reporting-mx-br A.2.3, tech-screening §F)"
+  },
+  {
+   "name": "Clock",
+   "methods": [
+    "now() -> datetime (UTC)",
+    "today(tz: str) -> date",
+    "sleep_until(ts)  # worker only"
+   ],
+   "mvp_adapter": "SystemClock in prod; FrozenClock/AdvancingClock in tests so SLA clocks, abandonment timers and period closes are testable",
+   "later_adapter": "Same; Temporal supplies deterministic time inside workflows"
+  },
+  {
+   "name": "TenantSecrets",
+   "methods": [
+    "get(tenant_id, name, mode: 'PLATFORM' | 'TENANT') -> Secret",
+    "put(tenant_id, name, value, *, actor) -> None  # audited, write-only from console",
+    "list(tenant_id) -> list[SecretMeta]"
+   ],
+   "mvp_adapter": "tenant_secret table encrypted with the tenant DEK; API returns metadata only",
+   "later_adapter": "Vault / cloud secrets manager per-tenant paths"
+  },
+  {
+   "name": "WebhookDelivery",
+   "methods": [
+    "enqueue(tenant_id, event: EventEnvelope) -> None",
+    "deliver(delivery_id) -> DeliveryResult  # HMAC X-Signature/X-Timestamp",
+    "redeliver(delivery_id)"
+   ],
+   "mvp_adapter": "Rows in webhook_delivery drained by JobQueue with 24 h exponential backoff",
+   "later_adapter": "Dedicated webhook service consuming Kafka topics"
+  },
+  {
+   "name": "TransactionHistory (analytics scan)",
+   "methods": [
+    "scan(tenant_id, from_ts, to_ts, filters, order='event_time') -> Iterator[Txn]",
+    "aggregate(tenant_id, spec) -> Rows"
+   ],
+   "mvp_adapter": "Partitioned Postgres transaction table read through a reader-role session",
+   "later_adapter": "ClickHouse with row policies; Iceberg archive for 10-year history"
+  }
+ ],
+ "shared_core_model": [
+  "tenant (id, legal_name, country_code, cell, env SANDBOX|PROD, status, created_at): root of every RLS policy; env column lets sandbox tenants share the schema (08-infrastructure §10).",
+  "tenant_key (tenant_id, version, purpose data|biometric, wrapped_dek, created_at, destroyed_at): versioned wrapped DEKs; crypto-shredding is a row update, never a data rewrite.",
+  "staff_user (tenant_id, sso_subject, email, roles[], active) and api_client (tenant_id, client_id, secret_hash, scopes[], env): the two actor kinds every audit row names.",
+  "policy_pack, policy_pack_version (code, version, effective_from, config jsonb validated by Pydantic), tenant_policy (pack assignments + only-tighten overrides, approved_by) and policy_snapshot (tenant_id, content_hash, content): every decision row carries a policy_snapshot_id; no feature can start before this exists (10-f00 §4.4).",
+  "audit_event (tenant_id, at, actor_type, actor_id, action, entity_type, entity_id, detail, prev_hash, hash) partitioned by month, INSERT-only grant + trigger, hash chain per tenant: must exist before the first feature write so no state change is ever unlogged.",
+  "outbox (id=event id, tenant_id, type, key, payload, created_at, published_at) and event_delivery (event_id, subscriber, delivered_at): the only way features talk to each other asynchronously.",
+  "job (id, tenant_id, type, payload, run_at, attempts, locked_by, status, idempotency_key) plus workflow_run / workflow_step (run_id, workflow_code, subject_id, policy_snapshot_id, step_id, status, result, attempt): durable retryable steps for onboarding, rescreen, period close, re-score, purge.",
+  "idempotency_key (tenant_id, key, request_hash, response, expires_at): API conventions require it on every POST from day one.",
+  "unit_value (unit_code, valid_from, valid_to, value, quote_ccy, source, fetched_at, superseded_by) and holiday (country, regulator_scope, date, name, source): thresholds and deadlines are computed from effective-dated reference data, never constants.",
+  "tenant_secret (tenant_id, name, value_enc, mode, created_by): tenant-held registry/regulator credentials, encrypted, metadata-only API.",
+  "party (tenant_id, id, party_type, country_code, retention_until, legal_hold), person (encrypted given_names/first_surname/second_surname/birth_date, is_pep), organization, party_identifier (id_type, value_enc, value_hash UNIQUE per tenant), party_address (address_enc, admin_area, municipality), document (storage_key, sha256), customer_relationship (external_ref UNIQUE per tenant, status, account_tier, current_risk_id, next_review_at, started_at, ended_at), consent_record, party_name_index (tenant_id, party_id, name_variant_norm, phonetic_keys[]): the party is the pivot of every feature and the retention anchor (07-data-model §5-6).",
+  "verification_check (tenant_id, party_id, application_id, check_type, provider, credential_mode, result, score, response_ref, cost_minor, route, performed_at): immutable evidence row written by every connector call, referenced by onboarding, KYB and screening.",
+  "list_source, list_version (checksum, ingested_at), list_entry (version_id, names, identifiers, content_hash, raw) as shared reference data without tenant_id, plus report_schema (jurisdiction, report_type, version, valid_from, definition): versioned external facts that decisions and filings pin by id.",
+  "webhook_endpoint and webhook_delivery (tenant_id, url, secret_enc, event types; delivery status, attempts): the async client contract is part of the API foundation, not of any one feature.",
+  "legal_hold (tenant_id, party_id | case_id, reason, placed_by, released_at) and retention_policy view: the purge job must be impossible to run before holds exist."
+ ],
+ "subprojects": [
+  {
+   "id": "SP0",
+   "name": "Foundations: isolation and reproducibility kernel",
+   "scope": "Repo skeleton from sentinel tooling (uv, ruff/ty/basedpyright/vulture/pytest, testcontainers, justfile, Dockerfile with api/worker entrypoints, CI). Alembic 0001_tenancy_kernel + 0002_party_core creating every shared_core_model table with ENABLE+FORCE RLS, tenant_isolation policies, composite (tenant_id,id) UNIQUEs and composite FKs, owner vs app roles. TenantContext middleware and TenantSession (SET LOCAL). UUIDv7. Crypto lib (EncryptedStr/EncryptedJSON, blind_index, LocalKeyProvider, DEK versions, `kycaml tenant shred`). Per-tenant hash-chained audit with INSERT-only trigger and verify. Policy pack models + loader + resolver + only-tighten validator + policy_snapshot; MX/ITF-IFPE v1 YAML (tiers N1/N2/FULL in UDI, UBO 25%, screening lists incl. MX_LPB, on_true_match actions, reports list, retention P10Y) and MX/LFPIORPI-AVI v1 skeleton (fr. XVI thresholds 210/4 UMA, 6-month accumulation, aviso day 17). Units service (UMA annual 1 Feb, UDI daily, USD_MXN_FIX prior banking day, UnitValueMissing) with fixture fetcher. Calendar (MX holidays 2026–2028, DeadlineRule DSL, due_at golden tests). Outbox + in-process dispatcher + subscriber registry. PostgresJobQueue + WorkflowRunner (steps, signals, timers). LocalFsObjectStore + EvidenceStore. Connector SDK + ConnectorRouter + MockRegistry + cost meter + circuit breaker. TenantSecrets. API conventions (staff OIDC bearer, API-client client-credentials JWT with scopes, Idempotency-Key, RFC 9457, cursor pagination, PII redaction filter) and webhook signer/delivery job. Retention_until helper, legal_hold, purge job skeleton (dry-run only). Isolation test that discovers every tenant table via information_schema.",
+   "out_of_scope": "Any feature table or endpoint; real KMS/S3/Kafka/Temporal; console pages beyond health; Brazil holidays and units.",
+   "depends_on": [],
+   "exit_criteria": [
+    "`just ci` is green and the isolation test proves, for every table carrying tenant_id, that rows written as tenant A are invisible to tenant B through both repositories and raw SQL executed as the app role (no BYPASSRLS, not table owner).",
+    "Inserting a row that references another tenant's party fails on the composite foreign key; a feature migration that adds a tenant table without RLS fails CI.",
+    "`kycaml tenant shred <tenant>` destroys that tenant's DEK: its EncryptedStr columns no longer decrypt, other tenants are untouched, and `kycaml audit verify` still passes for both.",
+    "effective_policy(tenant, 2026-12-01) resolves MX/ITF-IFPE v1 into a policy_snapshot whose content_hash is identical across two runs; an override raising the UBO threshold above 25% or retention below 10 years is rejected at write time.",
+    "UnitService converts MXN to USD for 2026-12-02 using the FIX of the prior banking day and raises UnitValueMissing for an unloaded date; calendar golden tests give Q4-2026 ROR due = 10th business day of January 2027 and the November-2026 aviso due 17-Dec-2026 or the next business day.",
+    "A domain write plus its outbox row commit atomically; after a simulated worker crash mid-dispatch the event is delivered once more and the idempotent subscriber records exactly one effect; a failing job retries with backoff and dead-letters after N attempts.",
+    "A mock connector run yields a verification_check with encrypted raw evidence in the local object store, a cost meter row, retry on timeout and an open circuit after repeated failures; the sandbox magic identity table is documented.",
+    "Structured logs contain no P1/P2 field (test asserts the redaction filter on a request carrying a CURP and a name)."
+   ],
+   "est_weeks_solo_with_agent": 5,
+   "notion_sources": [
+    "10-f00-platform-foundations.md",
+    "07-data-model.md",
+    "06-architecture-overview.md",
+    "08-infrastructure.md",
+    "04-delivery-plan.md (Sprint 0-1, T0.2-T1.3)"
+   ]
+  },
+  {
+   "id": "SP1",
+   "name": "Console shell and integration surface",
+   "scope": "Fork sentinel frontend into frontend/: OIDC authorization-code login against a dev IdP container, tenant-scoped roles ANALYST/SENIOR_ANALYST/MLRO/AUDITOR_RO/ADMIN, tenant switcher for platform operators (audited), es-MX i18n layer with en fallback, regenerated OpenAPI types, AppShell/nav adapted. Admin pages: API clients and key rotation, webhook endpoints with delivery log and redeliver, staff users, policy pack viewer (effective policy, overrides, snapshots), audit log with chain verify (reuse AuditPage), tenant secrets metadata. Generic ReviewTaskList and EvidenceViewer components for later modules. Sandbox tenant provisioning CLI and developer docs page (auth, idempotency, webhooks, magic identities).",
+   "out_of_scope": "Feature pages (delivered with each module); native SDKs; tenant SSO federation beyond OIDC.",
+   "depends_on": [
+    "SP0"
+   ],
+   "exit_criteria": [
+    "A tenant admin logs in via OIDC, creates an API client, rotates its key, registers a webhook and receives a signed test delivery; the delivery log shows attempts and payload.",
+    "Tenant B's admin cannot see tenant A's clients, webhooks, staff, snapshots or audit rows through the UI or the API (automated cross-tenant UI/API test).",
+    "The UI renders in Spanish by default; the audit page verifies tenant A's chain; an AUDITOR_RO user sees read-only screens and every write route returns 403."
+   ],
+   "est_weeks_solo_with_agent": 2.5,
+   "notion_sources": [
+    "04-delivery-plan.md (T1.4, T2.5)",
+    "10-f00-platform-foundations.md §8",
+    "21-sentinel-product-readiness-pricing.md §3, §5"
+   ]
+  },
+  {
+   "id": "SP2",
+   "name": "Screening engine with tenant-private LPB and delta re-screening",
+   "scope": "Content inferred for the blank Notion page 03. Ingestion jobs: UN consolidated XML (follow 302), OFAC SLS SDN_ENHANCED + CONS_ENHANCED XML (IDs incl. RFC/CURP), EU FSF XML, UK FCDO XML, SAT 69-B CSV (header on line 3, Latin-1, RFC exact match) into list_source/list_version/list_entry with content_hash and version diffs; freshness view. Private lists: tenant upload of MX_LPB and INTERNAL_BLACKLIST into private_list/private_list_entry (names_enc, hashed identifiers), indexed only inside that tenant's partition. Normalizer: NFKC, casefold, accent fold, honorific strip (data file), particle tagging (never dropped from display), suffix qualifiers, married-name variants, ES vs BR structure variants, nickname table (~500 ES/PT entries, Pepe→José), LATAM phonetic key (~40 rules), surname IDF table. ScreeningIndex port + InMemory adapter (phonetic/folded/ID blocking, customer-name reverse index from party_name_index). Scorer: IDF-weighted Monge-Elkan alignment (JW p=0.1, family-name role 1.3), unmatched query 0.8 / result 0.2, weak alias x0.8, qualifiers (ID floor 0.95, same-type ID conflict cap 0.30, DOB/gender/country), bands per list kind (sanctions ≥0.70 alert, 0.55–0.70 review band, PEP ≥0.80), versioned matcher config. screening_run (list_versions[], private_lists[], matcher_version, policy_snapshot_id), screening_match (match_detail), match_disposition (append-only, rationale), screening_whitelist (entry content_hash). APIs: sync screen party, ad-hoc check, matches/dispositions. Jobs: delta rescreen on lists.version.ingested (diff → reverse-screen changed entries → alerts via outbox), periodic full rescreen per pack, counterparty screening function for monitoring. Events screening.match.created/dispositioned. Evaluation corpus v1 (synthetic perturbations + homonym hard negatives) with PR report in CI. Console: screening page, run/match detail with score breakdown (sentinel explain components), disposition dialog.",
+   "out_of_scope": "OpenSearch/yente, adverse media, commercial PEP feed (OpenSanctions loader behind a licence flag only), freeze playbook (SP5), alert triage LLM.",
+   "depends_on": [
+    "SP0",
+    "SP1"
+   ],
+   "exit_criteria": [
+    "`kycaml lists sync` ingests UN, OFAC, EU, UK and SAT 69-B, stores versions with checksums and a per-version diff; the freshness page shows published_at/ingested_at per source.",
+    "Tenant A uploads an LPB file; a party in tenant A matching an LPB entry alerts, the same name in tenant B does not; the LPB entries are unreadable in the database without tenant A's DEK.",
+    "Screening 'Joaquín Guzmán Loera' DOB 1954-12-25 MX returns an SDN match ≥0.95 with the ID/DOB qualifiers in match_detail; the same name with DOB 1990 falls below the sanctions band; 'Pepe García Hernández' matches 'José García Hernández' through nickname expansion with the penalty shown.",
+    "p95 single-name screen < 300 ms against the full shared lists plus a 100k-name private list on a laptop; a new UN entry added to a test version alerts the matching customer through the delta job within 5 minutes.",
+    "A match cleared with a disposition is suppressed on the next run while the entry's content_hash is unchanged and re-alerts when the entry changes; `kycaml screening replay <run_id>` reproduces identical matches from stored versions and matcher_version.",
+    "Evaluation report in CI: sanctions recall ≥0.98 on perturbation classes up to 'moderate' at the chosen band, with alert rate per 1,000 synthetic customers published."
+   ],
+   "est_weeks_solo_with_agent": 5,
+   "notion_sources": [
+    "research/2026-10-17-tech-screening-reporting.md (§A, §B, §D, recommended pipeline)",
+    "06-architecture-overview.md §6.4",
+    "07-data-model.md §7",
+    "03-feature-list-v2.md §4 (S-1..S-8)",
+    "04-delivery-plan.md (SC-1..SC-5: T2.2, T3.2, T4.2, T5.2, T6.2)",
+    "10-f00-platform-foundations.md §3 (name tokens)"
+   ]
+  },
+  {
+   "id": "SP3",
+   "name": "Customer risk scoring",
+   "scope": "risk_model, risk_model_version (definition jsonb, table_versions, status lifecycle), risk_factor_table (shared and tenant). MX-ITF-default v1: dimensions customer/geography/product/channel/behaviour, factors occupation (SINCO), economic_activity (SCIAN + LFPIORPI Art. 17 vulnerable activities), residence_municipality (INEGI keys), nationality (country_risk v1 seeded from sentinel _jurisdictions + FATF list placeholder), product (tenant table), onboarding_channel, declared_vs_actual_volume bands; hard rules (true match on UN/MX_LPB/OFAC → PROHIBITED, foreign PEP floor HIGH, domestic PEP floor per policy, FATF call-for-action floor HIGH, MX non-resident floor HIGH); bands and outputs (dd_level, review P1Y, monitoring profile, SENIOR approval). Deterministic evaluator with missing_points and data_gaps. risk_assessment + risk_assessment_factor insert-only with previous_id and customer_relationship.current_risk_id repoint; next_review_at. Sync internal scoring API (<50 ms). Async triggers via subscribers (party.updated, screening.match.dispositioned TRUE_MATCH / PEP change, behaviour.profile.updated). risk_override with four-eyes, expiry, cannot cross legal floors or PROHIBITED. Simulation (no persist, migration matrix) and activation job (batch re-score, trigger MODEL_CHANGE). Console: risk tab with factor breakdown, history, override request/approval, model versions with simulate/activate.",
+   "out_of_scope": "Enterprise-wide risk assessment (R-M4, Brazil phase), ML signal, municipality crime data licensing.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP2"
+   ],
+   "exit_criteria": [
+    "Golden profiles (PEP, border-state resident, cash-intensive occupation, clean salaried) produce the expected rating, dimension scores and hard_rules_fired; property tests prove determinism and monotonicity.",
+    "An override that lowers a foreign PEP below HIGH or touches a PROHIBITED rating is rejected; an approved override by a second user creates a new assessment with trigger MANUAL and expires on schedule (FrozenClock).",
+    "Activating model v2 produces a migration matrix, re-scores all customers in batches as new rows, and `kycaml risk replay <assessment_id>` reproduces a v1 assessment exactly from its stored model and table versions."
+   ],
+   "est_weeks_solo_with_agent": 3,
+   "notion_sources": [
+    "14-f04-risk-scoring.md",
+    "07-data-model.md §6",
+    "03-feature-list-v2.md §5",
+    "04-delivery-plan.md (R-M1..R-M3: T2.3, T3.4, T8.3)"
+   ]
+  },
+  {
+   "id": "SP4",
+   "name": "Customer onboarding (MX/ITF-IFPE KYC) — first end-to-end slice",
+   "scope": "journey_definition generated from the effective policy for tiers N1/N2/FULL and validated against it (policy-required steps cannot be removed). onboarding_application (policy_version_id + policy_snapshot frozen at start, workflow run id, channel, geo, device, purpose NEW/STEP_UP/REFRESH, tier_requested/granted, assurance_level, decision_ruleset, decision_reasons), onboarding_step, capture_session/capture (presigned upload to ObjectStore, nonce, attestation fields, camera_source), biometric_template (separate biometric DEK, delete_after), consent_record with versioned LFPDPPP texts, duplicate_link (blind-index on CURP/RFC, device, phone, email), review_task. OnboardingWorkflow on the WorkflowRunner: resolve journey, wait for captures with abandonment timer (P7D, reminders), parallel checks, fallbacks (RETRY_ASYNC up to PT30M then MANUAL_REVIEW; RECAPTURE max 2), sync screening, sync risk, decision, wait for review signal (5 days), finalize (relationship ACTIVE, tier, events, webhooks). Mock connectors: DOC_AUTH/LIVENESS/FACE_MATCH_DOC (MockIdvVendor), REGISTRY_ID RENAPO CURP, REGISTRY_BIOMETRIC INE (5–7 s, outage identities), TAX_ID SAT RFC, ACCOUNT_OWNERSHIP CLABE, DEVICE_RISK, EMAIL_PHONE_RISK. Validators CURP/RFC/CLABE with CURP→DOB/sex/state derivation. Assurance A0–A4 with channel penalties and 'no silent downgrade'. Decision ruleset mx-itf-default v1 (ordered YAML rules, stable reason codes, customer-facing messages never reveal screening). Step-up and refresh reusing prior evidence. Evidence pack export (JSON + PDF + artifacts ZIP) listing every version used. APIs per Notion 11 §9. Webhooks onboarding.application.updated/decided, onboarding.review.required, account.tier.granted. Console: review queue and side-by-side evidence (adapt sentinel OnboardPage/CustomerDetailPage), application timeline.",
+   "out_of_scope": "Native iOS/Android SDKs (API-only + web upload), WhatsApp, video-call KYC, real vendor adapters, NFC, face 1:N dedup, bank Nivel 2 Bis/Anexo 71 flows.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP2",
+    "SP3"
+   ],
+   "exit_criteria": [
+    "Sandbox tenant creates an N2 application via API, uploads captures, mock checks run in parallel, screening and risk are called synchronously, the decision engine approves with reason codes and the relationship becomes ACTIVE with tier N2; the webhook is delivered and the second tenant sees nothing.",
+    "Magic CURP triggering INE outage leads to async retries for 30 minutes (FrozenClock) and then a review task; the analyst decides in the console with a rationale and the workflow finalizes; an abandoned application expires at P7D.",
+    "Journey conformance test fails when the generated N2 journey omits registry_curp; a tenant override that removes geolocation is rejected.",
+    "`GET /v1/customers/{id}/evidence-pack` contains policy_snapshot hash, ruleset version, journey version, verification_check ids with provider/route/cost, screening_run list versions and matcher_version, risk model version; `kycaml onboarding replay <application_id>` yields the same decision from stored inputs.",
+    "Step-up N1→N2 reuses the document and liveness evidence instead of re-running paid checks (cost meter shows zero new vendor calls)."
+   ],
+   "est_weeks_solo_with_agent": 5,
+   "notion_sources": [
+    "11-f01-customer-onboarding.md",
+    "research/2026-10-17-tech-idv-kyb-vendors.md (§A.1, §B.3 MX, §D, MX matrix)",
+    "research/2026-10-17-reporting-mx-br.md §A.3.1",
+    "07-data-model.md §6",
+    "04-delivery-plan.md (ON-1..ON-3, ON-5: T2.1, T3.1, T4.1, T5.1)"
+   ]
+  },
+  {
+   "id": "SP5",
+   "name": "Case management with four-eyes, MX compliance committee and freeze playbook",
+   "scope": "alert (source TM_RULE/TM_MODEL/SCREENING/ONBOARDING_REVIEW/KYB_REVIEW/MANUAL/EMPLOYEE_REPORT, rule_version_id, screening_match_id, status NEW/IN_TRIAGE/LINKED/ESCALATED/CLOSED_NO_ACTION), auto-closure only by configured whitelist rule (logged). aml_case (subject_party_id, case_type, detected_at, jurisdiction, policy_version_id, priority, visibility TEAM/RESTRICTED/INSIDER, queue_id, sla), case_queue, case_member ACL and second RLS policy case_visibility (API-key actors never read RESTRICTED; every view audited VIEW_RESTRICTED_CASE), case_party, case_event, case_clock (MX_CCC_DECISION +60 calendar days, MX_ROI_FILING +3 business days, MX_24H, REGULATOR_REQUEST), case_decision (NO_ACTION/EDD/RESTRICT/EXIT/FREEZE/REPORT_STR/REPORT_24H, proposed_by ≠ approved_by CHECK, committee_session_id), committee_session/member/vote with quorum and generated minutes PDF, case_narrative (template MX_F41_UIF_GUIDE for columns 40/41), case_attachment, regulator_request tracker. Router: alert → open case with same subject and compatible type within 30 days, priority = max(severity, risk, list weight); sanctions candidates to Screening-Urgent queue with 24 h clock. State machine OPEN → INVESTIGATING → PROPOSED_DECISION → APPROVAL | COMMITTEE → DECIDED → CLOSED | REPORT_DRAFTING | ACTION_PENDING, reopen with justification. Outcome webhooks account.restriction.requested, account.freeze.requested, customer.rfi.requested, customer.exit.requested (no suspicion details). MX freeze playbook workflow: TRUE_MATCH on MX_LPB or UN_CONSOLIDATED → immediate freeze webhook → case flagged 24h with MX_24H clock → report request event (consumed by SP8) → written client notice template → close. Investigation workspace: profile, screening history, risk breakdown, transaction timeline (Postgres), one-hop counterparties, documents, notes. QA sampling and metrics (alert→case, case→STR, SLA met). Console: keyboard-first inbox, case detail (adapt sentinel CaseDetailPage/ActionPanel/policy.ts with allowed_actions), committee pages, regulator requests.",
+   "out_of_scope": "LLM narrative drafting, non-MX playbooks and clocks, client case-tool export.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP2",
+    "SP3",
+    "SP4"
+   ],
+   "exit_criteria": [
+    "State-machine property test: no path reaches REPORT_DRAFTING or CLOSED with a REPORT_* decision unless approved by a user different from the proposer or by a committee vote with quorum.",
+    "An analyst who is not a case_member cannot read a RESTRICTED case through list, detail, search, export, audit or webhook payloads (test iterates every route); an MLRO can; each MLRO view writes VIEW_RESTRICTED_CASE to the audit chain.",
+    "Committee session with quorum votes REPORT on an unusual-operation case → case DECIDED, event case.decision.report_requested.v1 emitted, MX_ROI_FILING clock due exactly 3 MX business days later (holiday-aware test), MX_CCC_DECISION clock marked MET.",
+    "LPB drill: disposition TRUE_MATCH on an LPB match → account.freeze.requested delivered to the mock tenant endpoint within seconds, 24h case created in Screening-Urgent, report request event emitted, client notice generated; the whole chain is visible in the case timeline and audit log."
+   ],
+   "est_weeks_solo_with_agent": 4.5,
+   "notion_sources": [
+    "16-f06-case-management.md",
+    "07-data-model.md §8",
+    "03-feature-list-v2.md §7 (C-1..C-8)",
+    "research/2026-10-17-reporting-mx-br.md §A.2.2 (ROI, 24-hour, LPB), §A.4",
+    "04-delivery-plan.md (CM-1..CM-4: T4.4, T5.3, T6.4, T8.4)"
+   ]
+  },
+  {
+   "id": "SP6",
+   "name": "Transaction monitoring with reportable-event capture and rule simulation",
+   "scope": "Canonical Txn Pydantic model (external_id, rail, instrument, amount/currency, counterparty, channel, device, crypto, fx, purpose). `POST /v1/transactions` batch ≤1,000 idempotent on (tenant, external_id), file drop via ObjectStore + job. transaction table partitioned monthly with PK (tenant_id, occurred_at, id); account (identifier_hash, tier); counterparty (identifier_hash, party link, screening status). Enrichment: amount_usd (FIX prior banking day), amount_udi, amount_uma, party/relationship/tier/risk/monitoring profile, counterparty resolution + screening, business day and period keys (month, quarter, 6m_from_first). Rule DSL (YAML: id, version, mode SYNC|ASYNC|BOTH, scope, on, let with sum/count/avg/distinct_count/ratio_to_profile/first_seen/time_since/in_list, windows 1h..6m_from_first + calendar windows, when, severity, dedup, evidence, typology) compiled to Python callables with a declared-aggregate plan. State: agg_bucket table (tenant_id, key_type, key, agg_id, bucket_start, value, sketch) hourly ≤7d, daily ≤6m, calendar accumulators; late events ≤7d update buckets and re-evaluate the key. Async evaluation jobs ordered per tenant:customer key. monitoring_rule/monitoring_rule_version (DRAFT→SIMULATED→APPROVED→ACTIVE→RETIRED, approval requires simulation ≤30 days old)/rule_assignment (CAPTURE params may only tighten). MX typology library v1 seeded from sentinel kinds: structuring below USD 5,000, rapid in-out, new-account velocity, many-to-one funnel, declared-vs-actual, high-risk jurisdiction, crypto off-ramp/self-custody, dormant reactivation, round-amount FX. alert + alert_evidence via outbox with exactly-once dedup (rule_version, key, window bucket). reportable_event captures with unit_values stored: MX_ITF_ROR_CASH (cash ≥ USD 5,000 FIX, calendar_quarter), MX_ITF_FX_CASH (≥ USD 500), MX_ITF_INTL_TRANSFER (≥ USD 1,000, monthly), MX_ITF_VA (≥ 7,500 UDI), MX_LFPIORPI_AVI_XVI_A/B (≥210 UMA per op or 6-month accumulation; fee ≥4 UMA not aggregated; both → one aviso under (a)); late events mark drafted reports NEEDS_REGENERATION. Tier LIMIT rules (N1 750 UDI/month and balance 1,000 UDI, N2 3,000 UDI) with account.tier.limit_reached webhook. Sync `POST /v1/transactions/decide` reading agg_bucket hot rows and the profile cache, fail-open/closed per rail, txn_decision partitioned, ruleset_hash stored. behaviour_profile monthly snapshot → risk trigger. Simulation job: stream Postgres history in event order through the same engine with isolated state → rule_simulation (alerts/week, customers hit, overlap with cases/STRs, samples); effectiveness metrics. Console: rules list/editor with schema hints, simulate, assignments, alert feed, reportable events per period.",
+   "out_of_scope": "Kafka/Flink/Redis/ClickHouse adapters, ML anomaly and graph analytics, Pix/MED, cross-tenant signals, balance feeds beyond an optional daily snapshot.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP2",
+    "SP3",
+    "SP5"
+   ],
+   "exit_criteria": [
+    "Golden scenario streams per typology produce the expected alerts with evidence (structuring fires once per 7-day window, not per transaction); alert ≤5 s p95 after ingest at 500 tx/s sustained for 10 minutes against a single Postgres on developer hardware.",
+    "A quarter of synthetic ITF data yields the expected MX_ITF_ROR_CASH, FX_CASH, INTL_TRANSFER and VA reportable_event rows with the exact FIX/UDI values used; UMA year change on 1 Feb, FIX holiday roll-back and the 6-month AVI accumulation edge cases pass; a late event re-captures and flips the drafted report to NEEDS_REGENERATION.",
+    "`POST /v1/transactions/decide` returns ALLOW/REVIEW/BLOCK with reasons in p99 ≤100 ms at 100 rps in staging; an N1 account exceeding 750 UDI in the calendar month is BLOCKed and the tenant receives account.tier.limit_reached.",
+    "Simulating rule MX-STRUCT-CASH-01 v3 over six months of history reproduces exactly the alerts production raised for that version (simulation == production); a rule cannot be activated without a simulation younger than 30 days and approval by a second user."
+   ],
+   "est_weeks_solo_with_agent": 6,
+   "notion_sources": [
+    "15-f05-transaction-monitoring.md",
+    "03-feature-list-v2.md §6 (T-1..T-6)",
+    "research/2026-10-17-reporting-mx-br.md §A.1.2, §A.2.2",
+    "10-f00-platform-foundations.md §5-6",
+    "04-delivery-plan.md (TM-1..TM-5: T2.4, T3.3, T4.3, T7.2, T8.2)"
+   ]
+  },
+  {
+   "id": "SP7",
+   "name": "Business onboarding (KYB) with ownership graph",
+   "scope": "kyb_application (relationship, organization, policy_version_id, workflow, status, purpose NEW/REFRESH/CHANGE_NOTIFIED), ownership_declaration (signed tree jsonb, signature_ref), party_relationship extended with provenance DECLARED/REGISTRY/DOCUMENT/ANALYST, evidence_check_id/evidence_doc_id/locator, corroboration, shares, powers. registry_snapshot via mock connectors SAT_CSF (QR → validation URL) and SAT_69B status. document_extraction with schema MX_ACTA_V1 behind an extraction port (mock + manual field entry with confidence/page; LLM adapter later). Graph engine: effective_ownership DFS with cycle and depth flags, UNKNOWN_PCT gaps, bearer-share flag; UBO determination per policy (≥25%, CONTROLLER edges, senior-managing-official fallback, trust roles, listed/regulated exemptions, total_fig_juridicas) stored as ubo_determination with policy_version_id. Reconciliation issues (UNDECLARED_PARTY blocking, PCT_MISMATCH ±1, REP_MISMATCH, UNKNOWN_PCT, CYCLE). KYC sub-applications for representatives and UBOs through onboarding invites (lighter tier if policy allows), screening of every node, company risk via risk module, decision ruleset mx-kyb-default v1 (STATUS_INACTIVE, EFOS 69-B, SANCTIONS, UNDECLARED, PCT_UNKNOWN, UBO_KYC, REPS_KYC, POWERS, HIGH_RISK). Refresh and ownership-change notification endpoint. APIs per Notion 12 §7, webhooks kyb.application.updated/decided, kyb.ubo.changed, kyb.kyc_invite.sent. Minimal hosted business flow in the console package: tree builder, document upload, invite links.",
+   "out_of_scope": "Brazil QSA recursion and open-data graph, SIGER aggregator, real OCR/LLM vendor, white-label theming.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP2",
+    "SP3",
+    "SP4"
+   ],
+   "exit_criteria": [
+    "Sample MX company where A holds 50% of B and B holds 60% of the applicant gives A 30% effective ownership and A as UBO at the 25% threshold; the same structure under a 10% test pack yields different UBOs (policy golden test); cycles and unknown percentages are flagged and block auto-approval.",
+    "An acta extraction listing a partner absent from the declaration creates a blocking UNDECLARED_PARTY issue; the business user explains it, the analyst resolves it, and the audit trail shows both.",
+    "A business user completes company onboarding with two invited UBOs who finish their own KYC; the KYB decision is APPROVE only after both sub-applications are approved; ubo_determination records policy_version_id, gaps and total_fig_juridicas and `kycaml kyb replay` reproduces it."
+   ],
+   "est_weeks_solo_with_agent": 4,
+   "notion_sources": [
+    "12-f02-business-onboarding-kyb.md",
+    "research/2026-10-17-tech-idv-kyb-vendors.md (§A.1 SIGER/SAT/SE registry, §E)",
+    "research/2026-10-17-reporting-mx-br.md §A.1.5, §A.3",
+    "07-data-model.md §5",
+    "04-delivery-plan.md (KB-1, KB-3, KB-4: T6.1, T7.1)"
+   ]
+  },
+  {
+   "id": "SP8",
+   "name": "Regulatory reporting engine: Formato 41 TXT and LFPIORPI aviso XML",
+   "scope": "Content inferred for the blank Notion page 07. report_definition registry (code@version, jurisdiction, regulator, sector, valid_from/valid_to, trigger query over reportable_event or case decisions, field mapping, serializer, channel, deadline_rule, zero_report_rule, correction_rule) selected by the tenant's packs; report_schema rows for Formato 41 2004.5 and avi.xsd current. code_table service (versioned): MX tipo_operacion (01..36), instrumento_monetario (01..09), CASFIM órgano supervisor and clave sujeto obligado per tenant, nacionalidad, tipo_persona, tipo_alerta placeholder catalog, ISO 3166/4217, SCIAN. Normalizers: uppercase, strip accents except Ñ, forbid ';' in Formato 41 text, truncate to column max, byte-length validation, Latin-1 for TXT and UTF-8 for XML. Serializers: DelimitedTxt (Formato 41: 41 columns, one report type per file, consecutive folio, related-party rows repeating cols 1–5 and filling 34–39, empty report with only fields 1, 2, 4, 5, narrative cols 40/41) and XmlXsd (lxml generation, XSD 1.0 validation, 2 MB cap with split, archivo/informe/sujeto_obligado/aviso*, referencia_aviso, prioridad, alerta, operaciones_persona, dueno_beneficiario, detalle_operaciones with hash_operacion; informe en ceros = zero aviso children; modificatorio with folio_modificacion). Definitions: MX_FORMATO41_ROR@2004.5 (quarterly from captures, zero report), MX_FORMATO41_ROI@2004.5 (from case decision incl. related persons and narrative; 24-hour variant inserts legend 'Reporte de 24 horas' / 'Lista de Personas Bloqueadas' in col 40; MX_ROI_FILING clock), MX_FORMATO41_ROIP@2004.5, MX_AVISO_AVI@current (monthly from AVI captures, day 17 rule, informe en ceros, aviso modificatorio once ≤30 days), draft-only CSV exports for MX_ITF_FX_CASH/INTL_TRANSFER/VA flagged 'layout unverified' and a reserved MX_AVISO_AVI@2027 slot (valid_from 2027-06-01). Report run workflow: period-close job → regulatory_report DRAFT + report_item → validation with structured errors → compliance-officer approval (approver ≠ preparer) → artifact archived (exact bytes, sha256, immutable ObjectRef) → ManualUploadChannel filing task → acuse upload and parsing (folio, timestamp, record count) → ACKNOWLEDGED/REJECTED → correction run; reportable_event status INCLUDED; report.filed.v1 event; regeneration when NEEDS_REGENERATION. Deadline dashboard (definition × period × tenant: due_at, status, receipt, late). Console: reports list, preview with validation errors by path, approve, download exact artifact, upload receipt (adapt sentinel ReportDraft/ConfirmReport).",
+   "out_of_scope": "SITI/SPPLD browser automation, e.firma custody or signing, 2027 per-activity XSDs beyond the reserved slot, UIF layouts not obtained (FX cash, international transfers, VA, money transmission), Siscoaf and other countries.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP5",
+    "SP6",
+    "SP7"
+   ],
+   "exit_criteria": [
+    "Golden files are byte-identical: ROR with data and the empty ROR, ROI generated from a committee-decided case with two related-persons rows and narrative columns 40/41, ROI-24h with the legend, AVI aviso for fr. XVI with two operations, the informe en ceros month and an aviso modificatorio; lxml validates every XML against the downloaded avi.xsd and a 2.1 MB batch is split with a clear message.",
+    "A report cannot reach APPROVED or FILED unless approved by a user different from its preparer; the archived artifact's sha256 equals the hash of the bytes shown in the UI download and the bytes in the acuse upload step; artifacts and receipts are immutable (update attempts fail).",
+    "Closing a quarter with no cash captures automatically creates the zero ROR draft due on the 10th business day of the next quarter; uploading the SITI acuse moves the report to ACKNOWLEDGED, links it to the case (ROI) and emits report.filed.v1 consumed by SP9.",
+    "A late transaction that changes an already drafted ROR regenerates the draft with a new version while the superseded artifact stays archived; the deadline dashboard shows every MX definition per period with late flags computed from the MX calendar."
+   ],
+   "est_weeks_solo_with_agent": 6,
+   "notion_sources": [
+    "research/2026-10-17-reporting-mx-br.md (§A.1.3, §A.1.4, §A.2.2, §A.2.3, §A.7)",
+    "research/2026-10-17-tech-screening-reporting.md §F",
+    "03-feature-list-v2.md §8 (RR-1..RR-11), §9.1",
+    "06-architecture-overview.md §6.7",
+    "07-data-model.md §8 (regulatory_report, report_item, report_filing)",
+    "05-requirements-planning-sdlc.md §2.5 (REG-MX-014 example)",
+    "04-delivery-plan.md (RR-1..RR-4: T5.4, T6.3, T7.3, T8.1)"
+   ]
+  },
+  {
+   "id": "SP9",
+   "name": "Compliance calendar and governance (Mexico)",
+   "scope": "obligation_def catalog for MX/ITF-IFPE and MX/LFPIORPI-AVI: quarterly ROR/FX-cash/VA (first 10 business days), monthly international transfers (15 business days), annual PLD audit to CNBV (≤60 days after year-end), compliance officer notice (10 business days, event-driven), committee notice (15 business days), manual changes (20 business days), annual EBR, annual training, annual KYC file review (metric), AV monthly avisos/informe en ceros (day 17), AV risk assessment available 01-03-2027, AV automated monitoring 01-06-2027 (attestation), VASP registration update ~30-05-2027, FATF list refresh. Generator cron (13 months ahead, idempotent on (def, period_key)); statuses UPCOMING/DUE_SOON (T-7 business days)/IN_PROGRESS/DONE/LATE/WAIVED with notifications (email + webhook) and MLRO escalation; auto-evidence from report.filed.v1, risk review completion metric snapshots; compliance_officer_appointment (change → notice obligation), training_record, policy_document with next_review_due; board pack (PDF/XLSX: obligations, reports with receipts, alert/case/STR stats, risk distribution, training); `.ics` feed; APIs per Notion 18 §5. Console: calendar, obligation detail with evidence, registries, board pack download.",
+   "out_of_scope": "Brazil and other country catalogs, EWRA document generation, training content delivery.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP3",
+    "SP8"
+   ],
+   "exit_criteria": [
+    "A new MX ITF tenant sees a full 2027 calendar whose due dates match the golden calendar (holiday-aware); an AVI tenant additionally sees monthly aviso obligations and the 2027 transitional dates.",
+    "The acknowledged Q4-2026 ROR marks obligation MX_ITF_ROR_Q 2026Q4 DONE with the receipt attached automatically; a compliance-officer change creates a notice obligation due in 10 business days; waiving requires a reason and MLRO role.",
+    "A quarterly board pack is generated for a synthetic tenant and matches the golden document snapshot."
+   ],
+   "est_weeks_solo_with_agent": 2,
+   "notion_sources": [
+    "18-f08-compliance-calendar.md",
+    "research/2026-10-17-reporting-mx-br.md §A.1.5, §A.5, §A.6",
+    "03-feature-list-v2.md §10",
+    "10-f00-platform-foundations.md §6",
+    "04-delivery-plan.md (OB-1..OB-3: T7.4, T8.5)"
+   ]
+  },
+  {
+   "id": "SP10",
+   "name": "Pilot hardening and operability",
+   "scope": "Retention purge job in production mode (dry-run report, legal-hold exclusion, crypto-shred of biometric DEK versions after policy delete_after, party purge after retention_until) with audit anchoring; daily audit-chain anchor to ObjectStore and `kycaml audit verify --all-tenants`; backup/restore drill scripts and runbooks; OpenTelemetry traces and RED metrics per endpoint/connector/job type; SLO dashboard; load tests at 2× T1 (ingest, screen, decide); chaos test for worker crash mid-batch; security pass (dependency audit, secrets review, RLS role review, API key rotation, rate limits per tenant/scope, PII-in-logs scan); S3/KMS adapters implemented behind flags and verified against MinIO/LocalStack so the switch is configuration; sandbox tenant provisioning and developer docs with magic identities; design-partner UAT fix list; external penetration test coordination.",
+   "out_of_scope": "Real vendor contracts, Brazil cell, SOC 2 audit itself (evidence export only), multi-region DR.",
+   "depends_on": [
+    "SP0",
+    "SP1",
+    "SP2",
+    "SP3",
+    "SP4",
+    "SP5",
+    "SP6",
+    "SP7",
+    "SP8",
+    "SP9"
+   ],
+   "exit_criteria": [
+    "Restore from backup on staging completes in under 4 hours and `kycaml audit verify` passes for every tenant afterwards.",
+    "Purge removes expired synthetic parties and biometric templates except those under legal hold, writes a purge report, and the audit chain remains verifiable; a dry run matches the real run's counts.",
+    "Load test sustains 2× T1 targets with p95 within SLOs; a killed worker mid-batch produces no duplicate alerts or reportable events on restart.",
+    "Switching ObjectStore and KeyProvider to the S3/KMS adapters against MinIO/LocalStack passes the full test suite with no code change outside configuration; a design partner engineer integrates the sandbox using the docs alone."
+   ],
+   "est_weeks_solo_with_agent": 3,
+   "notion_sources": [
+    "04-delivery-plan.md (Sprint 9-10, T9.1-T9.4)",
+    "08-infrastructure.md §7-8, §10",
+    "06-architecture-overview.md §6.8",
+    "21-sentinel-product-readiness-pricing.md §3 (retention, incident, security pack)"
+   ]
+  }
+ ],
+ "build_order": [
+  "SP0 Foundations: isolation and reproducibility kernel",
+  "SP1 Console shell and integration surface",
+  "SP2 Screening engine with tenant-private LPB and delta re-screening",
+  "SP3 Customer risk scoring",
+  "SP4 Customer onboarding (MX/ITF-IFPE KYC) — first end-to-end slice",
+  "SP5 Case management with four-eyes, MX compliance committee and freeze playbook",
+  "SP6 Transaction monitoring with reportable-event capture and rule simulation",
+  "SP7 Business onboarding (KYB) with ownership graph",
+  "SP8 Regulatory reporting engine: Formato 41 TXT and LFPIORPI aviso XML",
+  "SP9 Compliance calendar and governance (Mexico)",
+  "SP10 Pilot hardening and operability"
+ ],
+ "first_e2e_demo": "After SP4 (roughly week 20): a sandbox MX/ITF-IFPE tenant calls POST /v1/onboarding/applications for an N2 wallet customer, uploads document and selfie captures, and the worker runs mock RENAPO/INE/SAT/CLABE/IDV checks in parallel; the party is screened against UN, OFAC, EU, UK, SAT 69-B and the tenant's own uploaded LPB; the MX risk scorecard rates the customer; the decision ruleset approves or opens a review task that an analyst decides in the Spanish console with evidence side by side; the tenant receives the signed onboarding.application.decided webhook; GET /v1/customers/{id}/evidence-pack returns the policy_snapshot hash, journey and ruleset versions, every verification_check with provider and cost, the screening_run list versions and matcher_version and the risk model version; and the same calls as a second tenant return nothing while the per-tenant audit chain verifies. Earlier partial demos exist after SP2 (explainable screening with LPB isolation and delta rescreen) and SP0 (isolation, crypto-shred, policy snapshot, outbox and job retry on a bare API).",
+ "sentinel_reuse": [
+  {
+   "sentinel_path": "src/sentinel/audit.py + migrations/versions/0001_initial_schema.py (AUDIT_IMMUTABLE_FN, triggers)",
+   "how": "Port to kycaml/platform/audit: keep _digest canonical JSON, GENESIS_HASH, advisory-lock append and verify_chain; change the chain to per-tenant (prev_hash looked up by tenant_id, lock key derived from tenant_id), add actor_type/policy ids in payload, partition by month, keep the INSERT-only trigger SQL verbatim in migration 0001 and add a daily anchor job."
+  },
+  {
+   "sentinel_path": "pyproject.toml, justfile, Dockerfile, docker-compose.yml, .github/workflows/ci.yml, .python-version",
+   "how": "Copy the tooling stack (uv, ruff ALL, ty, basedpyright strict, vulture, pytest-cov ≥90, testcontainers) and the multi-stage Dockerfile; add a worker entrypoint, a second Postgres role for RLS tests and policy-pack/golden-file validation steps to CI."
+  },
+  {
+   "sentinel_path": "tests/conftest.py, tests/helpers.py",
+   "how": "Reuse the session-scoped testcontainers Postgres, savepoint-per-test Session pattern and typed parse()/parse_list() helpers; add fixtures for two tenants, an app-role connection that cannot bypass RLS, FrozenClock and a `tenant_session(tenant_id)` context."
+  },
+  {
+   "sentinel_path": "src/sentinel/config.py, db.py, cli.py (typer)",
+   "how": "Keep pydantic-settings Settings and normalize_database_url; extend db.py with TenantSession issuing SET LOCAL app.* per transaction and owner/app engines; grow the typer CLI into `kycaml api|worker|migrate|tenant|lists|packs|audit`."
+  },
+  {
+   "sentinel_path": "src/sentinel/api/app.py, api/deps.py, api/schemas.py (_Orm), api/views.py, explanations.py",
+   "how": "Reuse the app factory (operationId = route name for stable TS client names), DomainError handler (upgrade to RFC 9457), bearer JWT dependency (split into staff OIDC and API-client flows), the _Orm response-model pattern and the 'typed explanations stored as JSONB and validated back on the way out' principle for screening match_detail, risk factors, alert_evidence and report previews."
+  },
+  {
+   "sentinel_path": "src/sentinel/services/cases.py and services/errors.py",
+   "how": "Port allowed_actions(), the four-eyes checks (_require_second_reviewer, escalator cannot decide), MIN_RATIONALE_LENGTH and the DomainError/ForbiddenError/NotFoundError hierarchy into kycaml/cases; extend states to the Notion 16 lifecycle, add committee path, proposed_by ≠ approved_by DB CHECK and case visibility."
+  },
+  {
+   "sentinel_path": "src/sentinel/services/onboarding.py and services/transactions.py",
+   "how": "Keep the 'checks → typed alerts → case' composition and the _already_alerted dedupe idea; onboarding logic is replaced by journeys/decision rulesets and transactions by the DSL engine, but the service shape (pure rule evaluation + thin orchestration + audit in the same transaction) is the template for every kycaml service."
+  },
+  {
+   "sentinel_path": "src/sentinel/rules/identity.py",
+   "how": "Move CURP (regex, alphabet, check digit, embedded DOB/sex/state), RFC and CPF/NIT check-digit functions to kycaml/onboarding/validators.py; drop SSN; add CLABE check digit and CURP-derived DOB/sex/state used by screening qualifiers."
+  },
+  {
+   "sentinel_path": "src/sentinel/rules/packs.py and data/packs/mx.yaml, _jurisdictions.yaml, _fx.yaml",
+   "how": "Reuse the YAML→Pydantic discriminated-union catalog pattern for policy packs and rule libraries; mx.yaml monitoring rules become the first MX typology templates after re-mapping thresholds from DCG art. 115 LIC to the LRITF art. 58 ITF DCG (USD 5,000 cash, USD 500 FX cash, USD 1,000 international, 7,500 UDI VA); _jurisdictions.yaml seeds risk factor table country_risk v1; _fx.yaml is replaced by the units service (never static rates)."
+  },
+  {
+   "sentinel_path": "src/sentinel/rules/monitoring.py",
+   "how": "The six pure rule kinds (threshold, aggregate, structuring, velocity, high_risk_jurisdiction, profile_deviation) and RuleHit become the first compiled rule templates of the monitoring DSL, evaluated over agg_bucket state instead of a reloaded 31-day history; the Context.window() semantics define the window tests."
+  },
+  {
+   "sentinel_path": "src/sentinel/rules/risk.py",
+   "how": "RiskFactor/RiskAssessment and the 'every point names its reason' contract carry over to risk_assessment_factor rows; the additive scorer is replaced by the weighted-dimension scorecard with hard rules, keeping the explanation shape for the console RiskBreakdown component."
+  },
+  {
+   "sentinel_path": "src/sentinel/screening/normalize.py",
+   "how": "Starting point for kycaml/screening/normalize: keep strip_accents/tokens/reorder_list_name, but tag particles instead of dropping them, load honorifics and legal-form maps from data files, add suffix qualifiers, married-name and ES/BR structure variants, nickname expansion and the LATAM phonetic key."
+  },
+  {
+   "sentinel_path": "src/sentinel/screening/matcher.py",
+   "how": "Keep the two-stage design (candidate retrieval then explained scoring), Subject/Adjustment/MatchExplanation JSON contract and the identifier-is-definitive rule; replace the token_set/token_sort average with IDF-weighted token alignment, asymmetric unmatched penalties and the D.5 qualifier table; the in-memory Screener becomes the InMemoryScreeningIndex adapter with per-tenant private partitions."
+  },
+  {
+   "sentinel_path": "src/sentinel/screening/lists.py, registry.py, countries.py",
+   "how": "Replace the legacy OFAC CSV parser with the SLS Enhanced XML parser but keep ListEntry-style normalized entries, write_snapshot (deterministic gzip) for versioned snapshots in the object store, and the country-name map as reference data; registry.get_screener's 'missing list must stop startup' rule stays."
+  },
+  {
+   "sentinel_path": "src/sentinel/seed.py",
+   "how": "Persona pattern (everything through real services so audit/cases are genuine) becomes `kycaml seed sandbox`: demo tenant, magic identities and a Mexican scenario set (structuring, LPB hit, PEP, bad CURP)."
+  },
+  {
+   "sentinel_path": "frontend/src/api/{client.ts,queries.ts,types.ts,schema.d.ts} and package.json gen:api",
+   "how": "Keep openapi-fetch client, unwrap(), TanStack Query hooks and openapi-typescript generation; add tenant and locale headers and 401/403 handling for OIDC."
+  },
+  {
+   "sentinel_path": "frontend/src/auth/*, components/layout/*, components/ui/*, features/login/LoginPage.tsx",
+   "how": "Reuse the shell (AppShell, TopNav, MobileNav, ThemeToggle, UserMenu, shadcn components); replace demo-login with OIDC code flow, add tenant switcher, role badges for the five roles and an i18n provider (es-MX default)."
+  },
+  {
+   "sentinel_path": "frontend/src/features/cases/* (CaseQueuePage, CaseDetailPage, ActionPanel, ConfirmReport, Timeline, policy.ts, RiskBreakdownList)",
+   "how": "Base of the SP5 inbox and case workspace: allowed_actions-driven ActionPanel and policyNote explanations extended for PROPOSED_DECISION/COMMITTEE states, Timeline fed by case_event, ConfirmReport reused as the report-request step."
+  },
+  {
+   "sentinel_path": "frontend/src/features/explain/* (MatchBreakdown, HitDetails, ScreeningHits, RiskBreakdown, DocumentChecks)",
+   "how": "Render screening_match.match_detail, risk_assessment_factor rows and verification_check findings in SP2-SP4 with minimal changes because the backend keeps the typed explanation contracts."
+  },
+  {
+   "sentinel_path": "frontend/src/features/{audit,screening,rules,customers,dashboard}/*",
+   "how": "AuditPage/AuditTable → per-tenant audit with verify; ScreeningPage/MatchResult → ad-hoc screening; RulePacksPage/PackDetail → policy pack and monitoring rule viewers; CustomersPage/CustomerDetailPage/OnboardPage → customer 360 and review queue; DashboardPage/StatTile/BarList → tenant compliance dashboard."
+  },
+  {
+   "sentinel_path": "docs/design.md §5 (audit limits) and §2 (matcher limits)",
+   "how": "Design input: per-tenant chains with external anchoring and candidate blocking before scoring are adopted from day one instead of as later work."
+  }
+ ],
+ "risks": [
+  {
+   "risk": "Scope versus one developer: the full Mexico launch is about 46 solo weeks even with an agent; regulatory dates (01-03-2027 KYC/BO chapters, 01-06-2027 new AV XML and automated monitoring) arrive before the plan finishes.",
+   "mitigation": "Build strictly in the listed order so each sub-project is independently demoable; ship the ITF pack first and treat AVI aviso XML and KYB extras as the last feature slices; time-box each sub-project with its exit criteria and cut depth (e.g. fewer typologies, manual acta entry) rather than skipping isolation or reproducibility work."
+  },
+  {
+   "risk": "RLS silently bypassed: connection pooling without SET LOCAL, background jobs running without tenant context, or migrations creating a table without a policy.",
+   "mitigation": "TenantSession is the only session factory; jobs and subscribers carry tenant_id and open a TenantSession; the information_schema-driven isolation test runs as the non-owner app role in CI for every table; a migration linter fails when a tenant table lacks ENABLE+FORCE RLS or composite FKs."
+  },
+  {
+   "risk": "Name matching versus field-level encryption: the matcher needs readable normalized names and the Notion data model leaves this decision open; an in-memory per-tenant decrypt at every list update does not scale to the 2M-customer target.",
+   "mitigation": "Decide in SP0 (open question 1); recommended default is a dedicated party_name_index table holding only normalized tokens and phonetic keys under RLS, readable by the worker role, never exported, documented in the DPA; raw names stay encrypted."
+  },
+  {
+   "risk": "In-memory screening index memory and rebuild time grow with shared lists plus private lists plus the customer reverse index; worker restarts could take minutes and duplicate alerts during rebuild.",
+   "mitigation": "Keep the index behind the ScreeningIndex port with a documented memory budget and pg_trgm fallback; load versions incrementally from Postgres; alert dedup by (run, entry content_hash, party) makes rebuild-time re-screens idempotent; OpenSearch adapter is the planned T2 swap."
+  },
+  {
+   "risk": "Postgres carrying outbox, jobs, aggregates and partitioned transactions at T1 can suffer bloat, lock contention and vacuum lag, especially on agg_bucket hot rows and the sync decide path.",
+   "mitigation": "Partition job/outbox by status or month and purge delivered rows; SKIP LOCKED with small batches; agg_bucket keyed for single-row upserts with fillfactor tuned; load test at 2× T1 in SP6 and SP10; the ports allow Redis/Kafka adapters without touching feature code."
+  },
+  {
+   "risk": "Hand-rolled WorkflowRunner drifts into a half-Temporal: timers, signals and retries subtly non-idempotent, producing duplicate vendor calls (cost) or double decisions.",
+   "mitigation": "Keep the runner tiny (steps are jobs, every step has an idempotency key, results persisted before return, payloads carry ids only); property tests replay crashes at each step boundary; connector results are stored keyed by (application_id, check_type, attempt)."
+  },
+  {
+   "risk": "Regulatory artefacts missing or unverified: UIF catalogs (tipo_alerta), FX-cash/international-transfer/VA layouts, 2027 avi2.xsd, SITI authentication, bank-only rules leaking into the ITF pack (as in sentinel's mx.yaml).",
+   "mitigation": "Definitions are data with valid_from/valid_to and a 'layout unverified' flag that blocks APPROVED status; placeholders are explicit code tables with provenance; the design partner supplies templates; a monthly pack review updates YAML, not code."
+  },
+  {
+   "risk": "Irreversible foundation mistakes: policy snapshot content hash not stable (dict ordering, floats), audit payloads containing PII, UUIDv7 or composite-key choices baked into every table.",
+   "mitigation": "Canonical JSON for hashes with Decimal as strings and sorted keys, tested across runs; audit payloads carry references and codes only with the PII-in-logs test applied to audit rows; review migration 0001/0002 against the data-model doc before any feature migration; snapshot tests freeze the schema."
+  },
+  {
+   "risk": "Retention purge or crypto-shred destroying evidence still needed (open case, pending report, legal hold) or breaking the audit chain's referential integrity.",
+   "mitigation": "Purge runs dry-run first, excludes legal_hold and parties referenced by open cases or unfiled reports, shreds by DEK version instead of deleting rows where evidence must remain tamper-evident, and writes a purge report to the audit chain."
+  },
+  {
+   "risk": "Mock connectors make the onboarding engine look finished while real vendors (Incode, Nubarium) differ in latency, scores and error modes; INE access for non-bank fintechs may be legally unavailable.",
+   "mitigation": "Connector contract tests run against recorded fixtures with realistic latencies and outages; assurance model already supports launching at A3 with video-call fallback; vendor swap is an adapter plus calibration_ver, never a journey rewrite."
+  },
+  {
+   "risk": "Console scope creep: adapting sentinel's UI to ten modules in Spanish with role-aware screens can eat weeks per module.",
+   "mitigation": "UI is API-first and renders typed explanations and allowed_actions generically; reuse ReviewTaskList/EvidenceViewer/Timeline across onboarding, KYB and cases; each sub-project caps console work to the pages named in its scope."
+  }
+ ],
+ "open_questions": [
+  "Normalized names for matching: approve storing normalized name tokens and phonetic keys in plaintext in a tenant-scoped party_name_index table (recommended) versus decrypting into memory per tenant at index build; this fixes what privacy guarantee the DPA can promise and must be settled before migration 0002.",
+  "Staff identity provider for the pilot: platform-hosted OIDC (e.g. a Keycloak container now, managed IdP later) with roles assigned in our console, or federation to each tenant's own SSO from day one (more setup per tenant, matches Notion F-10).",
+  "Sandbox tenants in the same database and schema as production tenants (tenant.env column, one deployment) versus a separate sandbox deployment; recommended: same schema in dev/staging, separate database in production.",
+  "Transaction retention in Postgres: keep every transaction in monthly partitions for the full 10 years at T1 (simplest, ~1.5 TB/year at the Notion T1 volume) or archive partitions older than 13–24 months to Parquet in the object store before any analytics store exists.",
+  "Sync decision API default per rail (fail-open with REVIEW flag, as the TM doc suggests, versus fail-closed) for SPEI pre-authorization in the pilot.",
+  "Filing channel: confirm manual upload only for SITI and SPPLD with no e.firma custody and no portal automation in the Mexico launch, so the FilingChannel MVP is a task plus receipt parsing.",
+  "Scope of the MX/LFPIORPI-AVI pack: fr. XVI virtual assets only (as decided) or also one additional vulnerable activity needed by the design partner, which would add a second per-activity XSD.",
+  "Console language: Spanish-only UI for the pilot or bilingual es/en from the start (bilingual adds translation maintenance per module).",
+  "Timing of real vendor adapters: keep mocks through design-partner UAT (as decided) and swap Incode/Nubarium only for production go-live, or integrate one vendor sandbox earlier to de-risk assurance-level calibration.",
+  "Hosting target for the pilot (PaaS like Render/Fly with managed Postgres versus AWS mx-central-1 from the start); this does not change the code but decides when the S3/KMS adapters must be real and whether data residency can be promised to the first partner.",
+  "Code licence and provenance: sentinel is MIT and single-author; confirm the new repository is proprietary and that copying sentinel modules into it is the intended path before the first commit."
+ ]
+}
