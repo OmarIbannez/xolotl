@@ -19,10 +19,15 @@ from sqlalchemy import Engine, create_engine, make_url, text
 from testcontainers.community.postgres import PostgresContainer
 
 from tests.helpers import first_login, new_tenant
-from xolotl.app import build_app
+from xolotl.app import build_app, build_key_provider
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import db, migrate
 from xolotl.platform.config import get_settings
+from xolotl.platform.crypto.provider import (
+    KeyProvider,
+    get_key_provider,
+    set_key_provider,
+)
 
 APP_PASSWORD = "xolotl"
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -55,7 +60,12 @@ def engines(admin_url: str) -> Iterator[tuple[Engine, Engine]]:
     _reset_caches()
     migrate.bootstrap()
     migrate.upgrade()
+    # What build_app does for the application: every test that reaches the database
+    # can create a tenant, which gives it keys. Tests that build the app replace it
+    # with an equal one; tests that need none ask for no_key_provider.
+    set_key_provider(build_key_provider(get_settings(), db.get_sessionmaker()))
     yield db.get_engine(), db.get_admin_engine()
+    set_key_provider(None)
     db.get_engine().dispose()
     db.get_admin_engine().dispose()
 
@@ -84,6 +94,18 @@ def clean_db(engines: tuple[Engine, Engine]) -> None:
             _ = conn.execute(text("SET LOCAL session_replication_role = replica"))
             quoted = ", ".join(f'"{name}"' for name in names)
             _ = conn.execute(text(f"TRUNCATE TABLE {quoted} CASCADE"))
+
+
+@pytest.fixture
+def no_key_provider() -> Iterator[None]:
+    """Run the test in a process where nothing has installed a key provider."""
+    try:
+        previous: KeyProvider | None = get_key_provider()
+    except RuntimeError:
+        previous = None
+    set_key_provider(None)
+    yield
+    set_key_provider(previous)
 
 
 @pytest.fixture

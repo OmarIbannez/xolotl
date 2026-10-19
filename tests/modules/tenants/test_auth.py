@@ -1,10 +1,15 @@
+import logging
 from datetime import timedelta
 
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import Engine
 
 from tests.conftest import ADMIN_PASSWORD
 from tests.helpers import (
     backdate_password_change,
+    everything_stored,
+    leaked,
     login_token,
     platform_ctx,
     staff_session,
@@ -168,6 +173,42 @@ def test_totp_enrolment_and_two_step_login_over_http(client: TestClient, admin_h
     assert client.get("/v1/auth/me", headers=_bearer(access)).status_code == 200
     # An mfa token is not an access token.
     assert client.get("/v1/auth/me", headers=_bearer(mfa_token)).status_code == 401
+
+
+def test_the_totp_secret_is_shown_once_and_never_stored_or_logged_in_the_clear(
+    client: TestClient,
+    admin_headers,
+    admin_engine: Engine,
+    caplog: pytest.LogCaptureFixture,
+):
+    # The worst case for the logs: SQLAlchemy writes every result row at DEBUG.
+    caplog.set_level(logging.DEBUG)
+    caplog.set_level(logging.DEBUG, logger="sqlalchemy.engine")
+    enrolled = client.post("/v1/auth/totp/enroll", headers=admin_headers)
+    secret = enrolled.json()["secret"]  # the one time its owner sees it
+    confirmed = client.post(
+        "/v1/auth/totp/confirm",
+        json={"code": current_code(secret)},
+        headers=admin_headers,
+    )
+    assert confirmed.status_code == 204
+    step1 = client.post(
+        "/v1/auth/login",
+        json={
+            "tenant_slug": "acme",
+            "email": "admin@acme.mx",
+            "password": ADMIN_PASSWORD,
+        },
+    )
+    step2 = client.post(
+        "/v1/auth/login/totp",
+        json={"mfa_token": step1.json()["mfa_token"], "code": current_code(secret)},
+    )
+    assert step2.status_code == 200
+    assert "Row (" in caplog.text  # result rows are logged, so the scan bites
+    assert "Encrypted(***)" in caplog.text  # the credential's among them, masked
+    assert leaked(caplog.text, secret.encode()) == []
+    assert leaked(everything_stored(admin_engine), secret.encode()) == []
 
 
 def test_disabled_user_and_suspended_tenant_are_rejected_with_live_tokens(

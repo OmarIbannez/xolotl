@@ -25,6 +25,7 @@ from xolotl.platform.auth.principal import (
     require_access,
     resolve_request_actor,
 )
+from xolotl.platform.crypto import get_key_provider
 from xolotl.platform.db import SessionFactory, get_sessionmaker, tenant_session
 from xolotl.platform.enums import ActorType, Role, TenantEnv, TenantStatus
 from xolotl.platform.errors import NotFoundError, UnauthorizedError
@@ -65,7 +66,8 @@ def fake_resolver(_factory: SessionFactory, token: str) -> Actor:
 
 
 def _seed_tenant() -> None:
-    # The session routes write rows for the tenant the resolver hands out.
+    # The session routes write rows for the tenant the resolver hands out, and the
+    # probe row is sealed under that tenant's keys, so it needs them.
     with tenant_session(platform_ctx()) as session:
         session.add(
             Tenant(
@@ -77,6 +79,7 @@ def _seed_tenant() -> None:
                 status=TenantStatus.ACTIVE,
             )
         )
+    get_key_provider().create_tenant_keys(TENANT)
 
 
 def _add_probe_row(session: Session) -> None:

@@ -4,16 +4,20 @@ import getpass
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Annotated
+from uuid import UUID
 
 import typer
 import uvicorn
 from sqlalchemy import select
 
+from xolotl.app import build_key_provider
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import migrate
 from xolotl.platform.audit import verify_chain
 from xolotl.platform.config import get_settings
+from xolotl.platform.crypto import get_key_provider, set_key_provider
+from xolotl.platform.crypto.provider import DEFAULT_CACHE_TTL
 from xolotl.platform.db import (
     APP_ROLE,
     BootstrapError,
@@ -23,8 +27,8 @@ from xolotl.platform.db import (
     get_sessionmaker,
     tenant_session,
 )
-from xolotl.platform.enums import TenantEnv
-from xolotl.platform.errors import XolotlError
+from xolotl.platform.enums import KeyPurpose, TenantEnv
+from xolotl.platform.errors import NotFoundError, XolotlError
 from xolotl.platform.logging import configure_logging
 from xolotl.platform.tenancy.context import TenantContext
 
@@ -32,13 +36,36 @@ app = typer.Typer(no_args_is_help=True, help="xolotl: multi-tenant KYC/AML platf
 db_app = typer.Typer(no_args_is_help=True, help="Database bootstrap and migrations")
 tenant_app = typer.Typer(no_args_is_help=True, help="Tenant administration")
 audit_app = typer.Typer(no_args_is_help=True, help="Audit chain tools")
+keys_app = typer.Typer(
+    no_args_is_help=True, help="Tenant data keys: rotation and destruction"
+)
 app.add_typer(db_app, name="db")
 app.add_typer(tenant_app, name="tenant")
 app.add_typer(audit_app, name="audit")
+app.add_typer(keys_app, name="keys")
+
+_IRREVERSIBLE = (
+    "irreversible: everything encrypted for the tenant becomes unreadable for good"
+)
 
 
 def _cli_actor() -> str:
     return f"cli:{getpass.getuser()}"
+
+
+def _ensure_key_provider() -> None:
+    """Install the key provider if this process has none yet.
+
+    The application installs it in ``build_app``, which ``serve`` runs in the server
+    process. A command that creates or opens encrypted data runs in a process that
+    never builds the app, so it calls this first (``tenant create`` does, and so
+    should any command that rotates or destroys keys). A provider that is already
+    installed is kept: one per process, one key cache.
+    """
+    try:
+        _ = get_key_provider()
+    except RuntimeError:
+        set_key_provider(build_key_provider(get_settings(), get_sessionmaker()))
 
 
 @contextmanager
@@ -52,6 +79,24 @@ def _cli_errors() -> Generator[None]:
     except (RoleBypassError, BootstrapError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
+
+
+def _resolve_tenant(actor: str, slug: str) -> tuple[UUID, str]:
+    """Look a tenant up by slug as the platform operator.
+
+    Returns:
+        The tenant's id and its slug as stored.
+
+    Raises:
+        NotFoundError: When no tenant has that slug.
+
+    """
+    with tenant_session(TenantContext.platform(actor)) as s:
+        row = s.scalar(select(Tenant).where(Tenant.slug == slug.strip().lower()))
+        if row is None:
+            msg = f"no tenant {slug!r}"
+            raise NotFoundError(msg)
+        return row.id, row.slug
 
 
 @app.command()
@@ -99,7 +144,8 @@ def db_bootstrap() -> None:
 
 @db_app.command("upgrade")
 def db_upgrade() -> None:
-    """Apply migrations up to head."""
+    """Apply migrations up to head, logging what they do like ``serve`` does."""
+    configure_logging(get_settings().log_level)
     migrate.upgrade()
     typer.echo("database upgraded to head")
 
@@ -134,8 +180,9 @@ def tenant_create(
     cell: Annotated[str, typer.Option(help="Deployment cell")] = "mx-1",
     env: Annotated[TenantEnv, typer.Option(help="SANDBOX or PROD")] = TenantEnv.SANDBOX,
 ) -> None:
-    """Create a tenant and its first administrator."""
+    """Create a tenant, its keys and its first administrator."""
     with _cli_errors():
+        _ensure_key_provider()
         created = service.create_tenant(
             get_sessionmaker(),
             slug=slug,
@@ -174,14 +221,87 @@ def audit_verify(
 
     """
     actor = _cli_actor()
-    with tenant_session(TenantContext.platform(actor)) as s:
-        row = s.scalar(select(Tenant).where(Tenant.slug == tenant.strip().lower()))
-        if row is None:
-            typer.echo(f"error: NOT_FOUND: no tenant {tenant!r}", err=True)
-            raise typer.Exit(code=1)
-        tenant_id = row.id
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
     with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
         result = verify_chain(s)
     typer.echo(result.model_dump_json(indent=2))
     if not result.valid:
         raise typer.Exit(code=1)
+
+
+@keys_app.command("rotate")
+def keys_rotate(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    # INDEX parses on purpose: the provider refuses it with the CONFLICT line and exit
+    # status 1, but the help does not offer it.
+    purpose: Annotated[
+        KeyPurpose,
+        typer.Option(
+            "--purpose",
+            case_sensitive=False,
+            metavar="DATA|BIOMETRIC",
+            help="Which key to rotate",
+        ),
+    ],
+) -> None:
+    """Add a new version of a tenant's key; values sealed earlier stay readable.
+
+    Values written from now on use the new version; running servers switch to it
+    within a few minutes, when the key they cached expires. Nothing is re-encrypted.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, slug = _resolve_tenant(actor, tenant)
+        _ensure_key_provider()
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            version = service.rotate_tenant_key(s, purpose)
+    typer.echo(
+        f"rotated the {purpose.value} key of tenant {slug}: now version {version}"
+    )
+
+
+@keys_app.command("destroy")
+def keys_destroy(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    yes: Annotated[
+        bool, typer.Option("--yes", help="Confirm the irreversible destruction")
+    ] = False,
+) -> None:
+    """Destroy every key of a tenant for good (crypto-shredding). Irreversible.
+
+    Everything encrypted for the tenant becomes unreadable and its keys can
+    never be created again. The destruction is audited.
+
+    Raises:
+        Exit: With code 2 when --yes is missing.
+
+    """
+    if not yes:
+        typer.echo(
+            f"refusing to destroy the keys of tenant {tenant.strip()} without --yes",
+            err=True,
+        )
+        typer.echo(f"this is {_IRREVERSIBLE}", err=True)
+        raise typer.Exit(code=2)
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, slug = _resolve_tenant(actor, tenant)
+        plan = f"destroying every encryption key of tenant {slug}"
+        # To stderr with the other diagnostics: stdout carries only a result, and a
+        # destroy that fails has none.
+        typer.echo(f"{plan} ({_IRREVERSIBLE})", err=True)
+        _ensure_key_provider()
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            service.destroy_tenant_keys(s)
+    minutes = DEFAULT_CACHE_TTL.total_seconds() / 60
+    typer.echo(f"destroyed the encryption keys of tenant {slug}")
+    typer.echo(
+        f"servers that cached keys in memory stop using them within {minutes:g} minutes"
+    )
+    typer.echo("backups and archived WAL taken earlier still hold the wrapped keys")
+    typer.echo(
+        "while XOLOTL_MASTER_KEY is unchanged, a restore from them brings keys back"
+    )

@@ -13,12 +13,14 @@ from xolotl.platform.api.problems import install_problem_handlers
 from xolotl.platform.api.request_id import RequestIdMiddleware
 from xolotl.platform.auth.actor import ActorResolver
 from xolotl.platform.db import SessionFactory
+from xolotl.platform.storage import ObjectStore
 
 
 @dataclass(slots=True)
 class AppState:
     session_factory: SessionFactory
     actor_resolver: ActorResolver | None = None
+    object_store: ObjectStore | None = None
 
 
 def app_state(request: Request) -> AppState:
@@ -34,6 +36,7 @@ def create_app(
     *,
     session_factory: SessionFactory,
     actor_resolver: ActorResolver | None = None,
+    object_store: ObjectStore | None = None,
     routers: Sequence[APIRouter] = (),
 ) -> FastAPI:
     app = FastAPI(
@@ -45,7 +48,9 @@ def create_app(
         generate_unique_id_function=_operation_id,
     )
     app.state.xolotl = AppState(
-        session_factory=session_factory, actor_resolver=actor_resolver
+        session_factory=session_factory,
+        actor_resolver=actor_resolver,
+        object_store=object_store,
     )
     app.add_middleware(RequestIdMiddleware)
     install_problem_handlers(app)
