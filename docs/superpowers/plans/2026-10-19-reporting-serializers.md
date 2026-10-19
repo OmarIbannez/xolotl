@@ -15,7 +15,7 @@
 | Document | URL | Status |
 |---|---|---|
 | Formato 41 resolution, compiled (DOF 14-12-2004, reformed to 01-08-2013), Anexos 1–4 | https://www.gob.mx/cms/uploads/attachment/file/618089/Formato_41_Campos_Compilado.pdf (the UIF URL in the research notes now 404s) | VERIFIED |
-| `avi.xsd` (current aviso schema, fr. XVI) | https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/xsd/avi.xsd | VERIFIED |
+| `avi.xsd` (current aviso schema, fr. XVI) | https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/xsd/avi.xsd | VERIFIED (downloaded; vendored with its hash in T4, its first user) |
 | `ejemplo_avi.xml` | https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/ejemplosxml/ejemplo_avi.xml | VERIFIED |
 | Modificatorio instructions | https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/inst_modificatorio.pdf | VERIFIED |
 | `avi2.xsd`, `ejemplo_avi2.xml`, `avi2.zip` (2027 schema) | linked from https://sppld.sat.gob.mx/pld/interiores/activos.html | **404 on 2026-10-19** (gap) |
@@ -23,8 +23,8 @@
 ## Decisions (recorded here and in each PR)
 
 1. **Definitions live at `report-defs/<CODE>/v<N>.yaml`** (the handoff's layout), not the `report-defs/MX/F41_ROR.yaml` sketch in program spec §3.2; code and version stay separate fields as D14 says.
-2. **Formato 41 record shape.** 41 columns joined by `;`, no trailing separator, records terminated by CRLF, the file ends with CRLF. The layout text ("se terminará con el (;)") is ambiguous on a trailing separator and silent on line endings: both are definition parameters (`trailing_separator`, `line_ending`) marked `UNVERIFIED` until a SITI QA upload.
-3. **Formato 41 characters (v1).** Upper case; diacritics stripped and Ñ folded to N; `;`, control characters and anything outside printable ASCII replaced by a space; runs of spaces collapsed and trimmed; fields longer than their width truncated with a `FIELD_TRUNCATED` warning (the layout's own rule). `encoding_confidence: UNVERIFIED` on every Formato 41 output (D14).
+2. **Formato 41 record shape.** 41 columns joined by `;`, no trailing separator, records terminated by CRLF, the file ends with CRLF. The layout text ("se terminará con el (;)") is ambiguous on a trailing separator and silent on line endings. Its only examples are fragments taken from the middle of a record (`;JUAN JOSE;MARTINEZ;HERNANDEZ;;;19701024;` opens and closes on a separator), so they settle neither reading. Both are layout parameters (`trailing_separator`, `line_ending`) marked `UNVERIFIED` until a SITI QA upload; switching is a one-line data change plus regenerated goldens.
+3. **Formato 41 characters (v1).** Upper case; diacritics stripped and Ñ folded to N; `;`, control characters and anything outside printable ASCII replaced by a space; runs of spaces collapsed and trimmed; fields longer than their width truncated with a `FIELD_TRUNCATED` warning (the layout's own rule). `encoding_confidence: UNVERIFIED` on every Formato 41 output (D14). An RFC containing Ñ (allowed in the RFC alphabet) is therefore folded to N in Formato 41 output, which changes the identifier; this follows D14's ASCII rule and is part of what the SITI QA upload must confirm. Aviso output keeps the Ñ.
 4. **Formato 41 widths** are the layout's, including where the research summary differed (column 19 apellido paterno is 30, not 60). Columns 40 and 41 are variable length.
 5. **Related rows (ROI, ROI24, ROIP).** Row `00` is the main operation; rows `01..n` repeat columns 1–33 and 40–41 and vary 34–39, as the Anexo 1 preamble says (the column 34 note that only 1–5 need repeating is the looser reading; repeating is accepted by both). One folio per operation, shared by its related rows. ROR never fills 14 or 34–41.
 6. **ROI24 legend.** `MX_F41_ROI24` is tipo de reporte 2 with a `legend` parameter (`LISTA_PERSONAS_BLOQUEADAS` or `REPORTE_24_HORAS`); the legend text, upper-cased, is prefixed to column 40 followed by `. `. Placement inside column 40 is `UNVERIFIED`.
