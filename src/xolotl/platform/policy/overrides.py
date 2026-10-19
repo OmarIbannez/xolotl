@@ -362,6 +362,11 @@ def apply_override(
                 if value is not None and holds(value, current)
             }
         )
+        # An override's sanctions_alert, laid over a pack that came into force
+        # later with a higher review band, would leave review above alert; the
+        # review band then drops to the alert band, which only tightens it.
+        if bands.sanctions_review > bands.sanctions_alert:
+            bands = bands.model_copy(update={"sanctions_review": bands.sanctions_alert})
     screening = screening.model_copy(
         update={
             "mandatory_lists": mandatory,

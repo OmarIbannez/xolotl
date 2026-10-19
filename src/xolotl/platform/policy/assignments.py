@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import date, timedelta
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from xolotl.platform import clock
@@ -32,6 +32,17 @@ _D21 = (
     "a tenant-wide assignment may not overlap a product assignment "
     "(D21: two packs need distinct products)"
 )
+
+
+# Policy writes of one tenant take turns, so two assignments cannot both pass the
+# overlap checks and two overrides cannot claim the same version number.
+_POLICY_LOCK = text(
+    "SELECT pg_advisory_xact_lock(hashtext('policy:' || :tenant_id)::bigint)"
+)
+
+
+def _lock_policy(session: Session, tenant_id: UUID) -> None:
+    _ = session.execute(_POLICY_LOCK, {"tenant_id": str(tenant_id)})
 
 
 def _in_force(on: date) -> ColumnElement[bool]:
@@ -167,6 +178,7 @@ def assign_pack(
         raise NotFoundError(msg)
     pack = session.get_one(PolicyPack, version.pack_id)
     tenant_id = bound_context(session).require_tenant_id()
+    _lock_policy(session, tenant_id)
     closed = _check_overlaps(session, tenant_id, product, effective_from)
     row = TenantPackAssignment(
         tenant_id=tenant_id,
@@ -216,12 +228,13 @@ def create_override(
 
     """
     effective_from = clock.now().date()
+    tenant_id = bound_context(session).require_tenant_id()
+    _lock_policy(session, tenant_id)
     rows = assignments_in_force(session, on=effective_from)
     configs = [c for _, c in configs_in_force(session, rows, on=effective_from)]
     if not configs:
         raise PolicyNotAssignedError
     validate_against(overrides, merge_packs(configs))
-    tenant_id = bound_context(session).require_tenant_id()
     latest = session.scalar(
         select(func.max(TenantOverrideVersion.version)).where(
             TenantOverrideVersion.tenant_id == tenant_id

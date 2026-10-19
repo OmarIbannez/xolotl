@@ -19,6 +19,7 @@ from xolotl.platform.policy.errors import (
     PackImmutableError,
     PackValidationError,
     PolicyLooseningError,
+    PolicyNotAssignedError,
 )
 from xolotl.platform.units.errors import (
     UnitSourceError,
@@ -47,6 +48,7 @@ from xolotl.platform.units.errors import (
         (PackValidationError, 422, "PACK_INVALID"),
         (PackImmutableError, 409, "PACK_VERSION_IMMUTABLE"),
         (PolicyLooseningError, 409, "POLICY_LOOSENING"),
+        (PolicyNotAssignedError, 404, "POLICY_NOT_ASSIGNED"),
         (IdentifierExistsError, 409, "IDENTIFIER_EXISTS"),
         (IdentifierInvalidError, 422, "IDENTIFIER_INVALID"),
     ],

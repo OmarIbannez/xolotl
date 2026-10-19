@@ -110,13 +110,15 @@ def _longer(a: Provenanced[str], b: Provenanced[str]) -> Provenanced[str]:
 def _cooling_off(
     a: Provenanced[str | None], b: Provenanced[str | None]
 ) -> Provenanced[str | None]:
-    # No cooling-off (a PEP for ever) beats any period; otherwise the shorter
-    # period wins, as the plan's merge rules fix.
+    # The cooling-off is how long a former PEP is still treated as one, so the
+    # longer period is the stricter: no cooling-off (a PEP for ever) beats any
+    # period, otherwise the longer wins. The plan's merge rules say the shorter
+    # wins; spec §5.3 (merge strictest) overrides them.
     if a.value is None:
         return a
     if b.value is None:
         return b
-    return b if iso_duration_days(b.value) < iso_duration_days(a.value) else a
+    return b if iso_duration_days(b.value) > iso_duration_days(a.value) else a
 
 
 def _true_match(a: TrueMatchAction, b: TrueMatchAction) -> TrueMatchAction:

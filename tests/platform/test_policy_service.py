@@ -196,6 +196,58 @@ def test_apply_override_never_loosens_a_stricter_pack():
     assert body.governance.committee_required == itf.governance.committee_required
 
 
+def test_merge_packs_keeps_the_longer_pep_cooling_off():
+    # Spec §5.3 merges strictest: a longer cooling-off keeps a former PEP a PEP
+    # for longer, so it wins over the plan's "shorter wins".
+    itf = both_packs()[ITF]
+    pep = itf.screening.pep
+    domestic = pep.cooling_off["DOMESTIC"]
+    longer = itf.model_copy(
+        update={
+            "screening": itf.screening.model_copy(
+                update={
+                    "pep": pep.model_copy(
+                        update={
+                            "cooling_off": {
+                                **pep.cooling_off,
+                                "DOMESTIC": domestic.model_copy(
+                                    update={"value": "P2Y"}
+                                ),
+                            }
+                        }
+                    )
+                }
+            )
+        }
+    )
+    assert domestic.value == "P1Y"
+    for packs in ([itf, longer], [longer, itf]):
+        merged = merge_packs(packs)
+        assert merged.screening.pep.cooling_off["DOMESTIC"].value == "P2Y"
+        assert merged.screening.pep.cooling_off["FOREIGN"].value is None
+
+
+def test_apply_override_keeps_the_review_band_below_the_alert_band():
+    itf = both_packs()[ITF]
+    later = itf.model_copy(
+        update={
+            "screening": itf.screening.model_copy(
+                update={
+                    "bands": itf.screening.bands.model_copy(
+                        update={"sanctions_review": Decimal("0.62")}
+                    )
+                }
+            )
+        }
+    )
+    override = TenantOverride.model_validate({"bands": {"sanctions_alert": "0.60"}})
+    bands = apply_override(
+        later, override, version=1, approved_on=date(2026, 3, 1)
+    ).screening.bands
+    assert bands.sanctions_alert == Decimal("0.6")
+    assert bands.sanctions_review == Decimal("0.6")
+
+
 @pytest.mark.parametrize(
     ("data", "code", "fragment"),
     [
