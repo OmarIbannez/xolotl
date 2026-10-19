@@ -8,7 +8,12 @@ from sqlalchemy import Engine
 
 from xolotl.app import build_app, wire_platform
 from xolotl.platform.config import get_settings
-from xolotl.platform.connectors import ConnectorMode, ConnectorRouter
+from xolotl.platform.connectors import (
+    CheckType,
+    ConnectorMode,
+    ConnectorRoute,
+    ConnectorRouter,
+)
 from xolotl.platform.db import get_sessionmaker
 
 if TYPE_CHECKING:
@@ -33,11 +38,14 @@ def test_the_app_is_wired_with_a_connector_router_that_follows_the_settings(
     router = services.connectors
     assert isinstance(router, ConnectorRouter)
     assert router.default_mode is ConnectorMode.LIVE
-    assert [c.name for c in router.connectors] == []
+    assert [c.name for c in router.connectors] == ["sat_rfc"]
+    assert router.positions("sat_rfc") == [
+        (CheckType.RFC_VALIDATION, "MX", ConnectorRoute.PRIMARY)
+    ]
 
 
 def test_the_worker_process_is_wired_with_the_same_router(engine: Engine):
     services = wire_platform(get_sessionmaker(), get_settings())
     assert isinstance(services.connectors, ConnectorRouter)
     assert services.connectors.default_mode is ConnectorMode.SANDBOX
-    assert [c.name for c in services.connectors.connectors] == []
+    assert [c.name for c in services.connectors.connectors] == ["sat_rfc"]
