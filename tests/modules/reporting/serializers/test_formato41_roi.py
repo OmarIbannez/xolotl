@@ -16,7 +16,11 @@ from xolotl.modules.reporting.serializers.errors import (
     ReportFieldError,
     ZeroReportNotAllowedError,
 )
-from xolotl.modules.reporting.serializers.formato41 import Legend, serialize_f41
+from xolotl.modules.reporting.serializers.formato41 import (
+    F41Related,
+    Legend,
+    serialize_f41,
+)
 
 ROI = load_definition(DEFS_DIR, "MX_F41_ROI", 1)
 ROI24 = load_definition(DEFS_DIR, "MX_F41_ROI24", 1)
@@ -80,13 +84,20 @@ def test_roi24_heads_the_description_with_its_legend(legend, golden):
     assert row[39].startswith(f"{legend.value}. ALERTA GENERADA")
 
 
-def test_roi24_with_no_description_carries_the_legend_alone():
+def test_the_legend_does_not_stand_in_for_a_missing_description():
     operation = replace(ROI_OPERATION, related=(), description=None)
-    report = serialize_f41(
-        DEFS_DIR, ROI24, HEADER_ROI, [operation], legend=Legend.REPORTE_24_HORAS
-    )
-    (row,) = _records(report.parts[0])
-    assert row[39] == "REPORTE DE 24 HORAS"
+    with pytest.raises(ReportFieldError, match="DESCRIPCION DE LA OPERACION"):
+        _ = serialize_f41(
+            DEFS_DIR, ROI24, HEADER_ROI, [operation], legend=Legend.REPORTE_24_HORAS
+        )
+
+
+def test_a_related_person_without_a_paternal_surname_gets_xxxx():
+    related = F41Related(first_names="Rosa", maternal_surname="Luna")
+    operation = replace(ROI_OPERATION, related=(related,))
+    report = serialize_f41(DEFS_DIR, ROI, HEADER_ROI, [operation])
+    _, row = _records(report.parts[0])
+    assert row[36:39] == ["ROSA", "XXXX", "LUNA"]
 
 
 def test_the_legend_is_required_for_roi24_and_refused_elsewhere():
