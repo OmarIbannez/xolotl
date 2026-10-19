@@ -2,7 +2,7 @@
 
 from typing import ClassVar
 
-from xolotl.platform.errors import DomainError, ValidationFailedError
+from xolotl.platform.errors import DomainError, NotFoundError, ValidationFailedError
 
 
 class PackValidationError(ValidationFailedError):
@@ -20,3 +20,8 @@ class PackImmutableError(DomainError):
 class PolicyLooseningError(DomainError):
     default_code: ClassVar[str] = "POLICY_LOOSENING"
     default_detail: ClassVar[str] = "an override may only tighten the effective policy"
+
+
+class PolicyNotAssignedError(NotFoundError):
+    default_code: ClassVar[str] = "POLICY_NOT_ASSIGNED"
+    default_detail: ClassVar[str] = "no policy pack assigned for that date and product"

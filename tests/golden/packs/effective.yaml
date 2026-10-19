@@ -1,0 +1,19 @@
+assignments:   # D21: a tenant-wide assignment never overlaps a product one, so the ITF pack is assigned per non-crypto product
+  - {pack: MX/ITF-IFPE, version: 1, product: EMONEY, effective_from: 2026-01-01}
+  - {pack: MX/ITF-IFPE, version: 1, product: CROWDFUNDING, effective_from: 2026-01-01}
+  - {pack: MX/LFPIORPI-AVI, version: 1, product: CRYPTO, effective_from: 2026-11-30}
+override:          # created with clock.now() frozen at 2026-02-01T12:00:00Z, so effective_from is 2026-02-01 and the union it is validated against is the ITF pack alone
+  tier_limits: {N1: {monthly_ops: {amount: "500", unit: UDI}}}
+  capture_thresholds: {ITF_ROR_CASH: {amount: "4000", unit: USD}}
+  retention: {kyc_after_relationship: P12Y}
+  mandatory_lists_add: [OFAC_SDN]
+  bands: {sanctions_alert: "0.65"}
+  committee_required: true
+cases:
+  - {id: itf-only-emoney, on: 2026-01-20, product: EMONEY, expect: {pack_codes: [MX/ITF-IFPE], override_version: null, tier_codes: [N1, N2, N3], tier_N1_monthly_ops: {amount: "750", unit: UDI}, capture_ITF_ROR_CASH: {amount: "5000", unit: USD}, retention_kyc: P10Y, retention_transactions: P10Y, committee_required: true, geolocation_required: true, mandatory_lists: [MX_LPB, UN_CONSOLIDATED], recommended_lists: [EU_FSF, MX_SAT_69B, OFAC_SDN, UK_FCDO], capture_codes: [ITF_FX_CASH, ITF_INTL_TRANSFER, ITF_ROR_CASH, ITF_VA_OPS], report_codes: [MX_F41_ROI, MX_F41_ROI24, MX_F41_ROR, MX_ITF_INTL_TRANSFER], sanctions_alert: "0.70", tier_limit_rule: LAST_DAY_PREV_MONTH, report_MX_F41_ROR_deadline: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10}, tz: America/Mexico_City}}}
+  - {id: before-the-override, on: 2026-01-20, product: CROWDFUNDING, expect: {pack_codes: [MX/ITF-IFPE], override_version: null, tier_N1_monthly_ops: {amount: "750", unit: UDI}, sanctions_alert: "0.70", mandatory_lists: [MX_LPB, UN_CONSOLIDATED]}}
+  - {id: with-the-override, on: 2026-02-15, product: EMONEY, expect: {pack_codes: [MX/ITF-IFPE], override_version: 1, tier_N1_monthly_ops: {amount: "500", unit: UDI}, tier_N1_monthly_ops_basis: "tenant override v1", capture_ITF_ROR_CASH: {amount: "4000", unit: USD}, retention_kyc: P12Y, mandatory_lists: [MX_LPB, UN_CONSOLIDATED, OFAC_SDN], sanctions_alert: "0.65", committee_required: true}}
+  - {id: crypto-before-avi-is-in-force, on: 2026-11-29, product: CRYPTO, error: POLICY_NOT_ASSIGNED}
+  - {id: avi-only-for-crypto, on: 2026-12-01, product: CRYPTO, expect: {pack_codes: [MX/LFPIORPI-AVI], override_version: 1, tier_codes: [], capture_codes: [AVI_XVI_A, AVI_XVI_B], report_codes: [MX_AVISO_AVI], capture_AVI_XVI_A: {amount: "210", unit: UMA}, retention_kyc: P12Y, retention_transactions: P5Y, committee_required: true, geolocation_required: false, mandatory_lists: [MX_LPB, UN_CONSOLIDATED, OFAC_SDN], recommended_lists: [MX_SAT_69B, OFAC_SDN], sanctions_alert: "0.65", tier_limit_rule: null, report_MX_AVISO_AVI_deadline: {kind: DAY_OF_NEXT_MONTH, params: {day: 17, roll: NEXT_BUSINESS_DAY}, tz: America/Mexico_City}}}
+  - {id: no-product-sees-only-tenant-wide-assignments, on: 2026-12-01, product: null, error: POLICY_NOT_ASSIGNED}
+  - {id: nothing-assigned-yet, on: 2025-12-31, product: EMONEY, error: POLICY_NOT_ASSIGNED}
