@@ -26,6 +26,7 @@ from xolotl.modules.tenants import (
 from xolotl.modules.tenants.service import ensure_platform_schedules, resolve_bearer
 from xolotl.platform.api.app import AppState, create_app
 from xolotl.platform.api.idempotency import PURGE_KIND, purge_expired_keys
+from xolotl.platform.api.static import mount_console
 from xolotl.platform.audit import routes as audit_routes
 from xolotl.platform.config import Settings, get_settings
 from xolotl.platform.crypto.provider import (
@@ -196,7 +197,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
     # Hook point: process-wide adapters (plan 1b's key provider) are installed here,
     # before the platform is wired and anything is served.
     services = wire_platform(factory, settings)
-    return create_app(
+    app = create_app(
         session_factory=factory,
         actor_resolver=resolve_bearer,
         object_store=services.object_store,
@@ -211,3 +212,6 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             audit_routes.router,
         ],
     )
+    # Last, so that the console's catch-all never shadows a route above.
+    _ = mount_console(app, settings.static_dir)
+    return app

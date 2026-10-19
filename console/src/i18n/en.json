@@ -1,0 +1,414 @@
+{
+  "app": {
+    "name": "xolotl",
+    "title": "xolotl · Console",
+    "console": "Console",
+    "skipToContent": "Skip to content"
+  },
+  "common": {
+    "close": "Close",
+    "loading": "Loading",
+    "retry": "Try again",
+    "goHome": "Go to home",
+    "cancel": "Cancel",
+    "yes": "Yes",
+    "no": "No",
+    "never": "Never",
+    "you": "you",
+    "pager": {
+      "label": "Pagination",
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {{page}}"
+    },
+    "oneTime": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "copiedToast": "Copied to clipboard",
+      "copyFailed": "Could not copy. Select the text and copy it manually.",
+      "acknowledge": "I saved it",
+      "acknowledgeRequired": "Check the box once you have saved it to be able to close this window."
+    }
+  },
+  "nav": {
+    "label": "Main navigation",
+    "home": "Home",
+    "apiKeys": "API keys",
+    "staff": "Staff",
+    "audit": "Audit",
+    "security": "Security",
+    "openMenu": "Open menu",
+    "apiDocs": "API documentation"
+  },
+  "header": {
+    "tenant": "Workspace",
+    "language": "Language",
+    "accountMenu": "Account menu",
+    "signOut": "Sign out",
+    "themeToLight": "Switch to light mode",
+    "themeToDark": "Switch to dark mode"
+  },
+  "language": {
+    "es-MX": "Español (México)",
+    "en": "English"
+  },
+  "env": {
+    "SANDBOX": "Sandbox",
+    "PROD": "Production"
+  },
+  "tenantStatus": {
+    "ONBOARDING": "Onboarding",
+    "ACTIVE": "Active",
+    "SUSPENDED": "Suspended",
+    "OFFBOARDED": "Offboarded"
+  },
+  "roles": {
+    "ANALYST": "Analyst",
+    "SENIOR_ANALYST": "Senior analyst",
+    "MLRO": "MLRO (compliance officer)",
+    "AUDITOR_RO": "Auditor (read-only)",
+    "ADMIN": "Administrator"
+  },
+  "auth": {
+    "login": {
+      "title": "Sign in",
+      "description": "Access your workspace console.",
+      "tenantSlug": "Workspace",
+      "tenantSlugHint": "Your organization's identifier, for example: acme.",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Verifying…",
+      "invalid": "Incorrect workspace, email or password.",
+      "expired": "Your session expired. Sign in again."
+    },
+    "totp": {
+      "title": "Two-step verification",
+      "description": "Enter the 6 to 8 digit code from your authenticator app.",
+      "code": "Verification code",
+      "submit": "Verify",
+      "submitting": "Verifying…",
+      "invalid": "The code is not valid or the verification expired. Check the code or sign in again.",
+      "back": "Back to sign in"
+    },
+    "setupPassword": {
+      "title": "Set a new password",
+      "description": "For security, you must replace the temporary password before continuing.",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "rules": "At least 12 characters and different from the current password.",
+      "strength": {
+        "label": "New password strength",
+        "empty": "No password entered yet",
+        "weak": "Weak: use at least 12 characters",
+        "fair": "Acceptable",
+        "strong": "Strong"
+      },
+      "submit": "Save password",
+      "submitting": "Saving…",
+      "rejected": "The password could not be changed. Check that the current password is correct and that the new one has at least 12 characters and is different.",
+      "success": "Password updated",
+      "signOut": "Sign out"
+    }
+  },
+  "validation": {
+    "required": "This field is required.",
+    "email": "Enter a valid email address.",
+    "totpCode": "Enter the 6 to 8 digit code.",
+    "passwordMin": "Use at least 12 characters.",
+    "passwordMismatch": "The passwords do not match.",
+    "passwordSame": "The new password must be different from the current one.",
+    "nameTooLong": "Use 120 characters at most.",
+    "displayNameTooLong": "Use 200 characters at most.",
+    "tooLong": "The value is too long.",
+    "invalid": "The value is not valid.",
+    "scopesRequired": "Choose at least one scope.",
+    "scopeFormat": "Use the format area:read or area:write, lowercase with underscores.",
+    "scopeDraftPending": "Add the scope you typed or clear it before continuing.",
+    "rolesRequired": "Choose at least one role."
+  },
+  "home": {
+    "title": "Home",
+    "welcome": "Hello, {{name}}",
+    "description": "A summary of your workspace and your access.",
+    "tenant": {
+      "title": "Workspace",
+      "legalName": "Legal name",
+      "slug": "Identifier",
+      "country": "Country",
+      "cell": "Cell",
+      "env": "Environment",
+      "status": "Status",
+      "createdAt": "Created"
+    },
+    "access": {
+      "title": "Your access",
+      "name": "Name",
+      "email": "Email",
+      "roles": "Roles",
+      "totp": "Two-step verification",
+      "totpOn": "On",
+      "totpOff": "Off"
+    }
+  },
+  "pending": {
+    "badge": "Coming soon",
+    "body": "This section will be enabled in the next console release."
+  },
+  "apiKeys": {
+    "title": "API keys",
+    "description": "Create, review and revoke the keys your systems use to call the API.",
+    "new": "New key",
+    "table": {
+      "label": "API keys",
+      "name": "Name",
+      "prefix": "Prefix",
+      "scopes": "Scopes",
+      "env": "Environment",
+      "status": "Status",
+      "createdAt": "Created",
+      "lastUsedAt": "Last used",
+      "actions": "Actions"
+    },
+    "status": {
+      "ACTIVE": "Active",
+      "REVOKED": "Revoked"
+    },
+    "empty": "No API keys yet. Create the first one to connect your systems.",
+    "revoke": {
+      "action": "Revoke",
+      "actionFor": "Revoke the key {{name}}",
+      "title": "Revoke the key “{{name}}”?",
+      "body": "Systems using it will no longer be able to call the API, effective immediately. This cannot be undone.",
+      "confirm": "Revoke key",
+      "confirming": "Revoking…",
+      "done": "Key “{{name}}” revoked."
+    },
+    "create": {
+      "title": "New API key",
+      "description": "Choose what the key can do. The full key is shown only once, when you create it.",
+      "name": "Name",
+      "nameHint": "To recognize it later, for example: onboarding integration.",
+      "scopes": "Scopes",
+      "env": "Environment",
+      "envHint": "Keys always belong to your workspace's environment.",
+      "submit": "Create key",
+      "submitting": "Creating…",
+      "conflict": "The key's environment must match your workspace's. Reload the page and try again."
+    },
+    "scopes": {
+      "tenantsRead": "Read workspace data",
+      "tenantsWrite": "Modify workspace data",
+      "custom": "Another scope",
+      "customHint": "Format area:read or area:write, for example: reports:read.",
+      "placeholder": "reports:read",
+      "add": "Add",
+      "remove": "Remove the scope {{scope}}",
+      "added": "Added scopes"
+    },
+    "secret": {
+      "title": "Key “{{name}}” created",
+      "hint": "Copy it and store it somewhere safe now. For security, it cannot be viewed again."
+    }
+  },
+  "staff": {
+    "title": "Staff",
+    "description": "Add staff members, assign roles and disable access.",
+    "new": "New user",
+    "table": {
+      "label": "Staff",
+      "email": "Email",
+      "displayName": "Name",
+      "roles": "Roles",
+      "status": "Status",
+      "mustChangePassword": "Password change pending",
+      "createdAt": "Created",
+      "actions": "Actions"
+    },
+    "status": {
+      "ACTIVE": "Active",
+      "DISABLED": "Disabled"
+    },
+    "empty": "No staff yet.",
+    "disable": {
+      "action": "Disable",
+      "actionFor": "Disable {{name}}",
+      "title": "Disable {{name}}?",
+      "body": "{{email}} will no longer be able to sign in and their open sessions will stop working.",
+      "confirm": "Disable user",
+      "confirming": "Disabling…",
+      "done": "{{name}}'s account was disabled.",
+      "conflict": "You cannot disable your own account."
+    },
+    "create": {
+      "title": "New user",
+      "description": "An initial password is generated and shown only once; the person must change it when they first sign in.",
+      "email": "Email",
+      "displayName": "Name",
+      "roles": "Roles",
+      "rolesHint": "Choose at least one.",
+      "submit": "Create user",
+      "submitting": "Creating…",
+      "conflict": "A user with that email already exists in your workspace."
+    },
+    "secret": {
+      "title": "Initial password for {{name}}",
+      "hint": "Share it with {{email}} through a secure channel. They must change it on their first sign-in. For security, it cannot be viewed again."
+    }
+  },
+  "audit": {
+    "title": "Audit",
+    "description": "Browse the event log and verify the integrity of its chain.",
+    "verify": {
+      "button": "Verify chain",
+      "running": "Verifying…",
+      "checkedAt": "Verified on {{at}}",
+      "entriesChecked": "Events verified",
+      "valid": {
+        "title": "Chain intact",
+        "body": "The whole chain was walked: every event matches its hash and the event before it."
+      },
+      "empty": {
+        "title": "Chain is empty",
+        "body": "There are no audit events yet, so there is nothing to verify. This is not a failure."
+      },
+      "broken": {
+        "title": "Chain broken",
+        "body": "Verification found an inconsistency. Review the event indicated and escalate the case to your security team.",
+        "firstBrokenSeq": "First affected event (sequence)",
+        "entriesChecked": "Events checked up to the failure",
+        "reason": "Reason",
+        "rawReason": "API response"
+      },
+      "reason": {
+        "sequence": "An event is missing or a sequence number is repeated.",
+        "prevHash": "The previous hash does not match the preceding event.",
+        "content": "The event's content does not match its hash.",
+        "unknown": "Verification failed for a reason this console does not recognize."
+      }
+    },
+    "filter": {
+      "label": "Action",
+      "hint": "Exact match, for example: staff.created",
+      "clear": "Clear filter",
+      "refresh": "Refresh"
+    },
+    "table": {
+      "caption": "Audit events, newest first",
+      "seq": "Sequence",
+      "at": "Date and time",
+      "actorType": "Actor type",
+      "actorId": "Actor ID",
+      "action": "Action",
+      "entity": "Entity",
+      "detail": "Detail",
+      "hashes": "Previous and event hash"
+    },
+    "actorType": {
+      "STAFF": "Staff",
+      "API_CLIENT": "API client",
+      "SYSTEM": "System",
+      "PLATFORM_OPERATOR": "Platform operator"
+    },
+    "entity": {
+      "none": "No entity"
+    },
+    "detail": {
+      "none": "No detail",
+      "expand": "Expand details",
+      "expandFor": "Expand details of event {{seq}}",
+      "sheetTitle": "Event {{seq}} details",
+      "sheetDescription": "Action {{action}}, recorded on {{at}}",
+      "copy": "Copy JSON",
+      "copied": "JSON copied"
+    },
+    "hash": {
+      "copyPrev": "Copy previous hash of event {{seq}}",
+      "copyHash": "Copy hash of event {{seq}}",
+      "copied": "Hash copied",
+      "prevLabel": "previous",
+      "eventLabel": "event"
+    },
+    "copyFailed": "Could not copy to the clipboard",
+    "empty": {
+      "none": "There are no audit events yet.",
+      "filtered": "No event has the action “{{action}}”."
+    },
+    "pager": {
+      "label": "Pagination",
+      "previous": "Previous",
+      "next": "Next",
+      "page": "Page {{page}}"
+    }
+  },
+  "security": {
+    "title": "Security",
+    "description": "Manage two-step verification and your account password.",
+    "totp": {
+      "title": "Two-step verification",
+      "description": "On top of your password, signing in will ask for a temporary code (TOTP) from your authenticator app.",
+      "on": "Active",
+      "off": "Inactive",
+      "onBody": "Your account already asks for a code from your authenticator app when you sign in.",
+      "offBody": "Your account is protected by its password alone. Turn it on with an app such as Google Authenticator, Microsoft Authenticator or 1Password.",
+      "enable": "Enable TOTP",
+      "enabling": "Getting ready…",
+      "scanTitle": "1. Scan the QR code",
+      "scanBody": "Open your authenticator app and scan this code.",
+      "qrLabel": "QR code to set up your authenticator app",
+      "manualTitle": "Can't scan the code?",
+      "manualBody": "Type this key into your app as a time-based key.",
+      "secret": "Secret key",
+      "copySecret": "Copy secret key",
+      "secretCopied": "Key copied",
+      "copyFailed": "Could not copy to the clipboard",
+      "onceTitle": "This key is shown only once",
+      "onceBody": "It cannot be looked up again. If you cancel or leave this page, you will have to start the setup over.",
+      "confirmTitle": "2. Confirm with a code",
+      "code": "Verification code",
+      "codeHint": "The 6 to 8 digit code your app shows.",
+      "codeInvalid": "That code is not correct. Check it in your app (and that your device's clock is right) and try again.",
+      "confirm": "Confirm and enable",
+      "confirming": "Verifying…",
+      "cancel": "Cancel",
+      "alreadyEnabled": "Two-step verification was already active on your account.",
+      "success": "Two-step verification enabled",
+      "successBody": "From now on, signing in will ask for the code from your app."
+    },
+    "password": {
+      "title": "Change password",
+      "description": "Choose a new password of at least 12 characters. Your current session stays open."
+    }
+  },
+  "forbidden": {
+    "title": "No access",
+    "body": "Your role does not allow viewing this section."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you are looking for does not exist or has moved."
+  },
+  "boot": {
+    "errorTitle": "Your session could not be loaded"
+  },
+  "errors": {
+    "generic": "An unexpected error occurred. Try again.",
+    "reference": "Reference: {{id}}",
+    "UNAUTHENTICATED": "Your session is not valid or has expired. Sign in again.",
+    "ROLE_FORBIDDEN": "Your role is not allowed to perform this action.",
+    "SCOPE_MISSING": "The credential does not include the permission this operation needs.",
+    "TENANT_SUSPENDED": "The workspace is suspended. Contact your administrator.",
+    "PASSWORD_CHANGE_REQUIRED": "You must change your password before continuing.",
+    "FORBIDDEN": "You are not allowed to perform this action.",
+    "NOT_FOUND": "We could not find what you were looking for.",
+    "CONFLICT": "The operation conflicts with the current state. Refresh and try again.",
+    "BAD_REQUEST": "The request is not valid.",
+    "IDEMPOTENCY_KEY_REQUIRED": "The request is missing its idempotency key.",
+    "IDEMPOTENCY_KEY_REUSED": "This request was already sent with different data. Start again.",
+    "IDEMPOTENCY_IN_PROGRESS": "The previous request is still being processed. Wait a moment and try again.",
+    "VALIDATION_FAILED": "Check the data you entered: some values are not valid.",
+    "INTERNAL": "An internal error occurred. Try again in a few minutes.",
+    "NETWORK_ERROR": "Could not reach the server. Check your connection and try again."
+  }
+}

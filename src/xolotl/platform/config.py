@@ -17,6 +17,7 @@ DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-change-me-000000"  # ruff: ignore
 DEV_MASTER_KEY_BYTES = hashlib.sha256(b"xolotl-dev-master-key").digest()
 DEV_MASTER_KEY = base64.b64encode(DEV_MASTER_KEY_BYTES).decode()
 MASTER_KEY_BYTES = 32
+PACKAGE_DIR = Path(__file__).resolve().parent.parent
 
 
 def _decode_master_key(encoded: str) -> bytes:
@@ -74,6 +75,8 @@ class Settings(BaseSettings):
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
     )
+    # Built console, served at "/" when the directory exists (plan 1d).
+    static_dir: Path = PACKAGE_DIR / "static"
     log_level: str = "INFO"
 
     @field_validator("master_key")
