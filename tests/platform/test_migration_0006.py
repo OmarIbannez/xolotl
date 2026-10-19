@@ -81,3 +81,14 @@ def test_0006_grants_follow_the_plan(database: Engine):
     assert privileges("policy_pack") == (True, False, False, False)
     assert privileges("policy_pack_version") == (True, False, False, False)
     assert privileges("holiday") == (True, False, False, False)
+
+
+def test_the_unit_value_lookup_index_skips_superseded_rows(database: Engine):
+    # Alembic does not compare index predicates; test_event_model.py pins the model's.
+    with database.connect() as conn:
+        indexes = {i["name"]: i for i in inspect(conn).get_indexes("unit_value")}
+    lookup = indexes["ix_unit_value_lookup"]
+    assert lookup["column_names"] == ["unit_code", "valid_from"]
+    assert not lookup["unique"]
+    options = lookup.get("dialect_options", {})
+    assert options.get("postgresql_where") == "(superseded_by IS NULL)"
