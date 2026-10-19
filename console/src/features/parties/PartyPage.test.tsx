@@ -6,7 +6,7 @@ import type { Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
-import { party, pii, RFC, staffView } from './fixtures'
+import { fullStaffView, party, pii, RFC, staffView } from './fixtures'
 import { PartyPage } from './PartyPage'
 
 const text = esMX.parties
@@ -33,7 +33,7 @@ describe('PartyPage: the masked summary and the explicit reveal', () => {
     const { user, fakeApi, queryClient } = setup()
 
     expect(await screen.findByRole('heading', { name: text.detail.title, level: 1 })).toBeTruthy()
-    expect(await screen.findByText('****01P8')).toBeTruthy()
+    expect((await screen.findAllByText('****01P8')).length).toBeGreaterThan(0)
     expect(document.body.textContent).not.toContain(RFC)
     expect(fakeApi.calls('GET /v1/parties/p1/pii')).toHaveLength(0)
 
@@ -113,9 +113,66 @@ describe('PartyPage: the legal hold', () => {
   it.each(['AUDITOR_RO', 'ADMIN', 'ANALYST'] as const)('is not shown to %s, who still sees the page and the reveal', async (role) => {
     setup([role])
 
-    expect(await screen.findByText('****01P8')).toBeTruthy()
+    expect((await screen.findAllByText('****01P8')).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: text.reveal.button })).toBeTruthy()
     expect(screen.queryByRole('button', { name: text.legalHold.clear })).toBeNull()
     expect(screen.queryByRole('button', { name: text.legalHold.set })).toBeNull()
+  })
+})
+
+describe('PartyPage: the attribute edit', () => {
+  it('sends a PATCH with only the changed field and no Idempotency-Key', async () => {
+    const { user, fakeApi } = setup(['ANALYST'], {
+      routes: {
+        'GET /v1/parties/p1': () => json(fullStaffView()),
+        'PATCH /v1/parties/p1': () => json(party()),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: text.edit.button }))
+    const dialog = screen.getByRole('dialog', { name: text.edit.title })
+    await user.type(within(dialog).getByLabelText(text.edit.gender), 'F')
+    await user.click(within(dialog).getByRole('button', { name: text.edit.submit }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const [request] = fakeApi.calls('PATCH /v1/parties/p1')
+    expect(await request?.json()).toEqual({ person: { gender: 'F' } })
+    expect(request?.headers.get('Idempotency-Key')).toBeNull()
+  })
+
+  it('closes without a request when nothing changed', async () => {
+    const { user, fakeApi } = setup(['ANALYST'], { routes: { 'GET /v1/parties/p1': () => json(fullStaffView()) } })
+
+    await user.click(await screen.findByRole('button', { name: text.edit.button }))
+    await user.click(screen.getByRole('button', { name: text.edit.submit }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(fakeApi.calls('PATCH /v1/parties/p1')).toEqual([])
+  })
+
+  it('edits an organisation through its own attributes', async () => {
+    const organization = fullStaffView({
+      party_type: 'ORGANIZATION',
+      person: null,
+      organization: {
+        trade_name: 'Acme',
+        legal_form: null,
+        incorporation_date: null,
+        industry_code: null,
+        registry_ref: null,
+        country_of_incorporation: null,
+      },
+    })
+    const { user, fakeApi } = setup(['ANALYST'], {
+      routes: { 'GET /v1/parties/p1': () => json(organization), 'PATCH /v1/parties/p1': () => json(party()) },
+    })
+
+    await user.click(await screen.findByRole('button', { name: text.edit.button }))
+    const tradeName = screen.getByLabelText(text.edit.tradeName)
+    await user.clear(tradeName)
+    await user.click(screen.getByRole('button', { name: text.edit.submit }))
+
+    await waitFor(() => expect(fakeApi.calls('PATCH /v1/parties/p1')).toHaveLength(1))
+    expect(await fakeApi.calls('PATCH /v1/parties/p1')[0]?.json()).toEqual({ organization: { trade_name: null } })
   })
 })

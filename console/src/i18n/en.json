@@ -135,7 +135,11 @@
     "dateFormat": "Use the date or time format shown.",
     "positiveInteger": "Use a whole positive number within the allowed range.",
     "countryCode": "Use the two-letter country code in capitals, for example MX.",
-    "identifierValue": "Enter the whole identifier (at most 64 characters)."
+    "identifierValue": "Enter the whole identifier (at most 64 characters).",
+    "fileTooLarge": "The file is larger than 25 MB.",
+    "fileType": "Choose a PDF, JPEG or PNG file.",
+    "ownership": "Enter a percentage above 0 and up to 100, with at most 4 decimals; it applies to shareholders only.",
+    "uuid": "Paste the full id of the other person or company (it is in the address of its page)."
   },
   "home": {
     "title": "Home",
@@ -338,7 +342,16 @@
       "retentionUntil": "Retain until",
       "legalHold": "Legal hold",
       "legalHoldOn": "On",
-      "legalHoldOff": "Off"
+      "legalHoldOff": "Off",
+      "tabs": {
+        "identifiers": "Identifiers",
+        "contacts": "Contacts",
+        "addresses": "Addresses",
+        "relationships": "Relationships",
+        "documents": "Documents",
+        "customer": "Customer relationships",
+        "label": "Person or company records"
+      }
     },
     "reveal": {
       "title": "Personal data",
@@ -361,6 +374,158 @@
       "confirmSet": "While the legal hold is on, this party is not purged even after its retention period ends.",
       "confirmClear": "Once the legal hold is released, this party can be purged when its retention period ends.",
       "pending": "Saving…"
+    },
+    "save": "Save",
+    "saving": "Saving…",
+    "edit": {
+      "button": "Edit details",
+      "title": "Edit details",
+      "description": "Names, birth date and identifiers are not edited here.",
+      "submit": "Save changes",
+      "submitting": "Saving…",
+      "done": "Changes saved.",
+      "noChanges": "You did not change anything.",
+      "pepStatus": "Politically exposed person",
+      "pep": {
+        "NONE": "Not a PEP",
+        "DOMESTIC": "Domestic PEP",
+        "FOREIGN": "Foreign PEP",
+        "RCA": "Relative or close associate of a PEP",
+        "INTL_ORG": "International organisation PEP"
+      },
+      "pepSince": "PEP since",
+      "pepUntil": "PEP until",
+      "isResident": "Residency",
+      "residentUnknown": "Unknown",
+      "residentYes": "Resident",
+      "residentNo": "Non-resident",
+      "nationalities": "Nationalities",
+      "nationalitiesHint": "Two-letter codes separated by commas, for example MX, US.",
+      "occupationCode": "Occupation code",
+      "economicActivityCode": "Economic activity code",
+      "birthCountry": "Country of birth",
+      "birthState": "State of birth",
+      "gender": "Gender",
+      "tradeName": "Trade name",
+      "legalForm": "Legal form",
+      "incorporationDate": "Incorporation date",
+      "industryCode": "Industry code",
+      "registryRef": "Commercial registry number",
+      "countryOfIncorporation": "Country of incorporation"
+    },
+    "identifiers": {
+      "add": "Add identifier",
+      "type": "Type",
+      "value": "Identifier",
+      "country": "Country",
+      "validFrom": "Valid from",
+      "validTo": "Valid until",
+      "added": "Identifier added.",
+      "empty": "No identifiers."
+    },
+    "contacts": {
+      "add": "Add contact",
+      "kindLabel": "Channel",
+      "kind": {
+        "EMAIL": "Email",
+        "PHONE": "Phone"
+      },
+      "value": "Contact",
+      "primary": "Primary",
+      "added": "Contact added.",
+      "empty": "No contacts."
+    },
+    "addresses": {
+      "add": "Add address",
+      "typeLabel": "Address type",
+      "type": {
+        "RESIDENTIAL": "Residential",
+        "FISCAL": "Tax",
+        "OPERATIONAL": "Operational"
+      },
+      "street": "Street",
+      "extNumber": "Exterior number",
+      "intNumber": "Interior number",
+      "neighbourhood": "Neighbourhood",
+      "city": "City",
+      "country": "Country",
+      "adminArea": "State code",
+      "municipality": "Municipality code",
+      "postalCode": "Postal code",
+      "validFrom": "Valid from",
+      "validTo": "Valid until",
+      "linesHidden": "The street and number are shown only when the personal data is revealed.",
+      "added": "Address added.",
+      "empty": "No addresses."
+    },
+    "relationships": {
+      "add": "Add relationship",
+      "to": "Id of the other person or company",
+      "typeLabel": "Relationship",
+      "type": {
+        "SHAREHOLDER": "Shareholder",
+        "DIRECTOR": "Director",
+        "LEGAL_REP": "Legal representative",
+        "ATTORNEY": "Attorney-in-fact",
+        "CONTROLLER": "Beneficial owner"
+      },
+      "ownership": "Ownership (%)",
+      "controlBasis": "Basis of control",
+      "validFrom": "Valid from",
+      "validTo": "Valid until",
+      "added": "Relationship added.",
+      "from": "With",
+      "directionLabel": "Direction",
+      "direction": {
+        "outgoing": "This person or company towards the other",
+        "incoming": "The other towards this person or company"
+      },
+      "empty": "No relationships."
+    },
+    "documents": {
+      "title": "Documents",
+      "upload": "Upload document",
+      "uploading": "Uploading…",
+      "typeLabel": "Document type",
+      "type": {
+        "IDENTITY": "Identity document",
+        "PROOF_OF_ADDRESS": "Proof of address",
+        "CONSTITUTIVE_ACT": "Articles of incorporation",
+        "POWER_OF_ATTORNEY": "Power of attorney",
+        "TAX_CERTIFICATE": "Tax status certificate",
+        "OTHER": "Other"
+      },
+      "file": "File (PDF, JPEG or PNG, up to 25 MB)",
+      "size": "Size (bytes)",
+      "uploadedAt": "Uploaded",
+      "download": "Download",
+      "downloadNotice": "Every download is recorded in the audit log.",
+      "uploaded": "Document uploaded.",
+      "empty": "No documents."
+    },
+    "customer": {
+      "title": "Customer relationships",
+      "open": "Open relationship",
+      "opening": "Opening…",
+      "opened": "Customer relationship opened.",
+      "externalRef": "External reference",
+      "product": "Product",
+      "tier": "Account tier",
+      "statusLabel": "Status",
+      "status": {
+        "PENDING": "Pending",
+        "ACTIVE": "Active",
+        "RESTRICTED": "Restricted",
+        "BLOCKED": "Blocked",
+        "EXITED": "Ended"
+      },
+      "startedAt": "Started",
+      "endedAt": "Ended",
+      "close": "End relationship",
+      "closing": "Ending…",
+      "confirmClose": "Ending the relationship starts the retention period of this person's or company's data, under the policy in force.",
+      "closed": "Customer relationship ended.",
+      "empty": "No customer relationships."
     }
   },
   "audit": {
