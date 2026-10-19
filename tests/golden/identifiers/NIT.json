@@ -1,0 +1,27 @@
+{
+  "id_type": "NIT",
+  "valid": [
+    {
+      "input": "800.197.268-4",
+      "canonical": "8001972684"
+    },
+    {
+      "input": "900123456-8",
+      "canonical": "9001234568"
+    },
+    {
+      "input": "830.114.921-1",
+      "canonical": "8301149211"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "800197268-5",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "12-3",
+      "reason": "FORMAT"
+    }
+  ]
+}

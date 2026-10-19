@@ -1,0 +1,47 @@
+{
+  "id_type": "PASSPORT",
+  "valid": [
+    {
+      "input": "L898902C36",
+      "canonical": "L898902C3"
+    },
+    {
+      "input": "G123456786",
+      "canonical": "G12345678"
+    },
+    {
+      "input": "AB123456<4",
+      "canonical": "AB123456"
+    },
+    {
+      "input": "C1234567<0",
+      "canonical": "C1234567"
+    },
+    {
+      "input": "AB1234567",
+      "canonical": "AB1234567"
+    },
+    {
+      "input": " g12345 ",
+      "canonical": "G12345"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "L898902C37",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "AB12",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "AB12345678901",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "ab-12!",
+      "reason": "FORMAT"
+    }
+  ]
+}

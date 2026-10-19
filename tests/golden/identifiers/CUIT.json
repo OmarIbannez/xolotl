@@ -1,0 +1,39 @@
+{
+  "id_type": "CUIT",
+  "valid": [
+    {
+      "input": "33-69345023-9",
+      "canonical": "33693450239"
+    },
+    {
+      "input": "20-12345678-6",
+      "canonical": "20123456786"
+    },
+    {
+      "input": "27123456780",
+      "canonical": "27123456780"
+    },
+    {
+      "input": "30-71234567-1",
+      "canonical": "30712345671"
+    },
+    {
+      "input": "20-31234567-7",
+      "canonical": "20312345677"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "20-12345678-7",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "99-12345678-0",
+      "reason": "PREFIX"
+    },
+    {
+      "input": "2012345678",
+      "reason": "FORMAT"
+    }
+  ]
+}

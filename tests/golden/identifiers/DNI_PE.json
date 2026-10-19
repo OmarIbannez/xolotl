@@ -1,0 +1,27 @@
+{
+  "id_type": "DNI_PE",
+  "valid": [
+    {
+      "input": "12345678",
+      "canonical": "12345678"
+    },
+    {
+      "input": "0123 4567",
+      "canonical": "01234567"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "1234567",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "123456789",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "1234567A",
+      "reason": "FORMAT"
+    }
+  ]
+}
