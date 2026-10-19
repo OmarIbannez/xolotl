@@ -75,6 +75,9 @@ describe('translation catalogues', () => {
       'IDEMPOTENCY_IN_PROGRESS',
       'VALIDATION_FAILED',
       'CONNECTOR_NO_ROUTE',
+      'UNIT_VALUE_MISSING',
+      'POLICY_NOT_ASSIGNED',
+      'POLICY_LOOSENING',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

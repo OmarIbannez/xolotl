@@ -36,6 +36,7 @@
     "apiKeys": "API keys",
     "staff": "Staff",
     "audit": "Audit",
+    "policy": "Policy",
     "connectors": "Connectors",
     "security": "Security",
     "openMenu": "Open menu",
@@ -432,6 +433,78 @@
       "empty": "No calls in the period."
     }
   },
+  "policy": {
+    "title": "Policy",
+    "description": "The workspace's policy in force on a date for a product, with the legal basis of every value, its pack assignments and its overrides.",
+    "filters": {
+      "on": "Date",
+      "product": "Product",
+      "apply": "Look up"
+    },
+    "packs": "Packs in force",
+    "overrideVersion": "Override version",
+    "snapshot": "Snapshot hash",
+    "tiers": {
+      "title": "Account tiers",
+      "code": "Tier",
+      "monthlyOps": "Monthly deposits",
+      "maxBalance": "Maximum balance",
+      "converted": "In MXN",
+      "assurance": "Identity assurance"
+    },
+    "captures": {
+      "title": "Report captures",
+      "code": "Capture",
+      "kind": "Kind",
+      "threshold": "Threshold",
+      "rule": "Conversion rule",
+      "period": "Period",
+      "report": "Report",
+      "filing": "Filing"
+    },
+    "lists": {
+      "mandatory": "Mandatory lists",
+      "recommended": "Recommended lists"
+    },
+    "retention": {
+      "title": "Retention",
+      "kyc": "Customer file after the relationship",
+      "transactions": "Transactions"
+    },
+    "governance": {
+      "title": "Governance",
+      "committee": "Committee required",
+      "fourEyes": "Four-eyes review of reports"
+    },
+    "provenance": {
+      "VERIFIED": "Verified",
+      "UNVERIFIED": "Unverified",
+      "basis": "Basis"
+    },
+    "missingUnits": "Values of {{units}} are missing for this date: those amounts are shown unconverted.",
+    "notAssigned": "No policy pack is assigned for this date and product.",
+    "assignments": {
+      "title": "Assignments",
+      "pack": "Pack",
+      "version": "Version",
+      "product": "Product",
+      "allProducts": "All products",
+      "from": "Effective from",
+      "to": "Effective to",
+      "approvedBy": "Approved by",
+      "createdAt": "Created",
+      "empty": "No pack assignments yet."
+    },
+    "overrides": {
+      "title": "Overrides",
+      "version": "Version",
+      "from": "Effective from",
+      "approvedBy": "Approved by",
+      "keys": "Overridden values",
+      "empty": "No policy overrides yet."
+    },
+    "noConversion": "Not converted: the unit's value for that date is missing."
+  },
   "forbidden": {
     "title": "No access",
     "body": "Your role does not allow viewing this section."
@@ -461,6 +534,9 @@
     "VALIDATION_FAILED": "Check the data you entered: some values are not valid.",
     "INTERNAL": "An internal error occurred. Try again in a few minutes.",
     "NETWORK_ERROR": "Could not reach the server. Check your connection and try again.",
-    "CONNECTOR_NO_ROUTE": "No connector serves this check in this country."
+    "CONNECTOR_NO_ROUTE": "No connector serves this check in this country.",
+    "UNIT_VALUE_MISSING": "The unit's value for that date is missing, and nothing fills it in silently. Try again once it is published.",
+    "POLICY_NOT_ASSIGNED": "No policy pack is assigned for that date and product.",
+    "POLICY_LOOSENING": "The override would loosen the policy: only overrides stricter than the pack are allowed."
   }
 }
