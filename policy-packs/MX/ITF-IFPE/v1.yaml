@@ -1,0 +1,115 @@
+pack: MX/ITF-IFPE
+version: 1
+title: "Instituciones de Tecnología Financiera — IFPE (fondos de pago electrónico)"
+effective_from: 2026-01-01
+country: MX
+regulators: [CNBV, UIF]
+products: [EMONEY, CROWDFUNDING, CRYPTO]
+units:
+  quote_ccy: MXN
+  tier_limit_rule: {value: LAST_DAY_PREV_MONTH, legal_basis: "DCG art. 58 LRITF: límites por nivel de cuenta en UDI al valor del último día del mes inmediato anterior", confidence: VERIFIED, verified_as_of: 2026-10-18}
+kyc:
+  tiers:
+    - code: N1
+      limits:
+        monthly_ops: {value: {amount: "750", unit: UDI}, legal_basis: "DCG art. 58 LRITF: cuentas nivel 1, abonos mensuales hasta 750 UDI", confidence: VERIFIED, verified_as_of: 2026-10-18}
+        max_balance: {value: {amount: "1000", unit: UDI}, legal_basis: "DCG art. 58 LRITF: cuentas nivel 1, saldo máximo 1,000 UDI", confidence: VERIFIED, verified_as_of: 2026-10-18}
+      required_fields: [given_names, first_surname, second_surname, birth_date, birth_country, nationalities, gender, occupation_code, email, phone]
+      required_checks: [GEOLOCATION, DEVICE_RISK, SCREENING]
+      assurance: A0
+    - code: N2
+      limits:
+        monthly_ops: {value: {amount: "3000", unit: UDI}, legal_basis: "DCG art. 58 LRITF: cuentas nivel 2, abonos mensuales hasta 3,000 UDI", confidence: VERIFIED, verified_as_of: 2026-10-18}
+        max_balance: null
+      required_fields: [given_names, first_surname, second_surname, birth_date, birth_country, birth_state, nationalities, gender, occupation_code, email, phone, curp, rfc, address, clave_elector]
+      required_checks: [GEOLOCATION, DEVICE_RISK, SCREENING, CURP_VALIDATION, ID_DOCUMENT]
+      assurance: A2
+    - code: N3
+      limits: {monthly_ops: null, max_balance: null}
+      required_fields: [given_names, first_surname, second_surname, birth_date, birth_country, birth_state, nationalities, gender, occupation_code, economic_activity_code, email, phone, curp, rfc, address, clave_elector]
+      required_checks: [GEOLOCATION, DEVICE_RISK, SCREENING, CURP_VALIDATION, RFC_VALIDATION, ID_DOCUMENT, LIVENESS, PROOF_OF_ADDRESS]
+      assurance: A3
+  review_frequency:
+    HIGH: {value: P6M, legal_basis: "DCG art. 58 LRITF: actualización del expediente de clientes de alto riesgo", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    MEDIUM: {value: P12M, legal_basis: "DCG art. 58 LRITF: actualización periódica del expediente", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    LOW: {value: P24M, legal_basis: "DCG art. 58 LRITF: actualización periódica del expediente", confidence: VERIFIED, verified_as_of: 2026-10-18}
+  geolocation_required: {value: true, legal_basis: "DCG art. 58 LRITF: geolocalización del dispositivo en la apertura y en operaciones", confidence: VERIFIED, verified_as_of: 2026-10-18}
+ubo:
+  ownership_threshold_pct: {value: "25", legal_basis: "DCG art. 58 LRITF: propietario real, participación del 25% o más", confidence: VERIFIED, verified_as_of: 2026-10-18}
+  control_tests: [VOTING_RIGHTS, APPOINT_REMOVE_MANAGEMENT, DECISIVE_INFLUENCE]
+  fallback: SENIOR_MANAGING_OFFICIAL
+  legal_person_can_be_ubo: false
+screening:
+  mandatory_lists:
+    - {value: MX_LPB, legal_basis: "DCG art. 58 LRITF: Lista de Personas Bloqueadas de la UIF", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    - {value: UN_CONSOLIDATED, legal_basis: "Resoluciones del Consejo de Seguridad de la ONU incorporadas a la LPB", confidence: VERIFIED, verified_as_of: 2026-10-18}
+  recommended_lists: [OFAC_SDN, MX_SAT_69B, EU_FSF, UK_FCDO]
+  bands: {sanctions_alert: "0.70", sanctions_review: "0.55", pep_alert: "0.80", id_match_floor: "0.95", id_conflict_cap: "0.30"}
+  pep:
+    cooling_off:
+      DOMESTIC: {value: P1Y, legal_basis: "DCG art. 58 LRITF: PEP nacional, un año posterior al cargo", confidence: VERIFIED, verified_as_of: 2026-10-18}
+      FOREIGN: {value: null, legal_basis: "DCG art. 58 LRITF: PEP extranjera, sin periodo posterior", confidence: VERIFIED, verified_as_of: 2026-10-18}
+      INTL_ORG: {value: null, legal_basis: "DCG art. 58 LRITF: PEP de organismo internacional, sin periodo posterior", confidence: VERIFIED, verified_as_of: 2026-10-18}
+  on_true_match:
+    MX_LPB: {action: SUSPEND_IMMEDIATELY, report: MX_F41_ROI24, notify_client: false}
+    UN_CONSOLIDATED: {action: SUSPEND_IMMEDIATELY, report: MX_F41_ROI24, notify_client: false}
+    OFAC_SDN: {action: REVIEW}
+    MX_SAT_69B: {action: REVIEW}
+    EU_FSF: {action: REVIEW}
+    UK_FCDO: {action: REVIEW}
+captures:
+  - code: ITF_ROR_CASH
+    kind: THRESHOLD
+    threshold: {value: {amount: "5000", unit: USD}, legal_basis: "DCG art. 58 LRITF: operación relevante, efectivo por USD 5,000 o más", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    conversion_rule: PRIOR_BANKING_DAY
+    window: null
+    period: {value: QUARTER, legal_basis: "DCG art. 58 LRITF: reporte trimestral de operaciones relevantes; granularidad mes/trimestre pendiente (spec §13)", confidence: UNVERIFIED, verified_as_of: 2026-10-18}
+    report: MX_F41_ROR
+    filing: SERIALIZED
+  - code: ITF_FX_CASH
+    kind: THRESHOLD
+    threshold: {value: {amount: "500", unit: USD}, legal_basis: "DCG art. 58 LRITF: compraventa de divisas en efectivo por USD 500 o más", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    conversion_rule: PRIOR_BANKING_DAY
+    window: null
+    period: {value: QUARTER, legal_basis: "DCG art. 58 LRITF: reporte trimestral", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    report: MX_ITF_FX_CASH
+    filing: MANUAL_UPLOAD
+  - code: ITF_INTL_TRANSFER
+    kind: THRESHOLD
+    threshold: {value: {amount: "1000", unit: USD}, legal_basis: "DCG art. 58 LRITF: transferencias internacionales por USD 1,000 o más", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    conversion_rule: PRIOR_BANKING_DAY
+    window: null
+    period: {value: MONTH, legal_basis: "DCG art. 58 LRITF: reporte mensual de transferencias internacionales", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    report: MX_ITF_INTL_TRANSFER
+    filing: MANUAL_UPLOAD
+  - code: ITF_VA_OPS
+    kind: THRESHOLD
+    threshold: {value: {amount: "7500", unit: UDI}, legal_basis: "DCG art. 58 LRITF: operaciones con activos virtuales por 7,500 UDI o más", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    conversion_rule: SAME_DAY
+    window: null
+    period: {value: QUARTER, legal_basis: "DCG art. 58 LRITF: reporte trimestral", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    report: MX_ITF_VA_OPS
+    filing: MANUAL_UPLOAD
+reports:
+  - code: MX_F41_ROR
+    anchor: period_end
+    deadline: {value: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10}, tz: America/Mexico_City}, legal_basis: "DCG art. 58 LRITF: ROR dentro de los diez días hábiles siguientes al cierre del periodo", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    zero_report: true
+  - code: MX_F41_ROI
+    anchor: committee_decision
+    deadline: {value: {kind: BUSINESS_DAYS_AFTER, params: {n: 3}, tz: America/Mexico_City}, legal_basis: "DCG art. 58 LRITF: ROI dentro de los tres días hábiles siguientes a la sesión del comité, que resuelve en sesenta días naturales desde la detección", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    zero_report: false
+  - code: MX_F41_ROI24
+    anchor: detection
+    deadline: {value: {kind: HOURS_AFTER, params: {hours: 24}, tz: America/Mexico_City}, legal_basis: "DCG art. 58 LRITF: reporte de 24 horas desde la detección", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    zero_report: false
+  - code: MX_ITF_INTL_TRANSFER
+    anchor: period_end
+    deadline: {value: {kind: BUSINESS_DAYS_AFTER, params: {n: 15}, tz: America/Mexico_City}, legal_basis: "DCG art. 58 LRITF: transferencias internacionales, quince días hábiles siguientes al cierre del mes", confidence: VERIFIED, verified_as_of: 2026-10-18}
+    zero_report: false
+retention:
+  kyc_after_relationship: {value: P10Y, legal_basis: "DCG art. 58 LRITF: conservación del expediente diez años desde el fin de la relación", confidence: VERIFIED, verified_as_of: 2026-10-18}
+  transactions: {value: P10Y, legal_basis: "DCG art. 58 LRITF: conservación de reportes y registros de operaciones diez años", confidence: VERIFIED, verified_as_of: 2026-10-18}
+governance:
+  committee_required: {value: true, legal_basis: "DCG art. 58 LRITF: Comité de Comunicación y Control", confidence: VERIFIED, verified_as_of: 2026-10-18}
+  four_eyes_on_reports: true
