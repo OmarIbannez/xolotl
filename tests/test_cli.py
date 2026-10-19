@@ -874,3 +874,41 @@ def test_a_server_sent_operational_error_keeps_its_traceback(
     result = runner.invoke(app, ["db", "upgrade"])
     assert result.exit_code == 1
     assert isinstance(result.exception, OperationalError), result.exception
+
+
+HOLIDAYS_SEEDED = (
+    "seeded 108 holidays for MX (NATIONAL 22, CNBV 28, SAT 30, BANXICO 28); "
+    "35 dates still marked verify\n"
+)
+
+
+def test_holidays_help_lists_seed():
+    result = runner.invoke(app, ["holidays", "--help"])
+    assert result.exit_code == 0
+    assert "seed" in result.stdout
+
+
+def test_holidays_seed_loads_the_file_and_says_how_many_rows_await_review(
+    admin_engine: Engine,
+):
+    first = runner.invoke(app, ["holidays", "seed"])
+    assert (first.exit_code, first.stdout, first.stderr) == (0, HOLIDAYS_SEEDED, "")
+    again = runner.invoke(
+        app, ["holidays", "seed", str(Path("policy-packs/_holidays/MX.yaml"))]
+    )
+    assert (again.exit_code, again.stdout) == (0, HOLIDAYS_SEEDED)
+    with admin_engine.connect() as conn:
+        assert conn.scalar(text("SELECT count(*) FROM holiday")) == 108
+
+
+def test_holidays_seed_refuses_a_missing_file_in_one_line(
+    admin_engine: Engine, tmp_path: Path
+):
+    result = runner.invoke(app, ["holidays", "seed", str(tmp_path / "nope.yaml")])
+    assert (result.exit_code, result.stdout) == (1, "")
+    assert isinstance(result.exception, SystemExit), result.exception
+    [line] = result.stderr.splitlines()
+    assert line.startswith("error: VALIDATION_FAILED: ")
+    assert "nope.yaml" in line
+    with admin_engine.connect() as conn:
+        assert conn.scalar(text("SELECT count(*) FROM holiday")) == 0

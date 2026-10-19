@@ -14,12 +14,14 @@ import typer
 import uvicorn
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import sessionmaker
 
 from xolotl.app import build_key_provider, build_worker
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import migrate
 from xolotl.platform.audit import verify_chain
+from xolotl.platform.calendar import read_holiday_file, seed_holidays
 from xolotl.platform.config import DEV_MASTER_KEY_BYTES, Settings, get_settings
 from xolotl.platform.crypto import get_key_provider, set_key_provider
 from xolotl.platform.crypto.provider import DEFAULT_CACHE_TTL
@@ -28,11 +30,12 @@ from xolotl.platform.db import (
     BootstrapError,
     RoleBypassError,
     assert_app_role_safe,
+    get_admin_engine,
     get_engine,
     get_sessionmaker,
     tenant_session,
 )
-from xolotl.platform.enums import KeyPurpose, TenantEnv
+from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
 from xolotl.platform.errors import NotFoundError, XolotlError
 from xolotl.platform.logging import configure_logging
 from xolotl.platform.tenancy.context import TenantContext
@@ -47,7 +50,9 @@ keys_app = typer.Typer(
 app.add_typer(db_app, name="db")
 app.add_typer(tenant_app, name="tenant")
 app.add_typer(audit_app, name="audit")
+holidays_app = typer.Typer(no_args_is_help=True, help="Regulatory calendar")
 app.add_typer(keys_app, name="keys")
+app.add_typer(holidays_app, name="holidays")
 
 _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
@@ -438,3 +443,33 @@ def keys_destroy(
     typer.echo(
         "while XOLOTL_MASTER_KEY is unchanged, a restore from them brings keys back"
     )
+
+
+@holidays_app.command("seed")
+def holidays_seed(
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="Holidays file; default <packs_dir>/_holidays/MX.yaml"),
+    ] = None,
+) -> None:
+    """Load a holidays file into the shared holiday table (idempotent).
+
+    Runs as the database owner, the only role that writes the table. Says how many
+    rows of each scope the file holds and how many still await the compliance
+    review (``verify: true``). Exits 1 with one line on stderr when the file is
+    missing or malformed.
+    """
+    source = path or get_settings().packs_dir / "_holidays" / "MX.yaml"
+    owner = sessionmaker(bind=get_admin_engine(), expire_on_commit=False)
+    with _cli_errors():
+        rows = read_holiday_file(source)
+        with tenant_session(TenantContext.platform(_cli_actor()), factory=owner) as s:
+            seeded = seed_holidays(s, rows)
+    countries = ", ".join(sorted({row.country_code for row in rows}))
+    per_scope = ", ".join(
+        f"{scope.value} {sum(1 for row in rows if row.scope is scope)}"
+        for scope in HolidayScope
+    )
+    flagged = sum(1 for row in rows if row.verify)
+    seeded_line = f"seeded {seeded} holidays for {countries} ({per_scope})"
+    typer.echo(f"{seeded_line}; {flagged} dates still marked verify")
