@@ -14,6 +14,7 @@ from tests.modules.reporting.serializers.support import (
     DEFS_DIR,
     HEADER_ROR,
     MARIA,
+    RELATED_ACCOUNT,
     ROR_OPERATIONS,
     SYNTHETIC_CURPS,
     SYNTHETIC_RFCS,
@@ -75,7 +76,8 @@ def test_ror_records_follow_the_layout():
     assert maria[:5] == ["1", "202703", "000001", "040002", "090123"]
     assert acme[2] == "000002"
     assert maria[10] == "125000.50"
-    assert acme[10] == "98765.44"
+    # Half up, not half even: 98765.445 is 98765.45.
+    assert acme[10] == "98765.45"
     # Ñ and accents folded, the separator inside the address replaced.
     assert maria[17:20] == ["MARIA JOSE", "GOMEZ", "LOPEZ"]
     assert maria[23] == "AV. INSURGENTES SUR 1234, INT. 5 CP 03100"
@@ -141,8 +143,13 @@ def test_bad_operation_values_are_refused(change, message):
         (replace(MARIA, first_names=" "), "column 18"),
         (
             replace(MARIA, rfc=None, curp=None, birth_or_incorporation=None),
-            "need RFC, CURP or date",
+            "FECHA DE NACIMIENTO O CONSTITUCION: is required",
         ),
+        (
+            replace(MARIA, paternal_surname=None, maternal_surname=" "),
+            "at least one surname",
+        ),
+        (replace(MARIA, neighbourhood=None), "COLONIA: is required"),
         (replace(MARIA, rfc="NOT-AN-RFC"), "rfc: not an RFC"),
         (replace(MARIA, city_code=""), "CIUDAD O POBLACION: is required"),
     ],
@@ -181,10 +188,11 @@ def test_any_person_yields_one_ascii_record_within_the_widths(
         birth_or_incorporation=date(1990, 1, 1),
         address=address,
         city_code="09014001",
+        occasional_user=True,
     )
     operation = replace(ROR_OPERATIONS[0], subject=subject, amount=amount)
     # Text that folds to nothing would leave a required column empty.
-    _ = assume(f41_text(first) and f41_text(address))
+    _ = assume(f41_text(first) and f41_text(surname) and f41_text(address))
     report = serialize_f41(DEFS_DIR, ROR, HEADER_ROR, [operation])
     data = report.parts[0]
     assert all(0x20 <= byte <= 0x7E for byte in data.removesuffix(b"\r\n"))
@@ -224,3 +232,45 @@ def test_layouts_must_number_their_columns_in_order(tmp_path: Path):
 def test_a_missing_code_table_is_a_definition_error():
     with pytest.raises(DefinitionError, match="unreadable"):
         _ = load_code_table(DEFS_DIR, "MX/does_not_exist")
+
+
+ALL = "123"
+EVENT = "23"
+# (width, kinds the column is filled for, kinds that require it) for columns 1-41,
+# copied from Anexo 1 of the resolution; None width is the variable-length text.
+EXPECTED_LAYOUT = (
+    (1, ALL, ALL), (8, ALL, ALL), (6, ALL, ALL), (6, ALL, ALL), (8, ALL, ALL),
+    (8, ALL, ALL), (8, ALL, ALL), (2, ALL, ALL), (2, ALL, ALL), (16, ALL, ALL),
+    (17, ALL, ALL), (3, ALL, ALL), (8, ALL, ALL), (8, EVENT, EVENT), (2, ALL, ALL),
+    (1, ALL, ALL), (60, ALL, ""), (60, ALL, ""), (30, ALL, ""), (30, ALL, ""),
+    (13, ALL, ""), (18, ALL, ""), (8, ALL, ALL), (60, ALL, ALL), (30, ALL, ALL),
+    (8, ALL, ALL), (40, ALL, ""), (7, ALL, ""), (60, ALL, ""), (60, ALL, ""),
+    (30, ALL, ""), (13, ALL, ""), (18, ALL, ""), (2, EVENT, EVENT), (16, EVENT, ""),
+    (6, EVENT, ""), (60, EVENT, ""), (60, EVENT, ""), (30, EVENT, ""),
+    (None, EVENT, EVENT), (None, EVENT, EVENT),
+)  # fmt: skip
+
+
+def test_the_layout_matches_the_official_column_table():
+    actual = tuple(
+        (
+            column.width,
+            "".join(sorted(column.report_types)),
+            "".join(sorted(column.required_for)),
+        )
+        for column in LAYOUT.columns
+    )
+    assert actual == EXPECTED_LAYOUT
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"related": (RELATED_ACCOUNT,)}, "related rows are for inusuales"),
+        ({"detection_date": date(2027, 3, 3)}, "detection date is for inusuales"),
+    ],
+)
+def test_ror_refuses_input_that_does_not_apply(change, message):
+    operation = replace(ROR_OPERATIONS[0], **change)
+    with pytest.raises(ReportFieldError, match=message):
+        _ = serialize_f41(DEFS_DIR, ROR, HEADER_ROR, [operation])

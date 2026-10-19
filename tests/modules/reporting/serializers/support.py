@@ -79,6 +79,7 @@ WALK_IN = F41Subject(
     birth_or_incorporation=date(1978, 7, 2),
     address="Domicilio no proporcionado, CP 06000",
     city_code="09015001",
+    occasional_user=True,
 )
 
 ROR_OPERATIONS = (
@@ -99,7 +100,7 @@ ROR_OPERATIONS = (
         operation_type="02",
         instrument="01",
         account="1000000002",
-        amount=Decimal("98765.435"),
+        amount=Decimal("98765.445"),
         currency="USD",
         operation_date=date(2027, 3, 15),
         subject=ACME,

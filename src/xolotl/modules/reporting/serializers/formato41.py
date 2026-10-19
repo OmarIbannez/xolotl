@@ -7,8 +7,10 @@ The inputs are plain frozen dataclasses that SP-05 fills from its rows.
 
 Rows: every operation is one record with consecutivo ``00``; for inusuales and
 preocupantes each related account or person is a further record ``01..n`` that
-repeats columns 1-33 and 40-41 and varies 34-39 (Anexo 1). All rows of one
-operation share its folio.
+repeats columns 1-33 and 40-41 and varies 34-39, as the Anexo 1 preamble says.
+The column 34 note says only 1-5 and 34-39 need filling for related accounts;
+repeating everything satisfies both readings. All rows of one operation share
+its folio.
 """
 
 from collections.abc import Mapping, Sequence
@@ -48,7 +50,6 @@ _NO_NEIGHBOURHOOD = "0"
 _HEAD_OFFICE = "0"
 _MAIN_ROW = 0
 _MAX_ROWS_PER_OPERATION = 99
-_ID_COLUMNS = ("rfc", "curp", "fecha_nacimiento_constitucion")
 
 
 class PersonType(StrEnum):
@@ -93,6 +94,9 @@ class F41Subject:
     curp: str | None = None
     birth_or_incorporation: date | None = None
     neighbourhood: str | None = None
+    # An occasional user who holds no account may have no colonia; it is then
+    # written 0 (column 25). Everyone else must give one.
+    occasional_user: bool = False
     phone: str | None = None
     economic_activity: str | None = None
 
@@ -127,20 +131,34 @@ class F41Operation:
     related: tuple[F41Related, ...] = field(default_factory=tuple[F41Related, ...])
 
 
-def _surname(value: str | None, person_type: PersonType) -> str | None:
-    if person_type is PersonType.FISICA and not norm.f41_text(value):
-        return _NO_SURNAME
-    return value
+def _surnames(
+    paternal: str | None, maternal: str | None, where: str
+) -> tuple[str, str]:
+    # The XXXX rule of columns 19-20: a missing surname is written XXXX, and
+    # when the paternal one is missing the maternal one becomes mandatory, so
+    # both missing is refused.
+    paternal_text = norm.f41_text(paternal)
+    maternal_text = norm.f41_text(maternal)
+    if not paternal_text and not maternal_text:
+        raise ReportFieldError(where, "a persona fisica needs at least one surname")
+    return paternal_text or _NO_SURNAME, maternal_text or _NO_SURNAME
 
 
-def _subject_fields(subject: F41Subject) -> dict[str, str | None]:
+def _subject_fields(subject: F41Subject, line: int) -> dict[str, str | None]:
+    paternal: str | None = subject.paternal_surname
+    maternal: str | None = subject.maternal_surname
+    if subject.person_type is PersonType.FISICA:
+        paternal, maternal = _surnames(paternal, maternal, f"line {line}")
+    neighbourhood = subject.neighbourhood
+    if not norm.f41_text(neighbourhood) and subject.occasional_user:
+        neighbourhood = _NO_NEIGHBOURHOOD
     return {
         "nacionalidad": subject.nationality or _UNKNOWN_NATIONALITY,
         "tipo_persona": subject.person_type.value,
         "razon_social": subject.company_name,
         "nombre": subject.first_names,
-        "apellido_paterno": _surname(subject.paternal_surname, subject.person_type),
-        "apellido_materno": _surname(subject.maternal_surname, subject.person_type),
+        "apellido_paterno": paternal,
+        "apellido_materno": maternal,
         "rfc": norm.rfc(subject.rfc, field="rfc") if subject.rfc else None,
         "curp": norm.curp(subject.curp, field="curp") if subject.curp else None,
         "fecha_nacimiento_constitucion": (
@@ -149,7 +167,7 @@ def _subject_fields(subject: F41Subject) -> dict[str, str | None]:
             else None
         ),
         "domicilio": subject.address,
-        "colonia": subject.neighbourhood or _NO_NEIGHBOURHOOD,
+        "colonia": neighbourhood,
         "ciudad_poblacion": subject.city_code,
         "telefono": subject.phone,
         "actividad_economica": subject.economic_activity,
@@ -168,7 +186,12 @@ def _related_fields(index: int, related: F41Related | None) -> dict[str, str | N
             else None
         ),
         "nombre_relacionado": related.first_names,
-        "apellido_paterno_relacionado": related.paternal_surname,
+        "apellido_paterno_relacionado": (
+            _NO_SURNAME
+            if norm.f41_text(related.first_names)
+            and not norm.f41_text(related.paternal_surname)
+            else related.paternal_surname
+        ),
         "apellido_materno_relacionado": related.maternal_surname,
     }
 
@@ -177,7 +200,9 @@ def _description(operation: F41Operation, legend: Legend | None) -> str | None:
     if legend is None:
         return operation.description
     body = norm.f41_text(operation.description)
-    return f"{legend.value}. {body}" if body else legend.value
+    # Without a description column 40 stays empty and fails as required: the
+    # legend alone does not describe the operation.
+    return f"{legend.value}. {body}" if body else None
 
 
 @dataclass(slots=True)
@@ -247,12 +272,6 @@ class _Renderer:
         return text + self.layout.line_ending.chars
 
 
-def _check_identity(fields: Mapping[str, str | None], line: int) -> None:
-    if not any(fields.get(name) for name in _ID_COLUMNS):
-        msg = f"line {line} columns 21-23"
-        raise ReportFieldError(msg, "need RFC, CURP or date")
-
-
 def _check_subject(subject: F41Subject, report_type: str, line: int) -> None:
     where = f"line {line}"
     if subject.person_type is PersonType.MORAL and not norm.f41_text(
@@ -267,6 +286,16 @@ def _check_subject(subject: F41Subject, report_type: str, line: int) -> None:
         raise ReportFieldError(where, "nationality is unknown only for relevantes")
 
 
+def _check_applicable(operation: F41Operation, report_type: str, line: int) -> None:
+    if report_type != RELEVANTE:
+        return
+    where = f"line {line}"
+    if operation.related:
+        raise ReportFieldError(where, "related rows are for inusuales and preocupantes")
+    if operation.detection_date is not None:
+        raise ReportFieldError(where, "a detection date is for inusuales only")
+
+
 def _operation_rows(
     renderer: _Renderer,
     header_fields: Mapping[str, str | None],
@@ -276,6 +305,7 @@ def _operation_rows(
 ) -> list[str]:
     report_type = renderer.definition.report_type
     _check_subject(operation.subject, report_type, first_line)
+    _check_applicable(operation, report_type, first_line)
     base: dict[str, str | None] = {
         **header_fields,
         "folio": f"{folio:06d}",
@@ -292,11 +322,10 @@ def _operation_rows(
             if operation.detection_date
             else None
         ),
-        **_subject_fields(operation.subject),
+        **_subject_fields(operation.subject, first_line),
         "descripcion_operacion": _description(operation, renderer.legend),
         "razones": operation.reasons,
     }
-    _check_identity(base, first_line)
     related: list[F41Related | None] = [None]
     if report_type != RELEVANTE:
         related.extend(operation.related)
