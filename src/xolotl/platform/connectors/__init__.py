@@ -9,6 +9,7 @@ from xolotl.platform.connectors.base import Connector, ConnectorDeps, redact
 from xolotl.platform.connectors.breaker import CircuitBreaker
 from xolotl.platform.connectors.defaults import DEFAULT_ROUTES, default_router
 from xolotl.platform.connectors.errors import NoRouteError
+from xolotl.platform.connectors.metering import UsageRow, usage
 from xolotl.platform.connectors.router import ConnectorRouter, run_check
 from xolotl.platform.connectors.sat import SatRfcConnector
 from xolotl.platform.connectors.types import (
@@ -54,8 +55,10 @@ __all__ = [
     "RawResponse",
     "SatRfcConnector",
     "TransientCallError",
+    "UsageRow",
     "VerificationOutcome",
     "default_router",
     "redact",
     "run_check",
+    "usage",
 ]
