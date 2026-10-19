@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     # The only adapter so far; an S3 one can join the Literal when it is built.
     object_store: Literal["local"] = "local"
     object_store_root: Path = Path("./data/local/objects")
+    # The connector mode a PROD tenant gets when a call names none; a SANDBOX tenant
+    # always uses mocks. render.yaml sets LIVE for production.
+    connector_mode_default: Literal["SANDBOX", "LIVE"] = "SANDBOX"
     # Pause between ticks of the worker's dispatcher, job and scheduler loops.
     worker_tick_seconds: float = Field(default=1.0, ge=0)
     worker_id: str = Field(default_factory=_default_worker_id, min_length=1)

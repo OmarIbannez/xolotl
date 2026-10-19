@@ -20,12 +20,17 @@ from xolotl.modules.tenants.models import (
 from xolotl.platform import clock
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.audit.models import AuditEventRow
+from xolotl.platform.connectors.models import ConnectorCall, ConnectorCredential
 from xolotl.platform.crypto.encrypted import encrypt, encrypt_json
 from xolotl.platform.crypto.models import TenantKey
 from xolotl.platform.crypto.provider import get_key_provider
 from xolotl.platform.db import get_admin_engine
 from xolotl.platform.enums import (
     ApiKeyStatus,
+    CallOutcome,
+    CheckType,
+    ConnectorMode,
+    ConnectorRoute,
     DeliveryStatus,
     EndpointStatus,
     KeyPurpose,
@@ -393,6 +398,36 @@ def tenant_branch(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def connector_credential(session: Session, tenant_id: UUID) -> None:
+    # A real ciphertext, as staff_credential does; the harness makes bare tenants.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
+    session.add(
+        ConnectorCredential(
+            tenant_id=tenant_id,
+            connector="sat_rfc",
+            mode=ConnectorMode.SANDBOX,
+            secret=encrypt_json({"token": "t"}, tenant_id=tenant_id, session=session),
+            created_by=uuid7(),
+        )
+    )
+    session.flush()
+
+
+def connector_call(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        ConnectorCall(
+            tenant_id=tenant_id,
+            connector="sat_rfc",
+            check_type=CheckType.RFC_VALIDATION,
+            mode=ConnectorMode.SANDBOX,
+            route=ConnectorRoute.MOCK,
+            outcome=CallOutcome.PASS,
+            duration_ms=12,
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -416,3 +451,5 @@ def register_all() -> None:
     register_isolation_factory("policy_snapshot", policy_snapshot)
     register_isolation_factory("tenant_regulatory_profile", tenant_regulatory_profile)
     register_isolation_factory("tenant_branch", tenant_branch)
+    register_isolation_factory("connector_credential", connector_credential)
+    register_isolation_factory("connector_call", connector_call)

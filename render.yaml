@@ -69,6 +69,9 @@ services:
         sync: false
       - key: XOLOTL_OBJECT_STORE_ROOT
         value: /var/data/objects
+      # PROD tenants call live services unless a call asks for SANDBOX.
+      - key: XOLOTL_CONNECTOR_MODE_DEFAULT
+        value: LIVE
       - key: XOLOTL_EMBEDDED_WORKER
         value: "true"
       - key: XOLOTL_LOG_LEVEL

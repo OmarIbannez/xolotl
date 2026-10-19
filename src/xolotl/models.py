@@ -10,6 +10,7 @@ from xolotl.modules.tenants import models as tenants_models
 from xolotl.platform.api import models as api_models
 from xolotl.platform.audit import models as audit_models
 from xolotl.platform.calendar import models as calendar_models
+from xolotl.platform.connectors import models as connectors_models
 from xolotl.platform.crypto import models as crypto_models
 from xolotl.platform.db import Base
 from xolotl.platform.events import models as events_models
@@ -22,6 +23,7 @@ __all__ = [
     "api_models",
     "audit_models",
     "calendar_models",
+    "connectors_models",
     "crypto_models",
     "events_models",
     "jobs_models",

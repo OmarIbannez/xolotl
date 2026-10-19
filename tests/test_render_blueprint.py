@@ -278,6 +278,7 @@ def test_the_environment_render_gives_is_a_valid_production_configuration(
     assert app_url.drivername == admin_url.drivername == "postgresql+psycopg"
     assert app_url.host == admin_url.host == "dpg-d1abc-a"
     assert settings.object_store_root == Path(environment["XOLOTL_OBJECT_STORE_ROOT"])
+    assert settings.connector_mode_default == "LIVE"
 
 
 def test_the_database_accepts_only_private_network_connections():
