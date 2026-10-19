@@ -1,0 +1,2 @@
+# List fixtures are byte-exact copies of official files (CRLF, DOS EOF byte).
+tests/modules/screening/fixtures/** -text

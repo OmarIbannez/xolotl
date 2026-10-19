@@ -6,7 +6,7 @@ sits in memory as a tree.
 """
 
 from collections.abc import Iterator
-from typing import BinaryIO, Protocol, cast
+from typing import IO, Protocol, cast
 
 from defusedxml import DefusedXmlException
 from defusedxml.ElementTree import ParseError, iterparse
@@ -21,8 +21,8 @@ class Node(Protocol):
     importing ``xml.etree`` (which only ``defusedxml`` may touch).
     """
 
-    @property
-    def tag(self) -> str: ...
+    tag: str
+
     @property
     def text(self) -> str | None: ...
     @property
@@ -45,12 +45,16 @@ def local(tag: str) -> str:
 class RecordStream:
     """Iterate the elements named in ``record_tags`` as each one closes.
 
-    ``root_attrib`` holds the root element's attributes once iteration has begun.
-    ``where`` prefixes every error (source and parser version).
+    Tags lose their ``{namespace}`` prefix as they are parsed, so parsers use plain
+    paths whatever namespace a source declares. ``root_attrib`` holds the root
+    element's attributes once iteration has begun. ``where`` prefixes every error
+    (source and parser version).
     """
 
-    def __init__(self, data: BinaryIO, record_tags: frozenset[str], where: str) -> None:
-        self._data: BinaryIO = data
+    def __init__(
+        self, data: IO[bytes], record_tags: frozenset[str], where: str
+    ) -> None:
+        self._data: IO[bytes] = data
         self._record_tags: frozenset[str] = record_tags
         self._where: str = where
         self.root_attrib: dict[str, str] = {}
@@ -83,10 +87,12 @@ class RecordStream:
             iterparse(self._data, events=("start", "end"), forbid_dtd=True),
         )
         for event, element in events:
-            if event == "start" and not self.root_tag:
-                self.root_tag = local(element.tag)
-                self.root_attrib = dict(element.attrib)
-            elif event == "end" and local(element.tag) in self._record_tags:
+            if event == "start":
+                element.tag = local(element.tag)
+                if not self.root_tag:
+                    self.root_tag = element.tag
+                    self.root_attrib = dict(element.attrib)
+            elif element.tag in self._record_tags:
                 yield element
                 element.clear()
 
