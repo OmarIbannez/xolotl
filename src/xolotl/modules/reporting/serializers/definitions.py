@@ -203,6 +203,34 @@ def load_definition(
     return definition
 
 
+def select_definition(
+    defs_dir: Path, code: str, on: date
+) -> DelimitedDefinition | XmlDefinition:
+    """Pick the version of ``code`` in force on ``on`` (NFR-RR-005).
+
+    Versions may overlap during a transition; the highest version in force wins.
+
+    Returns:
+        The selected definition.
+
+    Raises:
+        DefinitionError: No version of ``code`` is in force on ``on``.
+
+    """
+    in_force = [
+        definition
+        for path in sorted((defs_dir / code).glob("v*.yaml"))
+        if path.stem[1:].isdigit()
+        and (definition := load_definition(defs_dir, code, int(path.stem[1:])))
+        and definition.valid_from <= on
+        and (definition.valid_to is None or on <= definition.valid_to)
+    ]
+    if not in_force:
+        msg = f"{code}: no version in force on {on.isoformat()}"
+        raise DefinitionError(msg)
+    return max(in_force, key=lambda definition: definition.version)
+
+
 def load_delimited(defs_dir: Path, code: str, version: int) -> DelimitedDefinition:
     """Read a definition that must be of the ``DELIMITED`` family.
 

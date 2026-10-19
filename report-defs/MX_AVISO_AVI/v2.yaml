@@ -1,0 +1,22 @@
+# The 2027 aviso format for fr. XVI (Anexo 16, Resolución de formatos oficiales,
+# DOF 24-09-2026), mandatory from 2027-06-01. SAT links avi2.xsd from its AV page
+# but the file returned 404 on 2026-10-19, so this version is a gated slot: xsd
+# is null and serializing against it raises REPORT_SCHEMA_UNAVAILABLE. When SAT
+# publishes the schema, vendor it under xsd/ with its hash, map the new fields
+# and add goldens. The informe en ceros moves to a single format (Anexo 14) on
+# the same date; that becomes its own definition.
+code: MX_AVISO_AVI
+version: 2
+jurisdiction: MX
+regulator: UIF via SAT (SPPLD)
+sources: [AVI2_XSD]
+serializer: XML_XSD
+encoding: utf-8
+encoding_confidence: UNVERIFIED
+zero_report_rule: REQUIRED
+correction_rule: MODIFICATORIO
+valid_from: 2027-06-01
+activity: AVI
+namespace: http://www.uif.shcp.gob.mx/recepcion/avi
+xsd: null
+size_limit_bytes: 2000000

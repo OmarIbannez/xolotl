@@ -1,5 +1,6 @@
 """Normalizers and the character rules of both regimes (no database)."""
 
+import re
 import string
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -232,3 +233,16 @@ def test_amount_raises_only_field_errors(value):
     except ReportFieldError:
         return
     assert not text.startswith("-")
+
+
+def test_aviso_descriptions_keep_only_the_schema_punctuation():
+    assert n.aviso_description("; Cliente: Peña — monto $1,500.00 (MXN)!") == (
+        "CLIENTE: PEÑA MONTO $1,500.00 MXN"
+    )
+    assert not n.aviso_description(" ;;; ")
+
+
+@given(st.text())
+def test_aviso_descriptions_match_the_xsd_pattern(value):
+    cleaned = n.aviso_description(value)
+    assert not cleaned or re.fullmatch(r"[A-ZÑ\d'$\-][A-ZÑ\d ,\.:/'$\-]*", cleaned)

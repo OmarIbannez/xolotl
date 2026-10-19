@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<archivo xmlns="http://www.uif.shcp.gob.mx/recepcion/avi">
+  <informe>
+    <mes_reportado>202704</mes_reportado>
+    <sujeto_obligado>
+      <clave_sujeto_obligado>SIN150301QZ4</clave_sujeto_obligado>
+      <clave_actividad>AVI</clave_actividad>
+      <dominio_plataforma>CRIPTO-PLATAFORMA</dominio_plataforma>
+    </sujeto_obligado>
+  </informe>
+</archivo>

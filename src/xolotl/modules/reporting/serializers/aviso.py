@@ -25,10 +25,12 @@ from lxml import etree
 
 from xolotl.modules.reporting.serializers import normalizers as norm
 from xolotl.modules.reporting.serializers.definitions import (
+    CorrectionRule,
     XmlDefinition,
     ZeroReportRule,
 )
 from xolotl.modules.reporting.serializers.errors import (
+    CorrectionUnsupportedError,
     ReportFieldError,
     ZeroReportNotAllowedError,
 )
@@ -282,6 +284,19 @@ class Operations:
 
 
 @dataclass(frozen=True, slots=True)
+class Modificatorio:
+    """The correction of an accepted aviso: its folio and what changed.
+
+    ``folio`` is the acuse folio of the original aviso (``AAAA-n``). SAT accepts
+    one modificatorio per aviso within 30 days of the acuse, and none for an
+    informe en ceros; checking the window needs filing state and is SP-05's.
+    """
+
+    folio: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class Aviso:
     reference: str
     alert_type: str
@@ -290,6 +305,7 @@ class Aviso:
     priority: Priority = Priority.NORMAL
     alert_description: str | None = None
     beneficial_owners: tuple[Person, ...] = ()
+    modificatorio: Modificatorio | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,9 +319,16 @@ class ObligatedSubject:
 
 @dataclass(frozen=True, slots=True)
 class AvisoInforme:
+    """One month of avisos for one filer; with no aviso, the informe en ceros.
+
+    ``exempt`` marks an informe en ceros filed because the month's operations
+    were exempt from avisos (RCG Art. 27 Bis); it is refused with avisos.
+    """
+
     month: date
     subject: ObligatedSubject
     avisos: tuple[Aviso, ...] = field(default_factory=tuple[Aviso, ...])
+    exempt: bool = False
 
 
 # ---- Rendering --------------------------------------------------------------------
@@ -330,6 +353,10 @@ def _leaf(tag: str, value: str | None) -> Node | None:
 
 def _t(value: str | None) -> str | None:
     return None if value is None else norm.aviso_text(value)
+
+
+def _desc(value: str | None) -> str | None:
+    return None if value is None else norm.aviso_description(value)
 
 
 def _date(value: date | None) -> str | None:
@@ -480,7 +507,7 @@ def _asset(asset: VirtualAsset) -> Node:
     return _n(
         "activo_virtual",
         _leaf("activo_virtual_operado", asset.code),
-        _leaf("descripcion_activo_virtual", _t(asset.description)),
+        _leaf("descripcion_activo_virtual", _desc(asset.description)),
         _leaf("tipo_cambio_mn", _money(asset.rate_mxn, "tipo_cambio_mn")),
         _leaf(
             "cantidad_activo_virtual",
@@ -608,6 +635,16 @@ def _operations(ops: Operations) -> Node:
     )
 
 
+def _modificatorio(correction: Modificatorio | None) -> Node | None:
+    if correction is None:
+        return None
+    return _n(
+        "modificatorio",
+        _leaf("folio_modificacion", correction.folio.strip()),
+        _leaf("descripcion_modificacion", _desc(correction.description)),
+    )
+
+
 def _aviso(aviso: Aviso) -> Node:
     if aviso.operations.is_empty:
         where = f"aviso {aviso.reference}"
@@ -616,10 +653,11 @@ def _aviso(aviso: Aviso) -> Node:
         "aviso",
         _leaf("referencia_aviso", _t(aviso.reference)),
         _leaf("prioridad", aviso.priority.value),
+        _modificatorio(aviso.modificatorio),
         _n(
             "alerta",
             _leaf("tipo_alerta", aviso.alert_type),
-            _leaf("descripcion_alerta", _t(aviso.alert_description)),
+            _leaf("descripcion_alerta", _desc(aviso.alert_description)),
         ),
         _n(
             "operaciones_persona",
@@ -650,6 +688,7 @@ def _archivo(
                 ),
                 _leaf("clave_sujeto_obligado", norm.rfc(subject.rfc)),
                 _leaf("clave_actividad", definition.activity),
+                _leaf("exento", "1" if informe.exempt else None),
                 _leaf("dominio_plataforma", _t(subject.platform_domain)),
             ),
             *avisos,
@@ -774,6 +813,15 @@ def _parts(
     return parts
 
 
+def _check_informe(definition: XmlDefinition, informe: AvisoInforme) -> None:
+    if informe.exempt and informe.avisos:
+        where = "exento"
+        raise ReportFieldError(where, "only an informe en ceros is exempt")
+    corrected = [aviso.reference for aviso in informe.avisos if aviso.modificatorio]
+    if corrected and definition.correction_rule is not CorrectionRule.MODIFICATORIO:
+        raise CorrectionUnsupportedError(definition.code)
+
+
 def serialize_aviso(
     defs_dir: Path, definition: XmlDefinition, informe: AvisoInforme
 ) -> SerializedReport:
@@ -794,6 +842,7 @@ def serialize_aviso(
 
     """
     schema = load_schema(defs_dir, definition)
+    _check_informe(definition, informe)
     if (
         not informe.avisos
         and definition.zero_report_rule is not ZeroReportRule.REQUIRED
