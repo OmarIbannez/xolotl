@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import Engine, select
 
 from tests.helpers import staff_session, system_ctx
@@ -95,6 +96,19 @@ def payloads_of(tenant_id: UUID) -> str:
 @pytest.fixture
 def local_store(tmp_path: Path) -> LocalFsObjectStore:
     return LocalFsObjectStore(tmp_path / "objects")
+
+
+@pytest.fixture
+def object_store(app: FastAPI, tmp_path: Path) -> LocalFsObjectStore:
+    """Point the application's routes at a store under the test's directory.
+
+    Returns:
+        The store, rooted at ``tmp_path / "objects"``.
+
+    """
+    store = LocalFsObjectStore(tmp_path / "objects")
+    app.state.xolotl.object_store = store
+    return store
 
 
 @pytest.fixture

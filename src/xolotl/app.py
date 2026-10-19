@@ -17,6 +17,8 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
 from xolotl.modules.party import routes as party_routes
+from xolotl.modules.party import routes_documents as party_document_routes
+from xolotl.modules.party import routes_relationships as party_relationship_routes
 from xolotl.modules.party.retention import register_party
 from xolotl.modules.tenants import (
     routes_api_keys,
@@ -242,6 +244,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             routes_units.router,
             routes_connectors.router,
             party_routes.router,
+            party_document_routes.router,
+            party_relationship_routes.router,
             audit_routes.router,
         ],
     )

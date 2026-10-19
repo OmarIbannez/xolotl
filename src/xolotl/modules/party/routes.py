@@ -22,8 +22,11 @@ from xolotl.modules.party.schemas import (
     MaskedIdentifier,
     PartyCreateRequest,
     PartyPiiResponse,
+    PartyRelationshipInput,
+    PartyRelationshipResponse,
     PartyResponse,
     PartyStaffResponse,
+    PartyUpdateRequest,
 )
 from xolotl.platform.api.pagination import Page, PageDep, paginate
 from xolotl.platform.api.router import v1_router
@@ -80,6 +83,13 @@ def get_party(
     return service.summary(session, service.get_party(session, party_id))
 
 
+@router.patch("/{party_id}")
+def update_party(
+    party_id: UUID, body: PartyUpdateRequest, _writer: PartyWriter, session: SessionDep
+) -> PartyResponse:
+    return service.summary(session, service.update_party(session, party_id, body))
+
+
 @router.get("/{party_id}/pii")
 def reveal_party_pii(
     party_id: UUID, _staff: PartyStaff, session: SessionDep
@@ -108,3 +118,14 @@ def add_party_address(
     party_id: UUID, body: AddressInput, _writer: PartyWriter, session: SessionDep
 ) -> AddressResponse:
     return AddressResponse.model_validate(service.add_address(session, party_id, body))
+
+
+@router.post("/{party_id}/relationships", status_code=201)
+def add_party_relationship(
+    party_id: UUID,
+    body: PartyRelationshipInput,
+    _writer: PartyWriter,
+    session: SessionDep,
+) -> PartyRelationshipResponse:
+    row = service.add_relationship(session, party_id, body)
+    return PartyRelationshipResponse.model_validate(row)
