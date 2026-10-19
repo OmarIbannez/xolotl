@@ -137,6 +137,21 @@ console/src/{api/schema.d.ts, api/types.ts, auth/access.ts, auth/access.test.ts,
 console/src/features/parties/PartyPage.tsx (+ screening card) (E10); console/e2e/smoke.spec.ts (+ step) (E10)
 ```
 
+## Tasks at a glance
+
+| Id | Title | Depends on | Console | Branch slug |
+|---|---|---|---|---|
+| E1 | Staff-only event types and the webhook guard (platform) | none | no | `sp03b-e1-staff-only-events` |
+| E2 | Migration 0010, models, enums, events, isolation factories | 3a: migration 0009, catalog models, private factory helpers | no | `sp03b-e2-migration-0010` |
+| E3 | Index holder and the screening composition root | E1, E2; LIB-matching, LIB-lists; 3a: catalog models and test loaders | no | `sp03b-e3-index-holder` |
+| E4 | Party name index, subjects, queries, subject status | E2; LIB-matching, LIB-lists | no | `sp03b-e4-name-index-subjects` |
+| E5 | `screen()`: runs, list sets, hits, findings, status | E3, E4; LIB-matching, LIB-lists; 3a: subscriptions, private lists | no | `sp03b-e5-screen` |
+| E6 | Dispositions, action matrix, whitelist | E2, E4 | no | `sp03b-e6-dispositions` |
+| E7 | Screening API for both audiences | E5, E6 | no | `sp03b-e7-screening-api` |
+| E8 | Party event subscribers, screen-party job, replay, CLI | E5; LIB-matching, LIB-lists | no | `sp03b-e8-party-events-replay` |
+| E9 | Console: match queue and match detail | E7 | yes | `sp03b-e9-console-matches` |
+| E10 | Console: party screening card and ad hoc check | E7; 2c: C9 | yes | `sp03b-e10-console-party-check` |
+
 ---
 
 ### Task E1: Staff-only event types and the webhook guard (platform)
