@@ -15,6 +15,7 @@ CHAIN = [
     "0005_encrypt_idempotency",
     "0006_policy_units_calendar",
     "0007_connectors",
+    "0008_party",
 ]
 
 

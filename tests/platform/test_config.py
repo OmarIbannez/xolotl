@@ -251,6 +251,7 @@ def test_env_example_is_a_valid_configuration():
         "allow_unverified_pack_values",
         "units_fetch_cron",
         "connector_mode_default",
+        "retention_purge_cron",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -569,4 +570,16 @@ def test_connector_settings_are_read_from_the_environment(monkeypatch):
 def test_the_connector_mode_rejects_nonsense(monkeypatch):
     monkeypatch.setenv("XOLOTL_CONNECTOR_MODE_DEFAULT", "demo")
     with pytest.raises(ValidationError, match="connector_mode_default"):
+        _ = make_settings()
+
+
+def test_retention_purge_cron_defaults_and_reads_its_variable(monkeypatch):
+    assert make_settings().retention_purge_cron == "0 3 * * *"
+    monkeypatch.setenv("XOLOTL_RETENTION_PURGE_CRON", "30 2 * * *")
+    assert make_settings().retention_purge_cron == "30 2 * * *"
+
+
+def test_retention_purge_cron_must_be_a_cron_expression(monkeypatch):
+    monkeypatch.setenv("XOLOTL_RETENTION_PURGE_CRON", "every night")
+    with pytest.raises(ValidationError, match="RETENTION_PURGE_CRON"):
         _ = make_settings()
