@@ -5,17 +5,25 @@ any parent rows it needs) and flushes. Later modules append their factories
 here when they add tables, and list them in ``register_all``.
 """
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from xolotl.modules.tenants.models import ApiKey, StaffCredential, StaffUser
+from xolotl.modules.tenants.models import (
+    ApiKey,
+    StaffCredential,
+    StaffUser,
+    TenantBranch,
+    TenantRegulatoryProfile,
+)
 from xolotl.platform import clock
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.audit.models import AuditEventRow
 from xolotl.platform.crypto.encrypted import encrypt, encrypt_json
 from xolotl.platform.crypto.models import TenantKey
 from xolotl.platform.crypto.provider import get_key_provider
+from xolotl.platform.db import get_admin_engine
 from xolotl.platform.enums import (
     ApiKeyStatus,
     DeliveryStatus,
@@ -35,6 +43,13 @@ from xolotl.platform.events.models import (
 )
 from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs.models import JobRow, JobSchedule
+from xolotl.platform.policy.models import (
+    PolicyPack,
+    PolicyPackVersion,
+    PolicySnapshot,
+    TenantOverrideVersion,
+    TenantPackAssignment,
+)
 from xolotl.platform.tenancy.testing import register_isolation_factory
 from xolotl.platform.workflows.models import (
     WorkflowRunRow,
@@ -269,6 +284,115 @@ def tenant_key(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def _pack_version_id() -> UUID:
+    """Insert a pack and one version of it through the owner engine.
+
+    The application role may only read the shared pack tables, so the parent of an
+    assignment is created by the owner engine, in its own committed transaction.
+
+    Returns:
+        The id of the new ``policy_pack_version`` row.
+
+    """
+    pack_id, version_id = uuid7(), uuid7()
+    engine = get_admin_engine()
+    try:
+        with Session(engine) as owner, owner.begin():
+            owner.add(
+                PolicyPack(
+                    id=pack_id,
+                    code=f"MX/T-{pack_id.hex[:6]}",
+                    country_code="MX",
+                    sector="T",
+                    licence=pack_id.hex[:6],
+                    title="t",
+                )
+            )
+            owner.flush()
+            owner.add(
+                PolicyPackVersion(
+                    id=version_id,
+                    pack_id=pack_id,
+                    version=1,
+                    effective_from=date(2026, 1, 1),
+                    config={},
+                    content_hash=b"\x00" * 32,
+                    loaded_by="harness",
+                    source_path="harness",
+                )
+            )
+    finally:
+        engine.dispose()
+    return version_id
+
+
+def tenant_pack_assignment(session: Session, tenant_id: UUID) -> None:
+    pack_version_id = _pack_version_id()
+    user = _staff_user(session, tenant_id)
+    session.add(
+        TenantPackAssignment(
+            tenant_id=tenant_id,
+            pack_version_id=pack_version_id,
+            effective_from=date(2026, 1, 1),
+            approved_by=user.id,
+        )
+    )
+    session.flush()
+
+
+def tenant_override_version(session: Session, tenant_id: UUID) -> None:
+    user = _staff_user(session, tenant_id)
+    session.add(
+        TenantOverrideVersion(
+            tenant_id=tenant_id,
+            version=1,
+            overrides={},
+            effective_from=date(2026, 1, 1),
+            approved_by=user.id,
+        )
+    )
+    session.flush()
+
+
+def policy_snapshot(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        PolicySnapshot(
+            tenant_id=tenant_id,
+            content_hash=b"\x01" * 32,
+            content={"on": "2026-01-01"},
+        )
+    )
+    session.flush()
+
+
+def tenant_regulatory_profile(session: Session, tenant_id: UUID) -> None:
+    # A real ciphertext, as for staff_credential: the tenant gets its keys here.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
+    session.add(
+        TenantRegulatoryProfile(
+            tenant_id=tenant_id,
+            rfc=encrypt("ABC010101AB1", tenant_id=tenant_id, session=session),
+            legal_name="Acme SA de CV",
+        )
+    )
+    session.flush()
+
+
+def tenant_branch(session: Session, tenant_id: UUID) -> None:
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
+    session.add(
+        TenantBranch(
+            tenant_id=tenant_id,
+            code="MAT",
+            name="Matriz",
+            address=encrypt("Av. Reforma 1", tenant_id=tenant_id, session=session),
+            state_code="09",
+            municipality_code="015",
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -287,3 +411,8 @@ def register_all() -> None:
     register_isolation_factory("workflow_signal", workflow_signal)
     register_isolation_factory("notification", notification)
     register_isolation_factory("tenant_key", tenant_key)
+    register_isolation_factory("tenant_pack_assignment", tenant_pack_assignment)
+    register_isolation_factory("tenant_override_version", tenant_override_version)
+    register_isolation_factory("policy_snapshot", policy_snapshot)
+    register_isolation_factory("tenant_regulatory_profile", tenant_regulatory_profile)
+    register_isolation_factory("tenant_branch", tenant_branch)

@@ -188,9 +188,8 @@ def assert_table_otherwise_unchanged(engine: Engine) -> None:
 # ---- the revision chain --------------------------------------------------------------
 
 
-def test_0005_follows_0004_and_is_the_only_head():
+def test_0005_follows_0004():
     script = ScriptDirectory.from_config(migrate.alembic_config())
-    assert script.get_heads() == [REVISION]
     revision = script.get_revision(REVISION)
     assert revision is not None
     assert revision.down_revision == BEFORE
@@ -221,7 +220,9 @@ def test_upgrading_discards_the_plaintext_cache_and_makes_the_column_bytea(
     assert_table_otherwise_unchanged(database)
     with database.connect() as conn:
         version = conn.scalar(text("SELECT version_num FROM alembic_version"))
-    assert version == REVISION
+    # ``migrate.upgrade`` goes to head, which later revisions move past 0005.
+    head = ScriptDirectory.from_config(migrate.alembic_config()).get_current_head()
+    assert version == head
 
 
 def test_upgrading_an_empty_table_changes_only_the_column(database: Engine):
