@@ -306,7 +306,7 @@ def test_keys_help_works_without_a_database():
     assert "INDEX" not in rotate  # accepted, then refused; never offered
     destroy = _help("keys", "destroy")
     assert "--tenant" in destroy
-    assert "--yes" in destroy.output
+    assert "--yes" in destroy
 
 
 def test_keys_rotate_prints_the_new_version_and_audits_it(
