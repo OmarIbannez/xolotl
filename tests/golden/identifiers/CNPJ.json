@@ -1,0 +1,31 @@
+{
+  "id_type": "CNPJ",
+  "valid": [
+    {
+      "input": "00.394.460/0058-87",
+      "canonical": "00394460005887"
+    },
+    {
+      "input": "11.222.333/0001-81",
+      "canonical": "11222333000181"
+    },
+    {
+      "input": "12345678000195",
+      "canonical": "12345678000195"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "00.394.460/0058-88",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "11.111.111/1111-11",
+      "reason": "REPEATED_DIGITS"
+    },
+    {
+      "input": "123",
+      "reason": "FORMAT"
+    }
+  ]
+}

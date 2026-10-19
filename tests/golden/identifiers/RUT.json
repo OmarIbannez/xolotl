@@ -1,0 +1,47 @@
+{
+  "id_type": "RUT",
+  "valid": [
+    {
+      "input": "12.345.678-5",
+      "canonical": "123456785"
+    },
+    {
+      "input": "76.086.428-5",
+      "canonical": "760864285"
+    },
+    {
+      "input": "9.999.999-3",
+      "canonical": "99999993"
+    },
+    {
+      "input": "7000000-8",
+      "canonical": "70000008"
+    },
+    {
+      "input": "11111111-1",
+      "canonical": "111111111"
+    },
+    {
+      "input": "6-k",
+      "canonical": "6K"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "12.345.678-6",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "12.345.678-K",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "ABC",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "1",
+      "reason": "FORMAT"
+    }
+  ]
+}

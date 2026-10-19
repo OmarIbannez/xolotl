@@ -1,0 +1,31 @@
+{
+  "id_type": "CPF",
+  "valid": [
+    {
+      "input": "529.982.247-25",
+      "canonical": "52998224725"
+    },
+    {
+      "input": "52998224725",
+      "canonical": "52998224725"
+    },
+    {
+      "input": "123.456.789-09",
+      "canonical": "12345678909"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "529.982.247-26",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "111.111.111-11",
+      "reason": "REPEATED_DIGITS"
+    },
+    {
+      "input": "1234",
+      "reason": "FORMAT"
+    }
+  ]
+}
