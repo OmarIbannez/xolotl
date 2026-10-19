@@ -1,4 +1,4 @@
-"""Sample parties and outbox readers shared by the party tests.
+"""Sample parties, outbox readers and fixtures shared by the party tests.
 
 The readers and ``RolledBackError`` repeat those of
 ``tests/modules/tenants/test_kernel_events.py``: a test module is never imported from
@@ -7,11 +7,14 @@ another one.
 
 import json
 from datetime import date
+from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import Engine, select
 
-from tests.helpers import system_ctx
+from tests.helpers import staff_session, system_ctx
+from tests.platform.policy_support import install_both_packs
 from xolotl.modules.party.enums import IdentifierType, PartyType
 from xolotl.modules.party.schemas import (
     IdentifierInput,
@@ -19,9 +22,12 @@ from xolotl.modules.party.schemas import (
     PartyCreateRequest,
     PersonInput,
 )
+from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.db import tenant_session
 from xolotl.platform.events.event import Event, event_from_row
 from xolotl.platform.events.models import OutboxRow
+from xolotl.platform.policy import assign_pack
+from xolotl.platform.storage.local import LocalFsObjectStore
 
 ANA = PartyCreateRequest(
     party_type=PartyType.PERSON,
@@ -83,4 +89,28 @@ def payloads_of(tenant_id: UUID) -> str:
         rows = s.scalars(select(OutboxRow).order_by(OutboxRow.seq)).all()
         return json.dumps(
             [[row.type, row.key, row.payload] for row in rows], ensure_ascii=False
+        )
+
+
+@pytest.fixture
+def local_store(tmp_path: Path) -> LocalFsObjectStore:
+    return LocalFsObjectStore(tmp_path / "objects")
+
+
+@pytest.fixture
+def itf_pack(tenant: CreatedTenant, admin_engine: Engine) -> UUID:
+    """Assign the ITF pack to every product of the tenant from 2026-01-01.
+
+    Returns:
+        The assignment's id.
+
+    """
+    version_id = install_both_packs(admin_engine)["MX/ITF-IFPE"]
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        return assign_pack(
+            s,
+            pack_version_id=version_id,
+            product=None,
+            effective_from=date(2026, 1, 1),
+            approved_by=tenant.admin_user_id,
         )

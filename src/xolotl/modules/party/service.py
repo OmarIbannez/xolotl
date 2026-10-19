@@ -22,11 +22,13 @@ from xolotl.modules.party.enums import (
     IdentifierType,
     PartyStatus,
     PartyType,
+    RelationshipType,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.party.events import (
     IDENTIFIER_ADDED,
     PARTY_CREATED,
+    PARTY_UPDATED,
     publish_party_event,
 )
 from xolotl.modules.party.identifiers import IdentifierError, validate
@@ -56,9 +58,11 @@ from xolotl.modules.party.schemas import (
     OrganizationInput,
     PartyCreateRequest,
     PartyPiiResponse,
+    PartyRelationshipInput,
     PartyRelationshipResponse,
     PartyResponse,
     PartyStaffResponse,
+    PartyUpdateRequest,
     PersonAttributes,
     PersonInput,
     RevealedAddress,
@@ -383,6 +387,120 @@ def add_address(s: Session, party_id: UUID, body: AddressInput) -> PartyAddress:
             entity_type="party_address",
             entity_id=str(row.id),
             detail={"party_id": str(party.id), "address_type": body.address_type.value},
+        ),
+    )
+    return row
+
+
+def update_party(s: Session, party_id: UUID, body: PartyUpdateRequest) -> Party:
+    """Change a party's plain attributes; names and identifiers are not patchable.
+
+    Only the fields the request sets are applied. A request that changes nothing
+    records no audit event and publishes nothing.
+
+    Returns:
+        The party.
+
+    Raises:
+        ValidationFailedError: When the attributes are those of the other party
+            type.
+
+    """
+    party = get_party(s, party_id, for_update=True)
+    is_person = party.party_type is PartyType.PERSON
+    if (body.person is not None and not is_person) or (
+        body.organization is not None and is_person
+    ):
+        msg = "attributes do not match the party type"
+        raise ValidationFailedError(msg)
+    target: Person | Organization | None = None
+    values: dict[str, object] = {}
+    if body.person is not None:
+        target = s.get_one(Person, (party.tenant_id, party.id))
+        values = body.person.model_dump(exclude_unset=True)
+    elif body.organization is not None:
+        target = s.get_one(Organization, (party.tenant_id, party.id))
+        values = body.organization.model_dump(exclude_unset=True)
+    changed: list[str] = []
+    for name, value in values.items():
+        if getattr(target, name) != value:
+            setattr(target, name, value)
+            changed.append(name)
+    if not changed:
+        return party
+    fields: list[JsonValue] = list[JsonValue](sorted(changed))
+    party.updated_at = clock.now()
+    s.flush()
+    _ = record(
+        s,
+        AuditEvent(
+            action="party.updated",
+            entity_type="party",
+            entity_id=str(party.id),
+            detail={"fields": fields},
+        ),
+    )
+    _ = publish_party_event(
+        s,
+        PARTY_UPDATED,
+        entity="party",
+        entity_id=party.id,
+        data={"party_id": str(party.id), "fields": fields},
+    )
+    return party
+
+
+def add_relationship(
+    s: Session, from_party_id: UUID, body: PartyRelationshipInput
+) -> PartyRelationship:
+    """Record an ownership or control edge from one party to another.
+
+    Returns:
+        The new edge; ``valid_from`` defaults to today.
+
+    Raises:
+        ValidationFailedError: When the other party is unknown or is the same
+            party, or when ``ownership_pct`` is given for a type other than
+            ``SHAREHOLDER``.
+
+    """
+    party = get_party(s, from_party_id)
+    if body.to_party_id == party.id:
+        msg = "a party cannot relate to itself"
+        raise ValidationFailedError(msg)
+    if s.get(Party, (party.tenant_id, body.to_party_id)) is None:
+        msg = "unknown to_party_id"
+        raise ValidationFailedError(msg)
+    if (
+        body.ownership_pct is not None
+        and body.rel_type is not RelationshipType.SHAREHOLDER
+    ):
+        msg = "ownership_pct applies to SHAREHOLDER only"
+        raise ValidationFailedError(msg)
+    row = PartyRelationship(
+        tenant_id=party.tenant_id,
+        from_party_id=party.id,
+        to_party_id=body.to_party_id,
+        rel_type=body.rel_type,
+        ownership_pct=body.ownership_pct,
+        control_basis=body.control_basis,
+        valid_from=body.valid_from or clock.now().date(),
+        valid_to=body.valid_to,
+        source_doc_id=body.source_doc_id,
+    )
+    s.add(row)
+    s.flush()
+    _ = record(
+        s,
+        AuditEvent(
+            action="party.relationship_added",
+            entity_type="party_relationship",
+            entity_id=str(row.id),
+            detail={
+                "from_party_id": str(party.id),
+                "to_party_id": str(body.to_party_id),
+                "rel_type": body.rel_type.value,
+            },
         ),
     )
     return row
