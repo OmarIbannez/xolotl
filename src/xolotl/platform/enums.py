@@ -76,3 +76,9 @@ class StepStatus(StrEnum):
     RUNNING = "RUNNING"
     DONE = "DONE"
     FAILED = "FAILED"
+
+
+class KeyPurpose(StrEnum):
+    DATA = "DATA"
+    INDEX = "INDEX"
+    BIOMETRIC = "BIOMETRIC"

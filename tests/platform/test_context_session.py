@@ -1,3 +1,4 @@
+import base64
 import traceback
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -319,6 +320,7 @@ def test_literal_ddl_helper_keeps_percent_signs(admin_engine: Engine):
 def test_reset_refuses_in_prod(monkeypatch):
     monkeypatch.setenv("XOLOTL_ENV", "prod")
     monkeypatch.setenv("XOLOTL_JWT_SECRET", "p" * 40)
+    monkeypatch.setenv("XOLOTL_MASTER_KEY", base64.b64encode(b"p" * 32).decode())
     get_settings.cache_clear()
     try:
         with pytest.raises(RuntimeError, match="prod"):

@@ -19,6 +19,10 @@ from xolotl.platform.sqltypes import contains_float
 
 GENESIS_HASH = bytes(32)
 
+# The action of the event that records a person being shown decrypted PII: its
+# ``entity_type`` and ``entity_id`` name the record, its ``detail`` the field.
+VIEW_PII = "VIEW_PII"
+
 _LOCK_SQL = text(
     "SELECT pg_advisory_xact_lock(hashtext(CAST(:tenant_id AS text))::bigint)"
 )

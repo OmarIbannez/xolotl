@@ -4,9 +4,9 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import DateTime, Index, Integer, LargeBinary, Text, Uuid, text
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from xolotl.platform.crypto import Encrypted, EncryptedJson
 from xolotl.platform.db import Base
 
 
@@ -14,6 +14,9 @@ class IdempotencyKey(Base):
     """One reservation or stored response per ``(tenant, actor, key)``.
 
     ``status_code == 0`` marks a reservation whose request is still running.
+    ``response_body`` is the stored record, sealed under the tenant's DATA key because
+    a response can carry a one-time secret (a new API key, an initial password); a
+    reservation holds a sealed ``{}``.
     """
 
     __tablename__: str = "idempotency_key"
@@ -27,7 +30,7 @@ class IdempotencyKey(Base):
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     request_hash: Mapped[bytes] = mapped_column(LargeBinary)
     status_code: Mapped[int] = mapped_column(Integer)
-    response_body: Mapped[dict[str, object]] = mapped_column(JSONB)
+    response_body: Mapped[Encrypted[dict[str, object]]] = mapped_column(EncryptedJson)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )

@@ -13,7 +13,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from tests.helpers import make_tenant, staff_session, system_ctx
+from tests.helpers import make_tenant_with_keys, staff_session, system_ctx
 from xolotl.app import build_app
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import ApiKeyLookup
@@ -30,6 +30,7 @@ from xolotl.platform.api.idempotency import (
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.api.router import v1_router
 from xolotl.platform.auth.principal import SessionDep
+from xolotl.platform.crypto.errors import KeyDestroyedError
 from xolotl.platform.db import RoleBypassError, tenant_session
 from xolotl.platform.errors import (
     DomainError,
@@ -65,6 +66,10 @@ def _probe_router() -> APIRouter:
     def forbidden() -> dict[str, str]:
         msg = "scope tenants:read required"
         raise ForbiddenError(msg, code="SCOPE_MISSING")
+
+    @router.get("/probe/gone")
+    def gone() -> dict[str, str]:
+        raise KeyDestroyedError
 
     @router.get("/probe/boom")
     def boom() -> dict[str, str]:
@@ -104,6 +109,12 @@ def probe(probe_app: FastAPI):
         ("/v1/probe/notfound", 404, "NOT_FOUND", "not found"),
         ("/v1/probe/unauth", 401, "UNAUTHENTICATED", "authentication required"),
         ("/v1/probe/forbidden", 403, "SCOPE_MISSING", "scope tenants:read required"),
+        (
+            "/v1/probe/gone",
+            410,
+            "KEY_DESTROYED",
+            "the encryption keys of this tenant were destroyed",
+        ),
         ("/v1/probe/boom", 500, "INTERNAL", "internal error"),
         ("/v1/no/such/route", 404, "NOT_FOUND", "Not Found"),
     ],
@@ -121,6 +132,15 @@ def test_errors_are_problem_json_with_stable_codes(probe, path, status, code, de
     assert body["instance"] == path
     if status == 401:
         assert resp.headers["www-authenticate"] == "Bearer"
+
+
+def test_destroyed_keys_are_a_410_problem_titled_gone(probe):
+    body = probe.get("/v1/probe/gone").json()
+    assert (body["status"], body["title"], body["code"]) == (
+        410,
+        "Gone",
+        "KEY_DESTROYED",
+    )
 
 
 def test_validation_errors_carry_locations(probe):
@@ -161,10 +181,26 @@ def test_unhandled_errors_keep_the_request_id_and_are_logged_as_500(probe, caplo
     assert [line["request_id"] for line in errors] == ["boom-1"]
 
 
-def test_database_errors_are_logged_as_a_shape_never_as_their_message(probe, caplog):
-    # Format with the production pair so caplog.text is what stdout would carry.
-    caplog.handler.setFormatter(JsonFormatter())
-    caplog.handler.addFilter(RedactionFilter())
+@pytest.fixture
+def production_format(caplog):
+    # Format with the production pair so caplog.text is what stdout would carry. The
+    # handler is shared by every later test, so the pair has to come off again: the
+    # filter drops SQLAlchemy's DEBUG row log, which another test reads from caplog.
+    handler, previous, redaction = (
+        caplog.handler,
+        caplog.handler.formatter,
+        RedactionFilter(),
+    )
+    handler.setFormatter(JsonFormatter())
+    handler.addFilter(redaction)
+    yield
+    handler.removeFilter(redaction)
+    handler.setFormatter(previous)
+
+
+def test_database_errors_are_logged_as_a_shape_never_as_their_message(
+    probe, caplog, production_format
+):
     with caplog.at_level(logging.INFO):
         resp = probe.get("/v1/probe/dberror", headers={"X-Request-Id": "db-1"})
     assert resp.status_code == 500
@@ -310,7 +346,8 @@ def _stored_keys(tenant_id) -> set[str]:
 def test_a_reservation_purges_the_tenants_expired_keys(
     client: TestClient, tenant: CreatedTenant, admin_headers
 ):
-    beta = make_tenant("beta")
+    # Its rows are sealed when they are added, which takes the tenant's keys.
+    beta = make_tenant_with_keys("beta")
     now = clock.now()
     past, future = now - timedelta(minutes=1), now + TTL
     admin = str(tenant.admin_user_id)

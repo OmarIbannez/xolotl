@@ -24,6 +24,7 @@ _TITLES = {
     404: "Not Found",
     405: "Method Not Allowed",
     409: "Conflict",
+    410: "Gone",
     422: "Unprocessable Content",
     500: "Internal Server Error",
     503: "Service Unavailable",

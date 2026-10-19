@@ -1,13 +1,14 @@
 """JSON-lines logging with PII redaction (spec §7).
 
 Values of keys named like a credential or an identifier (``password``,
-``token``, ``secret``, ``authorization``, ``api_key``, ``cookie``, ``curp``,
-``rfc``, ``clabe``, ``email``; matched case-insensitively with ``-`` read as
+``token``, ``secret``, ``authorization``, ``api_key``, ``master_key``, ``cookie``,
+``curp``, ``rfc``, ``clabe``, ``email``; matched case-insensitively with ``-`` read as
 ``_``, so ``X-Api-Key`` and ``Cookie`` headers are masked) and of any Pydantic
 field tagged ``json_schema_extra={"pii": True}`` are replaced by ``***``. That
 covers ``extra`` fields, the message itself when it is a mapping or a model, and
 message arguments, positional or dict-style. A model is masked by its own tags,
-so it needs no registration.
+so it needs no registration. An object whose class sets ``log_opaque = True``
+(``Encrypted``) is masked whole, wherever it appears.
 
 A record whose exception is, or has anywhere in its cause or context chain, a
 database error (SQLAlchemy ``DBAPIError`` or ``psycopg.Error``) loses its messages:
@@ -34,6 +35,17 @@ walk is wider than the filter's: it also follows a context that ``raise ... from
 None`` hides from tracebacks, because the message may have quoted it all the same.
 The text it returns can always be written: producing it cannot raise, and it holds
 no NUL and no lone surrogate.
+
+At DEBUG SQLAlchemy prints every result row of ``sqlalchemy.engine``, which would put
+password hashes, e-mail addresses, wrapped keys and ciphertexts in the log, and the
+filter cannot see inside a ``Row``. Two things keep it out. ``configure_logging``
+raises that logger to INFO when it would be more verbose (its default, WARNING, is
+left alone, so the cap never turns statement logging on), which also saves formatting
+rows that would be dropped. And the filter drops any record of that logger or a child
+of it below INFO, so the rows stay out of the handler even when the logger is lifted
+again later (a ``setLevel(DEBUG)``) or an engine is created with ``echo="debug"``.
+What it cannot reach is the stream handler SQLAlchemy attaches itself to the engine
+logger for an ``echo`` engine: the application creates none.
 """
 
 import json
@@ -65,6 +77,7 @@ SENSITIVE_KEYS = frozenset({
     "secret",
     "authorization",
     "api_key",
+    "master_key",
     "cookie",
     "curp",
     "rfc",
@@ -72,6 +85,7 @@ SENSITIVE_KEYS = frozenset({
     "email",
 })
 REDACTED = "***"
+ENGINE_LOGGER = "sqlalchemy.engine"
 _PII_FIELDS: set[str] = set()
 _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {
     "message",
@@ -114,7 +128,15 @@ def _redact_model(model: BaseModel) -> object:
     }
 
 
+def _is_opaque(value: object) -> bool:
+    # A class declares itself opaque (``Encrypted`` does) instead of being recognised
+    # by import: logging has to stay importable without the crypto package.
+    return getattr(type(value), "log_opaque", False) is True
+
+
 def redact(value: object) -> object:
+    if _is_opaque(value):
+        return REDACTED
     if isinstance(value, BaseModel):
         return _redact_model(value)
     if isinstance(value, Mapping):
@@ -293,9 +315,18 @@ def safe_exception_summary(error: BaseException) -> str:
     return _storable(_summary(error))[:EXCEPTION_SUMMARY_LIMIT]
 
 
+def _is_engine_row_log(record: logging.LogRecord) -> bool:
+    in_engine_tree = record.name == ENGINE_LOGGER or record.name.startswith(
+        f"{ENGINE_LOGGER}."
+    )
+    return in_engine_tree and record.levelno < logging.INFO
+
+
 class RedactionFilter(logging.Filter):
     @override
     def filter(self, record: logging.LogRecord) -> bool:
+        if _is_engine_row_log(record):
+            return False
         message = cast("object", record.msg)
         if isinstance(message, Mapping | BaseModel):
             # isinstance narrows to Mapping[Unknown, object]; redact takes any object.
@@ -345,5 +376,8 @@ def configure_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
     root.handlers[:] = [handler]
     root.setLevel(level.upper())
+    engine_logger = logging.getLogger(ENGINE_LOGGER)
+    if engine_logger.getEffectiveLevel() < logging.INFO:
+        engine_logger.setLevel(logging.INFO)
     # uvicorn's access log duplicates the request line emitted by RequestIdMiddleware.
     logging.getLogger("uvicorn.access").disabled = True
