@@ -30,6 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY alembic.ini ./
 COPY src ./src
+COPY policy-packs ./policy-packs
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
@@ -45,6 +46,7 @@ RUN groupadd --gid 1000 render \
 # After the chown on purpose: the API only reads the console, so root keeps it.
 COPY --from=console /console/dist ./src/xolotl/static
 ENV XOLOTL_STATIC_DIR=/app/src/xolotl/static
+ENV XOLOTL_PACKS_DIR=/app/policy-packs
 USER xolotl
 EXPOSE 8000
 # The port serve listens on: PORT (Render sets it), else XOLOTL_PORT, else 8000.
