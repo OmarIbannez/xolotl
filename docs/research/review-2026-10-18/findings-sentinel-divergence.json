@@ -1,0 +1,385 @@
+{
+ "findings": [
+  {
+   "title": "MX pack is keyed to bank rules (DCG art. 115 LIC, USD 7,500); first policy pack MX/ITF-IFPE needs LRITF art. 58 values (USD 5,000 at Banxico FIX of the prior banking day)",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml — MX-REL-001 `reference: DCG art. 115 LIC`, `amount: 7500 USD`; MX-FRA-003 `threshold: 7500 USD`; every MX rule cites DCG art. 115 LIC",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.2.2 ROR row: 'ITFs: ≥ USD 5,000 equiv. (ITF DCG Art. 2 … VERIFIED)'; banks USD 7,500 'SECONDARY'; 'FX at Banxico DOF FIX of prior banking day'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §5 capture MX_ITF_ROR_CASH `when: amount_usd_fix >= 5000`; §4.1 example `thr: unit(\"USD\", 5000)  # pack threshold (ITF)`",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/03-feature-list-v2.md — §6 'MX fintechs (ITF): Cash ≥ USD 5,000. Foreign-currency cash ≥ USD 500. International transfers ≥ USD 1,000 (monthly). Crypto buy/sell ≥ 7,500 UDIs'; §9.1 report catalog",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/21-sentinel-product-readiness-pricing.md — §3 'Rule packs reviewed by counsel': 'Every MX rule cites the bank rules (DCG art. 115 LIC)… fintech institutions fall under the Fintech Law art. 58 rules'"
+   ],
+   "detail": "Sentinel's only Mexico pack models the bank regime: relevant-operation threshold USD 7,500, structuring band derived from 7,500, and all six rule references point to the DCG under LIC art. 115 (which the research could only confirm from SECONDARY sources). The user's first pack is MX/ITF-IFPE, whose VERIFIED catalogue (research §A.2.2) is: ROR cash ≥ USD 5,000 quarterly with mandatory empty report; foreign-currency cash ≥ USD 500 quarterly; international transfers ≥ USD 1,000 monthly (15 business days); VA operations ≥ 7,500 UDIs quarterly; IFPE money transmission ≥ USD 1,000 monthly; ROI within 3 business days after the Comité (≤ 60 days after detection); 24-hour ROI with legend. None of these appear in mx.yaml, and the Notion 00-foundations example pack (§4.2) lists only an abridged report set (ROR, ROI, FX cash, intl transfers) and omits ROIP, 24-h ROI, VA and IFPE transmission reports, so neither artefact can be copied as the pack.",
+   "design_impact": "If mx.yaml is migrated as the MX/ITF-IFPE seed, the Formato 41 ROR capture, the structuring typology and every citation will be wrong for the launch segment, and the thresholds embed a 50 % error (7,500 vs 5,000). The ITF catalogue also requires rule kinds sentinel does not have (per-op FX-cash capture, monthly international-transfer capture, UDI-denominated VA capture).",
+   "suggested_resolution": "Author MX/ITF-IFPE v1 from research §A.2.2 and feature list §9.1 as the single source of truth, with every rule citing the ITF DCG article (Arts. 2, 66–75, 102–103). Keep sentinel's bank values only in a separate, clearly SECONDARY-tagged MX/BANK pack (or drop it). Add a golden test per report code so the pack cannot be loaded with the 7,500 value under the ITF code."
+  },
+  {
+   "title": "MX-USD-002 (USD cash > 4,000/month) is a bank-only restriction with no ITF counterpart; the ITF obligation is a per-operation FX-cash capture ≥ USD 500",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml — MX-USD-002 'USD cash deposited by an individual customer exceeds USD 4,000 in a rolling month', reference 'restricciones a operaciones en efectivo con dólares'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.2.2 'Reporte de operaciones en efectivo en moneda extranjera | ITFs | Each op in foreign-currency cash ≥ USD 500 | Quarterly … Yes (empty report)'; USD-cash restriction rows marked banks/casas de cambio, 'UNVERIFIED'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/21-sentinel-product-readiness-pricing.md — §3 'including a cash-dollar limit written for banks (MX-USD-002)'"
+   ],
+   "detail": "The USD 4,000 monthly cash-dollar cap comes from the bank DCG (33ª Quáter) and is a product restriction, not an AML alert or a report. The ITF DCG instead requires a quarterly report of every foreign-currency cash operation ≥ USD 500 (with an empty report when none), which is a legal capture, not a suspicious-activity alert. Sentinel implements MX-USD-002 as a HIGH alert that opens a case.",
+   "design_impact": "Reusing the rule would generate spurious high-priority cases for a fintech tenant and would still leave the ITF FX-cash report with no data source.",
+   "suggested_resolution": "Delete MX-USD-002 from the ITF pack. Add a CAPTURE `MX_ITF_FX_CASH` (on fx cash, amount_usd_fix ≥ 500, period calendar_quarter, zero report required) feeding the reporting engine, as sketched in 05-TM §5. If a tenant is a bank, keep the cap as a LIMIT-kind rule in MX/BANK."
+  },
+  {
+   "title": "Sentinel routes threshold reports (relevantes/CTR) into analyst cases; the spec separates reportable-event CAPTURE (no human judgement) from ALERT",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml — MX-REL-001 'Reported to the UIF as an operación relevante', `severity: medium`; us.yaml US-CTR-001/002",
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/transactions.py — `ingest()`: every fresh RuleHit becomes a NewAlert and `open_case(... CaseType.MONITORING ...)`",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §5 'This is separate from suspicious alerts. No human judgement is involved; it is a legal capture.'; §6.1 `monitoring_rule.kind ALERT | CAPTURE | LIMIT`, `reportable_event` table with period_key, fields, unit_values",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/04-delivery-plan.md — T4.3 'Reportable-event capture + MX captures'; T6.3 Formato 41 ROR incl. empty reports"
+   ],
+   "detail": "In sentinel a cash operation at or above the relevant-operation threshold is a monitoring alert with severity and dedupe, grouped into the customer's open case for an analyst to clear or report. Under the ITF DCG the ROR is automatic: every qualifying operation must appear in the quarterly Formato 41 file regardless of suspicion, and an analyst 'clearing' it would be a compliance breach. The spec therefore models captures as `reportable_event` rows keyed by period, with the unit values used, status CAPTURED/INCLUDED/VOIDED, and 'multiple-operation' semantics where all underlying transactions of the period are captured when a monthly aggregate crosses (not just the crossing one, which is sentinel's aggregate semantics).",
+   "design_impact": "Without the split there is no data source for Formato 41 ROR or the LFPIORPI aviso, and case queues fill with non-suspicious items. Sentinel's `ThresholdRule`/`AggregateRule` can be reused for ALERT kind but a new CAPTURE kind with period keys and 'capture all underlying' semantics is needed, plus a `reportable_event` table and VOID/regenerate flow for late events.",
+   "suggested_resolution": "Introduce `kind: capture` in the rule schema with `period` (calendar_quarter | calendar_month | event | 6m_from_first), `report` code and `fields` mapping; have ingest write `reportable_event` (never a case) for captures. Keep sentinel's 'fire on the crossing transaction' only for ALERT aggregates."
+  },
+  {
+   "title": "Static FX table vs effective-dated unit values with per-unit conversion rules (FIX prior banking day, UDI daily, UMA annual)",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/_fx.yaml — 'Static demo rates… as_of 2026-10-01… MXN: 0.054'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/packs.py — `FxTable.to_usd` multiplies by a single `usd_per_unit`; `Transaction.amount_usd` computed once at ingest",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §5 unit_value table, 'MX USD: Banxico FIX of the prior banking day', 'UDI daily', 'UMA annual 1 Feb', 'previous value is never silently reused… UnitValueMissing blocks threshold decisions'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §9 rule 7 'Convert using the monetary_unit value that was valid on the transaction date, not today's value'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §3 enrichment adds amount_uma/amount_udi with each unit's rule; §11 'FIX holiday roll-back' tests"
+   ],
+   "detail": "Sentinel compares every threshold in USD after converting through one static rate, and has no UDI or UMA at all. The MX/ITF-IFPE pack needs USD at FIX of the prior banking day (ROR, FX cash, intl transfers), UDI for tier limits (750/3,000 UDIs) and the VA report (7,500 UDIs), and the second pack (MX/LFPIORPI-AVI) needs UMA (210 UMA per op, 4 UMA fee) with the 1-February year change. Reproducibility also requires storing which unit value was used per decision (`reportable_event.unit_values`). Sentinel's `_load_customer` rejects unknown currencies at ingest, which is the right fail-loud instinct but keyed to the wrong table.",
+   "design_impact": "Postgres-first MVP needs a `unit_value` table (unit_code, valid_from, valid_to, value, source, fetched_at, superseded_by) and a `UnitService` port with ConversionRule (SAME_DAY, PRIOR_BANKING_DAY), backed by seeded fixtures in sandbox and a daily job in the Postgres job queue later. Transactions must carry the resolved unit amounts (or the unit_value ids) instead of a single amount_usd.",
+   "suggested_resolution": "Replace `FxTable` with a `units` module per foundations §5; keep sentinel's `Money` model; add `amount_usd_fix`, `amount_udi`, `amount_uma` (or a `units jsonb`) plus `unit_value_ids` on transaction and reportable_event; make missing values raise and block, never fall back."
+  },
+  {
+   "title": "Single-tenant data model and global audit chain: no tenant_id, global advisory lock, global users and case sequence",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/models.py — no tenant column on any table; `Case.reference = f\"SEN-{self.id:05d}\"` from a global integer PK; `User` global",
+    "/Users/omaribannez/code/sentinel/src/sentinel/audit.py — single `_CHAIN_LOCK_KEY`, `prev_hash` from the last row of the whole table",
+    "/Users/omaribannez/code/sentinel/src/sentinel/migrations/versions/0001_initial_schema.py — no RLS, no tenant columns",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §2.2 'ENABLE + FORCE ROW LEVEL SECURITY… application role is not the table owner… Composite foreign keys (tenant_id, id)'; §2.3 UUIDv7",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §8 audit_event PK (tenant_id, at, id), 'Append-only, hash-chained audit log per tenant'; §4 staff_user (tenant_id, sso_subject)",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/21-sentinel-product-readiness-pricing.md — §3 'No tenant concept in the models or migrations'"
+   ],
+   "detail": "Every sentinel table, the audit chain, the user directory and the case numbering are global. The spec requires tenant_id first in every key, RLS forced on every tenant table, a per-tenant hash chain, tenant-scoped staff with SSO subjects, and UUIDv7 ids. Sentinel's chain lock also serialises all writers platform-wide; the design.md itself (§5) says a real system would chain per partition.",
+   "design_impact": "Sentinel's migration and ORM models cannot be migrated forward; they must be rewritten with tenant_id, RLS policies and composite FKs from the first migration (architecture §9: 'Retrofitting isolation later is very painful'). The audit module is reusable only after changing `record()` to look up prev_hash within the tenant and lock on hash(tenant_id). Sequential case references would leak cross-tenant volumes.",
+   "suggested_resolution": "Port algorithms, not schema: keep audit.py's digest/verify functions and immutability trigger but parameterise by tenant; adopt the data-model DDL; add the CI isolation test harness (two tenants, every table via information_schema) before any feature."
+  },
+  {
+   "title": "Sentinel's `Customer` conflates party, relationship, application, risk and screening; risk and status are overwritten in place",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/models.py — `Customer` holds full_name, documents JSONB, status, risk_score, risk_level, risk_factors, document_checks; `ScreeningHit` has no run/version",
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/cases.py — `_close()` sets `case.customer.status = APPROVED/REJECTED` directly",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §1 'Being a customer is a relationship between a party and the tenant'; §6 'Never update a risk assessment in place'; §7 screening_run (list_versions, matcher_version) → screening_match → match_disposition, screening_whitelist; §9 rule 3 'Decisions are insert-only; status changes are events'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §3 P1 identifiers 'Field-level AES-256-GCM… plus blind index'"
+   ],
+   "detail": "The spec splits party/person/organization, party_identifier (encrypted value + HMAC blind index), customer_relationship (external_ref, PENDING/ACTIVE/RESTRICTED/BLOCKED/EXITED, current_risk_id, next_review_at), onboarding_application (policy frozen at start), risk_assessment (append-only with trigger and model version), and screening_run/match/disposition/whitelist. Sentinel stores document numbers in plaintext JSONB (masking only SSN), overwrites risk on the customer row, has no relationship status beyond approved/pending/rejected, no external_ref idempotency anchor, and screening hits are not tied to a list version or matcher version, so 'why was this customer approved in 2026?' cannot be answered exactly.",
+   "design_impact": "A wrong migration if sentinel's models are carried over. Every service (onboarding, cases) must be re-targeted at the new entities. KYB (decision 1) is impossible on sentinel's model since there is no organization or party_relationship.",
+   "suggested_resolution": "Implement the data-model DDL for party/relationship/application/risk/screening in the foundations sub-project; port sentinel's service logic as functions over those entities; encrypt identifiers via an `EncryptedStr` type with blind index behind the local key provider."
+  },
+  {
+   "title": "Tenant-facing API returns screening hits and rule hits (tipping-off leak) and has no staff/machine audience split",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/api/routes/customers.py — `onboard_customer` returns `CustomerDetail` incl. `screening_hits`, `risk_factors`; `ingest_transaction` returns `IngestResult.hits` (incl. SCREEN-CPTY) to the caller",
+    "/Users/omaribannez/code/sentinel/src/sentinel/api/deps.py — one JWT audience (staff users), no tenant/scope claims, no API keys",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/11-f01-customer-onboarding.md — §7 'Customer-facing messages… never reveal screening/sanctions reasons (tipping off)'; §9 GET application 'reasons (tenant-safe)'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/16-f06-case-management.md — §3 'API-key (machine) actors cannot read RESTRICTED cases'; §5 'Webhooks to tenant (no suspicion details)'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §8 OAuth2 client credentials with scopes, Idempotency-Key, RFC 9457 errors, cursor pagination, /v1"
+   ],
+   "detail": "Sentinel has one audience (analysts) so its onboarding and ingest endpoints return the full explanation, including sanctions matches and counterparty-sanctions hits. In the multi-tenant product the same endpoints are the tenant's integration API; returning match details to the tenant's backend creates a tipping-off path and violates the 'reasons (tenant-safe)' contract. Sentinel also lacks tenant/scope claims, API keys, Idempotency-Key handling, problem+json errors, cursor pagination and the /v1 prefix that the console and SDKs are specified against.",
+   "design_impact": "API design for every sub-project must define two response views per resource: machine/tenant-safe (status + stable reason codes) and staff (full explanation, allowed_actions). Sentinel's typed explanation models are the staff view. Middleware for TenantContext, idempotency and problem+json must exist before the first feature endpoint.",
+   "suggested_resolution": "Keep sentinel's typed explanation models for the staff console; add tenant-safe Pydantic views with reason codes only; introduce actor types (STAFF, API_CLIENT) in the JWT/API-key layer and enforce 'RESTRICTED invisible to API_CLIENT' in the repository layer."
+  },
+  {
+   "title": "Monitoring engine: 31-day history scan, no external_id idempotency, no calendar or 6-month windows, no per-rule versioning or simulation",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/transactions.py — `HISTORY_WINDOW = timedelta(days=31)`; `TransactionIn` has no external_id; `_already_alerted` joins Alert→Transaction by FK",
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/monitoring.py — windows are rolling hours/days only; `Txn` lacks direction/rail/instrument/account",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §3 canonical `Txn(external_id, direction, rail, instrument, counterparty, fx, crypto)`; §4.1 windows '1h, 24h, 7d, 30d, calendar_month, calendar_quarter, 6m_from_first'; §4.2 late events up to 7 days; §6.1 monitoring_rule_version (DRAFT→SIMULATED→APPROVED→ACTIVE); §7 simulation; §10 'Dedup by (rule_version, key, window_bucket) • idempotent alert insert'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §8 transaction PK (tenant_id, occurred_at, id) PARTITION BY RANGE, alert.transaction_ids uuid[]",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.1.2 '6-month window starts at first op' (RCG Art. 19)"
+   ],
+   "detail": "Sentinel evaluates rules by re-reading at most 31 days of a customer's transactions, so calendar-quarter ROR periods, the LFPIORPI 6-months-from-first-operation accumulation and 90-day baselines cannot be expressed. Retried POSTs create duplicate transactions because there is no external_id uniqueness. Rules are versioned only by the pack-file string, so the spec's per-rule lifecycle (simulate → approve → activate, approval needs a simulation ≤ 30 days old) and 'simulation equals production' (decision 1 includes rule simulation) have no anchor. Sentinel's alert→transaction FK and `_already_alerted` join break against a partitioned transaction table whose PK includes occurred_at. The transaction type enum (cash_deposit, usd_cash_deposit, wire_in…) does not map to the canonical direction/rail/instrument needed for Formato 41 columns 8–9 (tipo de operación, instrumento monetario).",
+   "design_impact": "For Postgres-first, define a `TxnStore`/`AggregateStore` port: a bucketed aggregate table (hourly for ≤ 7 d, daily for ≤ 6 m, plus calendar-period accumulators) maintained in the same transaction as the insert, replacing the history scan; add UNIQUE (tenant_id, external_id); use uuid[] soft references from alert_evidence; store rule_version_id on every alert; make the evaluator a pure function over (txn, aggregates, profile, policy) so the same code runs in simulation over Postgres history.",
+   "suggested_resolution": "Keep sentinel's pure `evaluate_rule`/`RuleHit` shape and its dedupe idea, but feed it from bucketed aggregates and the canonical schema; add rule_version rows and a simulation runner that replays a tenant's Postgres transactions in event-time order per key with isolated state."
+  },
+  {
+   "title": "Matcher scoring and thresholds diverge from the research pipeline (no IDF, no family-name weight, no phonetic key, single 85/95 band for all list kinds, no ID-conflict cap)",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/screening/matcher.py — `name_score = round((set_ratio + sort_ratio)/2)`; `POTENTIAL_THRESHOLD = 85`, `STRONG_THRESHOLD = 95`; DOB ±10/+5/−30; nationality +5/−10; single-token aliases skipped entirely",
+    "/Users/omaribannez/code/sentinel/src/sentinel/screening/normalize.py — particles dropped from the normalised form (no glued/compound variant)",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-tech-screening-reporting.md — §D.3 step 9 'Common-surname IDF… the single biggest FP reducer for LATAM'; §D.4 Monge-Elkan alignment, family role weight 1.3, unmatched query 0.8 / result 0.2, weak alias ×0.8; §D.5 ID match floor 0.95, same-type ID conflict cap 0.30, DOB −0.15/−0.25; §D.6 bands 'Sanctions ≥ 0.70 (review 0.55–0.70)… PEP ≥ 0.80… Adverse media ≥ 0.85'; §D.2 LATAM phonetic key; §D.3 nickname expansion, married-name variants, ES vs BR order",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/04-delivery-plan.md — T3.2 'particles, nicknames, LATAM phonetic key, surname frequency weights; screening profiles (SC-2)'; T4.2 'bands + whitelist (SC-3)'; T6.2 'evaluation corpus v1 + yente shadow mode + calibration report (SC-5)'",
+    "/Users/omaribannez/code/sentinel/docs/design.md — §2 'Thresholds (85 potential, 95 strong) were tuned by hand on a few cases'"
+   ],
+   "detail": "Sentinel's two-stage design (normalise → rapidfuzz candidates → corroborate with DOB/nationality/ID → explain every component) matches the research shape, and decision 2 explicitly allows an in-memory matcher. But the scoring is a 0–100 average of two fuzz ratios with one global threshold, so 'Juan García' scores the same as a rare surname, PEP and sanctions share a threshold, weak/low-quality aliases are dropped rather than down-weighted, nickname and married-name variants are absent, and a conflicting national ID of the same type does not suppress a hit. The spec also requires per-tenant tighten-only thresholds, a versioned matcher config stored on every screening_run, and the SC-5 evaluation corpus with recall/precision per list type, none of which the constants-in-code approach supports.",
+   "design_impact": "The Screener class, candidate retrieval, explanation object and ID-corroboration are worth keeping as the in-memory adapter behind a `Matcher` port; `_score` must be re-implemented on a 0–1 scale per §D.4–D.6, with `list_kind`-specific bands from the policy pack and a `matcher_version` string persisted with each run. Without IDF weighting the FP rate on LATAM names will defeat the one-developer team.",
+   "suggested_resolution": "Port normalize.py/matcher.py into a `screening` library; replace the scorer with the research formula (IDF from national name frequencies, family role weight, asymmetric unmatched penalties, phonetic-key equality, nickname table); make thresholds policy-driven per list_kind; add the pair-corpus test described in §D.9 as the SC-5 gate."
+  },
+  {
+   "title": "List ingestion: enum of two sources, unversioned gz snapshots, legacy OFAC CSV parsing, no UN/EU/UK, no private list, no whitelist, no delta re-screen",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/enums.py — `ListSource = {OFAC_SDN, PEP}`",
+    "/Users/omaribannez/code/sentinel/src/sentinel/screening/lists.py — parses `sdn.csv`/`alt.csv`, extracts IDs/DOB/nationality from the remarks column by regex; `registry.py` loads files at startup, no version id",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-tech-screening-reporting.md — §A.1 OFAC 'Enhanced XML… identity documents (passport, cédula, RFC, CURP, NIT…)', UN poll every 15 min, UK FCDO list (OFSI retired), §A.2 'LPB must be a tenant-uploaded private list'; 'Recommended data-source stack'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §3 list_source/list_version/list_entry(content_hash); §7 private_list(_entry names_enc), screening_whitelist keyed on entry_content_hash",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §4.2 `screening.lists: [UN_CONSOLIDATED, MX_LPB, OFAC_SDN, MX_SAT_69B, PEP_MX]`, on_true_match MX_LPB → SUSPEND_IMMEDIATELY + MX_ROI_24H",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/04-delivery-plan.md — T2.2 'List ingestor + sources UN, OFAC, EU, UK, SAT 69-B (SC-1)'; T5.2 'Delta/reverse screening… private lists (LPB upload) (SC-4)'"
+   ],
+   "detail": "The MX/ITF-IFPE pack needs UN consolidated (binding, feeds the LPB), the tenant-private LPB, OFAC, SAT 69-B (exact RFC match for KYB) and a PEP source; each screening must record which list versions were used, cleared matches must be remembered against the entry's content_hash, and a list delta must re-screen the book the same day. Sentinel ships only OFAC (legacy CSV, remark-regex IDs that will miss structured RFC/CURP) plus fictional PEPs, loaded as unversioned files into a process-wide singleton, with no whitelist and no re-screen job. Its OpenSanctions PEP sync is CC BY-NC and must not reach a tenant deployment (readiness §9).",
+   "design_impact": "The `ListEntry` model and parse_ofac can survive as one adapter; the ingestion must become a Postgres-backed list_source/list_version/list_entry store with content hashes, loaded into the in-memory index per version, plus a per-tenant private-list index and a delta job on the Postgres job queue that reverse-screens changed entries against customer names.",
+   "suggested_resolution": "Implement SC-1 as versioned ingestion for UN (XML), OFAC Enhanced XML, SAT 69-B CSV and tenant-uploaded LPB (encrypted), store `screening_run.list_versions`/`private_lists`, add `screening_whitelist`; run all vendor-backed PEP sources in mock mode until a licence exists (decision 5)."
+  },
+  {
+   "title": "Case workflow and roles differ: sentinel's escalate-to-senior model vs proposed/approved four-eyes, MX committee step, restricted visibility and 30-day grouping",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/cases.py — docstring state machine open→in_review→escalated→closed; `Role = {analyst, senior_analyst}`; `open_case` groups by (customer, case_type) with no time window; disposition cleared|reported",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/16-f06-case-management.md — §2.2 OPEN→INVESTIGATING→PROPOSED_DECISION→(APPROVAL|COMMITTEE)→DECIDED→…; §3 case_decision CHECK approved_by <> proposed_by, decisions NO_ACTION/EDD/RESTRICT/EXIT/FREEZE/REPORT_STR/REPORT_24H; committee_session/vote; visibility TEAM|RESTRICTED|INSIDER; §4.1 'open case with the same subject party and compatible type within 30 days'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §4 roles ANALYST, SENIOR_ANALYST, MLRO, AUDITOR_RO, ADMIN; §8 aml_case.restricted",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/21-sentinel-product-readiness-pricing.md — §2 praises 'Four-eyes case workflow… allowed_actions'"
+   ],
+   "detail": "Sentinel enforces four-eyes by role (only a senior who did not escalate may decide high/critical or report), which is stricter than needed for low/medium and weaker than the spec for MX: unusual-operation decisions must go through the Comité de Comunicación y Control (quorum, votes, minutes) and the ROI clock starts at the committee decision. The spec's generic rule is proposer ≠ approver with configurable chains, outcomes beyond clear/report (EDD, restrict, exit, freeze, 24-h report), MLRO/auditor roles, tipping-off visibility, SLA clocks (MX_CCC_DECISION +60 d, MX_ROI_FILING +3 business days, MX_24H), and grouping within 30 days. Sentinel's single open case per customer forever would merge unrelated activity months apart.",
+   "design_impact": "The case sub-spec must adopt the 16 state machine; sentinel's `_require_second_reviewer` (escalator cannot decide) is a good extra invariant to keep. `allowed_actions` must be recomputed for the new states and roles, and committee sessions become a first-class entity.",
+   "suggested_resolution": "Rewrite the state machine per 16 §2.2 with case_decision(proposed_by, approved_by, committee_session_id) and case_clock rows derived from the policy pack; preserve sentinel's allowed_actions mirror and its exhaustive state×role×action test as the acceptance test."
+  },
+  {
+   "title": "Report output: sentinel's JSON `report_draft` on the case vs regulatory_report lifecycle with serialized Formato 41 bytes, filings and receipts",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/explanations.py — `ReportDraft(report_name, regulator, subject, activity, narrative, prepared_by, approved_by, status='draft - not submitted')` stored as JSONB on Case",
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml — `report_name: Reporte de Operación Inusual (ROI) a la UIF`",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §8 regulatory_report (schema_id, period, due_at, DRAFT→PENDING_APPROVAL→APPROVED→FILED→ACKNOWLEDGED→REJECTED, payload_ref), report_item, report_filing(method AUTO|MANUAL_UPLOAD, regulator_receipt)",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/03-feature-list-v2.md — §8.1 RR-1 definition registry, RR-3 encoding normalizers 'uppercase, strip accents except Ñ', RR-5 zero reports, RR-7 'immutable copy of the exact bytes filed + receipt'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.2.3 Formato 41: 41 `;`-delimited uppercase columns, related-person rows (col 34), narrative cols 40/41, 24-h legend, 'no podrán ser modificados', ROR zero report with cols 1,2,4,5"
+   ],
+   "detail": "Sentinel produces a human-readable draft per reported case and stops there; decision 1 requires Formato 41 TXT (ROR/ROI/24-h/ROIP, including empty reports) and the LFPIORPI aviso XML validated against the XSD. The spec models reports as period- or case-driven artefacts with a schema version, approval, exact-bytes archive, filing attempts and receipts, plus the deadline from the calendar engine. Sentinel's draft lacks the Formato 41 fields (tipo de operación, instrumento, CASFIM keys, related persons, cuenta) and the 'one report type per file' batching.",
+   "design_impact": "Nothing of sentinel's report path is reusable beyond the idea of a narrative field; the reporting sub-project must build the definition registry, a delimited serializer with byte-level golden files, the XML/XSD serializer (lxml for avi.xsd), object-store archiving via the local-or-S3 port and manual-upload filing records.",
+   "suggested_resolution": "Treat RR-1..RR-4 (04 T5.4, T6.3, T7.3) as the inferred content of the blank 07 page: definition registry + code tables, Formato 41 serializer with empty-report rule, aviso XML with current XSD (2027 XSD deferred), approval and receipt capture; have the case REPORT decision create a DRAFT regulatory_report instead of a JSON blob."
+  },
+  {
+   "title": "Risk scoring: additive points with sanctions '+60' vs scorecard with knock-outs (PROHIBITED), floors, dimensions, insert-only history and model versions",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/risk.py — `sanctions_potential_match` adds 60 points; `pep_match` 40; occupation by substring on free text; `score = min(100, sum)`; levels at 30/60; no model version",
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml — risk.weights, medium_at 30, high_at 60",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/14-f04-risk-scoring.md — §3.1 hard_rules 'screening.true_match_list in [UN_CONSOLIDATED, MX_LPB, OFAC_SDN] → PROHIBITED', 'pep_status == FOREIGN → floor HIGH', 'is_non_resident and country == MX → floor HIGH'; dimensions/weights; bands LOW [0,35) MEDIUM [35,65) HIGH [65,100]; outputs dd_level/review P1Y; §3.2 missing data → 70 + data_gap; §4 risk_model_version, risk_assessment_factor",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/11-f01-customer-onboarding.md — §7 'SANCTIONS_HIT: has_potential_match → MANUAL_REVIEW' (a decision rule, not risk points)"
+   ],
+   "detail": "Sentinel treats a potential sanctions match as a risk factor worth 60 points, which both over-rates unconfirmed name hits and under-rates confirmed ones (no PROHIBITED). The spec evaluates hard rules first (true match → PROHIBITED; foreign PEP, FATF call-for-action nationality, MX non-resident → HIGH floor), scores weighted dimensions from versioned lookup tables (SINCO occupation codes, municipality geo risk, product, channel, behaviour bands), persists each factor row and the model/table versions, and derives review dates and due-diligence level that drive the calendar. Sentinel's thresholds (30/60) also differ from the spec bands (35/65).",
+   "design_impact": "Risk sub-spec should re-implement the evaluator; sentinel's `RiskFactor(code, points, detail)` explanation and golden-profile tests are the reusable parts. A potential screening match must route to MANUAL_REVIEW via the decision engine, not inflate the score.",
+   "suggested_resolution": "Build the scorecard evaluator per 14 §3 with hard rules, dimensions and bands from the MX-ITF-default model JSON; keep sentinel's factor explanation shape as `risk_assessment_factor`; store model_version_id and table_versions on every assessment; append, never overwrite."
+  },
+  {
+   "title": "Policy packs are per country, file-loaded and cached process-wide; spec needs country × sector × licence packs, effective dates, tenant tighten-only overrides and policy snapshots",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/packs.py — `RulePack(country, version:str, documents, risk, monitoring)`; `load_catalog` globs `[a-z][a-z].yaml`; `@lru_cache get_catalog()`",
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/onboarding.py — pack chosen by `data.country`",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §4.1 'policy pack is a versioned YAML document per country × sector × licence… resolver merges them with the tenant's overrides into an effective policy for a given date'; §4.3 'only tighten'; §4.4 policy_snapshot persisted and referenced by every decision",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §3 policy_pack_version(effective_from, config jsonb); §4 tenant_policy(overrides, approved_by)",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/03-feature-list-v2.md — F-3 'A fintech can hold several licences… several packs'"
+   ],
+   "detail": "Sentinel's 'typed parameters for reviewed rule kinds, validated by Pydantic at startup' is exactly the spec's philosophy and should be kept. But a pack is selected by the customer's country, there is one pack per country, versions are opaque strings with no effective date, overrides do not exist, and the pack content covers only documents/risk/monitoring. The ITF-IFPE and LFPIORPI-AVI packs must coexist for one tenant, be resolved by date, be frozen on the onboarding application, and expose kyc tiers, ubo thresholds, screening lists and on_true_match actions, reports and retention.",
+   "design_impact": "Packs become rows (policy_pack_version.config) seeded from YAML, resolved per tenant and date by a `PolicyResolver`, with a `policy_snapshot` hash stored on applications, assessments, alerts, reports. The process-wide lru_cache must go.",
+   "suggested_resolution": "Extend sentinel's Pydantic pack models to the foundations §4.2 schema (kyc, ubo, screening, reports, retention sections), load into Postgres with effective_from, implement merge_strictest + tighten-only override validation, and add golden tests per pack version."
+  },
+  {
+   "title": "Identifier handling: RFC lacks homoclave check digit and persona-moral form; identifiers stored in plaintext JSONB; only SSN is masked",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/identity.py — `_RFC_PERSON` 13-char regex, DOB cross-check only; `mask()` masks SSN only; CURP check does not compare sex/state with declared data",
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/onboarding.py — `documents=[{\"type\":…,\"number\": c.number}]` written to `Customer.documents` JSONB",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/11-f01-customer-onboarding.md — §6.2 'RFC (MX): 12 (PM) / 13 (PF) chars, structure + homoclave check digit (mod 11)'; CURP 'cross-check DOB/sex/state vs data'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §3 P1 identifiers encrypted + blind index; §8 'PII in logs: Forbidden'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.3.1 legal entity: 'RFC with homoclave', Formato 41 col 21 RFC(13)/col 22 CURP(18)"
+   ],
+   "detail": "The CURP (check digit + embedded DOB), CPF and NIT validators with real check digits and tests on real CURPs are correct and worth keeping. Gaps for MX: RFC homoclave verification and the 12-character persona-moral RFC (needed for KYB and for Formato 41/aviso entity records), CURP sex/state cross-check against declared data, and encryption at rest of every identifier with an HMAC blind index for duplicate detection. Sentinel also echoes raw identifiers in `screening_hits.explanation` and in audit-adjacent payloads.",
+   "design_impact": "Keep identity.py as the pure validator library for the onboarding sub-project; storage must move to `party_identifier(value_enc, value_hash)` behind the local key provider; duplicate detection uses the blind index, not plaintext.",
+   "suggested_resolution": "Add `rfc_check_digit` (mod-11 homoclave) and PM support, extend CURP cross-checks, wrap storage with `EncryptedStr` + `blind_index`, and add a test asserting no P1 field appears in logs or explanation payloads."
+  },
+  {
+   "title": "Audit log: per-tenant chain, read/PII-view events and actor types are missing; immutability trigger and verify endpoint are worth keeping",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/audit.py — chain over whole table; only mutations audited (customer.onboarded, transaction.ingested, case.*, alert.raised)",
+    "/Users/omaribannez/code/sentinel/src/sentinel/migrations/versions/0001_initial_schema.py — `audit_log_immutable()` trigger on UPDATE/DELETE/TRUNCATE",
+    "/Users/omaribannez/code/sentinel/tests/test_audit_and_meta.py — test_chain_verification_detects_tampering disables the trigger and expects verify to fail",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/06-architecture-overview.md — §6.8 'Logs every PII view, decision, export, policy change, and platform-operator access'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §8 audit_event(actor_type STAFF|API_CLIENT|SYSTEM|PLATFORM_OPERATOR, action VIEW_PII…, PK (tenant_id, at, id))",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/16-f06-case-management.md — §7 'Every view of a RESTRICTED case is logged (VIEW_RESTRICTED_CASE)'"
+   ],
+   "detail": "Sentinel's belt-and-braces design (DB trigger plus SHA-256 chain plus a verify endpoint and a tamper test) is stronger than the Notion 'INSERT-only grant' wording and should be carried forward. It diverges in scope: one global chain serialised by one advisory lock, string entity ids, no actor_type, and no audit of reads, PII reveals, exports or policy changes, which the spec and the MX e-money rules (readiness §3: 'complete logs of access and activity') require.",
+   "design_impact": "Port `record()`/`verify_chain()` with tenant-scoped prev_hash lookup and `pg_advisory_xact_lock(hashtext(tenant_id))`; add read-audit hooks in the PII-reveal and restricted-case paths; keep the trigger (migrations run as owner role, app role has no BYPASSRLS). WORM streaming can wait behind the object-store port.",
+   "suggested_resolution": "Reuse audit.py and the trigger migration with tenant partitioning of the chain; define a fixed action vocabulary including VIEW_PII, VIEW_RESTRICTED_CASE, EXPORT, CHANGE_POLICY; expose `/audit/verify` per tenant."
+  },
+  {
+   "title": "Readable normalised names: foundations and data-model DDL store plaintext `full_name_norm`, while data-model §9 still lists it as an open decision; sentinel stores full plaintext names",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §5 `full_name_norm text NOT NULL -- normalized for matching`; §9 rule 4 'Open decision: full_name_norm… (a) plaintext readable only by the matching service's role; (b) decrypt into an in-memory matching index per tenant'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §3 P2 'Normalized name tokens are stored separately for matching'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/08-infrastructure.md — §2 row 6 screening index holds 'normalized customer names for rescreening'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-tech-screening-reporting.md — 'Platform pattern… delta-driven rescreening: match the changed entities against the customer base (reverse screening)'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/models.py — `Customer.full_name String(200)` plaintext"
+   ],
+   "detail": "Three documents (foundations §3, data-model DDL §5, infrastructure §2) assume option (a): a plaintext normalised-name column/token set readable by the matcher, which is what delta re-screening (decision 1, SC-4) needs. Data-model §9 and architecture §10 still present it as undecided. Sentinel sidesteps it by storing the whole name in clear, which the spec's P2 classification forbids.",
+   "design_impact": "For Postgres-first the practical answer is (a): keep `given_names/surnames` encrypted, store `full_name_norm` tokens and phonetic keys in a plaintext column with a pg_trgm GIN index as the candidate blocker, readable only by the matcher DB role; delta re-screen = query changed list entries' keys against that column. Deciding this before the foundations sub-spec avoids a second migration of the person table.",
+   "suggested_resolution": "Record option (a) as decided in the foundations spec; add `person.name_keys text[]` (tokens + LATAM phonetic keys) plus pg_trgm index; grant SELECT on it only to the matcher role; note that option (b) remains possible later behind the same `CustomerNameIndex` port."
+  },
+  {
+   "title": "Alert and case state machines differ between the data model and the case-management design (and sentinel is a third variant)",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §8 aml_case.status 'OPEN, IN_REVIEW, PENDING_APPROVAL, CLOSED', outcome 'NO_REPORT, REPORTED, EXITED_CUSTOMER, BLOCKED'; alert.status 'NEW, IN_REVIEW, CLOSED_NO_ACTION, ESCALATED'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/16-f06-case-management.md — §2.1 alert 'NEW → IN_TRIAGE → CLOSED_NO_ACTION | LINKED | ESCALATED'; §2.2 case 'OPEN → INVESTIGATING → PROPOSED_DECISION → (APPROVAL | COMMITTEE) → DECIDED → CLOSED | REPORT_DRAFTING → REPORT_FILED → CLOSED | ACTION_PENDING'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/enums.py — CaseStatus open/in_review/escalated/closed; Disposition cleared/reported"
+   ],
+   "detail": "The data model's four case states and four alert states cannot represent the committee step, report drafting/filing, or action-pending (freeze/exit) phases that 16 defines and that the MX freeze playbook (04 T8.4) and the Formato 41 ROI clock (starts at committee decision) require. The two Notion documents were written the same day and neither marks the other as superseding.",
+   "design_impact": "Pick one enum set before the case-management migration; the 16 §2.2 machine is the only one that supports MX committee and REPORT_FILED, so 07 §8 should be treated as superseded. Property test 'no path to REPORT_FILED without an approved decision' (16 §8) only makes sense on the 16 states.",
+   "suggested_resolution": "Adopt 16 §2.1/§2.2 verbatim as the data-model enums, keep `outcome` as a derived column, and update 07 §8 in the sub-spec."
+  },
+  {
+   "title": "Transaction amount types: data model `amount_minor bigint` and sentinel `Numeric(18,2)` cannot hold crypto quantities required by the LFPIORPI AVI aviso (up to 10 decimals)",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md — §8 transaction `amount_minor bigint NOT NULL`, `amount_usd_minor bigint`",
+    "/Users/omaribannez/code/sentinel/src/sentinel/models.py — `Transaction.amount Numeric(18, 2)`",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.1.4 'Amounts: \\d{1,14}\\.\\d{2}… Crypto quantity: \\d{1,14}\\.\\d{2,10}'; VA operations need 'VA code & units, MXN equivalent (Banxico FIX of prior banking day)'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §3 `crypto: CryptoCtx` (asset, network, tx_hash, wallet_type); §6.2 ClickHouse `amount Decimal(20,4)`"
+   ],
+   "detail": "The second policy pack (MX/LFPIORPI-AVI) and the ITF VA report both need the virtual-asset quantity per operation (XSD allows 2–10 decimals) alongside the fiat equivalent. Integer minor units work for fiat but not for asset quantities, and the monitoring doc's own ClickHouse schema uses Decimal(20,4), so the corpus is internally inconsistent; sentinel's two-decimal Numeric has the same limitation.",
+   "design_impact": "Decide the Postgres column types in the foundations/data-model sub-spec before the first transaction migration: fiat as `amount_minor bigint` + `currency`, plus `asset_qty numeric(28,10)` + `asset_code` for crypto, plus the unit-converted amounts from finding on units.",
+   "suggested_resolution": "Amend the transaction DDL with `asset_qty numeric(28,10)` and `asset_code`, keep `amount_minor` for fiat, and carry both into `reportable_event.fields`."
+  },
+  {
+   "title": "Postgres-first aggregate strategy is unspecified: the TM design assumes RocksDB/Redis state and ClickHouse history; sentinel's history scan is the only concrete alternative",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §2.1 'Python stream workers… local RocksDB state… plus Redis for the sync path'; §4.2 bucketed sliding windows; §7 simulation from ClickHouse",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/08-infrastructure.md — §3 'T1: All of them [transactions] in Postgres, in monthly partitions, keeping ~13 months hot'; §2 ClickHouse 'optional at T1'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §1 'Split out only monitoring (streaming) and screening-matcher (memory-heavy) from day one' vs 'Start as a modular monolith'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/transactions.py — `_history()` reads 31 days per customer on every ingest; /Users/omaribannez/code/sentinel/docs/design.md §6 'Postgres materialized rollups' as the scale path"
+   ],
+   "detail": "Decision 2 defers Kafka/Redis/ClickHouse, but no Notion document describes how windowed aggregates, calendar accumulators, late-event re-evaluation or simulation work on Postgres alone; the infrastructure doc only says all transactions stay in Postgres at T1. Sentinel's per-ingest scan proves the modular-monolith path works functionally but does not scale to 6-month windows or 500 tx/s, and gives no simulation path.",
+   "design_impact": "The TM sub-spec must define the Postgres implementation of §4.2: a `txn_bucket(tenant, key_kind, key, aggregate_id, bucket_start, value)` table updated in the ingest transaction (hourly ≤ 7 d, daily ≤ 6 m, calendar-period rows), aggregates read by summing buckets, re-evaluation for late events within 7 days, and a simulation runner over the partitioned transaction table. Sync decisions (T2) can be served from the same table with an index until Redis arrives.",
+   "suggested_resolution": "Specify an `AggregateStore` port with a Postgres bucket adapter now and a RocksDB/Redis adapter later; make the rule evaluator independent of the store so simulation replays Postgres history through identical code."
+  },
+  {
+   "title": "Build order conflicts across documents (architecture puts transaction monitoring last; delivery plan starts it in Sprint 2; readiness 90-day plan prioritises SSO/webhooks/ROI export)",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/06-architecture-overview.md — §9 '1. One cell (Mexico)… 2. Shared reference-data service + screening… 3. Onboarding workflows… 4. Case management + report generation. 5. Real-time transaction monitoring'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/04-delivery-plan.md — Sprint 2 T2.4 transaction ingest; Sprint 3 T3.3 rules; Sprint 4 T4.3 captures before Sprint 5 reporting core and Sprint 6 KYB",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/21-sentinel-product-readiness-pricing.md — §10 weeks 3–6 'API keys, rate limits, webhooks. Case search. Encryption at rest. List updates with re-screening… ROI export'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/09-feature-designs-index.md — '≈ 85 [eng-weeks] for the Mexico launch subset'"
+   ],
+   "detail": "With eight engineers the delivery plan runs five tracks in parallel, so ordering barely matters; for one developer (decision 5) building sub-projects in sequence (decision 1) the order is the plan, and the three documents disagree. The dependency chain in 04 §7 (ingest → rules → captures → Formato 41 → test filing) argues for TM before reporting, while 06 argues for screening and cases before TM, and 21 argues for commercial P0 (SSO, webhooks) first.",
+   "design_impact": "Sub-project sequencing must be fixed before the first sub-spec. The regulatory clock favours: foundations (tenancy, policy packs, units, calendar, outbox, job queue) → screening (lists, matcher, LPB, delta) → onboarding+risk → cases (with committee) → TM (captures) → reporting (Formato 41, aviso XML) → KYB → calendar; webhooks/API keys fold into foundations.",
+   "suggested_resolution": "Write the sequence into the kycaml plan using 04 §7's dependency chain as the constraint and 06 §9 for the first three steps; mark 21 §10 as superseded for engineering order while keeping its legal/security track."
+  },
+  {
+   "title": "Filing channel naming is inconsistent: 'UIF SITI' / 'reports to the UIF' / 'UIF reports via SPPLD' vs CNBV SITI PLD/FT for Formato 41 and SAT SPPLD for avisos",
+   "kind": "contradiction",
+   "severity": "low",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/docs/design.md — §4 'Filing to the regulator (UIF SITI, Siscoaf…)'; /Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml `report_name: … a la UIF`",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/06-architecture-overview.md — §6.7 'Mexico: UIF reports via SPPLD and LFPIORPI avisos'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/03-feature-list-v2.md — §0 'They report via the CNBV's SITI PLD/FT system, using the 2004 41-column semicolon-delimited TXT format'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/research/2026-10-17-reporting-mx-br.md — §A.2.2 'all reports go a la Secretaría (UIF), por conducto de la CNBV… through SITI PLD/FT'; §A.1.3 avisos via SAT SPPLD"
+   ],
+   "detail": "The architecture overview and sentinel describe the financial-entity channel as a UIF portal; the feature list and research establish CNBV SITI PLD/FT (with a QA environment) for Formato 41 and the SAT SPPLD portal (e.firma) for LFPIORPI avisos. The channel determines the `report_filing.method`, the credential model (SITI credentials of the Oficial de Cumplimiento vs e.firma, which the research says the platform must not custody) and the receipt format.",
+   "design_impact": "Cosmetic in code but it leaks into definition-registry codes and the console copy; getting it wrong in a pilot's UAT undermines credibility.",
+   "suggested_resolution": "Standardise codes: `MX_CNBV_SITI` channel for Formato 41 (manual upload, acuse capture) and `MX_SAT_SPPLD` for avisos; fix 06 §6.7 and the pack `report_name` ('Reporte de operaciones inusuales — UIF vía CNBV SITI PLD/FT')."
+  },
+  {
+   "title": "FATF jurisdiction snapshot is hard-coded and stale (June 2025); spec treats country risk as a versioned factor table with call-for-action as a HIGH floor only",
+   "kind": "sentinel_divergence",
+   "severity": "low",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/_jurisdictions.yaml — `as_of: 2025-06`; `Jurisdictions.high_risk` = call_for_action ∪ increased_monitoring",
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/risk.py — `high_risk_nationality` points for any list membership",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/14-f04-risk-scoring.md — §3.1 'any(nationality in country_list.FATF_CALL_FOR_ACTION) → floor HIGH'; §3.3 `country_risk` table 'FATF lists… updated after each plenary… Basel AML Index'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/18-f08-compliance-calendar.md — 'List of FATF high-risk jurisdictions updated after each plenary | Feb / Jun / Oct'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/03-feature-list-v2.md — §13 'Re-check after the October 2026 FATF plenary'"
+   ],
+   "detail": "Sentinel's monitoring rule correctly escalates call-for-action counterparties to CRITICAL and cites the source date, which is a good pattern. But the list is a repo file four plenaries old and both FATF tiers are merged into one 'high_risk' set for risk points, whereas the spec distinguishes a legal floor (call for action) from graded points (increased monitoring, tax havens, Basel index) in a versioned `risk_factor_table` with a source note.",
+   "design_impact": "Low effort: move the data into `risk_factor_table('country_risk', version)` seeded from the Oct-2026 plenary, reference the version from assessments, and generate the calendar obligation to refresh it.",
+   "suggested_resolution": "Replace `_jurisdictions.yaml` with a versioned country_risk table (two tiers + tax-haven flag), keep sentinel's severity bump logic for the TM jurisdiction rule, and add an obligation_def 'FATF list refresh' per plenary."
+  },
+  {
+   "title": "Console reuse (decision 3): shell and typed-client pipeline are reusable, but auth, error shape, case policy mirror and English-only UI must be rewritten",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/frontend/src/api/client.ts — token in localStorage, `/api/auth/demo-login`, errors parsed from `{detail}`",
+    "/Users/omaribannez/code/sentinel/frontend/src/auth/auth.tsx — `signIn(userId)` demo login; /Users/omaribannez/code/sentinel/frontend/src/features/cases/policy.ts mirrors sentinel's state machine text",
+    "/Users/omaribannez/code/sentinel/frontend/package.json — `gen:api` openapi-typescript + openapi-fetch; shadcn/ui, react-query, react-router",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md — §8 RFC 9457 problem+json, /v1, cursor pagination; §2.1 JWT claims tenant_id/scopes",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/03-feature-list-v2.md — F-7 'Spanish and Portuguese UI… P0'; F-10 staff SSO, tenant-scoped roles",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/21-sentinel-product-readiness-pricing.md — §4 'UI labels are in English, and the frontend has no i18n library'; §5 analyst workspace P0 'search and Spanish'"
+   ],
+   "detail": "The valuable parts of the sentinel console are the OpenAPI→TypeScript codegen loop (exact types for explanations and allowed_actions), the component library, query hooks and the case detail/timeline/explain components. The parts bound to sentinel's backend contract (demo login, bearer token in localStorage, `{detail}` error parsing, `policy.ts` wording of the four-eyes rules, `/api` paths, country-keyed rule-pack pages) will all break against the spec'd API, and the Spanish UI that is P0 for a Mexican pilot does not exist.",
+   "design_impact": "Plan the console as 'fork and re-bind': keep build tooling, UI kit and feature layout; add an OIDC/dev-identity auth provider with tenant selection, problem+json error adapter, i18n (es-MX first), and regenerate `schema.d.ts` from the new OpenAPI at each sub-project; rewrite policy notes from the new allowed_actions reasons rather than hand-mirroring rules.",
+   "suggested_resolution": "Create the console sub-project after foundations with these four rewrite items explicit; have the backend return `allowed_actions` plus machine-readable `blocked_reasons` so the frontend never re-implements policy text."
+  },
+  {
+   "title": "Worth keeping: `allowed_actions` contract, exhaustive policy test, typed explanation models and generated TypeScript types exceed what the Notion design specifies",
+   "kind": "sentinel_divergence",
+   "severity": "low",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/services/cases.py — `allowed_actions()` 'Mirror of the checks in decide, so the UI only offers valid moves'",
+    "/Users/omaribannez/code/sentinel/tests/test_api_cases.py — `test_allowed_actions_matches_decide` (state × priority × role × action)",
+    "/Users/omaribannez/code/sentinel/src/sentinel/explanations.py — 'Services build these models and store them as JSONB; the API validates them back on the way out, so the OpenAPI schema (and the generated TypeScript types) are exact'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/16-f06-case-management.md — §5 API table lists endpoints but no allowed-actions or typed-explanation contract; /private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/07-data-model.md §7 `match_detail jsonb`, §6 `factors jsonb` untyped"
+   ],
+   "detail": "Decision 3 names 'typed explanations and allowed_actions' as requirements, but the Notion pages only store explanations as free jsonb and do not define the allowed-actions contract or its test. Sentinel has both, plus the openapi-typescript pipeline that turns them into exact frontend types. These are the patterns to carry into every new entity (screening_match.match_detail, risk_assessment.factors, alert_evidence, regulatory_report validation errors).",
+   "design_impact": "Adopting these as cross-cutting conventions in the foundations spec saves rework in every sub-project and makes the console contract-driven.",
+   "suggested_resolution": "Write into the foundations spec: every jsonb explanation column has a Pydantic model validated on write and read; every staff resource returns `allowed_actions` with `blocked_reasons`; a parametrised test asserts allowed == succeeding actions for each state machine."
+  },
+  {
+   "title": "Worth keeping: pure, DB-free rule evaluation, startup validation that fails the deploy, fail-loud list loading and seed-through-real-services demo data",
+   "kind": "sentinel_divergence",
+   "severity": "low",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/monitoring.py — 'Everything here is pure. The caller loads the customer's recent history'; `_aggregate` 'Fire on the transaction that crosses the limit, not on every one after it'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/api/app.py — lifespan loads catalog and screener 'so a bad rule pack fails the deploy instead of the first onboarding call'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/screening/registry.py — 'a missing file must stop startup, not quietly turn sanctions screening off'",
+    "/Users/omaribannez/code/sentinel/src/sentinel/seed.py — 'Everything goes through the real services, so the cases, alerts and audit chain are exactly what the engine would produce'",
+    "/private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/15-f05-transaction-monitoring.md — §2.1 'simulation equals production'; §11 golden scenario tests; /private/tmp/claude-501/-Users-omaribannez-code-kycaml/cb04e149-5918-4dab-8d77-37c6dc0c1de0/scratchpad/notion-export/10-f00-platform-foundations.md §4.4 golden tests per pack version, §8 sandbox magic identities"
+   ],
+   "detail": "These sentinel habits implement, in concrete code, several things the Notion design only states as goals: a rule engine that can replay history without side effects (needed for simulation), packs validated before serving traffic (golden tests), screening that refuses to run without its lists, and demo/sandbox data generated by the real pipeline so audit chains stay consistent. The pyproject toolchain (ruff ALL, basedpyright all, ty, vulture, testcontainers Postgres, ≥90 % coverage) also matches the `inertclaude ci` gate the spec assumes.",
+   "design_impact": "Carry these over as conventions and as the seed of the sandbox 'magic identities' fixture; the crossing-semantics of aggregates becomes the ALERT-kind contract (captures differ, see the capture finding).",
+   "suggested_resolution": "Copy pyproject tooling into kycaml; keep rule kinds as pure functions over a Context; keep startup validation and fail-loud list loading as acceptance criteria in the foundations and screening specs; port seed personas as sandbox fixtures (synthetic names only, per infrastructure §10)."
+  }
+ ]
+}

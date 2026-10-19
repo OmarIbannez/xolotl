@@ -1,0 +1,20 @@
+[importlinter]
+root_package = xolotl
+
+[importlinter:contract:platform-does-not-import-modules]
+name = platform imports nothing from modules
+type = forbidden
+source_modules =
+    xolotl.platform
+forbidden_modules =
+    xolotl.modules
+
+[importlinter:contract:no-upward-imports-of-composition-roots]
+name = platform and modules never import the composition roots
+type = forbidden
+source_modules =
+    xolotl.platform
+    xolotl.modules
+forbidden_modules =
+    xolotl.app
+    xolotl.cli

@@ -1,0 +1,10 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+htmlcov
+.coverage
+data
+console/node_modules
+docs
+tests

@@ -1,0 +1,331 @@
+{
+ "findings": [
+  {
+   "title": "Sentinel MX pack encodes USD 7,500 ROR and a USD 4,000/month USD-cash rule; neither fits the ITF pack",
+   "kind": "sentinel_divergence",
+   "severity": "high",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/data/packs/mx.yaml — MX-REL-001 `amount: {amount: \"7500\", currency: USD}` citing 'DCG art. 115 LIC'; MX-USD-002 'USD cash deposited ... exceeds USD 4,000 in a rolling month'; MX-FRA-003 threshold 7500",
+    "/Users/omaribannez/code/sentinel/README.md:30 — 'MX | UIF / CNBV | Relevant cash operations ≥ USD 7,500; USD cash deposits > USD 4,000 per month'",
+    "research/2026-10-17-reporting-mx-br.md §A.2.2 ROR row — 'ITFs: ≥ USD 5,000 equiv. (ITF DCG Art. 2 ... VERIFIED)'; banks 'USD 7,500 ... SECONDARY'; 'Reporte de operaciones en efectivo en moneda extranjera ... ≥ USD 500' per op, quarterly",
+    "research §A.7 gap 3 — bank 7,500 is SECONDARY"
+   ],
+   "detail": "Sentinel's only MX pack is a bank-flavoured pack (DCG Art. 115 LIC) and hard-codes 7,500 for the relevant-operation threshold and for structuring. For the first policy pack (MX/ITF-IFPE) the VERIFIED ROR threshold is USD 5,000 (ITF DCG Art. 2). The 'USD 4,000 per month USD cash' aggregate has no support anywhere in the research corpus: the ITF foreign-currency cash report is a per-operation capture at ≥ USD 500, and the bank USD-cash figures (500/250) are UNVERIFIED with unverified periodicity. Reusing sentinel's rule YAML or its seed data as-is would ship a wrong ROR threshold and a fabricated USD-cash rule.",
+   "design_impact": "If sentinel's monitoring rule engine/packs are reused for the Postgres-first MVP, the MX pack must be rewritten rather than copied: ROR capture at 5,000 USD (FIX prior banking day) for ITF, bank 7,500 kept only as a SECONDARY-tagged bank pack, and MX-USD-002 removed or replaced by the ≥ USD 500 per-op FX-cash capture. Golden tests seeded from sentinel fixtures would encode the wrong numbers.",
+   "suggested_resolution": "Do not port sentinel/mx.yaml. Create policy-packs/MX/ITF-IFPE with ROR=5000 USD (confidence VERIFIED, source ITF DCG Art. 2/66), FX_CASH=500 USD per op, and no monthly USD-cash aggregate. Keep a separate MX/BANK pack with 7,500 tagged SECONDARY. Add a confidence/source field to every threshold in the pack schema so UNVERIFIED numbers cannot be loaded silently."
+  },
+  {
+   "title": "Tier limits in UDIs must use the UDI of the last day of the previous month; the units service only models daily UDI",
+   "kind": "gap",
+   "severity": "high",
+   "sources": [
+    "research §A.3.1 'Simplified tiers (ITF)' — 'Nivel 1: ≤ 750 UDIs/month ... Nivel 2: ≤ 3,000 UDIs/month ... UDI value = last day of previous month' (ITF DCG Art. 12, VERIFIED)",
+    "10-f00-platform-foundations.md §5 units table — 'MX UDI | Banxico SIE API | Daily'; ConversionRule examples 'SAME_DAY, PRIOR_BANKING_DAY, PREV_MONTH_AVG, SEMIANNUAL_SNAPSHOT'",
+    "15-f05-transaction-monitoring.md §4.5 — 'TIER-LIMIT ... monthly operations ≤ 750 UDIs and balance ≤ 1,000 UDIs, using a calendar-month accumulator in UDIs' (no conversion rule stated)",
+    "04-delivery-plan.md T2.4 — 'Transactions land in Kafka enriched with UMA/UDI/USD'; T7.2 'account-tier limits (UDI levels)'"
+   ],
+   "detail": "The legal conversion for ITF account tiers fixes the UDI value for the whole month at the value of the last day of the previous month. The foundations design converts with the daily UDI and has no ConversionRule for 'last day of previous month'. Because the UDI moves daily, a customer could be blocked or allowed differently from the legal computation, and enrichment-time conversion (per transaction, daily UDI) cannot be re-summed into the legal monthly figure.",
+   "design_impact": "Affects the `unit_value` lookup API, the ConversionRule enum (a migration/enum change if added later), the enrichment step and the tier-limit accumulator. In a Postgres-first MVP the monthly accumulator should store the MXN sum and convert once with the month's fixed UDI, not sum per-transaction UDI amounts.",
+   "suggested_resolution": "Add ConversionRule `LAST_DAY_PREV_MONTH` to the units service now; make the TIER-LIMIT capture use it; keep `amount_udi` enrichment as informational only. Add a golden test spanning a month boundary where the daily and prev-month-end UDI give different outcomes."
+  },
+  {
+   "title": "Example MX/ITF-IFPE pack uses the LFPIORPI RCG date (2026-11-30) as its effective_from",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "10-f00-platform-foundations.md §4.2 — '# policy-packs/MX/ITF-IFPE/v3.yaml ... effective_from: 2026-11-30'",
+    "research §A.1.1 — 'Acuerdo 115/2026 entry into force 30-11-2026' (RCG for Actividades Vulnerables)",
+    "research §A.2.1 — ITF DCG 'DOF 10-09-2018' (in force since 2018)"
+   ],
+   "detail": "30-11-2026 is when the reformed LFPIORPI Reglas (AV regime) enter into force. The ITF DCG has been in force since 2018 and nothing in the research changes it on that date. Copying this example into the real first pack would make `effective_policy(tenant, on)` resolve to no pack for any date before 30-11-2026 (sandbox/design-partner onboarding starts earlier per the delivery plan), or would push a tenant onto a fallback that does not exist.",
+   "design_impact": "The pack resolver raises or returns an empty policy for the whole pilot period unless the date is corrected; golden tests pinned to 2026-11-30 would pass while production dates fail.",
+   "suggested_resolution": "Set MX/ITF-IFPE v1 `effective_from` to the earliest date the platform will operate (e.g. 2026-11-01) with `legal_basis_as_of: 2018-09-10 compilation`. Reserve 2026-11-30 / 2027-03-01 / 2027-06-01 for the MX/LFPIORPI-AVI pack versions. Add a resolver test that every active tenant resolves a pack on every day of the pilot window."
+  },
+  {
+   "title": "OFAC SDN and SAT 69-B are placed in the base ITF pack as non-removable 'lists' and OFAC true match forces PROHIBITED, but the research tags both as unverified market practice",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §4.2 — 'screening: lists: [UN_CONSOLIDATED, MX_LPB, OFAC_SDN, MX_SAT_69B, PEP_MX]'; §4.3 'lists may only be added'",
+    "14-f04-risk-scoring.md §3.1 hard_rules — 'screening.true_match_list in [UN_CONSOLIDATED, MX_LPB, OFAC_SDN] → rating: PROHIBITED'; §4 rules 'An override cannot downgrade a PROHIBITED rating, or a hard-rule floor imposed by law'",
+    "research §A.4 — 'SAT Art. 69-B CFF lists (EFOS/EDOS), OFAC SDN | Not mandated by AML rules; market practice | UNVERIFIED (practice)'"
+   ],
+   "detail": "The pack model says tenants may only add lists, so putting OFAC_SDN and MX_SAT_69B into the base MX/ITF-IFPE pack makes them legally mandatory in the product even though the research says Mexican AML rules do not mandate them. The risk design then treats an OFAC true match as a non-overridable PROHIBITED, described as a floor 'imposed by law'. Only LPB (and UN via LPB) carry a legal suspension consequence in MX.",
+   "design_impact": "Pack schema needs a distinction between `mandatory_lists` (legal) and `recommended_lists` (default-on, tenant-removable); the risk hard-rule needs to separate legal knock-outs from policy knock-outs so the override guardrail test does not encode a non-legal rule as law.",
+   "suggested_resolution": "In the ITF pack: mandatory = [MX_LPB, UN_CONSOLIDATED]; recommended = [OFAC_SDN, MX_SAT_69B, EU, UK]. In the risk model mark the OFAC rule `basis: POLICY` (overridable with four-eyes) and LPB/UN `basis: LAW`."
+  },
+  {
+   "title": "Nivel 1 requirements disagree: foundations pack needs liveness but no document; onboarding design needs A1 (authentic document); the law needs neither",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §4.2 — 'code: N1 ... required_fields: [given_names, first_surname, birth_date, gender, birth_state, occupation, email] required_checks: [liveness_passive]'",
+    "11-f01-customer-onboarding.md §3 — 'MX fintech Level 1 | A1 (+ geolocation)' where 'A1 = Document-verified: Authentic document + data extracted + identifier valid'",
+    "research §A.3.1 — 'Nivel 1: ≤ 750 UDIs/month ... data: name, DOB, gender, state, occupation, email' (no ID document, no CURP, no selfie)"
+   ],
+   "detail": "Two design docs give different minimum check sets for the same legal tier, and both tighten beyond the ITF rule (which lists only six data fields for Nivel 1). Tightening is allowed by the pack model, but requiring an authentic ID document (11-f01) contradicts the pack that omits `id_document` from N1 required_fields, and a passive-liveness selfie without any reference face (10-f00) has no matching target. Whichever is chosen defines the N1 journey, the straight-through rate and the vendor cost per N1 account.",
+   "design_impact": "Journey engine validation ('generated journey satisfies the policy') will reject or accept N1 journeys depending on which doc the pack author follows; sandbox magic identities and conversion assumptions differ.",
+   "suggested_resolution": "Decide once in the pack: N1 = legal minimum fields + geolocation + device risk + screening, `required_checks: []` and assurance A0; let tenants tighten to A1/A2. Update 11-f01 §3 table accordingly and add a conformance test that N1 journeys contain no DOCUMENT_CAPTURE step unless the tenant override adds it."
+  },
+  {
+   "title": "PEP cooling-off P1Y is applied to all PEPs in the pack, but the 1-year rule is only for national PEPs",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §4.2 — 'pep: { cooling_off: P1Y, relatives_degree: 2 }'",
+    "03-feature-list-v2.md §4 country table — 'MX ... PEP cooling-off: 1 year (national PEPs)'",
+    "research §A.1.5 PEP definition and §A.3.1 PEP row — 'national PEPs remain PEP 1 year after leaving office' (ITF DCG Art. 2 XXV, VERIFIED); foreign PEPs: no cooling-off stated; 'High risk at least: PEPs (foreign)'"
+   ],
+   "detail": "The feature list and the research both qualify the 1-year cooling-off as applying to national PEPs. The pack example has a single `cooling_off` with no national/foreign split, so a foreign PEP who left office 13 months ago would be de-flagged, which loosens the verified rule (foreign PEPs are a mandatory high-risk category with no stated expiry).",
+   "design_impact": "Screening PEP status derivation and the risk hard rule `person.pep_status == FOREIGN → floor HIGH` need the PEP record to carry `scope: NATIONAL|FOREIGN|INTL_ORG` and the pack to express cooling-off per scope; otherwise a later schema change to `screening_match`/`party` is needed.",
+   "suggested_resolution": "Pack schema: `pep: { national: {cooling_off: P1Y}, foreign: {cooling_off: null}, intl_org: {cooling_off: null}, relatives_degree: 2, associates: true }`. Store `pep_scope` and `left_office_at` on the PEP determination."
+  },
+  {
+   "title": "MX compliance committee is modelled as mandatory for every MX ROI, but the ITF rules allow small ITFs without a committee",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "16-f06-case-management.md §2.2 — 'For MX unusual-op/internal-concern decisions, the next step is COMMITTEE'; §2.3 clock `MX_CCC_DECISION`; C5 'MX compliance committee (CCC): sessions (at least monthly)' sourced 'MX DCG'",
+    "research §A.2.2 'Aviso Comité de Comunicación y Control' row — 'small ITFs without Committee: notice within 60 business days' (ITF Art. 48, VERIFIED)",
+    "research §A.5 — 'Comité meets at least monthly (SECONDARY)'"
+   ],
+   "detail": "The ITF DCG contemplates ITFs that have no Comité de Comunicación y Control (the compliance officer performs its functions). The case state machine forces a COMMITTEE state and a committee vote for every MX report decision, and the 'at least monthly' session rule the design cites as 'MX DCG' is tagged SECONDARY in the research.",
+   "design_impact": "Case lifecycle, `committee_session`/`committee_vote` tables and the `MX_CCC_DECISION` clock need a tenant-level switch (`committee_mode: COMMITTEE | OFFICER_ONLY`) or small ITF tenants cannot file a ROI without fabricating a committee session. The monthly-session obligation in the calendar should be tagged SECONDARY/ATTESTATION, not auto-enforced.",
+   "suggested_resolution": "Add `governance.committee_required: bool` to the ITF pack (default true, tenant may set false with the Art. 48 notice evidence attached). When false, the approval step is OC four-eyes and the 60-day/3-business-day clocks anchor on the OC dictamen. Mark the monthly-session obligation confidence SECONDARY."
+  },
+  {
+   "title": "The 24-hour ROI clock starts on a manual flag, not on knowledge/detection as the rule requires",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "16-f06-case-management.md §2.3 — '`MX_24H` | flag \"24-hour case\" (illicit-funds indication / LPB) | +24 h'",
+    "research §A.2.2 'ROI de 24 horas' — '≤ 24 hours from knowledge' (ITF Arts. 62, 73); §A.4 LPB — 'Immediately suspend ... ROI within 24 h'",
+    "10-f00-platform-foundations.md §6 — '`HOURS_AFTER(event, 24)` 24-hour reports (calendar hours, not business)'"
+   ],
+   "detail": "For an LPB hit produced by onboarding screening or delta re-screening, the entity 'knows' at the moment the true-match (or even the potential match on the LPB) is produced by the system. Anchoring the clock on an analyst-set flag lets the legal clock start late and makes SLA reporting optimistic. The design does not say whether a potential (unconfirmed) LPB match already starts the clock.",
+   "design_impact": "Clock creation must be event-driven from `screening.match.created` on list MX_LPB (and from UN for the freeze playbook), with `started_at = match.created_at`, not from a UI action; the `case_clock` row needs the originating event id.",
+   "suggested_resolution": "Define in the ITF pack: `MX_24H.start_event = screening.match.created where list in [MX_LPB]` (potential match starts the clock; disposition FALSE_POSITIVE cancels it). Expose the remaining time in `allowed_actions` so the analyst sees the legal deadline from minute zero."
+  },
+  {
+   "title": "UN consolidated hit is mapped to a 24-hour ROI with the LPB legend, but in MX the UN list acts through the LPB",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §4.2 — 'UN_CONSOLIDATED: { action: SUSPEND_IMMEDIATELY, report: MX_ROI_24H }'",
+    "04-delivery-plan.md T8.4 — 'MX freeze playbook (LPB/UN → suspend → 24-hour report → client notice)'",
+    "research §A.4 — 'UN Security Council consolidated list | All (feeds LPB) | ... | Via LPB procedure | VERIFIED (ITF Art. 61 I)'; 'ROI de 24 horas ... insert legend \"Reporte de 24 horas\" (or \"Lista de Personas Bloqueadas\")'"
+   ],
+   "detail": "The research says the UN list is binding for ITFs by being incorporated into the LPB; the suspension and the 'Lista de Personas Bloqueadas' legend are tied to LPB inclusion. A UN designee not yet on the LPB snapshot held by the tenant is, under the ITF text, a 24-hour report on 'indications' (legend 'Reporte de 24 horas'), not an LPB report. The pack collapses both into one report code with no legend distinction.",
+   "design_impact": "The Formato 41 ROI serializer needs a `legend` parameter driven by the triggering list (LPB vs other), and the freeze playbook needs two branches. Otherwise filings carry the wrong legend in column 40/41.",
+   "suggested_resolution": "Split report codes: `MX_ROI_24H_LPB` (legend 'Lista de Personas Bloqueadas') and `MX_ROI_24H` (legend 'Reporte de 24 horas'). Map UN_CONSOLIDATED to SUSPEND (tenant policy) + `MX_ROI_24H` and MX_LPB to SUSPEND (law) + `MX_ROI_24H_LPB`."
+  },
+  {
+   "title": "FX-cash and international-transfer reports are in scope in the feature list, pack and calendar, but the delivery plan defers them",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "03-feature-list-v2.md §14 roadmap phase 1 — 'reports: Formato 41 (ROR/ROI/24 h/ROIP) incl. empty reports, international-transfer and FX-cash reports'",
+    "10-f00-platform-foundations.md §4.2 — 'reports: ... MX_ITF_FX_CASH@1, MX_ITF_INTL_TRANSFERS@1'",
+    "18-f08-compliance-calendar.md §1 — 'ROR + empty report, FX-cash, crypto (quarterly) | ✓ report receipts'; 'International transfers report | Monthly, 15 business days | ✓'",
+    "04-delivery-plan.md §7 risks — 'defer layouts we can't obtain (FX-cash / international-transfer / crypto fintech reports) to a post-GA sprint'",
+    "research §A.2.2 — FX-cash, TIF, VA reports: 'UIF format (layout not obtained)'; §A.7 gap 4"
+   ],
+   "detail": "Three documents treat the ITF FX-cash (≥ USD 500, quarterly), international-transfer (≥ USD 1,000, monthly within 15 business days) and VA (≥ 7,500 UDIs, quarterly) reports as generated and auto-evidenced in the MX launch, while the delivery plan (and the user's scope decision: Formato 41 + LFPIORPI XML only) defers them because the layouts were never obtained. The calendar marks them auto-evidenced (✓), which would be false for the MVP.",
+   "design_impact": "The obligations catalog needs these three as `evidence_mode: MANUAL_UPLOAD` with the capture engine still recording the reportable events (so the data exists when the layout arrives). Pack v1 should list them as obligations, not as report definitions with serializers.",
+   "suggested_resolution": "In MX/ITF-IFPE v1: keep captures `MX_ITF_FX_CASH`, `MX_ITF_INTL_TRANSFER`, `MX_ITF_VA` (events only), define obligations with MANUAL_UPLOAD evidence and deadline rules, and set `report_definitions` only for Formato 41 types. Update 18-f08 rows to '✓ events captured / ✗ file'."
+  },
+  {
+   "title": "An IFPE that 'also offers crypto' is assumed to hold both the ITF and the LFPIORPI fr. XVI pack, which may double-report the same operations",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §4.1 — 'A tenant is assigned one or more packs (e.g. MX/ITF-IFPE + MX/LFPIORPI-AVI for an e-money institution that also offers crypto)'",
+    "03-feature-list-v2.md F-3 — 'an MX e-money institution that also offers crypto → several packs'",
+    "research §A.0 — fr. XVI covers 'non-financial-entity VASPs'; §A.2.2 — 'Reporte de Operaciones con Activos Virtuales | ITFs operating with Banxico-authorized VAs | ≥ 7,500 UDIs | Quarterly'",
+    "research §A.1.2 — XVI aviso '(a) operation ≥ 210 UMA OR (b) fee ≥ 4 UMA', monthly by day 17"
+   ],
+   "detail": "The research separates the regimes by entity type: an ITF's VA operations fall under the CNBV/ITF VA report (7,500 UDIs, quarterly via SITI), whereas fr. XVI avisos (210 UMA, monthly via SPPLD) apply to non-financial-entity VASPs. In practice crypto is often run by a separate legal entity, which would be a separate tenant. Assigning both packs to one tenant and letting the capture engine fire both `MX_ITF_VA` and `MX_LFPIORPI_AVI_XVI_A` on the same transaction would produce duplicate filings to two different channels.",
+   "design_impact": "Pack assignment should be per legal entity (tenant) and the capture engine should refuse overlapping captures on the same `rail: CRYPTO` events unless a product/entity filter separates them. Affects `tenant_pack_assignments(tenant_id, on, product)` semantics and the `reportable_event` uniqueness key.",
+   "suggested_resolution": "Document that a tenant = one obligated legal entity; allow multiple packs only for genuinely cumulative regimes. For crypto, require a `legal_entity_role: ITF_VA | AV_XVI` on the product so exactly one capture applies. Flag the legal question for the design partner."
+  },
+  {
+   "title": "fr. XVI capture covers only the 210-UMA operation test; fee test, non-aggregation of fees and the 'one aviso under (a)' rule are missing, and the UMA year-boundary inside a 6-month window is undefined",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "15-f05-transaction-monitoring.md §5 — 'capture: MX_LFPIORPI_AVI_XVI_A ... when: amount_uma >= 210 or acc_6m_from_first(amount_uma) >= 210'",
+    "15-f05 §11 testing — 'unit-conversion edge cases (UMA year change on 1 Feb ...)' (edge case named, rule not stated)",
+    "research §A.1.2 — 'XVI ... (a) operation ≥ 210 UMA OR (b) fee/contraprestación ≥ 4 UMA'; 'Fees under XVI(b) are not aggregated (RCG Art. 24 Bis 5). If both XVI(a) and (b) are met → one aviso under (a) (RCG Art. 24 Bis 5 III)'; '6-month window starts at first op'"
+   ],
+   "detail": "The only AV capture example omits the fee threshold (4 UMA per operation, which at ≈ MXN 469 will fire on almost every crypto trade), omits the rule that fees are not aggregated, and omits the dedup rule that an operation meeting both tests yields one aviso under (a). The research does not say which UMA value applies when the 6-month accumulation spans 1 February (UMA changes yearly); the design acknowledges the edge case in tests but gives no rule, so two implementers could pick different answers (UMA of each op vs. UMA of the triggering op).",
+   "design_impact": "Second pack (MX/LFPIORPI-AVI) capture definitions and the `reportable_event` dedup key; the accumulator must store per-op MXN and UMA value used (`unit_values`) so the chosen convention is reproducible and reversible.",
+   "suggested_resolution": "Define captures `AVI_XVI_A` (op ≥ 210 UMA or 6-month accumulation, UMA of each operation's date, window anchored at first sub-threshold op) and `AVI_XVI_B` (fee ≥ 4 UMA, no aggregation); add a post-rule: if A and B fire on the same op, emit only A. Record the convention as an explicit pack decision pending confirmation with the compliance analyst."
+  },
+  {
+   "title": "ROR is quarterly but the Formato 41 period column is AAAAMM; the design's quarterly `period_key` does not say how a quarter maps to files/periods",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "research §A.2.3 — '2 periodo (AAAAMM for ROR; AAAAMMDD for ROI/ROIP)'; §A.2.2 ROR 'Quarterly: within the first 10 business days of Jan, Apr, Jul, Oct for the prior 3 months'",
+    "15-f05-transaction-monitoring.md §5 — 'capture: MX_ITF_ROR_CASH ... period: calendar_quarter'; §6.1 `period_key text -- '2026Q4'`",
+    "18-f08-compliance-calendar.md §2 — `period_key '2026Q4'`; obligation auto-done on 'report.filed with a matching code and period'"
+   ],
+   "detail": "A quarterly submission with a monthly period field implies either three monthly files (one per AAAAMM) per quarterly deadline, or one file whose period is one of the months. The research does not resolve this and the design keys everything by quarter. If three monthly files are required, `report_run`, `reportable_event.period_key`, the empty-report rule (an empty month inside a non-empty quarter?) and the calendar auto-completion ('matching code and period') all need a month granularity.",
+   "design_impact": "Postgres schema for report runs/artifacts (one run per quarter vs. three runs per quarter linked to one obligation) and the uniqueness constraint on `reportable_event`. Changing granularity after launch is a data migration.",
+   "suggested_resolution": "Model `report_run` at month granularity for all Formato 41 types with an `obligation_period` of quarter; the quarterly obligation completes when all three monthly files (or their empty variants) have receipts. Confirm with the design partner / SITI QA which of the two the regulator expects and record it in the report definition's `period_rule`."
+  },
+  {
+   "title": "Formato 41 character encoding is UNVERIFIED, yet the plan requires byte-identical golden files and the normalizer keeps Ñ",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "research §A.2.3 — '(Character encoding not specified in the resolution — UNVERIFIED; ASCII/ANSI uppercase is safe.)'",
+    "03-feature-list-v2.md RR-3 — 'uppercase, strip accents except Ñ (MX), ... UTF-8 (MX XML)'",
+    "04-delivery-plan.md T6.3 — 'Formato 41 ROR/ROI/24-hour/ROIP ... Golden files byte-identical'"
+   ],
+   "detail": "'Strip accents except Ñ' is derived from the AV XML character classes (`[A-ZÑ\\d …]`), not from Formato 41. Keeping Ñ in a TXT whose encoding is unverified means the byte value of Ñ (0xD1 in CP1252/Latin-1 vs 0xC3 0x91 in UTF-8) is a guess, which makes 'byte-identical golden files' a test of an assumption. Semicolons inside text, truncation and padding rules are verified; encoding is not.",
+   "design_impact": "Serializer needs an explicit `encoding` and `charset_policy` per report definition; the Formato 41 definition should default to the ASCII-safe option until confirmed, and the golden tests should assert against that declared policy.",
+   "suggested_resolution": "Formato 41 v1: `encoding: ascii`, map Ñ→N and strip all diacritics; keep 'except Ñ' only for the AV XML serializer. Add `encoding_confidence: UNVERIFIED` and a design-partner task to confirm via a SITI QA upload."
+  },
+  {
+   "title": "Formato 41 has no verified correction mechanism, but the report definition schema requires a correction rule and no doc states what it is for MX financial reports",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "research §A.2.3 — 'Corrections: reports \"no podrán ser modificados\" once accepted (Art. 4); correction practice (resubmission of ROI with reference to prior folio) — UNVERIFIED'",
+    "03-feature-list-v2.md RR-1 — 'each report = (... deadline rule, zero-report rule, correction rule)'; RR-6 corrections lifecycle lists 'MX non-financial correction notice' only",
+    "16-f06-case-management.md §2.2 — 'Any state can reopen with justification'"
+   ],
+   "detail": "The corrections lifecycle covers the AV aviso modificatorio (once, within 30 calendar days of the acuse) but is silent on Formato 41, where the only verified fact is that accepted reports cannot be modified. A case reopened after a ROI was filed has no defined reporting outcome.",
+   "design_impact": "Report definition for MX_FORMATO41_* needs `correction_rule: NONE_VERIFIED` and the UI must not offer 'amend' for them; late events hitting an already-filed ROR quarter need a defined behaviour (supplementary report vs. next period) that the research cannot supply.",
+   "suggested_resolution": "Set `correction_rule: {kind: UNSUPPORTED, note: 'UNVERIFIED practice: new ROI referencing prior folio'}` for Formato 41 types; route late reportable events to a `NEEDS_REGULATORY_DECISION` queue instead of auto-regenerating; ask the design partner's OC how they currently correct."
+  },
+  {
+   "title": "Biometric/raw-image retention contradicts between foundations (short retention) and onboarding (10 years as KYC evidence)",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §3 — 'P3 – biometrics | selfies, face templates, liveness videos | ... short retention after verification (configurable per country)'",
+    "11-f01-customer-onboarding.md §11 — 'raw images kept as KYC evidence for the retention period (MX/AR/PE 10 years ...); templates deleted per policy'",
+    "research §A.3.1 — ITF Art. 11 requires 'digital copy of ID' and 'firma autógrafa digitalizada'; Art. 25 'KYC file for life of relationship + 10 years' (selfie/liveness retention not addressed)"
+   ],
+   "detail": "One design says selfies and liveness videos are short-lived, the other says raw images are kept for the 10-year KYC retention. The research supports 10 years for the ID copy and signature but is silent on selfies/liveness media, so neither doc can claim a legal basis for its choice. This changes object-store lifecycle rules, the biometric DEK rotation plan and the data-subject-deletion response.",
+   "design_impact": "Object store bucket lifecycle (local or S3) and `biometric_template.delete_after` / capture retention columns need one policy value per artifact kind from day one; changing from 'delete after 30 days' to 'keep 10 years' later is not recoverable.",
+   "suggested_resolution": "Pack `retention` block per artifact: `id_document_images: P10Y_after_relationship`, `signature: P10Y_after_relationship`, `selfie_reference_frame: P10Y_after_relationship` (evidence of the face match), `liveness_video: P90D`, `face_template: policy`. Record it as a product decision pending legal confirmation."
+  },
+  {
+   "title": "12-f02 states Mexico's 25% UBO threshold 'applies from March 2027'; for the ITF pack it is already in force",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "12-f02-business-onboarding-kyb.md exec summary — 'Mexico's new rules (the 25% threshold and the control test) apply from March 2027'; B4 source 'MX LFPIORPI 2025 / RCG (from 01-03-2027)'",
+    "research §A.3.1 — 'UBO / Propietario Real ... control = ≥ 25 % of shares/capital (ITF def.) — ITF DCG Arts. 2, 22 — VERIFIED' (in force)",
+    "research §A.1.5 — AV 'Beneficiario Controlador ... ≥25% ... Ops from 01-03-2027'"
+   ],
+   "detail": "The 01-03-2027 start applies to the Actividades Vulnerables chapters of the reformed RCG. The ITF DCG has required beneficial-owner identification at ≥ 25% since 2018. A reader of 12-f02 could version the UBO rule as effective 2027-03-01 in the first (ITF) pack, which would disable UBO determination for the pilot.",
+   "design_impact": "UBO policy `effective_from` in MX/ITF-IFPE v1 must be the pack start date; only the AV pack carries the 2027-03-01 version boundary.",
+   "suggested_resolution": "Edit 12-f02 to say 'ITF: 25% in force (DCG Art. 2/22); AV: 25% + control test from 01-03-2027'. Add a golden test that an ITF tenant in 2026 resolves `ubo.ownership_threshold_pct = 25`."
+  },
+  {
+   "title": "Architecture overview §6.7 routes Mexican UIF reports via SPPLD, omitting CNBV SITI for financial entities",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "06-architecture-overview.md §6.7 — 'Mexico: UIF reports via SPPLD and LFPIORPI avisos'",
+    "03-feature-list-v2.md §0 — 'They report via the CNBV's SITI PLD/FT system, using the 2004 41-column semicolon-delimited TXT format'",
+    "research §A.2.2 — 'all reports go \"a la Secretaría (UIF), por conducto de la CNBV\", transmitted electronically through SITI PLD/FT'; SPPLD is the SAT portal for AV avisos (§A.1.3)"
+   ],
+   "detail": "Because the '07 — Regulatory reporting engine' page is blank and §6.7 is one of the inputs for reconstructing it, its channel statement matters. SPPLD is only the AV channel; ITF Formato 41 files go through SITI PLD/FT. The sentence as written would lead the reporting sub-spec to a single MX channel adapter.",
+   "design_impact": "The channel adapter model needs two MX L2 channels with different credential types (SITI credentials, mechanism UNVERIFIED; SPPLD e.firma) and two receipt parsers.",
+   "suggested_resolution": "Rewrite §6.7 as 'Mexico: financial entities → UIF via CNBV SITI PLD/FT (Formato 41 TXT); Actividades Vulnerables → UIF via SAT SPPLD (XML)'. Model `filing_channel` as a first-class enum in the report definition."
+  },
+  {
+   "title": "All ITF numbers rest on a 2018 compilation whose post-2025 amendments were not checked, yet every design treats them as settled",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "research §A.2.1 — 'DCG Art. 58 LRITF ... unofficial compiled text on gob.mx ... Reforms after the compilation date not checked (gap)'; §A.7 gap 9 'Whether ITF DCG were amended after the gob.mx compilation (e.g. post-2025) — UNVERIFIED'",
+    "10-f00-platform-foundations.md §4.2 pack example (no source/confidence metadata)",
+    "05-requirements-planning-sdlc.md REG-MX-014 — 'legal_basis: DCG Art. 58 LRITF, Art. 66; Formato 41 Resolution (DOF 14-12-2004, rev. 01-08-2013)'"
+   ],
+   "detail": "ROR 5,000 USD, tiers 750/3,000 UDIs, 60-day committee, 3-business-day filing, 10-year retention and the LPB procedure are all 'VERIFIED' against a compiled text whose currency is unknown. The pack example carries no `source`/`verified_as_of` metadata, so a later amendment (e.g. to tier limits after the 2026 bank Nivel 2 Bis reform) would not be traceable to the numbers it invalidates.",
+   "design_impact": "Pack schema and golden tests should carry provenance per value; the regulatory-watch obligation (RR-12, monthly regulatory review) needs a concrete first task: obtain the current ITF DCG text from the DOF.",
+   "suggested_resolution": "Add `{value, unit, source, confidence, verified_as_of}` to every threshold/deadline in the Pydantic pack model; make the compliance analyst's first deliverable a DOF check of ITF DCG amendments 2019–2026 before pack v1 is frozen."
+  },
+  {
+   "title": "Pack lists `PEP_MX` as a screening list, but no official MX PEP source exists for ITFs until ~Aug 2027 and then only on request",
+   "kind": "gap",
+   "severity": "low",
+   "sources": [
+    "10-f00-platform-foundations.md §4.2 — 'lists: [... PEP_MX]'",
+    "research §A.4 — 'PEP list — \"Consulta PEP 2.0\" ... AV (with e.firma); financial entities on request ... go-live ~Aug-2027'; §A.1.5 'Usable 9 months after 30-11-2026 (≈ 30-08-2027)'",
+    "04-delivery-plan.md N4 — 'PEP/adverse-media vendor RFP ... Sprint 8 (vendor)'; user decision: vendor connectors in sandbox/mock mode"
+   ],
+   "detail": "For the MVP, `PEP_MX` can only be a commercial/OpenSanctions-derived PEP set, not a regulator list; naming it like an official list in the pack obscures that the legal PEP definition (RCG Art. 23 Quáter: positions, relatives to 2nd degree, associates, 1-year national cooling-off) must be applied by the matcher on top of whatever data is loaded.",
+   "design_impact": "List registry should distinguish `source_kind: REGULATOR | COMMERCIAL | TENANT_PRIVATE` and the ITF pack should require 'PEP screening' as a capability, not a specific list.",
+   "suggested_resolution": "Rename to a requirement `screening.pep_required: true` with `pep_sources: [OPENSANCTIONS_PEP (sandbox), UIF_CONSULTA_PEP_2 (from 2027-08, optional)]`."
+  },
+  {
+   "title": "LPB client notice omits the statutory content (basis + 10-business-day right to appear before the UIF)",
+   "kind": "gap",
+   "severity": "low",
+   "sources": [
+    "16-f06-case-management.md §4.4 — 'MX: suspend services immediately (webhook) → 24-hour unusual-op report ... → written notice to the customer (template) → close'",
+    "04-delivery-plan.md T8.4 — 'client notice'",
+    "research §A.4 LPB row — 'notify client in writing (may be by email) of basis and right to appear before UIF within 10 business days (ITF Arts. 62-63)'"
+   ],
+   "detail": "The freeze playbook names a notice but not its mandatory content or the 10-business-day window the notice must state, so the template and the calendar entry could be built without them.",
+   "design_impact": "Notice template fields and a derived `UIF_APPEARANCE_WINDOW` date on the case; small but must exist before the freeze playbook sub-spec.",
+   "suggested_resolution": "Add to the ITF pack `on_true_match.MX_LPB.notify_client: {template: MX_LPB_NOTICE_V1, must_state: [basis, right_to_appear_uif, deadline: 10 business days from notice]}` and store `notice_sent_at`."
+  },
+  {
+   "title": "Feature list labels the bank USD 7,500 cash threshold as the 'unusual-op regime'",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "03-feature-list-v2.md §6 triggers table — 'MX banks | Cash ≥ USD 7,500 (unusual-op regime, ⚠️ SECONDARY)'",
+    "research §A.2.2 — USD 7,500 belongs to 'Reporte de Operaciones Relevantes (ROR)'; unusual operations (ROI) have no amount threshold"
+   ],
+   "detail": "Relevant operations (ROR, threshold-based, quarterly) and unusual operations (ROI, judgement-based, committee) are different reports with different clocks. The mislabel could lead a reader to attach a 60-day committee clock to a threshold capture.",
+   "design_impact": "None if the pack author reads the research; cosmetic in the feature list.",
+   "suggested_resolution": "Change the wording to 'relevant-operation (ROR) regime, ⚠️ SECONDARY'."
+  },
+  {
+   "title": "Structuring rule example scopes MX/BANK but hard-codes the ITF 5,000 threshold",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "15-f05-transaction-monitoring.md §4.1 — 'scope: { tenant_packs: [MX/ITF-*, MX/BANK] ... let: thr: unit(\"USD\", 5000)  # pack threshold (ITF)'",
+    "research §A.2.2 — ITF 5,000 VERIFIED; banks 7,500 SECONDARY"
+   ],
+   "detail": "The comment says 'pack threshold' but the value is a literal; applied to a MX/BANK tenant it is the wrong number. It illustrates that rule templates need to reference pack parameters, not literals.",
+   "design_impact": "Rule DSL must support `policy.reports.ROR.threshold` references so one template serves both packs; otherwise duplicate rules per pack.",
+   "suggested_resolution": "Change the example to `thr: policy.capture('MX_ROR_CASH').threshold` and add a DSL test that a literal threshold in a multi-pack rule fails lint."
+  },
+  {
+   "title": "Trainer-experience rule (≥ 5 years) is attributed to MX generally, but it is an AV (RCG) rule starting 2027",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "03-feature-list-v2.md G-4 — 'MX trainers ≥ 5 years' experience'",
+    "research §A.1.5 — 'Training | Art. 39 Bis: at least annually; trainers ≥5 yrs PLD experience ... First annual period 01-01-2027 → 31-12-2027' (AV only); ITF training 'Art. 54-55' with no trainer-experience rule stated"
+   ],
+   "detail": "Encoding the 5-year trainer requirement into the ITF training obligation would impose an AV-only rule on fintech tenants.",
+   "design_impact": "Obligation definitions must be per pack; the training registry validation (if any) should not apply the trainer rule to ITF tenants.",
+   "suggested_resolution": "Move the trainer rule to MX/LFPIORPI-AVI obligations with `valid_from: 2027-01-01`."
+  },
+  {
+   "title": "Aviso day-17 deadline ignores the UIF calendarización and the modificatorio anchor (acuse date) is not stated",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "10-f00-platform-foundations.md §6 — '`DAY_OF_NEXT_MONTH(17, roll=NEXT_BUSINESS_DAY)` MX non-financial avisos'",
+    "03-feature-list-v2.md RR-6/§9.1 — 'Correction aviso ... Once, ≤ 30 days'",
+    "research §A.1.3 — 'By day 17 ... UIF publishes a staggered calendarización allowing filing after the 17th on an assigned day'; 'Aviso modificatorio: Once only, within 30 calendar days of the acuse'"
+   ],
+   "detail": "Using the 17th is conservative and acceptable, but the calendar should be able to represent the assigned later day (tenants will ask why the platform marks them late). The correction window anchor (acuse timestamp, calendar days) is not written anywhere in the design.",
+   "design_impact": "Deadline DSL may need a `TENANT_ASSIGNED_DAY` override; `report_filing` must store the acuse timestamp to start the 30-calendar-day correction clock.",
+   "suggested_resolution": "Keep the 17th as the default due date, add an optional per-tenant `assigned_day` override for AV avisos, and define `AVISO_MODIFICATORIO: CALENDAR_DAYS_AFTER(acuse.received_at, 30), max_count: 1`."
+  }
+ ]
+}

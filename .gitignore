@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+console/node_modules/
+console/dist/
+# Playwright output (npm run test:e2e)
+console/test-results/
+console/playwright-report/
+# Exported for `npm run gen:api:file`; the generated src/api/schema.d.ts is what gets committed
+console/openapi.json
+
+# The console build the image copies into the package (served at /)
+src/xolotl/static/
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local data
+data/
+data/local/
+*.log
+
+# Claude Code session artefacts
+.claude/worktrees/
+.claude/settings.local.json
+.playwright-mcp/

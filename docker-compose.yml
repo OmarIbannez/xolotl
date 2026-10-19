@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: xolotl
+      POSTGRES_PASSWORD: xolotl
+      POSTGRES_DB: xolotl
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xolotl -d xolotl"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      XOLOTL_DATABASE_URL: postgresql+psycopg://xolotl_app:xolotl@db:5432/xolotl
+      XOLOTL_DATABASE_ADMIN_URL: postgresql+psycopg://xolotl:xolotl@db:5432/xolotl
+      XOLOTL_ENV: dev
+      XOLOTL_LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "xolotl db bootstrap && xolotl serve"]
+
+volumes:
+  pgdata:
