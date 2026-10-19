@@ -188,6 +188,7 @@ def test_a_naive_anchor_is_refused():
         },
         {"kind": "BUSINESS_DAYS_AFTER", "params": {"n": 0}},
         {"kind": "BUSINESS_DAYS_AFTER", "params": {"n": True}},
+        {"kind": "CALENDAR_DAYS_AFTER", "params": {"n": 1}, "tz": "America"},
         {"kind": "CALENDAR_DAYS_AFTER", "params": {"n": "3"}},
         {"kind": "CALENDAR_DAYS_AFTER", "params": {"n": 3, "extra": 1}},
         {"kind": "CALENDAR_DAYS_AFTER", "params": {"n": 3, "time": "25:00"}},
@@ -240,6 +241,16 @@ def test_read_holiday_file_refuses_a_missing_or_malformed_file(tmp_path: Path):
     )
     with pytest.raises(ValidationFailedError, match=r"wrong\.yaml"):
         _ = read_holiday_file(wrong)
+    header = "country: MX\nyears: [2026]\nscopes:\n  CNBV:\n    source: x\n    days:\n"
+    day = '      - {day: %s, name: "n", basis: "b"}\n'
+    outside = tmp_path / "outside.yaml"
+    _ = outside.write_text(header + day % "2027-01-01", encoding="utf-8")
+    with pytest.raises(ValidationFailedError, match="outside the years"):
+        _ = read_holiday_file(outside)
+    twice = tmp_path / "twice.yaml"
+    _ = twice.write_text(header + day % "2026-01-01" * 2, encoding="utf-8")
+    with pytest.raises(ValidationFailedError, match="listed twice"):
+        _ = read_holiday_file(twice)
 
 
 def test_seed_holidays_is_idempotent_and_load_holidays_reads_the_scope(
@@ -248,6 +259,7 @@ def test_seed_holidays_is_idempotent_and_load_holidays_reads_the_scope(
     owner = sessionmaker(bind=admin_engine, expire_on_commit=False)
     ctx = TenantContext.platform("test:calendar")
     with tenant_session(ctx, factory=owner) as s:
+        assert seed_holidays(s, []) == 0
         assert seed_holidays(s, ROWS) == 108
     with tenant_session(ctx, factory=owner) as s:
         assert seed_holidays(s, ROWS) == 108

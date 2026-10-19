@@ -128,10 +128,11 @@ class DeadlineRule(BaseModel):
     @field_validator("tz")
     @classmethod
     def _known_zone(cls, tz: str) -> str:
-        # ZoneInfoNotFoundError is a KeyError, which pydantic would let escape.
+        # ZoneInfoNotFoundError is a KeyError and a zone directory such as "America"
+        # raises IsADirectoryError, an OSError; pydantic would let either escape.
         try:
             _ = ZoneInfo(tz)
-        except (ZoneInfoNotFoundError, ValueError) as exc:
+        except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
             msg = f"unknown time zone {tz}"
             raise ValueError(msg) from exc
         return tz

@@ -1,8 +1,9 @@
 # Mexico's regulatory calendar, 2025-2027, in four scopes (spec §7; plan 2a, Task A3).
 # `xolotl holidays seed` loads it into the shared `holiday` table. `verify: true` marks
 # a row for the product owner's compliance review; the loader keeps the flag out of the
-# table and the seed command reports how many flagged rows the file holds. CNBV, SAT and
-# BANXICO list weekday dates only, as their publications do.
+# table and the seed command reports how many flagged rows the file holds. CNBV, the SAT
+# RMF rows and BANXICO list weekday dates only; the CFF art. 12 rows are statutory and
+# keep weekend dates.
 country: MX
 years: [2025, 2026, 2027]
 scopes:
