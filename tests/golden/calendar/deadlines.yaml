@@ -1,0 +1,13 @@
+- {id: ror-q4-2025-jan-roll, rule: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10}}, anchor: "2025-12-31T23:59:59-06:00", scope: CNBV, expected: "2026-01-15T23:59:59-06:00"}
+- {id: ror-q1-2026-semana-santa-cnbv, rule: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10}}, anchor: "2026-03-31T23:59:59-06:00", scope: CNBV, expected: "2026-04-16T23:59:59-06:00"}
+- {id: ror-q1-2026-national, rule: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10}}, anchor: "2026-03-31T23:59:59-06:00", scope: NATIONAL, expected: "2026-04-14T23:59:59-06:00"}
+- {id: roi-3-business-days, rule: {kind: BUSINESS_DAYS_AFTER, params: {n: 3}}, anchor: "2026-04-01T10:00:00-06:00", scope: CNBV, expected: "2026-04-08T23:59:59-06:00"}
+- {id: roi24, rule: {kind: HOURS_AFTER, params: {hours: 24}}, anchor: "2026-04-02T15:30:00-06:00", scope: CNBV, expected: "2026-04-03T15:30:00-06:00"}
+- {id: aviso-17th-sunday-rolls, rule: {kind: DAY_OF_NEXT_MONTH, params: {day: 17, roll: NEXT_BUSINESS_DAY}}, anchor: "2026-12-31T00:00:00-06:00", scope: SAT, expected: "2027-01-18T23:59:59-06:00"}
+- {id: aviso-17th-holiday-rolls, rule: {kind: DAY_OF_NEXT_MONTH, params: {day: 17, roll: NEXT_BUSINESS_DAY}}, anchor: "2025-10-31T00:00:00-06:00", scope: SAT, expected: "2025-11-18T23:59:59-06:00"}
+- {id: aviso-17th-no-roll, rule: {kind: DAY_OF_NEXT_MONTH, params: {day: 17, roll: NONE}}, anchor: "2026-12-31T00:00:00-06:00", scope: SAT, expected: "2027-01-17T23:59:59-06:00"}
+- {id: calendar-days, rule: {kind: CALENDAR_DAYS_AFTER, params: {n: 15}}, anchor: "2026-04-01T09:00:00-06:00", scope: NATIONAL, expected: "2026-04-16T23:59:59-06:00"}
+- {id: date-range, rule: {kind: DATE_RANGE, params: {start: "01-01", end: "03-31", year_offset: 1}}, anchor: "2026-07-15T12:00:00-06:00", scope: NATIONAL, expected: "2027-03-31T23:59:59-06:00"}
+- {id: fixed, rule: {kind: FIXED, params: {at: "2026-11-30T00:00:00-06:00"}}, anchor: "2026-01-01T00:00:00-06:00", scope: NATIONAL, expected: "2026-11-30T00:00:00-06:00"}
+- {id: explicit-time, rule: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10, time: "17:00"}}, anchor: "2025-12-31T23:59:59-06:00", scope: CNBV, expected: "2026-01-15T17:00:00-06:00"}
+- {id: utc-anchor-just-after-midnight, rule: {kind: NTH_BUSINESS_DAY_OF, params: {month_offset: 1, n: 10}}, anchor: "2026-01-01T03:00:00Z", scope: CNBV, expected: "2026-01-15T23:59:59-06:00"}
