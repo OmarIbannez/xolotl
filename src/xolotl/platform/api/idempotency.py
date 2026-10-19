@@ -1,0 +1,321 @@
+r"""``Idempotency-Key`` for every POST under ``/v1`` except ``/v1/auth/*`` (spec §7).
+
+Flow per request: validate the header, resolve the actor, hash
+``method\npath\nbody``, then *reserve* ``(tenant, actor, key)`` with an
+``INSERT ... ON CONFLICT DO NOTHING``. A hit with the same hash replays the
+stored response; a different hash is a 422; a reservation whose request is
+still running is a 409, unless it is older than ``RESERVATION_TTL`` (the
+request died without releasing it), in which case it is replaced. Each
+reservation first deletes the tenant's expired keys (an opportunistic purge until
+plan 1c's job runs).
+
+What is stored: whenever the endpoint returns normally with a 2xx status, its
+response, whatever the shape, because the endpoint's work commits on that same
+normal exit. The record keeps the status and media type plus the parsed JSON
+body, or the raw bytes of a body that is not JSON, or neither for an empty body
+(a 204, an empty 202). A replay rebuilds exactly that, so a retry does not run
+the endpoint again. Other headers are not replayed, and a streamed body cannot
+be captured: it is stored, and replayed, as an empty one.
+
+Where it is stored: in the endpoint's own session (``request.state.session``)
+when it has one, whatever state that session is in, so the record commits or
+rolls back atomically with the endpoint's work. A session that cannot store the
+record cannot commit the work either, so the write raises, the client gets a
+500 and the key stays reserved: retries get a 409 until ``RESERVATION_TTL`` has
+passed and the reservation is reclaimed. Without an endpoint session the record
+goes into a session of its own.
+
+The reservation is released, so the client can retry with the same key, only
+when the endpoint raises or returns a non-2xx response.
+"""
+
+import base64
+import hashlib
+import json
+from collections.abc import Callable, Coroutine
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from http import HTTPStatus
+from typing import cast, override
+
+from fastapi import Request, Response
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
+from sqlalchemy import delete
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+
+from xolotl.platform import clock
+from xolotl.platform.api.app import app_state
+from xolotl.platform.api.models import IdempotencyKey
+from xolotl.platform.auth.actor import Actor
+from xolotl.platform.auth.principal import resolve_request_actor
+from xolotl.platform.db import SessionFactory, tenant_session
+from xolotl.platform.errors import (
+    IdempotencyConflictError,
+    IdempotencyInProgressError,
+    IdempotencyKeyRequiredError,
+)
+
+RESERVED_STATUS = 0
+TTL = timedelta(hours=24)
+RESERVATION_TTL = timedelta(seconds=60)
+MAX_KEY_LENGTH = 128
+REPLAY_HEADER = "Idempotent-Replay"
+
+
+@dataclass(frozen=True, slots=True)
+class Stored:
+    status_code: int
+    media_type: str | None  # the Content-Type header, when the response had one
+    body: object | None  # the parsed JSON body; None when the body is empty or not JSON
+    raw: bytes | None  # any other non-empty body, byte for byte
+
+
+def request_hash(method: str, path: str, body: bytes) -> bytes:
+    digest = hashlib.sha256()
+    digest.update(method.upper().encode())
+    digest.update(b"\n")
+    digest.update(path.encode())
+    digest.update(b"\n")
+    digest.update(body)
+    return digest.digest()
+
+
+def is_idempotent_request(request: Request) -> bool:
+    path = request.url.path
+    return (
+        request.method == "POST"
+        and path.startswith("/v1/")
+        and not path.startswith("/v1/auth/")
+    )
+
+
+def _pk(actor: Actor, key: str) -> tuple[object, str, str]:
+    return (actor.context.require_tenant_id(), actor.context.actor_id, key)
+
+
+def _is_json(media_type: str | None) -> bool:
+    if media_type is None:
+        return False
+    essence = media_type.partition(";")[0].strip().lower()
+    return essence == "application/json" or essence.endswith("+json")
+
+
+def _parse_json(content: bytes) -> object | None:
+    try:
+        parsed = cast("object", json.loads(content))
+    except ValueError:
+        return None
+    return parsed
+
+
+def _record(response: Response) -> Stored:
+    # A streamed response has no body attribute; every other one holds the bytes.
+    data = bytes(cast("bytes | memoryview[int]", getattr(response, "body", b"")))
+    media_type = response.headers.get("content-type")
+    # Only a JSON media type is parsed, so text that merely looks like JSON is kept
+    # verbatim. A literal ``null`` parses to None, which already means "no JSON
+    # body", so it falls through to the raw bytes as well.
+    body = _parse_json(data) if data and _is_json(media_type) else None
+    return Stored(
+        status_code=response.status_code,
+        media_type=media_type,
+        body=body,
+        raw=data if data and body is None else None,
+    )
+
+
+def _encode(stored: Stored) -> dict[str, object]:
+    raw = stored.raw
+    # "status" repeats the status_code column, which also marks a reservation, so
+    # the record describes the whole response on its own.
+    return {
+        "status": stored.status_code,
+        "media_type": stored.media_type,
+        "body": stored.body,
+        "raw": None if raw is None else base64.b64encode(raw).decode("ascii"),
+    }
+
+
+def _decode(row: IdempotencyKey) -> Stored:
+    record = row.response_body
+    media_type = record.get("media_type")
+    raw = record.get("raw")
+    return Stored(
+        status_code=row.status_code,
+        media_type=media_type if isinstance(media_type, str) else None,
+        body=record.get("body"),
+        raw=base64.b64decode(raw) if isinstance(raw, str) else None,
+    )
+
+
+def _replay(stored: Stored) -> Response:
+    headers = {REPLAY_HEADER: "true"}
+    if stored.body is not None:
+        return JSONResponse(
+            stored.body,
+            status_code=stored.status_code,
+            headers=headers,
+            media_type=stored.media_type,
+        )
+    if stored.raw is not None:
+        return Response(
+            stored.raw,
+            status_code=stored.status_code,
+            headers=headers,
+            media_type=stored.media_type,
+        )
+    return Response(status_code=stored.status_code, headers=headers)
+
+
+def _is_dead(row: IdempotencyKey, now: datetime) -> bool:
+    """Report whether a row is expired or an abandoned reservation.
+
+    A reservation is abandoned once it is older than ``RESERVATION_TTL``: its
+    request died without storing a response or releasing the key.
+
+    Returns:
+        ``True`` when the row no longer guards its key and may be replaced.
+
+    """
+    abandoned = (
+        row.status_code == RESERVED_STATUS and now - row.created_at > RESERVATION_TTL
+    )
+    return row.expires_at <= now or abandoned
+
+
+def _reserve(
+    factory: SessionFactory, actor: Actor, key: str, digest: bytes
+) -> Stored | None:
+    """Return the stored response for a replay, or ``None`` after reserving the key.
+
+    Returns:
+        The stored response when the same request already completed, otherwise
+        ``None`` once the key is reserved for this request.
+
+    Raises:
+        IdempotencyConflictError: When the key was used with a different request.
+        IdempotencyInProgressError: When a request holding the key is still running.
+
+    """
+    now = clock.now()
+    with tenant_session(actor.context, factory=factory) as s:
+        # Opportunistic purge: the tenant's expired keys go before a new one is
+        # reserved. Row-level security bounds it to the tenant, the
+        # (tenant_id, expires_at) index keeps it a range scan, and plan 1c adds
+        # the periodic purge job.
+        _ = s.execute(
+            delete(IdempotencyKey).where(
+                IdempotencyKey.tenant_id == actor.context.require_tenant_id(),
+                IdempotencyKey.expires_at <= now,
+            )
+        )
+        existing = s.get(IdempotencyKey, _pk(actor, key))
+        if existing is not None and _is_dead(existing, now):
+            s.delete(existing)
+            s.flush()
+            existing = None
+        if existing is None:
+            tenant_id, actor_id, _ = _pk(actor, key)
+            inserted = s.execute(
+                insert(IdempotencyKey)
+                .values(
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    key=key,
+                    request_hash=digest,
+                    status_code=RESERVED_STATUS,
+                    response_body={},
+                    expires_at=now + TTL,
+                )
+                .on_conflict_do_nothing(index_elements=["tenant_id", "actor_id", "key"])
+                .returning(IdempotencyKey.key)
+            ).scalar_one_or_none()
+            if inserted is not None:  # RETURNING yields no row when the key exists
+                return None
+            existing = s.get(IdempotencyKey, _pk(actor, key))
+            if existing is None:  # lost a race and the winner already released it
+                raise IdempotencyInProgressError
+        if existing.request_hash != digest:
+            raise IdempotencyConflictError
+        if existing.status_code == RESERVED_STATUS:
+            raise IdempotencyInProgressError
+        return _decode(existing)
+
+
+def _store(s: Session, actor: Actor, key: str, stored: Stored) -> None:
+    row = s.get(IdempotencyKey, _pk(actor, key))
+    if row is not None:
+        row.status_code = stored.status_code
+        row.response_body = _encode(stored)
+        s.flush()
+
+
+def _finalize(
+    request: Request,
+    factory: SessionFactory,
+    actor: Actor,
+    key: str,
+    *,
+    response: Response,
+) -> None:
+    stored = _record(response)
+    endpoint_session: object = getattr(request.state, "session", None)
+    if isinstance(endpoint_session, Session):
+        # FastAPI closes function-scoped dependencies after the route handler
+        # returns, so this write commits (or rolls back) with the endpoint's work.
+        # No is_active check: a session stuck after a failed flush cannot commit
+        # the work, so the write must raise and leave the key reserved instead of
+        # storing a response on the side.
+        _store(endpoint_session, actor, key, stored)
+        return
+    with tenant_session(actor.context, factory=factory) as s:
+        _store(s, actor, key, stored)
+
+
+def _release(factory: SessionFactory, actor: Actor, key: str) -> None:
+    with tenant_session(actor.context, factory=factory) as s:
+        row = s.get(IdempotencyKey, _pk(actor, key))
+        if row is not None and row.status_code == RESERVED_STATUS:
+            s.delete(row)
+
+
+class IdempotentRoute(APIRoute):
+    @override
+    def get_route_handler(
+        self,
+    ) -> Callable[[Request], Coroutine[object, object, Response]]:
+        original = super().get_route_handler()
+
+        async def handler(request: Request) -> Response:
+            if not is_idempotent_request(request):
+                return await original(request)
+            key = request.headers.get("idempotency-key")
+            if key is None or not 1 <= len(key) <= MAX_KEY_LENGTH:
+                raise IdempotencyKeyRequiredError
+            actor = await run_in_threadpool(resolve_request_actor, request)
+            body = await request.body()
+            digest = request_hash(request.method, request.url.path, body)
+            factory = app_state(request).session_factory
+            stored = await run_in_threadpool(_reserve, factory, actor, key, digest)
+            if stored is not None:
+                return _replay(stored)
+            try:
+                response = await original(request)
+            except BaseException:
+                await run_in_threadpool(_release, factory, actor, key)
+                raise
+            succeeded = (
+                HTTPStatus.OK <= response.status_code < HTTPStatus.MULTIPLE_CHOICES
+            )
+            if succeeded:
+                await run_in_threadpool(
+                    _finalize, request, factory, actor, key, response=response
+                )
+            else:
+                await run_in_threadpool(_release, factory, actor, key)
+            return response
+
+        return handler

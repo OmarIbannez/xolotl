@@ -1,0 +1,340 @@
+{
+ "findings": [
+  {
+   "title": "Case-visibility RLS policy (16) is permissive and would OR with the tenant policy, leaking cases across tenants",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "16-f06-case-management.md §3 — `CREATE POLICY case_visibility ON aml_case USING (visibility = 'TEAM' OR EXISTS (... m.user_id = current_setting('app.user_id')::uuid) OR current_setting('app.user_roles') LIKE '%MLRO%')`",
+    "07-data-model.md §9 rule 1 — single `tenant_isolation` policy `USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (...)`",
+    "10-f00-platform-foundations.md §2.1 — session sets only `app.tenant_id` and `app.actor`; §2.2 'every tenant table ... the policy tenant_id = current_setting(app.tenant_id)'"
+   ],
+   "detail": "Postgres combines multiple PERMISSIVE policies on a table with OR. Adding `case_visibility` as written next to `tenant_isolation` means any row from another tenant whose `visibility = 'TEAM'` satisfies the second policy and becomes visible. The policy also reads `app.user_id` and `app.user_roles`, which the foundations session contract (`app.tenant_id`, `app.actor`) never sets; `current_setting()` without `missing_ok` raises when the GUC is unset, so every system actor (outbox dispatcher, job workers, API-key clients creating alerts/cases) would error on `aml_case`. The MLRO check string-matches a text GUC while `staff_user.roles` is `text[]`.",
+   "design_impact": "The RLS migration framework (Sprint 0 F1) must define one fixed set of session GUCs and a rule that every secondary policy is `AS RESTRICTIVE`; otherwise the first case-management migration silently breaks tenant isolation and the auto-discovered isolation test (which only checks tenant A vs B on plain selects) may not catch the TEAM-visibility leak.",
+   "suggested_resolution": "In the foundations spec: session contract = `app.tenant_id`, `app.actor_type`, `app.actor_id`, `app.roles` (all set via `SET LOCAL`, read with `current_setting(name, true)`); all policies beyond `tenant_isolation` are created `AS RESTRICTIVE`; add a CI check that no table has more than one permissive policy. Extend the isolation harness with a RESTRICTED/TEAM case scenario."
+  },
+  {
+   "title": "Nullable tenant_id for platform library rules contradicts NOT NULL + RLS and the auto-discovered isolation test",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "15-f05-transaction-monitoring.md §6.1 — `monitoring_rule ( tenant_id uuid, -- NULL = platform library rule ... UNIQUE (tenant_id, code))` and `rule_assignment ... REFERENCES monitoring_rule_version(id)`",
+    "10-f00-platform-foundations.md §2.2 — 'Every tenant table has tenant_id uuid NOT NULL, ENABLE + FORCE ROW LEVEL SECURITY'; 'CI test ... runs for every new table, discovered automatically via information_schema'",
+    "07-data-model.md §2 — split SHARED (no tenant_id) vs TENANT-SCOPED (tenant_id on every row)"
+   ],
+   "detail": "Under the standard policy `tenant_id = current_setting('app.tenant_id')::uuid`, a NULL tenant_id row is never visible, so library rules would be invisible to every tenant. `UNIQUE (tenant_id, code)` with NULLs allows duplicate library codes. `rule_assignment` (tenant-scoped) references shared library rows, which cannot satisfy the composite `(tenant_id, id)` FK rule. Separately, the isolation harness that asserts 'tenant B sees nothing' on every table discovered via information_schema will fail on legitimately shared tables (policy_pack, list_entry, unit_value, report_schema, holiday, library rules).",
+   "design_impact": "Determines the monitoring_rule migration and the shape of the foundations test harness; building 15's DDL as written would ship rules nobody can see or force a BYPASSRLS role into the hot path.",
+   "suggested_resolution": "Model library rules like risk models in 14-f04 ('tenant model copies'): shared `monitoring_rule_library(_version)` without tenant_id, and tenant-scoped `monitoring_rule(_version)` rows that either copy or reference a library version by id (plain FK to the shared table is acceptable, as for list_entry). Keep a declared `SHARED_TABLES` registry in the migration framework; the harness asserts isolation on every table not in it and asserts the registry matches tables lacking tenant_id."
+  },
+  {
+   "title": "Decision records point at policy_pack_version (07) but foundations define the frozen policy as a tenant-scoped policy_snapshot of several merged packs",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "07-data-model.md §6 — `onboarding_application.policy_version_id uuid NOT NULL REFERENCES policy_pack_version(id) -- frozen at start`; §5 `ubo_determination.policy_version_id ... REFERENCES policy_pack_version(id)`",
+    "10-f00-platform-foundations.md §4.1 — 'A tenant is assigned one or more packs (e.g. MX/ITF-IFPE + MX/LFPIORPI-AVI)'; §4.4 — `merge_strictest(packs)` then overrides; 'Every decision record stores policy_version_id, the hash of the effective policy, persisted in policy_snapshot'",
+    "11-f01-customer-onboarding.md §8 — `journey_definition.policy_snapshot_id`; 12-f02 §6 `kyb_application.policy_version_id`; 16-f06 §3 `aml_case.policy_version_id uuid NOT NULL`",
+    "07-data-model.md §4 — `tenant_policy(pack_version_id uuid NOT NULL REFERENCES policy_pack_version(id))` allows exactly one pack per row"
+   ],
+   "detail": "The two documents give `policy_version_id` different referents: a single shared pack version (07) versus the hash/id of the tenant's effective policy after merging several packs and overrides (10). The user's own target tenant inherits two packs (MX/ITF-IFPE then MX/LFPIORPI-AVI), so a single FK to policy_pack_version cannot reproduce the decision. 07's `tenant_policy` also cannot express a multi-pack assignment, while 10 §4.4 reads `tenant_pack_assignments(tenant_id, on, product)`.",
+   "design_impact": "Every decision table created in Sprint 1 (onboarding_application, ubo_determination, risk_assessment, screening_run, aml_case, regulatory_report, reportable_event) gets the wrong FK if built from 07; retrofitting means rewriting the reproducibility story.",
+   "suggested_resolution": "Standardise on `policy_snapshot_id` (tenant-scoped, FK `(tenant_id, id)` to policy_snapshot) on all decision tables; `policy_snapshot.content` records the contributing `pack_version_ids[]`, override hash and effective date. Replace `tenant_policy` with `tenant_pack_assignment(tenant_id, pack_version_id, product, effective_from/to)` plus `tenant_override`. Keep the event envelope field but name it `policy_snapshot_id`."
+  },
+  {
+   "title": "Composite (tenant_id,id) foreign keys: foundations say day one, data model says later, and the partitioned transaction table cannot be an FK target at all",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "10-f00-platform-foundations.md §2.2 — 'Composite foreign keys (tenant_id, id) everywhere, so a row can never reference another tenant's row'",
+    "07-data-model.md §9 rule 1 — 'Long term, make foreign keys composite'; §10 — 'Foreign keys: Start simple; move to composite (tenant_id, id) foreign keys before the first production tenant'; all DDL uses single-column FKs (`party_id uuid NOT NULL REFERENCES party(id)`)",
+    "07-data-model.md §8 — `transaction ... PRIMARY KEY (tenant_id, occurred_at, id)) PARTITION BY RANGE (occurred_at)`; `report_item.transaction_id uuid` (no FK); `alert.transaction_ids uuid[]`",
+    "15-f05-transaction-monitoring.md §6.1 — `alert_evidence.transaction_ids uuid[]`, `reportable_event ... UNIQUE (tenant_id, capture_code, period_key, transaction_ids)`",
+    "04-delivery-plan.md T1.5 — 'Done when: Schema matches data-model doc'"
+   ],
+   "detail": "Three positions: 10 mandates composite FKs from the first migration; 07's DDL has none and defers them; the delivery plan's acceptance criterion is 'matches data-model doc'. Independently, Postgres requires any unique constraint on a partitioned table to include the partition column, so `transaction` can only be referenced via `(tenant_id, occurred_at, id)`; the arrays `transaction_ids uuid[]` can never be FKs; and a UNIQUE over a `uuid[]` column is order-sensitive and breaks for multiple-operation captures whose set grows on late events.",
+   "design_impact": "For a greenfield one-developer MVP there is no reason to do the retrofit; but the transaction linkage design (alerts, evidence, report items, captures) must be decided before the first TM/RR migration because it dictates whether transaction integrity is DB-enforced or application-enforced.",
+   "suggested_resolution": "Adopt 10's rule from migration 0001: every tenant table has `UNIQUE (tenant_id, id)` and all tenant→tenant FKs are composite; shared-table references stay single-column. Treat `transaction` as append-only facts referenced by link tables (`alert_transaction`, `report_item`, `reportable_event_transaction`) carrying `(tenant_id, transaction_id, occurred_at)` with a composite FK to the partitioned PK; drop the uuid[] columns from the migration (keep them only in API DTOs)."
+  },
+  {
+   "title": "System of record for transactions is unclear: Kafka-first ingest and ClickHouse reads versus 'all transactions in core Postgres at T1'",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "15-f05-transaction-monitoring.md §2 — Ingest API: 'validate → idempotency → enrich-lite → Kafka txn.raw'; §6.1 heading 'Postgres (system of record for rules, alerts, decisions)' lists no transaction table; §6.2 ClickHouse `txn`",
+    "08-infrastructure.md §2 row 1 — Core OLTP 'Holds' list omits transactions; §3 — 'T1: All of them, in monthly partitions'; 'Core OLTP: only transactions linked to an alert/case/report are copied in'; 'The investigation UI reads transaction history from ClickHouse'",
+    "07-data-model.md §8 — `transaction` table in Postgres; 'Postgres: the recent window, roughly 13–24 months'",
+    "10-f00-platform-foundations.md §7.1 — 'Services never publish to Kafka directly inside business logic ... insert into outbox'",
+    "16-f06-case-management.md §4.2 — 'transaction timeline from ClickHouse'"
+   ],
+   "detail": "15's ingest publishes transactions straight to Kafka (violating the outbox rule) and never names Postgres as their store; 08's diagram feeds Postgres only from Flink's alerts while its T1 table says all transactions live in Postgres; the case UI and simulation are specified against ClickHouse. No document states which store answers 'what did we receive?' at T1.",
+   "design_impact": "For Postgres-first the ingest path, the case workspace timeline and rule simulation all need a single answer; otherwise the TM sub-spec will either skip the Postgres transaction table or build ClickHouse-shaped read models prematurely.",
+   "suggested_resolution": "Declare in the TM spec: Postgres `transaction` is the system of record at T1; `POST /v1/transactions` writes transaction rows + one outbox row per batch in one DB transaction; enrichment/evaluation run as queued jobs reading Postgres; case timeline and `SimulateRule` read Postgres through a `TransactionHistoryPort` whose ClickHouse adapter arrives at T2. Document the T2 'alert-linked subset' migration as a future partition-detach job."
+  },
+  {
+   "title": "Postgres transaction table (07) lacks the columns the monitoring and capture designs require",
+   "kind": "gap",
+   "severity": "high",
+   "sources": [
+    "07-data-model.md §8 — `transaction` columns: direction, rail, amount_minor, currency, `amount_usd_minor bigint -- normalized for thresholds`, counterparty_id, channel, geo, device_fingerprint, travel_rule, raw",
+    "15-f05-transaction-monitoring.md §3 — canonical `Txn` has `external_id`, `instrument` ('maps to MX instrumento monetario'), `crypto`, `fx`, `purpose_code`; 'Enrichment adds amount_usd, amount_local, and amounts in the threshold units of the tenant's packs (amount_uma, amount_udi, ...)', resolved party_id/relationship_id/tier, period keys",
+    "15-f05-transaction-monitoring.md §5 — captures filter `on: { instrument: CASH }` and `when: amount_usd_fix >= 5000` / `amount_uma >= 210`; `reportable_event.unit_values jsonb` for reproducibility",
+    "10-f00-platform-foundations.md §5 — USD via 'FIX of the prior banking day', separate from other USD rules"
+   ],
+   "detail": "Formato 41 ROR capture and the structuring rules key on `instrument` (cash vs transfer) and on amounts in UDI/UMA/USD-FIX, none of which exist in 07's Postgres table; 07 has a single `amount_usd_minor` with no rule/date provenance, while 15 distinguishes FIX-prior-banking-day USD. `external_id`, `party_id` and `relationship_id` are also absent, yet 15's idempotency and per-customer keys rely on them.",
+   "design_impact": "If Postgres holds all transactions at T1 (previous finding), this is the migration that the rule engine and captures run against; building 07's version forces a rewrite in Sprint 3–4.",
+   "suggested_resolution": "Define the Postgres transaction schema from 15's `Txn` plus enrichment: add `external_id`, `instrument`, `party_id`, `relationship_id`, `amount_local_minor`, `unit_amounts jsonb` ({unit_code: {value, unit_value_id}}), `crypto jsonb`, `fx jsonb`, `purpose_code`, `period_keys jsonb`; store the conversion rule + `unit_value.id` used so captures are reproducible without ClickHouse."
+  },
+  {
+   "title": "Idempotency by (tenant, external_id) cannot be a unique constraint on tables partitioned by time",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "15-f05-transaction-monitoring.md §2 — 'idempotency (tenant, external_id)'; §4.4 — 'The decision is stored (txn_decision) ... linked by external_id'; §6.1 `txn_decision ... PRIMARY KEY (tenant_id, decided_at, id)) PARTITION BY RANGE (decided_at)`",
+    "07-data-model.md §8 — `transaction ... PRIMARY KEY (tenant_id, occurred_at, id)) PARTITION BY RANGE (occurred_at)`",
+    "10-f00-platform-foundations.md §2.3 — 'External references from clients (external_ref) ... are the idempotency anchors'"
+   ],
+   "detail": "Postgres only allows unique indexes on partitioned tables that include every partition-key column, so `UNIQUE (tenant_id, external_id)` is impossible on `transaction` and `txn_decision` as declared. Nothing in the docs resolves how duplicate batch resubmissions are rejected, or how a sync decision is later joined to its async transaction when the client retries with the same external_id across months.",
+   "design_impact": "Affects the first TM migration and the ingest API contract (what a duplicate returns).",
+   "suggested_resolution": "Add an unpartitioned `transaction_ref(tenant_id, external_id, transaction_id, occurred_at, PRIMARY KEY (tenant_id, external_id))` written in the same DB transaction, and the same pattern for decisions; the ingest API answers duplicates with the stored transaction_id. Keep monthly partitioning from day one (converting later requires a full rewrite)."
+  },
+  {
+   "title": "Two incompatible monetary-unit tables; the data-model version cannot express UDI, Banxico FIX or corrections",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "07-data-model.md §3 — `monetary_unit (code, valid_from, valid_to, value, currency, PRIMARY KEY (code, valid_from))` 'UMA (MX), SMVM (AR), SMMLV (CO), UF (CL), UIT (PE)'; §9 rule 7",
+    "10-f00-platform-foundations.md §5 — `unit_value (unit_code, valid_from, valid_to, value numeric(20,8), quote_ccy, source, fetched_at, superseded_by bigint, id bigserial)`; 'Values are never overwritten; corrections are new rows'; units `UDI`, `USD_MXN_FIX`; ConversionRule `PRIOR_BANKING_DAY`",
+    "10-f00-platform-foundations.md §4.2 — ITF pack `threshold_units: [UDI, USD, UMA]`; tier limits in UDI",
+    "04-delivery-plan.md T1.2 — 'Units service (UMA, UDI, Banxico FIX)'"
+   ],
+   "detail": "07 names one table, 10 another, with different keys and semantics (07 PK forbids a correction row for the same date; 07 has no source/fetched_at provenance; 07's examples omit UDI and the FIX rate although the first policy pack's tier limits and ROR threshold are in UDI and USD-FIX). 10's `PRIOR_BANKING_DAY` rule also makes the units library depend on the regulatory calendar (holidays), which 10 §1 lists as a sibling library.",
+   "design_impact": "Sprint 1 builds this table; following 07 produces a migration that cannot hold the first pack's thresholds and cannot record corrections demanded by 'nothing is silently changed'.",
+   "suggested_resolution": "Use 10's `unit_value` (drop `monetary_unit`), seed UMA/UDI/FIX for MX with a file-based fetcher in the MVP, make `calendar` a dependency of `units` (or merge them into one `regulatory_time` lib), and record `unit_value.id` in every converted amount."
+  },
+  {
+   "title": "Where readable normalized names live is resolved three different ways (plaintext column, separate token store, OpenSearch index) and the referenced resolution page is blank",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "07-data-model.md §5 — `person.full_name_norm text NOT NULL -- normalized for matching`; `organization.legal_name text NOT NULL` (plaintext); §8 `counterparty.name_norm text`; §7 `private_list_entry.names_enc bytea -- encrypted with tenant key`; §9 rule 4 options (a)/(b)",
+    "10-f00-platform-foundations.md §3 — P2 'names ... Field-level encryption. Normalized name tokens are stored separately for matching (see 03 Screening §5)' — 03 Screening has no body",
+    "08-infrastructure.md §2 row 6 — 'Screening index: OpenSearch (or an in-memory matcher service) ... normalized customer names for rescreening'; §12 'Pick the screening engine'",
+    "04-delivery-plan.md T4.2 — 'Matcher: OpenSearch retrieval + Python scoring'",
+    "06-architecture-overview.md §10 — open decision 'Name matching vs. encryption'"
+   ],
+   "detail": "The decision is flagged open, but each document already builds on a different answer: 07 puts a plaintext normalized name inside the encrypted `person` row (and leaves organization and counterparty names unencrypted entirely), 10 points to a separate token store described only on the blank screening page, 08 and the plan assume an OpenSearch index. LPB entries are encrypted at rest, so any index of them must be built by decrypting in memory. Delta re-screening of 2M customers needs an indexable name store regardless of matcher technology.",
+   "design_impact": "Decides the `person` migration (keep or drop `full_name_norm`), the classification of organization/counterparty names, and how the in-memory matcher (user decision) is built and refreshed; this must be settled before the KYC onboarding and screening sub-specs.",
+   "suggested_resolution": "Choose 10's option: encrypt all natural and legal names (person, organization, counterparty) and keep a tenant-scoped `party_name_index(tenant_id, party_id, name_kind, norm_name, tokens text[], phonetic_keys text[], matcher_version)` in plaintext, readable only by the `screening` DB role (column grants) and excluded from API serialisation. The in-memory matcher loads this table plus decrypted LPB entries per tenant on start/`lists.events`, and `screening_run` records `matcher_version`. Drop `person.full_name_norm`."
+  },
+  {
+   "title": "Stream processing: Flink vs Python workers is inconsistent across documents, and no document describes ordering and state without Kafka/RocksDB",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "06-architecture-overview.md §6.5 — 'stream processor (Flink or similar)'; §8 — 'Kafka/Redpanda + Flink (or a Python stream framework at low volume)'",
+    "08-infrastructure.md §2 row 5 — 'T1–T2: Python stream workers with local RocksDB + S3 checkpoints'; but §3 diagram 'Flink (rules, aggregates)' and §6 T1 sizing 'Flink: 1 job manager (HA) + 2–3 task managers'",
+    "10-f00-platform-foundations.md §1 — `monitoring/ # (API + Flink jobs)`, node pool `stream: Flink`",
+    "15-f05-transaction-monitoring.md §2.1 — '(revision to the infrastructure doc) ... Python stream workers (Kafka consumer groups, partitioned by tenant_id:customer_id) with local RocksDB state'; §4.2 bucketed windows in RocksDB; §10 'Exactly-once alerts: dedup by (rule_version, key, window_bucket)'; 07 `alert` has no such key"
+   ],
+   "detail": "Even the Python-workers revision still assumes Kafka partition ordering per customer and a local RocksDB bucket store with S3 checkpoints. For the decided Postgres-first MVP, the per-key ordering guarantee, the aggregate state store and crash-safe alert deduplication all need a Postgres design that none of the documents provide; 07's `alert` table lacks the dedup key 15 relies on.",
+   "design_impact": "Defines the TM sub-spec's core tables (aggregate buckets, per-key work claiming) and the alert unique index; must be written before TM-2.",
+   "suggested_resolution": "Specify an `AggregateStore` port with a Postgres implementation `agg_bucket(tenant_id, key_type, key, agg_id, bucket_start, value, hll bytea)`, process transactions per `(tenant_id, customer key)` from the job queue using `FOR UPDATE SKIP LOCKED` on a per-key lease so events for one key are serialised, and add `alert.dedup_key` with `UNIQUE (tenant_id, dedup_key)` so re-evaluation after a crash is idempotent. Remove Flink from 10 §1 and 08 §6 T1 rows."
+  },
+  {
+   "title": "Redis is load-bearing in the sync decision path, idempotency, rate limits and caches, but is excluded from the MVP",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "08-infrastructure.md §7 — 'p99 ≤ 100 ms ... (Redis aggregates + in-memory rules; no OLTP reads on this path)'; §2 row 4 Redis holds 'rolling aggregates ... idempotency keys, rate limits, sessions, tenant config cache'",
+    "15-f05-transaction-monitoring.md §4.3 — 'write-through hot aggregates for SYNC rules to Redis'; §4.4 latency budget 'Redis 10 ms'",
+    "10-f00-platform-foundations.md §8 — 'Idempotency-Key ... Stored 24 h in Redis + Postgres'; 'Rate limits: token bucket in Redis'"
+   ],
+   "detail": "The documents never say what happens to these functions when Redis is absent; the 100 ms SLO is defined as 'no OLTP reads', which is unattainable if hot aggregates live in Postgres. Idempotency is also specified twice (Redis + an `idempotency_key` table) with no statement of which is authoritative.",
+   "design_impact": "Decides whether the MVP ships `POST /v1/transactions/decide` with a relaxed SLO or defers it, and which single store backs idempotency and rate limiting.",
+   "suggested_resolution": "Ports: `HotAggregateStore`, `IdempotencyStore`, `RateLimiter`, `ProfileCache`; MVP adapters on Postgres (unlogged tables for hot aggregates and rate buckets, `idempotency_key` table as the sole source of truth) with an in-process LRU for tenant config. Restate the sync SLO for the MVP as p99 ≤ 250 ms measured, with the Redis adapter as the path back to 100 ms."
+  },
+  {
+   "title": "Temporal is assumed by every workflow design; the job-queue substitute's required semantics (signals, timers, fan-out, cron) are nowhere specified",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "06-architecture-overview.md §6.2, §8 — 'Durable workflow engine (Temporal or similar)'; 08 §2 row 2 separate Temporal Postgres cluster; §6 'Workflow payloads go through an encryption codec'",
+    "07-data-model.md §6 — `onboarding_application.workflow_id text NOT NULL -- Temporal workflow ID`; 12-f02 §6 `kyb_application.workflow_id`",
+    "11-f01-customer-onboarding.md §5 — signals `capture_submitted`/`review_decided`, `wait_condition(... timeout=5 days)`, 'up to 30 minutes of async retries', activities keyed `(app_id, check_type, attempt)`",
+    "14-f04 §6 `RescoreAll` workflow; 15-f05 §7 `SimulateRule` workflow; 16-f06 §4.4 freeze playbook 'Temporal workflow with human checkpoints'; 18-f08 §3 'daily Temporal cron per tenant'; 10 §5 'scheduled Temporal workflow per source'"
+   ],
+   "detail": "The user decided on a Postgres job queue, but the designs rely on Temporal features beyond 'retryable steps': durable timers (abandonment, 5-day review window), external signals, parallel gather with fallbacks, cron, and PII-free payloads via a codec. Without an explicit contract, each sub-project will invent its own state machine.",
+   "design_impact": "The foundations sub-spec must define the workflow/job model that onboarding, KYB, rescoring, simulation, freeze playbooks and the calendar generator all build on; the `workflow_id text` columns should not leak Temporal naming.",
+   "suggested_resolution": "Define a `WorkflowPort` in foundations: tables `workflow_run(id, kind, tenant_id, state jsonb, status, wake_at)`, `job(id, run_id, type, payload jsonb (ids only), run_after, attempts, lease_until, dedup_key)`, `workflow_signal(run_id, name, payload, received_at)`; a dispatcher loop with `SKIP LOCKED`; cron rows as recurring jobs. Rename `workflow_id` to `workflow_run_id uuid`. Document which workflows need which features so the Temporal adapter later maps 1:1."
+  },
+  {
+   "title": "Outbox ordering and audit system-of-record are under-specified for an in-process dispatcher",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §7.1 — `outbox (id uuid PRIMARY KEY, ... created_at, published_at)` 'A relay (Debezium CDC, or a poller at T1)'; §7.3 topics keyed `tenant_id:party_id`; `audit.events` 'all → audit sink (WORM)'",
+    "07-data-model.md §8 — `audit_event ... prev_hash, hash ... PRIMARY KEY (tenant_id, at, id)) PARTITION BY RANGE (at)` 'append-only; INSERT-only grant; streamed to WORM storage'",
+    "06-architecture-overview.md §6.8 — 'Append-only, hash-chained audit log per tenant'",
+    "08-infrastructure.md §2 row 10 — audit archive in S3 Object Lock + 'searchable copy in ClickHouse or OpenSearch'"
+   ],
+   "detail": "A poller ordering by UUIDv7/created_at can skip rows committed late (the classic outbox gap), and the table has no monotonic claim column or status for an in-process dispatcher. For audit, three stores are named (Postgres table, Kafka topic, WORM/ClickHouse) without saying which is authoritative at T1; a per-tenant hash chain requires serialising inserts per tenant, which neither 07 nor 10 mention.",
+   "design_impact": "Both tables are Sprint 0/1 migrations; the dispatcher's correctness and the audit chain's verifiability depend on these details.",
+   "suggested_resolution": "Outbox: add `seq bigserial`, `status`, `attempts`, `locked_until`; the dispatcher claims `WHERE status='PENDING' AND created_at < now() - 1s ORDER BY seq FOR UPDATE SKIP LOCKED` and delivers per key in seq order to in-process subscribers (an `EventBus` port; Kafka adapter later). Audit: Postgres `audit_event` is the system of record at T1 with a per-tenant chain serialised by `pg_advisory_xact_lock(hashtext(tenant_id))`; WORM export is a later outbox consumer."
+  },
+  {
+   "title": "Key hierarchy: tenant.kms_key_ref (07) vs tenant_key table with data, index and biometric DEK versions (10)",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "07-data-model.md §4 — `tenant.kms_key_ref text NOT NULL -- per-tenant key-encryption key`; §5 `value_hash ... HMAC(tenant_key, normalized value)`",
+    "10-f00-platform-foundations.md §3 — 'per-tenant DEK, stored wrapped in tenant_key, unwrapped in memory and cached 5 minutes'; 'separate biometric DEK'; 'destroy the tenant's KEK, or a specific DEK version'; code uses distinct `tenant_aead()` and `tenant_index_key()`"
+   ],
+   "detail": "07 stores one key reference on the tenant row; 10 needs a table of wrapped DEKs with purpose (data, blind index, biometric) and version, which crypto-shredding of a specific version and key rotation require. The HMAC key must be distinct from the AEAD key or rotating one breaks the other.",
+   "design_impact": "The local key provider adapter in the MVP needs the table shape now; changing it later means re-wrapping every DEK.",
+   "suggested_resolution": "Add `tenant_key(tenant_id, purpose DATA|INDEX|BIOMETRIC, version, wrapped_dek bytea, kek_ref, created_at, retired_at, PRIMARY KEY (tenant_id, purpose, version))`; ciphertexts carry the key version prefix; drop `tenant.kms_key_ref` in favour of `tenant.kek_ref`. The `KeyProvider` port has a local-file implementation for the MVP."
+  },
+  {
+   "title": "Regulatory report codes and version syntax differ between data model, policy pack, captures, requirements and case clocks",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "07-data-model.md §8 — `report_type: MX_UIF_RELEVANTE, MX_UIF_INUSUAL, MX_UIF_PREOCUPANTE, MX_LFPIORPI_AVISO`; `report_schema UNIQUE (jurisdiction, report_type, version)`",
+    "10-f00-platform-foundations.md §4.2 — `reports: [MX_FORMATO41_ROR@2004.5, MX_FORMATO41_ROI@2004.5, MX_ITF_FX_CASH@1, ...]`; screening `report: MX_ROI_24H`",
+    "15-f05-transaction-monitoring.md §5 — `report: MX_FORMATO41_ROR`, `report: MX_AVISO_AVI`; 05-requirements §2.4 `RR MX_FORMATO41_ROR@2004.5, OB MX_ITF_ROR_Q`; 16-f06 §2.3 clock `MX_ROI_FILING`",
+    "18-f08-compliance-calendar.md §3 — 'report.filed with a matching code and period → attach the receipt and mark DONE'"
+   ],
+   "detail": "With the reporting page blank, the code registry is the join key between captures (`reportable_event.report_code`), report runs (`regulatory_report.report_type`), obligations (auto-completion by code) and policy packs; today four spellings and two version conventions (`@2004.5` suffix vs separate `version` column) coexist.",
+   "design_impact": "Must be fixed before the TM captures (Sprint 4) and reporting engine (Sprint 5) because both tables and the pack YAML embed the codes.",
+   "suggested_resolution": "One `report_code` grammar: `<CC>_<REGULATOR/FORMAT>_<TYPE>` (e.g. `MX_F41_ROR`, `MX_F41_ROI`, `MX_F41_ROI24`, `MX_F41_ROIP`, `MX_AVISO_<ACTIVIDAD>`), with schema version as a separate field everywhere (`report_schema.version`, pack entries as `{code, schema_version}`); update 07's report_type comments, 10 §4.2 and 15 §5 to it."
+  },
+  {
+   "title": "Reportable-event capture is placed in three different components (stream accumulators, ClickHouse aggregation, per-event Postgres rows)",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "06-architecture-overview.md §6.5 — stream processor 'threshold-report accumulators (automatic reports)'",
+    "08-infrastructure.md §2 row 7 — ClickHouse holds 'threshold-report aggregation'",
+    "15-f05-transaction-monitoring.md §5 — per-event `reportable_event` rows in Postgres with `unit_values`; 'Multiple-operation rules: when a monthly aggregate crosses the threshold, all underlying transactions of the period are captured'; 'the report is marked NEEDS_REGENERATION'; §6.1 `UNIQUE (tenant_id, capture_code, period_key, transaction_ids)`"
+   ],
+   "detail": "For Postgres-first only one of these is buildable, and 15's per-event design with a uuid[] uniqueness key does not handle late events or multiple-operation captures cleanly (the set changes, the unique key changes).",
+   "design_impact": "Shapes the TM-3 migration and the handoff contract to the reporting engine (RR-1), which must know whether to trust capture rows or recompute at period close.",
+   "suggested_resolution": "Per-event capture in Postgres (one row per transaction per capture, `UNIQUE (tenant_id, capture_code, transaction_id)`, grouped by `period_key` and an optional `capture_group_id` for multiple-operation rules) plus a period-close reconciliation query over the Postgres transaction table that voids/adds rows; the reporting engine consumes only `reportable_event` and is told via event when a drafted period changed."
+  },
+  {
+   "title": "Transparent ORM decryption conflicts with 'log every PII view' and role-restricted readability",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "10-f00-platform-foundations.md §3 — `class EncryptedStr(TypeDecorator)` decrypting in `process_result_value`",
+    "06-architecture-overview.md §6.8 — audit log 'Logs every PII view, decision, export ...'",
+    "07-data-model.md §9 rule 4(a) — 'readable only by the matching service's database role'",
+    "10-f00-platform-foundations.md §8 — 'PII in logs: Forbidden ... Test asserts no P1/P2 fields reach logs'"
+   ],
+   "detail": "If every row load decrypts automatically, every job, dispatcher and list query touches plaintext PII, so a meaningful `VIEW_PII` audit event is impossible and the 'no PII in logs' guarantee rests entirely on a redaction filter. Nothing states the decrypt boundary.",
+   "design_impact": "Decides the crypto library's API in Sprint 0 and the repository pattern every sub-project uses.",
+   "suggested_resolution": "Make the SQLAlchemy type return an opaque `Encrypted[T]` value; decryption happens through `reveal(purpose)` which emits the audit event and is only called in service-layer code paths that need plaintext (matcher index build, document rendering, console detail views). API DTOs for lists never include revealed fields."
+  },
+  {
+   "title": "Policy-pack code naming (MX/ITF vs MX/ITF-IFPE) and glob scopes are inconsistent",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "06-architecture-overview.md §4 — `MX/ITF`, `MX/BANK`; 07-data-model.md §3 comment `'MX/ITF'`",
+    "10-f00-platform-foundations.md §4.1 — `MX/ITF-IFPE` + `MX/LFPIORPI-AVI`; 05-requirements §2.4 `applies_to: [MX/ITF-IFPE, MX/ITF-IFC]`",
+    "15-f05-transaction-monitoring.md §4.1 — `scope: { tenant_packs: [MX/ITF-*, MX/BANK] }`; §5 `pack: MX/ITF-*`"
+   ],
+   "detail": "The user fixed the first pack as MX/ITF-IFPE; rules and captures use glob patterns over pack codes, which no document defines (prefix match? fnmatch?).",
+   "design_impact": "Minor, but the resolver and the rule-scope matcher both parse these codes; defining the grammar once avoids divergent parsers.",
+   "suggested_resolution": "Grammar `CC/SECTOR[-LICENCE]`; scopes match with fnmatch on the full code; record it in the foundations spec and update 06/07 examples."
+  },
+  {
+   "title": "Modular-monolith guidance still mandates separate monitoring and matcher deployables from day one",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "10-f00-platform-foundations.md §1 — 'Split out only monitoring (streaming) and screening-matcher (memory-heavy) from day one'",
+    "08-infrastructure.md §6 — node pools `stream: Flink`, `matching: the screening matcher, memory-heavy`"
+   ],
+   "detail": "With an in-memory matcher, an in-process outbox dispatcher and a Postgres job queue, a one-developer MVP has no reason to run three deployables; the split should be a process-role flag, not separate services.",
+   "design_impact": "Repository layout and local dev/compose setup.",
+   "suggested_resolution": "Single deployable with roles (`api`, `worker`, `all`); matcher behind a `MatcherPort` loaded in whichever process runs screening jobs; keep module boundaries as packages so the split is a config change later."
+  },
+  {
+   "title": "Policy packs and tenant registry are placed in a global control plane, in the cell database, and in repo YAML at once",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "06-architecture-overview.md §2 — control plane holds 'tenant registry ... policy packs, rule/model registry'; 08 §2 'control-plane Postgres ... replicates configuration only to the cells'",
+    "07-data-model.md §3–4 — `policy_pack`, `policy_pack_version`, `tenant` tables in the (cell) schema with `tenant.cell`",
+    "10-f00-platform-foundations.md §1 — `policy-packs/ # versioned YAML rulebooks (reviewed like code)`"
+   ],
+   "detail": "For a single-cell MVP there is no control plane; the only question is the loading path from YAML into the `policy_pack_version` rows that decisions reference.",
+   "design_impact": "Determines how pack versions get into the database and how golden tests run against them.",
+   "suggested_resolution": "YAML in the repo is the source of truth; a migration-time/startup loader upserts `policy_pack_version` rows keyed by content hash and refuses to change a row already referenced by a snapshot; defer the control plane entirely."
+  },
+  {
+   "title": "list_entry stores pre-normalized names, coupling list ingestion and the whitelist hash to the matcher's normalizer version",
+   "kind": "gap",
+   "severity": "low",
+   "sources": [
+    "07-data-model.md §3 — `list_entry.names jsonb -- primary + aliases, already normalized`; `content_hash bytea -- used by the whitelist to detect changed entries`; §7 `screening_run.matcher_version`",
+    "04-delivery-plan.md T3.2 / T6.2 — normalization lib and calibration evolve across sprints"
+   ],
+   "detail": "If normalization happens at ingestion, every normalizer improvement requires re-ingesting all list versions and may change `content_hash`, which would spuriously invalidate `screening_whitelist` entries.",
+   "design_impact": "Small change to the list_entry migration and to how the in-memory index is built.",
+   "suggested_resolution": "Store raw names in `list_entry.names`, compute `content_hash` over raw content, and normalize when building the matcher index (tagged with `matcher_version`)."
+  },
+  {
+   "title": "Sentinel schema cannot be reused as a migration base: integer PKs, uuid4, no tenant_id, plaintext single-field names, mutable risk on Customer",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/models.py — `User.id Integer`, `Case.id Integer` (reference `SEN-{id:05d}`), `Alert.id Integer`, `Customer.id uuid4`, `Customer.full_name String(200)`, `Customer.risk_score/risk_level/risk_factors` columns, `Transaction.amount_usd` only; no tenant_id on any table",
+    "/Users/omaribannez/code/sentinel/src/sentinel/db.py — single engine/session, no `SET LOCAL app.tenant_id`",
+    "10-f00-platform-foundations.md §2.2–2.3 — RLS, composite FKs, UUIDv7; 07-data-model.md §5 split encrypted names; §6 'Never update a risk assessment in place'"
+   ],
+   "detail": "Sentinel's models embody the opposite of several hard rules in the spec (tenant isolation, time-ordered UUIDs, insert-only risk history, split surnames needed for LATAM matching and CURP consistency checks, encrypted names).",
+   "design_impact": "Reuse should be limited to logic (matcher scoring, normalization, explanations, audit digest, API conventions); copying models or Alembic migrations would import the wrong schema into Sprint 1.",
+   "suggested_resolution": "Write the kycaml schema from the Notion DDL (as corrected by the findings above); port sentinel's `screening/normalize.py`, `screening/matcher.py`, `explanations.py` and `audit.py` digest logic as libraries with tenant-aware signatures."
+  },
+  {
+   "title": "Sentinel couples every alert to a case; the spec has standalone alerts grouped into cases later, with four-eyes and committee states",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/models.py — `Alert.case_id: Mapped[int] = mapped_column(ForeignKey(\"cases.id\"))` (non-nullable); `CaseDecision` single-actor",
+    "07-data-model.md §8 — `alert.status NEW, IN_REVIEW, CLOSED_NO_ACTION, ESCALATED`, `alert.case_id uuid REFERENCES aml_case(id)` nullable",
+    "16-f06-case-management.md §4.1 — 'router finds an open case with the same subject party ... within 30 days'; §2.2 PROPOSED_DECISION needs a different reviewer; COMMITTEE step for MX"
+   ],
+   "detail": "Sentinel creates a case eagerly for each alert and its React console renders cases with embedded alerts and integer `SEN-xxxxx` references; the spec's triage inbox, grouping, restricted visibility and committee workflow do not fit that shape.",
+   "design_impact": "The case-management sub-project and the console adaptation (user decision 3) must be designed against the spec's alert→case model; the console's data layer and types need to be rewritten rather than re-pointed.",
+   "suggested_resolution": "Keep sentinel's console shell, routing and component library; replace its API client types with generated ones from the new OpenAPI; implement alert inbox and case workspace as new views driven by `allowed_actions`."
+  },
+  {
+   "title": "Sentinel rule packs merge policy and monitoring parameters per country and have no expression language, versioning or simulation",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/rules/packs.py — 'Rules are declarative parameters for a small set of rule kinds implemented in Python, not an expression language'; one pack per `Country` with `DocumentRequirement`, `RiskWeights`, monitoring params",
+    "10-f00-platform-foundations.md §4 — policy pack per country × sector × licence, effective-dated, tighten-only overrides, snapshots",
+    "15-f05-transaction-monitoring.md §4.1, §6.1 — YAML rule DSL compiled to Python AST, `monitoring_rule_version` with DRAFT/SIMULATED/APPROVED/ACTIVE, `rule_assignment` per tenant"
+   ],
+   "detail": "The spec separates shared regulatory configuration (policy packs) from tenant-tunable, individually versioned monitoring rules with simulation gates; sentinel's packs collapse both into one per-country file loaded at startup.",
+   "design_impact": "Reusing `rules/packs.py` or `rules/monitoring.py` as the policy or rule engine would prevent the versioning/simulation/explainability requirements; the Pydantic validation style and golden-test approach are reusable.",
+   "suggested_resolution": "Reuse sentinel's YAML+Pydantic loading pattern for the policy-pack models only; build the monitoring rule DSL per 15 §4.1 as a separate library with explicit aggregate declarations so simulation and production share one evaluator."
+  },
+  {
+   "title": "Sentinel's audit chain is a single global chain under one advisory lock; the spec needs a per-tenant chain on a partitioned table",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "/Users/omaribannez/code/sentinel/src/sentinel/audit.py — `GENESIS_HASH`, `_CHAIN_LOCK_KEY = 0x5E7_1A1` single transaction-scoped lock, digest over actor/action/entity/payload; trigger rejects UPDATE/DELETE",
+    "06-architecture-overview.md §6.8 — 'hash-chained audit log per tenant'",
+    "07-data-model.md §8 — `audit_event ... actor_type, prev_hash, hash, PRIMARY KEY (tenant_id, at, id)) PARTITION BY RANGE (at)`"
+   ],
+   "detail": "A global chain would let a tenant's verification depend on other tenants' rows (invisible under RLS) and serialise all tenants' writes on one lock; the spec also records `actor_type` and `policy`-related detail that sentinel's digest omits.",
+   "design_impact": "The audit_event migration and the audit writer are Sprint 1 deliverables; the chain semantics must be fixed before any decision event is written.",
+   "suggested_resolution": "Port sentinel's digest and the UPDATE/DELETE-rejecting trigger; change the lock to `pg_advisory_xact_lock(hashtext(tenant_id::text))`, chain `prev_hash` per tenant, include `actor_type` and `tenant_id` in the digest, and expose a per-tenant `verify_chain` CLI."
+  }
+ ]
+}

@@ -1,0 +1,426 @@
+import io
+import json
+import logging
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from psycopg.errors import UniqueViolation
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import DataError, IntegrityError
+
+from tests.helpers import system_ctx
+from xolotl.platform.logging import (
+    JsonFormatter,
+    RedactionFilter,
+    configure_logging,
+    is_sensitive_key,
+    redact,
+    register_pii_model,
+    request_id_var,
+)
+from xolotl.platform.tenancy.context import bind_context
+
+# Shaped like psycopg's: a primary line, then a DETAIL line that echoes row values.
+DRIVER_MESSAGE = """duplicate key value violates unique constraint
+DETAIL: Key (email)=(a@b.mx) already exists."""
+
+
+def _capture() -> tuple[logging.Logger, io.StringIO]:
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+    handler.addFilter(RedactionFilter())
+    logger = logging.getLogger(f"test.{uuid4().hex}")
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    return logger, stream
+
+
+def _last_line(stream: io.StringIO) -> dict:
+    return json.loads(stream.getvalue().strip().splitlines()[-1])
+
+
+class Subject(BaseModel, frozen=True):
+    """Never passed to register_pii_model: the masking comes from its own tag."""
+
+    maiden_name: str = Field(json_schema_extra={"pii": True})
+    city: str
+
+
+MASKED_SUBJECT = {"maiden_name": "***", "city": "CDMX"}
+
+
+def test_sensitive_key_matching():
+    assert is_sensitive_key("password")
+    assert is_sensitive_key("Access_Token")
+    assert is_sensitive_key("AUTHORIZATION")
+    assert is_sensitive_key("customer_rfc")
+    assert is_sensitive_key("email")
+    assert not is_sensitive_key("status")
+
+
+def test_redact_walks_nested_structures():
+    assert redact({
+        "email": "a@b.mx",
+        "n": {"token": "t", "ok": 1},
+        "l": [{"curp": "x"}],
+    }) == {
+        "email": "***",
+        "n": {"token": "***", "ok": 1},
+        "l": [{"curp": "***"}],
+    }
+
+
+def test_extra_fields_and_dict_args_are_redacted():
+    logger, stream = _capture()
+    logger.info(
+        "login for %(email)s",
+        {"email": "a@b.mx"},
+        extra={"password": "hunter2", "detail": {"secret": "s", "count": 2}},
+    )
+    line = _last_line(stream)
+    assert line["msg"] == "login for ***"
+    assert line["password"] == "***"
+    assert line["detail"] == {"secret": "***", "count": 2}
+    assert line["level"] == "INFO"
+
+
+def test_pii_tagged_pydantic_fields_are_redacted_after_registration():
+    class Person(BaseModel):
+        given_name: str = Field(json_schema_extra={"pii": True})
+        city: str
+
+    logger, stream = _capture()
+    logger.info("before", extra={"given_name": "Ana", "city": "CDMX"})
+    assert _last_line(stream)["given_name"] == "Ana"
+    register_pii_model(Person)
+    logger.info("after", extra={"given_name": "Ana", "city": "CDMX"})
+    line = _last_line(stream)
+    assert (line["given_name"], line["city"]) == ("***", "CDMX")
+
+
+def test_request_id_and_tenant_id_are_included_when_bound():
+    logger, stream = _capture()
+    tenant_id = uuid4()
+    token = request_id_var.set("req-123")
+    try:
+        with bind_context(system_ctx(tenant_id)):
+            logger.info("hello")
+    finally:
+        request_id_var.reset(token)
+    line = _last_line(stream)
+    assert line["request_id"] == "req-123"
+    assert line["tenant_id"] == str(tenant_id)
+    logger.info("outside")
+    assert "request_id" not in _last_line(stream)
+
+
+def test_exceptions_are_serialised():
+    logger, stream = _capture()
+    try:
+        _ = 1 / int("0")  # a literal 1 / 0 is rejected by ty's division-by-zero rule
+    except ZeroDivisionError:
+        logger.exception("failed")
+    assert "ZeroDivisionError" in _last_line(stream)["exc_info"]
+
+
+def test_positional_args_are_redacted():
+    logger, stream = _capture()
+    logger.info("u %s p %s", "u1", {"email": "a@b.mx"})
+    assert _last_line(stream)["msg"] == "u u1 p {'email': '***'}"
+
+
+def test_filter_keeps_positional_args_a_tuple():
+    args = ("u1", {"email": "a@b.mx"})
+    record = logging.LogRecord("t", logging.INFO, __file__, 1, "%s %s", args, None)
+    assert RedactionFilter().filter(record)
+    assert isinstance(record.args, tuple)
+    assert record.args == ("u1", {"email": "***"})
+
+
+def test_model_arguments_are_masked_by_their_own_tags_without_registration():
+    logger, stream = _capture()
+    logger.info("created %s", Subject(maiden_name="Lopez", city="CDMX"))
+    assert _last_line(stream)["msg"] == f"created {MASKED_SUBJECT}"
+
+
+def test_model_extras_are_masked_by_their_own_tags_without_registration():
+    logger, stream = _capture()
+    logger.info("created", extra={"subject": Subject(maiden_name="Lopez", city="CDMX")})
+    assert _last_line(stream)["subject"] == MASKED_SUBJECT
+
+
+def test_mapping_message_is_redacted():
+    logger, stream = _capture()
+    logger.info({"email": "a@b.mx", "ok": 1})
+    assert _last_line(stream)["msg"] == "{'email': '***', 'ok': 1}"
+
+
+def test_model_message_is_redacted():
+    logger, stream = _capture()
+    logger.info(Subject(maiden_name="Lopez", city="CDMX"))
+    assert _last_line(stream)["msg"] == str(MASKED_SUBJECT)
+
+
+@pytest.mark.parametrize("container", [set, frozenset])
+def test_sets_are_walked_like_lists(container):
+    logger, stream = _capture()
+    people = container({Subject(maiden_name="Lopez", city="CDMX")})
+    logger.info("batch", extra={"people": people})
+    assert _last_line(stream)["people"] == [MASKED_SUBJECT]
+
+
+def test_models_serialising_by_alias_are_still_masked_by_field_name():
+    class Aliased(BaseModel):
+        model_config = ConfigDict(serialize_by_alias=True)
+
+        maiden_name: str = Field(alias="MaidenName", json_schema_extra={"pii": True})
+        city: str
+
+    subject = Aliased.model_validate({"MaidenName": "Lopez", "city": "CDMX"})
+    logger, stream = _capture()
+    logger.info("created %s", subject)
+    assert _last_line(stream)["msg"] == f"created {MASKED_SUBJECT}"
+
+
+def test_models_that_cannot_be_dumped_are_masked_not_raised():
+    class Blob(BaseModel):
+        digest: bytes
+
+    logger, stream = _capture()
+    logger.info("hash %s", Blob(digest=bytes.fromhex("ff00fe")))
+    assert _last_line(stream)["msg"] == "hash ***"
+
+
+def test_header_keys_are_masked_whatever_their_case_or_hyphens():
+    assert is_sensitive_key("api-key")
+    assert is_sensitive_key("X-Api-Key")
+    assert is_sensitive_key("Cookie")
+    headers = {
+        "X-Api-Key": "k1",
+        "api-key": "k2",
+        "Cookie": "sid=1",
+        "Set-Cookie": "sid=2",
+        "Authorization": "Bearer t",
+        "Accept": "text/html",
+    }
+    logger, stream = _capture()
+    logger.info("request", extra={"headers": headers})
+    assert _last_line(stream)["headers"] == {
+        "X-Api-Key": "***",
+        "api-key": "***",
+        "Cookie": "***",
+        "Set-Cookie": "***",
+        "Authorization": "***",
+        "Accept": "text/html",
+    }
+
+
+def _raise(error: Exception) -> None:
+    raise error
+
+
+@pytest.fixture
+def served_logging():
+    # Root set up by configure_logging; uvicorn.error has no handler of its own and
+    # propagates to it, which is how the process logs once `xolotl serve` runs
+    # uvicorn with log_config=None. Yields the root handler's stream.
+    root = logging.getLogger()
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    handlers, level = list(root.handlers), root.level
+    own_handlers, propagate = list(uvicorn_error.handlers), uvicorn_error.propagate
+    configure_logging("INFO")
+    (handler,) = root.handlers
+    assert isinstance(handler, logging.StreamHandler)
+    stream = io.StringIO()
+    _ = handler.setStream(stream)
+    uvicorn_error.handlers.clear()
+    uvicorn_error.propagate = True
+    yield stream
+    root.handlers[:] = handlers
+    root.setLevel(level)
+    uvicorn_error.handlers[:] = own_handlers
+    uvicorn_error.propagate = propagate
+
+
+@pytest.mark.parametrize(
+    ("kind", "head"),
+    [
+        ("sqlalchemy", "IntegrityError error_type=Exception"),
+        ("psycopg", "UniqueViolation error_type=UniqueViolation sqlstate=23505"),
+    ],
+)
+def test_database_errors_are_scrubbed_whichever_logger_emits_them(
+    served_logging, kind, head
+):
+    if kind == "sqlalchemy":
+        statement = "INSERT INTO person (email) VALUES (%(email)s)"
+        params = {"email": "a@b.mx"}
+        error = IntegrityError(statement, params, Exception(DRIVER_MESSAGE))
+    else:
+        error = UniqueViolation(DRIVER_MESSAGE)
+    try:
+        _raise(error)
+    except (IntegrityError, UniqueViolation):
+        logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
+    text = served_logging.getvalue()
+    assert "a@b.mx" not in text
+    assert "duplicate key" not in text
+    (line,) = [json.loads(row) for row in text.splitlines()]
+    assert line["logger"] == "uvicorn.error"
+    assert line["msg"] == "Exception in ASGI application"
+    assert line["exc_info"].startswith(head)
+    assert "frames:" in line["exc_info"]
+    assert "_raise" in line["exc_info"]
+
+
+class FakeDriverError(Exception):
+    def __init__(self, sqlstate: str, primary: str) -> None:
+        super().__init__(f"driver text that must never be logged: {primary}")
+        self.sqlstate = sqlstate
+        self.diag = SimpleNamespace(message_primary=primary)
+
+
+@pytest.mark.parametrize(
+    ("sqlstate", "primary", "logged"),
+    [
+        ("22P02", 'invalid input syntax for type uuid: "a@b.mx"', False),
+        ("23505", 'duplicate key value violates unique constraint "uq_slug"', True),
+    ],
+)
+def test_primary_message_is_dropped_for_data_exceptions_only(sqlstate, primary, logged):
+    logger, stream = _capture()
+    try:
+        _raise(DataError("SELECT 1", None, FakeDriverError(sqlstate, primary)))
+    except DataError:
+        logger.exception("failed")
+    assert "a@b.mx" not in stream.getvalue()
+    scrubbed = _last_line(stream)["exc_info"]
+    head = f"DataError error_type=FakeDriverError sqlstate={sqlstate}"
+    assert scrubbed.startswith(head)
+    assert (f"primary={primary!r}" in scrubbed) is logged
+
+
+def _save() -> None:
+    statement = "INSERT INTO person (email) VALUES (%(email)s)"
+    params = {"email": "a@b.mx"}
+    raise IntegrityError(statement, params, Exception(DRIVER_MESSAGE))
+
+
+def _fail() -> None:
+    msg = "second failure"
+    raise RuntimeError(msg)
+
+
+def _wrap_with_cause() -> None:
+    try:
+        _save()
+    except IntegrityError as exc:
+        # Application code often embeds the inner error in the outer message.
+        msg = f"while saving ana: {exc}"
+        raise RuntimeError(msg) from exc
+
+
+def _wrap_with_context() -> None:
+    try:
+        _save()
+    except IntegrityError:
+        _fail()  # raised while handling the IntegrityError: implicit __context__
+
+
+def _wrap_hiding_the_context() -> None:
+    try:
+        _save()
+    except IntegrityError:
+        msg = "second failure"
+        raise RuntimeError(msg) from None
+
+
+def _wrap_without_database_error() -> None:
+    try:
+        _raise(ValueError("inner detail"))
+    except ValueError as exc:
+        msg = "outer detail"
+        raise RuntimeError(msg) from exc
+
+
+def test_database_errors_are_scrubbed_anywhere_in_an_exception_chain():
+    logger, stream = _capture()
+    try:
+        _wrap_with_cause()
+    except RuntimeError:
+        logger.exception("failed")
+    assert "a@b.mx" not in stream.getvalue()
+    # The outer message embeds the inner one and is never printed either.
+    assert "while saving ana" not in stream.getvalue()
+    scrubbed = _last_line(stream)["exc_info"]
+    assert scrubbed.index("IntegrityError error_type=Exception") < scrubbed.index(
+        "RuntimeError"
+    )
+    assert "The above exception was the direct cause of the following exception:" in (
+        scrubbed
+    )
+    assert "_save" in scrubbed
+    assert "_wrap_with_cause" in scrubbed
+
+
+def test_database_errors_reached_through_the_context_are_scrubbed_too():
+    logger, stream = _capture()
+    try:
+        _wrap_with_context()
+    except RuntimeError:
+        logger.exception("failed")
+    assert "a@b.mx" not in stream.getvalue()
+    assert "second failure" not in stream.getvalue()
+    scrubbed = _last_line(stream)["exc_info"]
+    assert "During handling of the above exception, another exception occurred:" in (
+        scrubbed
+    )
+    assert "IntegrityError" in scrubbed
+    assert "RuntimeError" in scrubbed
+
+
+def test_exception_cycles_are_followed_once():
+    logger, stream = _capture()
+    inner = IntegrityError("INSERT", {"email": "a@b.mx"}, Exception(DRIVER_MESSAGE))
+    outer = RuntimeError("wraps a@b.mx")
+    outer.__cause__ = inner
+    inner.__cause__ = outer
+    logger.error("failed", exc_info=outer)
+    assert "a@b.mx" not in stream.getvalue()
+    scrubbed = _last_line(stream)["exc_info"]
+    assert scrubbed.count("IntegrityError") == 1
+    assert scrubbed.count("RuntimeError") == 1
+
+
+def test_chains_without_a_database_error_keep_their_full_traceback():
+    logger, stream = _capture()
+    try:
+        _wrap_without_database_error()
+    except RuntimeError:
+        logger.exception("failed")
+    traced = _last_line(stream)["exc_info"]
+    assert "Traceback (most recent call last)" in traced
+    assert "inner detail" in traced
+    assert "outer detail" in traced
+
+
+def test_exc_info_without_an_active_exception_is_left_alone():
+    logger, stream = _capture()
+    # What exc_info=True records when nothing is being handled.
+    logger.error("failed", exc_info=(None, None, None))
+    assert _last_line(stream)["exc_info"] == "NoneType: None"
+
+
+def test_a_database_error_that_traceback_would_not_print_keeps_the_full_traceback():
+    logger, stream = _capture()
+    try:
+        _wrap_hiding_the_context()  # raise ... from None suppresses the context
+    except RuntimeError:
+        logger.exception("failed")
+    traced = _last_line(stream)["exc_info"]
+    assert "Traceback (most recent call last)" in traced
+    assert "second failure" in traced
+    assert "a@b.mx" not in traced

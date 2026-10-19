@@ -1,0 +1,374 @@
+{
+ "findings": [
+  {
+   "title": "`policy_version_id` means two different things: FK to one pack version (07) vs hash of the merged effective policy snapshot (10)",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §6: `onboarding_application.policy_version_id uuid NOT NULL REFERENCES policy_pack_version(id) -- frozen at start`; §5 `ubo_determination.policy_version_id ... REFERENCES policy_pack_version(id)`",
+    "notion-export/10-f00-platform-foundations.md §4.4: \"Every decision record stores `policy_version_id`, the hash of the effective policy, persisted in `policy_snapshot`\"; `CREATE TABLE policy_snapshot (id, tenant_id, content_hash, content ...)`",
+    "notion-export/10-f00-platform-foundations.md §4.1: \"A tenant is assigned one or more packs (e.g. `MX/ITF-IFPE` + `MX/LFPIORPI-AVI`) ... The resolver merges them with the tenant's overrides\"",
+    "notion-export/16-f06-case-management.md §3: `ALTER TABLE aml_case ADD COLUMN policy_version_id uuid NOT NULL` (no FK)",
+    "notion-export/12-f02-business-onboarding-kyb.md §6: `kyb_application.policy_version_id uuid NOT NULL` (no FK)",
+    "notion-export/11-f01-customer-onboarding.md §8: `journey_definition.policy_snapshot_id uuid NOT NULL -- policy it was validated against`"
+   ],
+   "detail": "The data model makes every decision table point at a single `policy_pack_version` row. Foundations says a tenant holds several packs plus overrides, merged into an effective policy whose hash is stored in `policy_snapshot`, and that this snapshot id/hash is what decisions must store for reproducibility. The user's own scope (MX/ITF-IFPE first, MX/LFPIORPI-AVI second, both assignable to one e-money tenant) makes the single-FK design unable to record which effective policy applied. F01 already uses `policy_snapshot_id` while F02/F06 reuse the name `policy_version_id` without any FK, so the three sub-specs would create three incompatible columns.",
+   "design_impact": "With Postgres-first the reproducibility guarantee (07 §9 rule 2) rests entirely on this column. If Sprint 1/2 migrations create `policy_version_id -> policy_pack_version` and Sprint 6/7 need the merged two-pack policy, every decision table (onboarding_application, kyb_application, ubo_determination, aml_case, screening_run, risk_assessment, reportable_event) must be migrated and back-filled.",
+   "suggested_resolution": "Standardise on `policy_snapshot_id uuid NOT NULL REFERENCES policy_snapshot(id)` on every decision table; keep `policy_snapshot.content` listing the pack versions and override version it was built from (so the pack-version lineage is still queryable). Drop `policy_version_id` from 07 §5/§6 and from F02/F06, or keep it only as a denormalised convenience array `pack_version_ids uuid[]`."
+  },
+  {
+   "title": "`tenant_policy` (07) cannot express what the foundations resolver reads: multiple packs per tenant, product scope, effective_to, and a YAML-vs-DB source of truth",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §4: `tenant_policy (tenant_id, pack_version_id, overrides jsonb, effective_from, approved_by uuid NOT NULL)` with one pack version per row and no product/effective_to",
+    "notion-export/10-f00-platform-foundations.md §4.4: `packs = tenant_pack_assignments(tenant_id, on, product)` ... `apply_overrides(merged, tenant_overrides(tenant_id, on))`; §1 `policy-packs/ # versioned YAML rulebooks (reviewed like code)`",
+    "notion-export/07-data-model.md §3: `policy_pack.code` examples 'MX/ITF', 'MX/LFPIORPI-REAL-ESTATE'; notion-export/06-architecture-overview.md §4 'MX/ITF', 'MX/BANK'",
+    "notion-export/10-f00-platform-foundations.md §4.2: `pack: MX/ITF-IFPE`; notion-export/15-f05-transaction-monitoring.md §4.1/§5: `tenant_packs: [MX/ITF-*, MX/BANK]`, `pack: MX/LFPIORPI-AVI`"
+   ],
+   "detail": "The resolver in 10 needs (a) a set of pack assignments per tenant, optionally scoped by product, valid on a date; (b) tenant overrides as a separately versioned object; (c) pack versions loaded from repo YAML. 07's `tenant_policy` bundles one pack version with the overrides in the same row and has no `effective_to` or product column, so a two-pack tenant must duplicate its overrides on two rows and cannot retire an assignment. Pack codes are also spelled three ways (`MX/ITF`, `MX/ITF-IFPE`, `MX/ITF-*` glob), and nothing says whether the DB row or the YAML file is authoritative, although `tenant_policy.pack_version_id` is a hard FK to a DB row.",
+   "design_impact": "Foundations sub-spec (Sprint 1) must pick the shape before onboarding freezes policies; the MVP tenant (ITF-IFPE + LFPIORPI-AVI) is exactly the multi-pack case. The glob `MX/ITF-*` in monitoring rule scope needs a documented code grammar (`<CC>/<SECTOR>-<LICENCE>`).",
+   "suggested_resolution": "Split into `tenant_pack_assignment (tenant_id, pack_version_id, product text NULL, effective_from, effective_to, approved_by FK staff_user)` and `tenant_override_version (tenant_id, version, overrides jsonb, effective_from, approved_by)`. Define the pack code grammar once in 07 §3 and make a deploy-time loader upsert repo YAML into `policy_pack_version` (YAML is the source of truth; DB rows are immutable copies keyed by content hash)."
+  },
+  {
+   "title": "Two different tables for the same monetary-unit data: `monetary_unit` (07) and `unit_value` (10)",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §3: `CREATE TABLE monetary_unit (code, valid_from, valid_to, value numeric, currency char(3), PRIMARY KEY (code, valid_from))` with comment 'UMA (MX), SMVM (AR), SMMLV (CO), UF (CL), UIT (PE)'",
+    "notion-export/10-f00-platform-foundations.md §5: `CREATE TABLE unit_value (unit_code, valid_from, valid_to, value numeric(20,8), quote_ccy char(3), source, fetched_at, superseded_by bigint, id bigserial PRIMARY KEY)` with 'UMA, UDI, USD_MXN_FIX, ...'; \"Values are never overwritten; corrections are new rows\"",
+    "notion-export/15-f05-transaction-monitoring.md §3 enrichment: `amount_uma`, `amount_udi`, 'USD at Banxico FIX of prior banking day'; §6.1 `reportable_event.unit_values jsonb -- which UMA/FIX/TRM values were used`",
+    "notion-export/04-delivery-plan.md Sprint 1 T1.2: 'Units service (UMA, UDI, Banxico FIX)'"
+   ],
+   "detail": "07 defines a simple effective-dated table keyed on (code, valid_from) with no correction chain and no UDI/FIX codes; 10 defines a richer table with surrogate id, source, fetched_at and `superseded_by` and explicitly forbids overwriting. The MX launch needs UDI (daily) and FIX (prior banking day) from Sprint 1, which only 10's design lists. If 07's DDL is used as the migration source (T1.5 'Schema matches data-model doc'), the Sprint 1 units service built from 10 will not match.",
+   "design_impact": "Threshold conversion for ROR (USD 5,000 at FIX), tier limits (UDI) and avisos (UMA) all read this table. Two tables, or 07's PK without a correction chain, means a Banxico correction overwrites history and `reportable_event.unit_values` cannot be reproduced.",
+   "suggested_resolution": "Delete `monetary_unit` from 07 §3 and adopt `unit_value` from 10 §5 as the single table, adding a `UNIQUE (unit_code, valid_from) WHERE superseded_by IS NULL` partial index and a `conversion_rule` column or catalog (SAME_DAY, PRIOR_BANKING_DAY, PREV_MONTH_AVG, SEMIANNUAL_SNAPSHOT)."
+  },
+  {
+   "title": "Nullable `tenant_id` on shared-or-tenant tables (risk_model, risk_factor_table, monitoring_rule) breaks the mandated FORCE RLS policy and the UNIQUE constraints",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §9 rule 1: 'Every tenant table carries `tenant_id` with Postgres RLS ... USING (tenant_id = current_setting('app.tenant_id')::uuid)'; notion-export/10-f00-platform-foundations.md §2.2: 'Every tenant table has `tenant_id uuid NOT NULL`, ENABLE + FORCE ROW LEVEL SECURITY'",
+    "notion-export/14-f04-risk-scoring.md §4: `risk_model (tenant_id uuid, -- NULL = platform template ... UNIQUE (tenant_id, code))`; `risk_factor_table (tenant_id uuid, -- NULL = shared ... UNIQUE (tenant_id, code, version))`",
+    "notion-export/15-f05-transaction-monitoring.md §6.1: `monitoring_rule (tenant_id uuid, -- NULL = platform library rule ... UNIQUE (tenant_id, code))`",
+    "notion-export/18-f08-compliance-calendar.md §2: `obligation_def` has no tenant_id at all (pure shared) — a third pattern"
+   ],
+   "detail": "Three sub-specs invent a 'NULL tenant_id = platform/shared' pattern. Under the mandated policy `tenant_id = current_setting('app.tenant_id')::uuid`, rows with NULL tenant_id are invisible to every tenant session, so platform library rules and shared factor tables can never be read by the app role. Separately, Postgres treats NULLs as distinct in UNIQUE constraints, so `UNIQUE (tenant_id, code)` does not prevent two platform rules with the same code. The data model's own shared tables (policy_pack, list_source, report_schema) instead use the 'no tenant_id column' pattern, and 10's isolation test harness discovers tenant tables via information_schema by the presence of the column, so these hybrid tables would be mis-classified.",
+   "design_impact": "Wrong migration: the Sprint 2 risk evaluator and Sprint 3 rule engine would load zero platform rules in production (RLS) while passing tests run as table owner. Fixing it later means splitting tables and rewriting the unique constraints.",
+   "suggested_resolution": "Pick one pattern and state it in 07 §9: either (a) separate shared tables (`risk_model_template`, `monitoring_rule_template`, `risk_factor_table_shared`) with no tenant_id plus tenant copies with `tenant_id NOT NULL` and a `template_version_id` provenance column, or (b) keep nullable tenant_id but define the RLS policy for these tables as `tenant_id IS NULL OR tenant_id = current_setting(...)` with a WITH CHECK that forbids tenants writing NULL rows, and replace the UNIQUE with `UNIQUE NULLS NOT DISTINCT (tenant_id, code)` (PG15+). Add the choice to the isolation test harness."
+  },
+  {
+   "title": "Composite `(tenant_id, id)` foreign keys: foundations say 'everywhere from day one', the data model says 'later, before first production tenant'",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "notion-export/10-f00-platform-foundations.md §2.2: 'Composite foreign keys `(tenant_id, id)` everywhere, so a row can never reference another tenant's row' with the `party_identifier_party_fk` example",
+    "notion-export/07-data-model.md §9 rule 1: 'Long term, make foreign keys composite'; §10 table: 'Foreign keys — Start simple; move to composite `(tenant_id, id)` foreign keys before the first production tenant'",
+    "Every CREATE TABLE in 07 §5–§8 and in 11/12/14/15/16/18 uses single-column `REFERENCES x(id)`"
+   ],
+   "detail": "The two foundational documents resolve the same decision differently, and all sub-spec DDL follows 07's single-column form. Retrofitting composite FKs requires adding `UNIQUE (tenant_id, id)` to every parent and rewriting every FK, which 06 §9 itself calls 'very painful' to retrofit.",
+   "design_impact": "For a one-developer Postgres-first MVP, doing it from the first migration costs almost nothing (a SQLAlchemy mixin + Alembic convention) and removes a whole class of cross-tenant bugs that RLS alone does not catch for FK validation. Doing it later is a schema-wide migration.",
+   "suggested_resolution": "Adopt 10's position: every tenant-scoped parent gets `UNIQUE (tenant_id, id)` and every tenant-scoped child FK is `FOREIGN KEY (tenant_id, <parent>_id) REFERENCES parent (tenant_id, id)`. Update 07 §9/§10 and generate FKs through a shared SQLAlchemy helper so sub-specs cannot drift."
+  },
+  {
+   "title": "`transaction` table lacks what monitoring, reporting and alerts need (external_id, instrument, party/relationship link) and its partitioned PK makes the referenced idempotency UNIQUE and FKs impossible",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §8: `transaction (tenant_id, id, occurred_at, account_id, direction, rail -- SPEI, PIX, CVU, PSE, CARD, CASH, CRYPTO, FX ..., PRIMARY KEY (tenant_id, occurred_at, id)) PARTITION BY RANGE (occurred_at)` — no external_id, instrument, party_id, relationship_id, amount_local, unit amounts, ingested_at",
+    "notion-export/15-f05-transaction-monitoring.md §3: `external_id: str # tenant's id → idempotency`, `instrument: Literal[CASH,TRANSFER,CARD,CHEQUE,CRYPTO,OTHER] # maps to MX instrumento monetario`, `rail: Literal[SPEI,PIX,CVU,CBU,PSE,BRE_B,ACH,WIRE_INTL,CARD,CASH,CHEQUE,CRYPTO,FX,INTERNAL]`; §2 'idempotency (tenant, external_id)'; §4.4 'The two are linked by `external_id`'; §6.1 `txn_decision.external_id`",
+    "notion-export/07-data-model.md §8: `report_item.transaction_id uuid` (no FK possible), `alert.transaction_ids uuid[]`; notion-export/15 §6.1 `alert_evidence.transaction_ids uuid[]`, `reportable_event.transaction_ids uuid[]`",
+    "research/2026-10-17-reporting-mx-br.md A.2.3: Formato 41 col. 8 'tipo de operación (01 depósito, 02 retiro, 03 compra divisas ...)' and col. 9 'instrumento monetario (01 efectivo, 02 documentos/valores, 03 transferencia ...)'"
+   ],
+   "detail": "The canonical Txn in F05 carries `external_id`, `instrument`, `customer_ref/account_ref` resolved to `party_id/relationship_id`, local and unit amounts; the system-of-record table in 07 has none of these and uses a different `rail` vocabulary. Because the table is range-partitioned on `occurred_at`, a `UNIQUE (tenant_id, external_id)` idempotency constraint cannot be declared (Postgres requires the partition key in every unique index), and no table can declare a single-column FK to `transaction(id)`. Formato 41 needs `tipo de operación` and `instrumento monetario`, which can only be derived if `instrument` and `direction` are stored.",
+   "design_impact": "Wrong migration in Sprint 2 (T2.4 ingest) and Sprint 4 (T4.3 captures): ingestion cannot enforce idempotency at the database, F41 serialisation cannot populate cols 8–9, and every lookup from an alert/report to its transactions must scan all partitions because the arrays carry no `occurred_at`.",
+   "suggested_resolution": "Align 07 with the F05 canonical schema: add `external_id text NOT NULL`, `instrument text NOT NULL`, `party_id`, `relationship_id`, `amount_local_minor`, `unit_amounts jsonb`, `ingested_at`; unify the `rail` enum with F05. Enforce idempotency through a separate non-partitioned `transaction_ref (tenant_id, external_id, transaction_id, occurred_at, PRIMARY KEY (tenant_id, external_id))` table, and make all references carry `(transaction_id, occurred_at)` pairs (e.g. `report_item (tenant_id, report_id, transaction_id, occurred_at)` with a composite FK). State the Postgres retention plan for 10 years of partitions since the lakehouse is deferred."
+  },
+  {
+   "title": "`amount_minor bigint` and `currency char(3)` cannot hold crypto quantities and asset codes required by the LFPIORPI AVI aviso",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §8: `transaction.amount_minor bigint NOT NULL, currency char(3) NOT NULL`; `account.currency char(3) NOT NULL -- ... CRYPTO_CUSTODY`",
+    "notion-export/15-f05-transaction-monitoring.md §3: `amount: Decimal; currency: str # ISO 4217; crypto: asset code in crypto`; `crypto: CryptoCtx | None # asset, network, tx_hash, wallet_type`",
+    "research/2026-10-17-reporting-mx-br.md A.1.4: 'Amounts: `\\d{1,14}\\.\\d{2}` (string). Crypto quantity: `\\d{1,14}\\.\\d{2,10}`'; new schema adds `numero_wallet`, `red_transferencia`, `hash_operacion`",
+    "notion-export/15-f05-transaction-monitoring.md §5: `capture: MX_LFPIORPI_AVI_XVI_A ... on: { rail: CRYPTO } when: amount_uma >= 210 or acc_6m_from_first(amount_uma) >= 210`"
+   ],
+   "detail": "The second policy pack (MX/LFPIORPI-AVI) reports crypto operations with up to 10 decimal places of asset quantity, wallet numbers, network and tx hash. 07 stores one integer minor-unit amount and a 3-character currency, with crypto context only as `travel_rule jsonb`. Asset codes such as USDT or MATIC exceed char(3) and 18-decimal assets overflow bigint minor units. F05's canonical schema already models `crypto` as a separate context but 07 has no columns for it.",
+   "design_impact": "Must be decided before the TM/ingest sub-spec; otherwise the AVI pack (Sprint 7, T7.3) needs an ALTER on the partitioned, high-volume table and a backfill from `raw`.",
+   "suggested_resolution": "Add to `transaction`: `asset_code text` (ISO 4217 or asset symbol), `asset_amount numeric(38,18)`, `fiat_amount_minor bigint` + `fiat_currency char(3)` (MXN equivalent at FIX), and `crypto jsonb` (network, tx_hash, wallet_address_hash, wallet_type). Widen `account.currency` to text or add `asset_code`."
+  },
+  {
+   "title": "Five report-code namespaces that never join: 07 `report_type`, 15 `report_code`, 10 pack `reports`, 16 clock/decision codes, 18 `linked_report`; period keys also differ",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §8: `regulatory_report.report_type text -- MX_UIF_RELEVANTE, MX_UIF_INUSUAL, MX_UIF_PREOCUPANTE, MX_LFPIORPI_AVISO ... incl. ZERO (\"no operations\") reports`; `report_schema (jurisdiction, report_type, version)`; `period_start date, period_end date`",
+    "notion-export/15-f05-transaction-monitoring.md §5/§6.1: `report: MX_FORMATO41_ROR`, `report: MX_AVISO_AVI`; `reportable_event.report_code text -- 'MX_FORMATO41_ROR'`, `period_key text -- '2026Q4', '2026-11', 'EVENT'`",
+    "notion-export/10-f00-platform-foundations.md §4.2: `reports: [MX_FORMATO41_ROR@2004.5, MX_FORMATO41_ROI@2004.5, MX_ITF_FX_CASH@1, MX_ITF_INTL_TRANSFERS@1]`; `on_true_match: MX_LPB: { report: MX_ROI_24H }`",
+    "notion-export/16-f06-case-management.md §2.3/§3: clock `MX_ROI_FILING`; `case_decision.decision -- REPORT_STR, REPORT_24H, REPORT_RFT`; `case_narrative.template_code -- MX_F41_UIF_GUIDE`",
+    "notion-export/18-f08-compliance-calendar.md §2/§3: `obligation_def.linked_report text -- report code if AUTO_REPORT`, `period_key -- '2026Q4', '2026', '2026-11', 'EVENT:<uuid>'`; '`report.filed` with a matching code and period → mark DONE'",
+    "notion-export/05-requirements-planning-sdlc.md §2.4: `implemented_by: [TM capture MX_ITF_ROR_CASH, RR MX_FORMATO41_ROR@2004.5, OB MX_ITF_ROR_Q]`"
+   ],
+   "detail": "The same Mexican relevant-operations report is `MX_UIF_RELEVANTE` in the data model, `MX_FORMATO41_ROR` in monitoring captures and the policy pack (with an `@2004.5` version suffix), and referenced by an obligation code `MX_ITF_ROR_Q` in the calendar. The 24-hour report is `MX_ROI_24H` in the pack but only a legend variant of `MX_UIF_INUSUAL` in 07. Reportable events carry a `period_key` string while `regulatory_report` carries `period_start/period_end` dates, so the capture→report→obligation auto-completion chain (18 §3) has no join keys. 07 also leaves ambiguous whether a zero report is a distinct `report_type` or a flag, while the SDLC acceptance test says 'a draft MX_FORMATO41_ROR run with `is_zero = true`'.",
+   "design_impact": "The blank 07-Reporting sub-spec cannot be written until one code registry exists; otherwise the reporting engine, obligations auto-tick and policy packs will each need mapping tables, and `report_schema UNIQUE (jurisdiction, report_type, version)` will be keyed on the wrong vocabulary.",
+   "suggested_resolution": "Define one `report_definition` registry keyed by `code` (adopt the pack/capture form `MX_FORMATO41_ROR`, `MX_FORMATO41_ROI`, `MX_FORMATO41_ROIP`, `MX_AVISO_<CLAVE>`) with `version`, `valid_from/valid_to`; make `reportable_event.report_code`, `regulatory_report.report_code`, `obligation_def.linked_report` and pack `reports[]` all FK/validate against it. Add `period_key text` and `is_zero boolean NOT NULL DEFAULT false` to `regulatory_report`, derive `period_start/end` from the key, and express the 24-hour and LPB variants as `variant`/`legend` fields on the report rather than separate codes (or register them as codes with the same serializer — but choose one)."
+  },
+  {
+   "title": "Reporting lifecycle columns missing or contradicted: no `prepared_by`/four-eyes pair, no correction linkage, no `NEEDS_REGENERATION`, no `valid_to`, no artifact hash",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §8: `regulatory_report.status -- DRAFT, PENDING_APPROVAL, APPROVED, FILED, ACKNOWLEDGED, REJECTED`, `approved_by uuid`, `payload_ref text`; `report_schema (... valid_from date ...)` with no valid_to; `report_filing (method -- AUTO or MANUAL_UPLOAD, regulator_receipt text, result -- ACCEPTED, REJECTED, ERROR)`",
+    "notion-export/15-f05-transaction-monitoring.md §5: 'the report is marked `NEEDS_REGENERATION` if already drafted'",
+    "notion-export/03-feature-list-v2.md §1 F-6: 'two formats live in parallel ... Report definitions carry `valid_from`/`valid_to`'; §8.1 RR-6 corrections lifecycle 'MX non-financial correction notice (once, within 30 days)'; RR-7 'draft → compliance-officer approval (four-eyes) → file → acknowledgment → archive (immutable copy of the exact bytes filed + receipt)'",
+    "research/2026-10-17-reporting-mx-br.md A.1.3: 'Aviso modificatorio ... `<modificatorio><folio_modificacion>AAAA-n</folio_modificacion>` ... Informes en cero cannot be modified'; A.1.4 acuse status \"rechazado\" does not count as compliance; A.2.3 F41 'no podrán ser modificados once accepted'",
+    "notion-export/04-delivery-plan.md T5.4: 'definition registry, code tables, run workflow, approval, artifacts, receipts'"
+   ],
+   "detail": "RR-7 requires four-eyes on reports but `regulatory_report` only has `approved_by` with no preparer, so the rule cannot be checked. The capture doc introduces a `NEEDS_REGENERATION` state not in 07's enum, and the research-defined correction flows (aviso modificatorio with `folio_modificacion`, 30-day once-only window; F41 immutable once accepted) need `corrects_report_id`, `correction_count`, and the regulator folio from the acuse. `report_schema` has `valid_from` only, although F-6 requires overlapping validity (old XML usable for corrections until 30-06-2027). The delivery plan talks about 'runs' and 'artifacts' which are not entities in 07, and `payload_ref` has no sha256 even though every other evidence table records one.",
+   "design_impact": "These are additive columns if decided now; added after Sprint 5–7 they force data-model churn on the table that holds filed, legally immutable records.",
+   "suggested_resolution": "Extend `regulatory_report` with `prepared_by uuid FK`, `approved_by uuid FK` + `CHECK (approved_by <> prepared_by)`, `is_zero`, `period_key`, `corrects_report_id uuid FK`, `correction_count int`, `payload_sha256 bytea`, `definition_version_id FK`; extend status with `NEEDS_REGENERATION` and `SUPERSEDED`; add `valid_to date` (and sector, channel, deadline_rule jsonb, zero_report_rule jsonb, correction_rule jsonb) to `report_schema`/`report_definition`; add `regulator_folio text`, `acuse_sha256 bytea`, `acuse_ref text` to `report_filing`."
+  },
+  {
+   "title": "Lineage reportable_event → report_item → report_filing is broken: `report_item` has no PK, no link to `reportable_event`, and re-emission on late events duplicates captures",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §8: `report_item (tenant_id, report_id, party_id, transaction_id uuid)` — no primary key, no reportable_event_id",
+    "notion-export/15-f05-transaction-monitoring.md §6.1: `reportable_event (... transaction_ids uuid[] NOT NULL, status -- CAPTURED, INCLUDED, VOIDED, UNIQUE (tenant_id, capture_code, period_key, transaction_ids))`; §5: 'all underlying transactions of the period are captured ... A capture re-emits on late events'",
+    "notion-export/06-architecture-overview.md §6.7: 'Filing attempts, regulator receipts, and rejections are tracked'"
+   ],
+   "detail": "F05 says the reporting engine 'aggregates these [reportable_event rows] into report files', but 07's `report_item` only lists party/transaction ids, so a filed line cannot be traced back to the capture rule version and unit values that produced it (`reportable_event.unit_values`). Because the UNIQUE key includes the `transaction_ids` array, a late event that enlarges the array creates a second CAPTURED row instead of superseding the first, and nothing marks the earlier one VOIDED. `report_item` also has no key, which SQLAlchemy ORM mapping and idempotent inserts both need.",
+   "design_impact": "Reporting sub-spec (Sprint 5–7) and the Formato 41 golden-file tests depend on deterministic item sets; without lineage the regenerate-on-late-event path cannot be implemented safely in Postgres.",
+   "suggested_resolution": "Give `report_item` a PK `(tenant_id, report_id, reportable_event_id)` with `reportable_event_id uuid NOT NULL FK`, plus `line_no`, `rendered_fields jsonb`; add `supersedes_id uuid FK` and `superseded_at` to `reportable_event` and replace the array UNIQUE with a partial unique on `(tenant_id, capture_code, period_key, subject_key) WHERE superseded_at IS NULL`."
+  },
+  {
+   "title": "Tenant regulator identity, branch catalog and regulator code tables (RR-4) have no tables, so no MX file can be serialised",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §4: `tenant (id, legal_name, country_code, cell, status, kms_key_ref, created_at)` — nothing else",
+    "research/2026-10-17-reporting-mx-br.md A.2.3: F41 col. 4 'órgano supervisor (CASFIM code ... 040002)', col. 5 'clave sujeto obligado (CASFIM, 6)', col. 6–7 'localidad (8); sucursal (8; 0 = head office)'; A.2.2 'Catálogo de sucursales ... Formato 41 Anexo 3'; A.1.4 aviso `sujeto_obligado`: `clave_entidad_colegiada?`, `clave_sujeto_obligado` (RFC 12/13), `clave_actividad` (fixed `AVI`), `dominio_plataforma`; `alerta/tipo_alerta` '3–4 digits from UIF catalog'",
+    "notion-export/03-feature-list-v2.md §8.1 RR-4: 'Code-table service: versioned regulator catalogs (MX operation types / monetary instruments / alert types / CASFIM codes ...)'",
+    "notion-export/04-delivery-plan.md T5.4: 'definition registry, code tables, run workflow'"
+   ],
+   "detail": "Both Mexican formats require regulator-assigned identity data per tenant (CASFIM supervisor and entity keys, RFC, SPPLD activity key, platform domain, optional entidad colegiada) and a branch catalog; aviso XML also needs UIF `tipo_alerta` codes and operation-type catalogs that RR-4 says must be versioned. None of these have a home in the DDL. `tenant_policy.overrides` is not the place because these are facts, not policy.",
+   "design_impact": "Must exist before the serializer sub-spec; otherwise the golden byte-identical files (T6.3) will be built with hard-coded fixture values and the obligations calendar cannot bind to a regulator.",
+   "suggested_resolution": "Add `tenant_regulatory_profile (tenant_id, jurisdiction, regulator, fields jsonb validated by a per-jurisdiction Pydantic model: rfc, casfim_supervisor, casfim_entity, sppld_clave_actividad, dominio_plataforma, clave_entidad_colegiada, siti_user_ref, efirma_cert_ref)`, `tenant_branch (tenant_id, clave 8, nombre 50, ... estatus)`, and a shared `code_table (code_set, version, valid_from, valid_to, entries jsonb)` for CASFIM, tipo_operacion, instrumento_monetario, tipo_alerta, UIF catalogs."
+  },
+  {
+   "title": "Case status, outcome and visibility models disagree between 07, 16 and sentinel (three state machines, two visibility columns, two SLA representations)",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §8: `aml_case.status -- OPEN, IN_REVIEW, PENDING_APPROVAL, CLOSED`, `restricted boolean`, `sla_due_at timestamptz`, `outcome -- NO_REPORT, REPORTED, EXITED_CUSTOMER, BLOCKED`, `case_type -- AML_INVESTIGATION, SANCTIONS_HIT, FRAUD, EDD_REVIEW, TRAVEL_RULE`",
+    "notion-export/16-f06-case-management.md §2.2: 'OPEN → INVESTIGATING → PROPOSED_DECISION → (APPROVAL | COMMITTEE) → DECIDED → CLOSED | REPORT_DRAFTING → REPORT_FILED → CLOSED | ACTION_PENDING → CLOSED'; §3: `ADD COLUMN visibility text NOT NULL DEFAULT 'TEAM' -- TEAM | RESTRICTED | INSIDER`, `case_clock` table, `case_decision.decision -- NO_ACTION, EDD, RESTRICT, EXIT, FREEZE, REPORT_STR, REPORT_24H, REPORT_RFT`; C12 'Internal-concern / employee cases (MX ROIP)'; §8 'no path to REPORT_FILED without an approved decision'",
+    "sentinel src/sentinel/enums.py: `CaseStatus: open, in_review, escalated, closed`; `CaseType: onboarding, monitoring`; `Disposition: cleared, reported`"
+   ],
+   "detail": "07's four-state `status` cannot represent the F06 machine the property tests are written against (PROPOSED_DECISION, COMMITTEE, REPORT_DRAFTING, REPORT_FILED, ACTION_PENDING). 07 keeps a `restricted boolean` while F06 adds a three-valued `visibility` to the same table, and 07's `outcome` overlaps F06's `case_decision.decision` with different vocabularies (BLOCKED vs FREEZE/RESTRICT). 07's single `sla_due_at` coexists with F06's multi-clock table. F06 needs an INTERNAL_CONCERN case type for ROIP/insider cases but 07's `case_type` list lacks it. Sentinel's console state machine is a fourth variant.",
+   "design_impact": "Case management (Sprint 4–5) and the console adapted from sentinel both encode allowed_actions per state; two incompatible enums in the same table would make the four-eyes property test meaningless and force a rewrite of the console's state logic twice.",
+   "suggested_resolution": "Make 16 §2.2 the single source: replace 07's `status` list with the F06 states, drop `restricted` in favour of `visibility`, drop `sla_due_at` in favour of `case_clock` (keep a denormalised `next_due_at` for queue sorting if needed), replace `outcome` with the latest approved `case_decision.decision`, and add `INTERNAL_CONCERN` and `ONBOARDING_REVIEW`/`KYB_REVIEW` to `case_type`. Port the sentinel console to this enum and keep sentinel's `allowed_actions` combinatorial test."
+  },
+  {
+   "title": "Alert status/source enums disagree (IN_REVIEW vs IN_TRIAGE, missing LINKED, missing onboarding/KYB review sources) and the alert table lacks the dedup key its NFR requires",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §8: `alert.status -- NEW, IN_REVIEW, CLOSED_NO_ACTION, ESCALATED`, `source -- TM_RULE, TM_MODEL, SCREENING, MANUAL, EMPLOYEE_REPORT`, `transaction_ids uuid[]`, `severity text` (no values)",
+    "notion-export/16-f06-case-management.md §2.1: 'NEW ──assign──► IN_TRIAGE ──close──► CLOSED_NO_ACTION | ──link──► LINKED | ──escalate──► ESCALATED'; §1 C1 'Unified alert inbox (monitoring, screening, onboarding review, KYB review, manual, employee referral)'",
+    "notion-export/11-f01-customer-onboarding.md §8: separate `review_task` table for onboarding manual review; §2.1 'Review console: Manual review queue (shares UI and infrastructure with 06)'",
+    "notion-export/15-f05-transaction-monitoring.md §6.1: `alert_evidence (alert_id PK, aggregates, transaction_ids uuid[] NOT NULL, window_start, window_end)`; §10: 'Exactly-once alerts: Dedup by `(rule_version, key, window_bucket)` • idempotent alert insert'; §4.1 `dedup: { key: [customer], cooldown: 7d }`"
+   ],
+   "detail": "F06's alert lifecycle has IN_TRIAGE and LINKED, which 07 does not; F06 lists onboarding and KYB review as alert sources, but F01 models onboarding review as a separate `review_task` and 07's `alert.source` has no ONBOARDING/KYB value, so it is undecided whether manual-review items are alerts or tasks. `transaction_ids` is stored twice (alert and alert_evidence). The idempotent-insert requirement needs a `dedup_key` and a unique index, which no table has; sentinel's alerts always have a non-null case (grouped on creation) while 07 allows `case_id NULL` with triage first.",
+   "design_impact": "The Sprint 4 inbox (T4.4) is built on these enums and on exactly-once semantics in a Postgres job-queue world where redelivery is normal; without a unique dedup key, retried jobs will duplicate alerts.",
+   "suggested_resolution": "Adopt F06's alert states; add `ONBOARDING_REVIEW`, `KYB_REVIEW` to `source` and decide that `review_task` becomes an alert of that source (keeping F01's reason codes in `alert.detail`); drop `alert.transaction_ids` in favour of `alert_evidence`; add `dedup_key text NOT NULL` and `UNIQUE (tenant_id, rule_version_id, dedup_key)`; define `severity` values once (LOW, MEDIUM, HIGH, CRITICAL to match sentinel)."
+  },
+  {
+   "title": "Onboarding/KYB application statuses don't cover the decision outcomes the engines emit (NEEDS_INFO, PENDING), and `workflow_id text NOT NULL -- Temporal` conflicts with the Postgres job-queue decision",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §6: `onboarding_application.status -- IN_PROGRESS, MANUAL_REVIEW, APPROVED, REJECTED, ABANDONED`, `workflow_id text NOT NULL -- Temporal workflow ID`",
+    "notion-export/11-f01-customer-onboarding.md §1.1 O5: 'Decisioning with reason codes: APPROVE / REJECT / MANUAL_REVIEW / NEEDS_INFO'; §7 `- id: DEFAULT then: NEEDS_INFO`; §8 `review_task.decision -- APPROVE, REJECT, NEEDS_INFO`",
+    "notion-export/12-f02-business-onboarding-kyb.md §6: `kyb_application.status -- IN_PROGRESS, NEEDS_INFO, PENDING_KYC, MANUAL_REVIEW, APPROVED, REJECTED`, `workflow_id text NOT NULL`; §5 rules emit `then: PENDING` and §2 'APPROVE / REVIEW / NEEDS_INFO / REJECT'",
+    "notion-export/07-data-model.md §6 `verification_check.result -- PASS, FAIL, INCONCLUSIVE, ERROR` vs notion-export/11 §6.1 `DocResult ... overall PASS/FAIL/REVIEW`; §6.6 'stored as a `verification_check` of type `ACCOUNT_OWNERSHIP`' (not in 07's `check_type` list, nor DEVICE_RISK, EMAIL_PHONE_RISK, DUPLICATE, FACE_MATCH_DOC)"
+   ],
+   "detail": "The KYC decision engine's default outcome is NEEDS_INFO, but the application status enum in 07 has no such state (KYB's does), so F01 cannot persist its most common non-terminal outcome; KYB rules return PENDING while the enum says PENDING_KYC. Both applications carry a mandatory Temporal `workflow_id`, which has no value under decision 2 (in-process dispatcher + Postgres job queue). `verification_check.check_type` and `result` vocabularies in 07 are narrower than the checks F01 actually stores.",
+   "design_impact": "Sprint 2 onboarding core will either invent statuses outside the documented enum or stuff NEEDS_INFO into MANUAL_REVIEW, which corrupts the conversion metrics and the step-up/refresh logic; a NOT NULL Temporal id forces a placeholder.",
+   "suggested_resolution": "Unify both application status enums as `IN_PROGRESS, NEEDS_INFO, PENDING_KYC, MANUAL_REVIEW, APPROVED, REJECTED, ABANDONED, EXPIRED`; rename `workflow_id` to `run_id uuid NULL REFERENCES job_run(id)` (or drop it); extend `verification_check.check_type` with ACCOUNT_OWNERSHIP, DEVICE_RISK, EMAIL_PHONE_RISK, DUPLICATE and `result` with REVIEW."
+  },
+  {
+   "title": "`onboarding_application.relationship_id NOT NULL` forces every UBO/legal representative KYC to create a customer relationship, contradicting the party model; KYB checks cannot link to `kyb_application`",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/07-data-model.md §1: 'A party can also be a beneficial owner, legal representative, or a PEP's relative without being a customer'; §6: `onboarding_application.relationship_id uuid NOT NULL REFERENCES customer_relationship(id)`; `verification_check.application_id uuid REFERENCES onboarding_application(id)`",
+    "notion-export/12-f02-business-onboarding-kyb.md §2 step 7: 'Natural persons → KYC sub-applications (01) for reps + beneficial owners (light or full tier)'; §1 B5; §6 `registry_snapshot.check_id uuid NOT NULL -- verification_check`, `kyb_application` separate table; §7 webhook `kyb.kyc_invite.sent`",
+    "notion-export/11-f01-customer-onboarding.md §9 `POST /v1/onboarding/applications` 'Create: {external_ref, country, product, tier, ...}' and `customer_relationship UNIQUE (tenant_id, external_ref)`"
+   ],
+   "detail": "KYB spawns KYC sub-applications for persons who are not customers, but an onboarding application cannot exist without a `customer_relationship`, which in turn requires a tenant `external_ref` the fintech does not have for a UBO. Meanwhile `verification_check.application_id` can only point at an onboarding application, so registry checks made during KYB (`registry_snapshot.check_id`) have no application linkage, and `kyb_application` duplicates the onboarding application columns instead of sharing them.",
+   "design_impact": "Onboarding is built in Sprint 2 and KYB in Sprint 6; if the NOT NULL stands, Sprint 6 either fakes customer relationships for UBOs (polluting reports, retention and risk counts) or rewrites the application tables.",
+   "suggested_resolution": "Make `relationship_id` nullable and add `party_id uuid NOT NULL`, `parent_kyb_application_id uuid NULL`, `subject_role text -- CUSTOMER | UBO | LEGAL_REP | ATTORNEY` to `onboarding_application`; either fold `kyb_application` into a common `application` table with `kind -- KYC | KYB` or add `kyb_application_id` to `verification_check` with a CHECK that exactly one application FK is set."
+  },
+  {
+   "title": "Risk hard rules and the MX pack read person/address attributes that do not exist in the party model (pep_status, is_non_resident, occupation_code, birth_state, municipality_code, contact data)",
+   "kind": "contradiction",
+   "severity": "high",
+   "sources": [
+    "notion-export/14-f04-risk-scoring.md §3.1: `input: person.occupation_code # SINCO`, `input: address.residential.municipality_code # INEGI clave`, `when: person.pep_status == FOREIGN`, `person.pep_status in [DOMESTIC, RCA]`, `when: party.is_non_resident and country == MX`",
+    "notion-export/07-data-model.md §5: `person (... occupation text, is_pep boolean NOT NULL DEFAULT false ...)` — no pep_status, birth_state, residency flag, email or phone; `party_address.municipality text` (free text, no INEGI code)",
+    "notion-export/10-f00-platform-foundations.md §4.2: N1 `required_fields: [given_names, first_surname, birth_date, gender, birth_state, occupation, email]`; FULL adds `clabe_own_name, digital_signature, geolocation`",
+    "research/2026-10-17-reporting-mx-br.md A.3.1: ITF Art. 11 requires 'state of birth, country of birth, nationality, clave de elector, full address, occupation/activity, CURP, firma autógrafa digitalizada, phone, email, bank account + CLABE in the client's name'; A.2.3 F41 col. 15 nacionalidad, col. 27 teléfono, col. 28 actividad económica"
+   ],
+   "detail": "The scorecard's legally mandatory floors (foreign PEP → HIGH, non-resident MX → HIGH) and the geography factor are keyed on columns the DDL does not define; `is_pep boolean` cannot distinguish FOREIGN/DOMESTIC/RCA, and `municipality text` cannot be joined to `geo_risk_mx_municipal`. The MX pack's required fields (birth_state, email) and Formato 41 columns (phone, economic activity) likewise have no storage; there is no `party_contact` table at all.",
+   "design_impact": "Wrong thresholds: with missing inputs the evaluator applies `missing_points = 70` and flags data gaps for every customer, and the hard-rule floors never fire. Both the Sprint 2 risk evaluator and the F41 serializer are blocked until the person model is extended.",
+   "suggested_resolution": "Extend `person` with `birth_state char(2)`, `occupation_code text` (SINCO), `pep_status text -- NONE | DOMESTIC | FOREIGN | RCA | INTL_ORG` + `pep_since/pep_until`, `is_resident boolean`, `clave_elector_enc bytea`, `economic_activity_code text`; add `party_contact (tenant_id, party_id, kind -- EMAIL | PHONE, value_enc, value_hash, verified_check_id)`; add `municipality_code text` (INEGI) and `admin_area_code` to `party_address`; derive `is_pep` as a generated column or drop it."
+  },
+  {
+   "title": "Screening list codes and kinds are inconsistent across pack, data model and research (UN_CSNU vs UN_CONSOLIDATED, retired UK_HMT, MX_LPB as a shared code vs private list, list_kind vs topic), and SAT 69-B entry status has no column",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §3: `list_source.code -- OFAC_SDN, UN_CSNU, EU, UK_HMT, MX_SAT_69B, BR_CEIS, AR_REPET, PEP_MX`, `list_kind -- SANCTION, PEP, ADVERSE_MEDIA, FISCAL, ENFORCEMENT`; §7 `private_list.code -- MX_LPB, INTERNAL_BLACKLIST`",
+    "notion-export/10-f00-platform-foundations.md §4.2: `screening: lists: [UN_CONSOLIDATED, MX_LPB, OFAC_SDN, MX_SAT_69B, PEP_MX]`, `on_true_match: MX_LPB: {...}, UN_CONSOLIDATED: {...}`",
+    "notion-export/14-f04-risk-scoring.md §3.1: `when: screening.true_match_list in [UN_CONSOLIDATED, MX_LPB, OFAC_SDN]`",
+    "notion-export/11-f01-customer-onboarding.md §7: `screening.has_potential_match(list_kind=SANCTION)`; notion-export/12-f02 §5: `screening.has_potential_match(topic=sanction, any_party=true)` and `screening.has(list=MX_SAT_69B, status in [PRESUNTO, DEFINITIVO])`",
+    "research/2026-10-17-tech-screening-reporting.md 'Recommended data-source stack': 'UK — Direct FCDO UK Sanctions List XML (the OFSI list is retired)'; notion-export/07 §3 `list_entry` has no per-entry status column"
+   ],
+   "detail": "The pack and the risk model treat `MX_LPB` as a list code in the same namespace as shared lists, but 07 stores LPB only as a `private_list.code`; `UN_CSNU` and `UN_CONSOLIDATED` name the same list; `UK_HMT` names the retired OFSI/HMT list rather than the FCDO list the research selects. F01 filters by `list_kind` while F02 filters by OpenSanctions-style `topic`. KYB rules filter 69-B entries by PRESUNTO/DEFINITIVO, which is an attribute of the entry (and changes over time: presunto → definitivo/desvirtuado), yet `list_entry` has no `entry_status`/`attributes` column besides `raw`.",
+   "design_impact": "The in-memory matcher, the policy-pack validator (`lists may only be added`) and the risk hard rules all key on list codes; without one registry the pack validation cannot check that `MX_LPB` exists, and 69-B filtering has to parse `raw` per match.",
+   "suggested_resolution": "Create one `list_code` registry covering both shared `list_source` and tenant `private_list` codes (private codes scoped `tenant_id`), rename `UN_CSNU` → `UN_CONSOLIDATED`, `UK_HMT` → `UK_FCDO`; standardise rule predicates on `list_kind` (map OpenSanctions topics to it at ingestion); add `entry_status text` and `attributes jsonb` to `list_entry` and `private_list_entry`."
+  },
+  {
+   "title": "Delta re-screening and whitelist suppression have no data support: no stable source entry key, no per-version diff table, entries re-copied per version, no customer name index, and `screening_run.party_id NOT NULL` excludes counterparties",
+   "kind": "gap",
+   "severity": "high",
+   "sources": [
+    "notion-export/06-architecture-overview.md §6.4: 'versioned snapshots of each list, with diffs between versions'; 'delta re-screening of the whole customer base on every list update'; 'a \"good guy\" table records cleared matches so they don't re-alert unless the list entry changes'; 'on transaction counterparties'",
+    "notion-export/07-data-model.md §3: `list_version (id, source_id, published_at, ingested_at, checksum)`; `list_entry (id, version_id NOT NULL, ..., content_hash bytea)` — no source entry id; §7 `screening_whitelist (tenant_id, party_id, entry_content_hash, disposition_id)`; `screening_run.party_id uuid NOT NULL`; §8 `counterparty.party_id uuid NULL`",
+    "notion-export/04-delivery-plan.md T2.2 'Versions + diffs stored'; T5.2 'Delta/reverse screening, periodic re-screen workflow ... New UN entry alerts the matching customer within 5 min'",
+    "research/2026-10-17-tech-screening-reporting.md 'Platform pattern': 'on each list delta, match the changed entities against the customer base (reverse screening) instead of rescreening everyone'; step 6 'persist {query snapshot, list version/hash, candidate set, feature vector, config version, score, decision, analyst disposition}'",
+    "notion-export/10-f00-platform-foundations.md §3 P2: 'Normalized name tokens are stored separately for matching (see 03 §5)' (03 is blank); notion-export/07 §5 `person.full_name_norm text NOT NULL`"
+   ],
+   "detail": "Diffing requires a stable per-source identifier (OFAC uid, UN dataid, FCDO unique id) on each entry to say 'this entry changed' rather than 'a row with a new id appeared'; `list_entry` has none, and because `version_id` is NOT NULL every ingestion (UN every 15 min, PEP 4×/day per research) copies the entire list. The whitelist keys on `content_hash`, so it can only confirm 'unchanged', never find the changed successor of a cleared entry to re-alert on. Reverse screening needs an indexed table of customer name variants/phonetic keys/id hashes; 07 holds a single `full_name_norm` on `person`, 10 says tokens are stored 'separately' in a section that does not exist. Counterparty screening at transaction time cannot be recorded because `screening_run` demands a `party_id`.",
+   "design_impact": "SC-1/SC-4 (Sprints 2 and 5) with an in-memory matcher in Postgres: without a delta table the 'new UN entry alerts within 5 min' acceptance test degenerates into full rescreens of the base per ingestion, and the whitelist either suppresses forever or never.",
+   "suggested_resolution": "Add `source_entry_key text NOT NULL` to `list_entry`/`private_list_entry` with `UNIQUE (version_id, source_entry_key)`; add `list_entry_delta (version_id, source_entry_key, change -- ADDED | CHANGED | REMOVED, prev_content_hash, new_content_hash)` produced at ingestion; key `screening_whitelist` on `(tenant_id, party_id, list_code, source_entry_key, entry_content_hash)`; define `screening_subject (tenant_id, subject_type -- PARTY | COUNTERPARTY, subject_id, name_variants text[], phonetic_keys text[], dob_year, countries, id_hashes bytea[])` as the matcher's reverse index (plaintext readable only by the matcher role, or decrypted into memory per the open decision); make `screening_run.party_id` nullable with `counterparty_id`/`subject_name_hash` alternatives and a CHECK."
+  },
+  {
+   "title": "`screening_match.status` and `match_disposition.decision` do not encode the research bands, auto-discard or whitelist suppression; consumers assume vocabularies that are free text",
+   "kind": "ambiguity",
+   "severity": "medium",
+   "sources": [
+    "notion-export/07-data-model.md §7: `screening_match.status -- OPEN, FALSE_POSITIVE, TRUE_MATCH, ESCALATED`, `score numeric`, `match_detail jsonb`; `match_disposition.decision text NOT NULL` (no values)",
+    "research/2026-10-17-tech-screening-reporting.md D.6: 'Sanctions `final ≥ 0.70` → alert ... `0.55–0.70` as low-confidence alerts ... PEP ≥ 0.80 ... Auto-discard rules (logged, auditable, reversible): an ID conflict, or DOB disjoint by more than 5 years and gender mismatch ... Always keep the evidence record'; 'Version the scoring config, store it with each decision'",
+    "notion-export/16-f06-case-management.md §2.1: 'a screening match auto-cleared by the whitelist ... Every auto-closure is logged with the rule that closed it'",
+    "notion-export/14-f04-risk-scoring.md §2: 'screening.match.dispositioned with TRUE_MATCH'; notion-export/11-f01 §7 'screening.has_potential_match'",
+    "sentinel src/sentinel/models.py: `ScreeningHit.strength String(16)` ('potential'/'strong' at 85/95 per docs/design.md §2)"
+   ],
+   "detail": "The research mandates keeping auto-discarded and whitelist-suppressed candidates as evidence, with the band and scoring-config version stored per decision; 07 has only four statuses and a bare numeric score, with no `band`, `matcher_config_version` (only `screening_run.matcher_version`), `auto_reason`, or `whitelist_id`. `match_disposition.decision` is untyped although risk scoring and cases react to the literal `TRUE_MATCH`, and the onboarding decision engine distinguishes 'potential' from confirmed matches with no column to do so. Sentinel uses a 0–100 scale with 85/95 thresholds, the research a 0–1 scale with 0.70/0.80 — the reused sentinel scorer must be recalibrated, not just reused.",
+   "design_impact": "Sprint 4 matcher (SC-3) and Sprint 6 calibration (SC-5) need these fields to compute precision/recall per band and to replay decisions; adding them later means re-deriving bands from `match_detail` JSON.",
+   "suggested_resolution": "Add to `screening_match`: `band text -- ALERT | LOW_CONFIDENCE | AUTO_DISCARDED | WHITELISTED | BELOW_CUTOFF`, `scoring_config_version text`, `auto_reason text`, `whitelist_disposition_id uuid`; extend `status` with `AUTO_CLEARED`; make `match_disposition.decision` an enum `FALSE_POSITIVE | TRUE_MATCH | INCONCLUSIVE | ESCALATED` and require a second approver column for TRUE_MATCH on sanctions lists (four-eyes). Store scores on 0–1 and map sentinel's 0–100 output accordingly."
+  },
+  {
+   "title": "Versioned-configuration lifecycles use three different status enums and `rule_simulation` is referenced but never defined; `risk_assessment.trigger` lacks MODEL_CHANGE",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/15-f05-transaction-monitoring.md §6.1: `monitoring_rule_version.status -- DRAFT, SIMULATED, APPROVED, ACTIVE, RETIRED`, `simulation_id uuid -- last backtest run`; §7: 'Results are stored in `rule_simulation`; approval requires a simulation that ran within the last 30 days'",
+    "notion-export/14-f04-risk-scoring.md §4: `risk_model_version.status -- DRAFT, IN_REVIEW, APPROVED, ACTIVE, RETIRED`; §6 step 4 'New assessments get `trigger='MODEL_CHANGE'`'",
+    "notion-export/07-data-model.md §6: `risk_assessment.trigger -- ONBOARDING, PERIODIC, SCREENING_HIT, TXN_BEHAVIOUR, MANUAL`, `model_version_id uuid NOT NULL` (no FK to `risk_model_version`)",
+    "notion-export/11-f01-customer-onboarding.md §8: `journey_definition.status -- DRAFT, ACTIVE, RETIRED`"
+   ],
+   "detail": "Rules, risk models and journeys are all 'draft → approved → active → retired' artefacts with four-eyes, but each sub-spec invents its own lifecycle, and the rule lifecycle depends on a `rule_simulation` table that no document creates. 07's `risk_assessment.trigger` enum omits the value F04 writes during batch re-score, and `model_version_id` has no FK although F04 defines the target table.",
+   "design_impact": "Rule simulation is in scope (Sprint 8, T8.2); without the table the approval gate ('simulation within 30 days') cannot be enforced. Divergent lifecycle enums multiply console screens and approval code paths for a single developer.",
+   "suggested_resolution": "Define one `config_version_status` enum (`DRAFT, SIMULATED, IN_REVIEW, APPROVED, ACTIVE, RETIRED`) used by `monitoring_rule_version`, `risk_model_version`, `journey_definition`; define `rule_simulation (id, tenant_id, rule_version_id FK, range_start, range_end, status, metrics jsonb, sample_ref, run_by, started_at, finished_at)`; add `MODEL_CHANGE` and `OVERRIDE` to `risk_assessment.trigger` and FK `model_version_id → risk_model_version(id)`."
+  },
+  {
+   "title": "Four-eyes and visibility enforcement are specified inconsistently (DB CHECK vs 'app + trigger' vs nothing) and the case RLS policy reads session variables the foundations never set",
+   "kind": "contradiction",
+   "severity": "medium",
+   "sources": [
+    "notion-export/16-f06-case-management.md §3: `case_decision ... CHECK (approved_by IS NULL OR approved_by <> proposed_by)`; `CREATE POLICY case_visibility ON aml_case USING (... m.user_id = current_setting('app.user_id')::uuid OR current_setting('app.user_roles') LIKE '%MLRO%')`",
+    "notion-export/14-f04-risk-scoring.md §4: `risk_override.approved_by uuid, -- must differ from requested_by (CHECK in app + trigger)` (no CHECK in DDL)",
+    "notion-export/07-data-model.md §8: `regulatory_report.approved_by uuid` with no preparer column; §7 `match_disposition` single `decided_by`; notion-export/11-f01 §8 `review_task.decided_by` single actor",
+    "notion-export/10-f00-platform-foundations.md §2.1: 'db session: BEGIN; SET LOCAL app.tenant_id = ...; SET LOCAL app.actor = ...' (no `app.user_id`, no `app.user_roles`); §2.2 policy uses only `app.tenant_id`",
+    "notion-export/07-data-model.md §4: `staff_user.roles text[] -- ANALYST, SENIOR_ANALYST, MLRO, AUDITOR_RO, ADMIN`; sentinel src/sentinel/enums.py `Role: analyst, senior_analyst`"
+   ],
+   "detail": "RR-7, C4, R6 and the sentinel design all require two people, but only `case_decision` carries a database check; `regulatory_report` cannot express the rule at all, and `risk_override` defers to an unspecified trigger. F06's visibility policy depends on `app.user_id` and a role string, while the foundations session setup defines `app.actor` only; `current_setting()` without `missing_ok` raises for API-client sessions, so machine actors would error rather than be denied as intended. Role vocabularies also differ (07 uppercase array, sentinel lowercase two-value enum, F06 `LIKE '%MLRO%'`).",
+   "design_impact": "Sprint 0 foundations set the GUC names and Sprint 4 writes the visibility policy; a mismatch surfaces only at runtime with RLS forced. The console reused from sentinel computes `allowed_actions` from roles, so the role set must be fixed before adapting it.",
+   "suggested_resolution": "Specify in 10 §2.1 the full GUC set (`app.tenant_id`, `app.actor_type`, `app.actor_id`, `app.user_id`, `app.roles` as a comma-wrapped string) and use `current_setting(name, true)` in all policies; add `prepared_by` to `regulatory_report` and `CHECK (approved_by <> prepared_by)`; add the CHECK to `risk_override`; document that four-eyes is enforced by DB CHECK plus service-layer role validation, and fix the role enum to 07's list (uppercase) with sentinel's console mapped to it."
+  },
+  {
+   "title": "Postgres-first foundations tables are undefined: job queue/run, idempotency_key, outbox dispatcher columns, aggregate/accumulator state, and a sandbox environment marker",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/10-f00-platform-foundations.md §7.1: `outbox (id, tenant_id, topic, key, type, payload, created_at, published_at)` — 'A relay (Debezium CDC, or a poller at T1)'; §8: 'Stored 24 h in Redis + Postgres (`idempotency_key` table)' (never defined); §8 Sandbox: 'Same API at `sandbox.` host. Connectors return deterministic results'; §2.1 JWT claims `env (sandbox|prod)`",
+    "notion-export/15-f05-transaction-monitoring.md §4.2: bucketed sliding windows in RocksDB; §4.1 windows `calendar_month, calendar_quarter, 6m_from_first`; §6.1 `behaviour_profile` monthly only; §4.4 Redis hot aggregates",
+    "notion-export/18-f08-compliance-calendar.md §3: 'Generator (daily Temporal cron per tenant)'; notion-export/11 §5 OnboardingWorkflow (Temporal); notion-export/14 §6 `RescoreAll` Temporal workflow",
+    "notion-export/07-data-model.md §6: `verification_check.credential_mode -- PLATFORM or TENANT`; no `environment` column on any table"
+   ],
+   "detail": "Decision 2 replaces Temporal/Kafka/Redis/RocksDB with Postgres, but no document defines the tables that replacement needs: a durable job/run table for onboarding steps, rescreen batches, report runs, rescoring and the obligations generator; an `idempotency_key` table; `outbox` columns for an in-process dispatcher (`attempts`, `next_attempt_at`, `locked_by`, `last_error`); persisted monitoring aggregates (per key, window, bucket) including the LFPIORPI 6-month-from-first accumulator that must survive restarts. Decision 5 runs vendors in sandbox mode, and 10 gives tenants a sandbox environment, yet no table carries an `environment` discriminator, so sandbox applications, checks and alerts would mix with production rows (and into reports).",
+   "design_impact": "These tables are Sprint 0–1 work and every later sub-spec depends on them; defining them ad hoc per feature yields several queue implementations and no way to keep sandbox data out of filings.",
+   "suggested_resolution": "Add to the foundations sub-spec: `job (id, tenant_id, kind, key, payload, status, attempts, run_after, locked_until, locked_by, last_error, created_at)` with `UNIQUE (tenant_id, kind, key)` for idempotent scheduling and SKIP LOCKED polling; `idempotency_key (tenant_id, key, request_hash, response, expires_at)`; dispatcher columns on `outbox`; `txn_aggregate (tenant_id, key_kind, key, aggregate_id, bucket_start, value numeric, count int, PRIMARY KEY (...))` plus `txn_accumulator` for calendar/6m windows; and `environment text NOT NULL DEFAULT 'prod'` on tenant-scoped operational tables (or a separate sandbox tenant per tenant, stated explicitly)."
+  },
+  {
+   "title": "Missing foreign keys and key-ordering/ALTER hygiene across all sub-spec DDL (undefined targets, duplicate columns, NOT NULL added without defaults, PKs that don't lead with tenant_id)",
+   "kind": "gap",
+   "severity": "medium",
+   "sources": [
+    "notion-export/12-f02-business-onboarding-kyb.md §6: `kyb_application.relationship_id/organization_id/policy_version_id` no FK; `registry_snapshot.organization_id`, `check_id` no FK; `ALTER TABLE party_relationship ADD COLUMN evidence_check_id uuid, ADD COLUMN evidence_doc_id uuid` (no FK; 07 already has `source_doc_id uuid REFERENCES document(id)`)",
+    "notion-export/14-f04-risk-scoring.md §4: `risk_override.relationship_id, requested_by, approved_by` no FK; `risk_assessment_factor PRIMARY KEY (assessment_id, factor_id)`",
+    "notion-export/15-f05-transaction-monitoring.md §6.1: `rule_assignment` no `tenant_id` FK; `alert_evidence PRIMARY KEY (alert_id)`; `reportable_event.party_id` no FK; `behaviour_profile.relationship_id` no FK",
+    "notion-export/16-f06-case-management.md §3: `ALTER TABLE aml_case ADD COLUMN detected_at timestamptz NOT NULL, ADD COLUMN jurisdiction char(2) NOT NULL, ADD COLUMN policy_version_id uuid NOT NULL` (no defaults, no FKs); `subject_party_id`, `queue_id` no FK; `committee_member (tenant_id uuid, session_id uuid, user_id uuid ...)` all nullable, no FKs; `committee_vote.user_id`, `case_decision.proposed_by/approved_by/committee_session_id`, `case_narrative.author_id`, `regulator_request.subject_parties uuid[]` no FK",
+    "notion-export/11-f01-customer-onboarding.md §8: `review_task.application_id/assignee_id/decided_by`, `biometric_template.party_id/source_capture`, `consent_record.party_id/application_id`, `duplicate_link.application_id/other_party_id` no FK; `onboarding_step PRIMARY KEY (application_id, step_id)`",
+    "notion-export/18-f08-compliance-calendar.md §2: `obligation_evidence.ref text -- report_filing.id / document storage key / metrics json` (polymorphic text), `training_record.staff_user_id uuid` no FK",
+    "notion-export/07-data-model.md §9 rule 1: '`tenant_id` comes first in composite keys and indexes'; §8 `case_party PRIMARY KEY (case_id, party_id)`; §4 `tenant_policy.approved_by uuid NOT NULL` no FK; §5 `document.extracted jsonb -- OCR output` vs notion-export/12 §6 `document_extraction` table"
+   ],
+   "detail": "The sub-specs were written as deltas and leave most references as bare uuids. Several reference the same concept twice (`source_doc_id` vs `evidence_doc_id`; `document.extracted` vs `document_extraction.fields`; `capture` vs `document` for the same artefact with separate sha256). F06 adds three NOT NULL columns via ALTER with no defaults, which fails on any populated table. Several composite PKs violate 07's own rule that `tenant_id` leads, which matters for the RLS-filtered index scans Postgres-first relies on.",
+   "design_impact": "For a single Alembic baseline these are mechanical to fix now and painful later; missing FKs are the main way cross-tenant or dangling references slip past RLS, and polymorphic text refs (`obligation_evidence.ref`) defeat the auditor evidence chain.",
+   "suggested_resolution": "When consolidating 07 + sub-spec deltas into one baseline migration: declare every `*_id` as a composite `(tenant_id, id)` FK; merge the duplicate columns (keep `source_doc_id` + `evidence_locator`; drop `document.extracted` in favour of `document_extraction`); define `capture` → `document` promotion explicitly; lead every composite PK/UNIQUE with `tenant_id`; replace `obligation_evidence.ref text` with typed nullable FKs (`report_filing_id`, `document_id`, `metric_snapshot jsonb`) plus a CHECK; fold the F06 ALTERs into the CREATE."
+  },
+  {
+   "title": "UBO computation differs between 07's recursive SQL and F02's algorithm (no as_of date, no cycle detection, no PROTECTOR role)",
+   "kind": "ambiguity",
+   "severity": "low",
+   "sources": [
+    "notion-export/07-data-model.md §5: recursive CTE `WHERE ... rel_type = 'SHAREHOLDER' AND valid_to IS NULL ... c.depth < 10`; `rel_type -- SHAREHOLDER, CONTROLLER, LEGAL_REP, ATTORNEY, DIRECTOR, TRUST_SETTLOR, TRUSTEE, TRUST_BENEFICIARY, PEP_RELATIVE, PEP_ASSOCIATE`",
+    "notion-export/12-f02-business-onboarding-kyb.md §3.2: `effective_ownership(org_id, as_of, ...)` with `seen` set → `flag_cycle`, `flag_depth_exceeded`; §3.3 step 5 'trusts: settlor, trustee(s), protector, beneficiaries'; §6 `reconciliation_issue.kind -- ... CYCLE, DEPTH_EXCEEDED, BEARER_SHARES`"
+   ],
+   "detail": "07's query evaluates only currently-open edges, so a `ubo_determination` cannot be recomputed as of a past date (needed for audit and for KYB `REFRESH` diffs), and cross-holdings are silently summed until depth 10 rather than flagged as F02 requires. F02 names a trust protector role that 07's `rel_type` lacks.",
+   "design_impact": "Low for the MVP code path (F02's Python is authoritative), but the SQL in 07 will be copied into reports/console queries and give different numbers than the engine.",
+   "suggested_resolution": "Mark 07 §5's CTE as illustrative, parameterise it on `as_of` (`valid_from <= :as_of AND (valid_to IS NULL OR valid_to > :as_of)`) with a path-array cycle guard, and add `TRUST_PROTECTOR` to `rel_type`."
+  },
+  {
+   "title": "Sentinel divergence: enum values, casing and role model differ from the Notion schema, so the console's state and `allowed_actions` contracts must be re-based rather than reused as-is",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "sentinel src/sentinel/enums.py: `CustomerStatus: approved, pending_review, rejected`; `RiskLevel: low, medium, high` (no PROHIBITED); `CaseStatus: open, in_review, escalated, closed`; `CaseType: onboarding, monitoring`; `Disposition: cleared, reported`; `Role: analyst, senior_analyst`; `ListSource: ofac_sdn, pep`; `TransactionType: cash_deposit, usd_cash_deposit, wire_in ...`",
+    "sentinel src/sentinel/models.py: `_enum(...)` 'Store the lowercase value ... skip native PG enums'",
+    "notion-export/07-data-model.md §6 `customer_relationship.status -- PENDING, ACTIVE, RESTRICTED, BLOCKED, EXITED` and `onboarding_application.status -- IN_PROGRESS, MANUAL_REVIEW, ...` (two separate concepts); `risk_assessment.rating -- LOW, MEDIUM, HIGH, PROHIBITED`; §4 roles 'ANALYST, SENIOR_ANALYST, MLRO, AUDITOR_RO, ADMIN'; notion-export/15 §3 `direction + rail + instrument` instead of a single type",
+    "sentinel docs/design.md §4: 'The API returns `allowed_actions` for the current user, and a test checks every combination of state, priority, role and action'"
+   ],
+   "detail": "Sentinel conflates application outcome and relationship status in one `CustomerStatus`, lacks PROHIBITED, has a two-role model with no MLRO/committee/auditor, a two-source list enum, a flat transaction `type` instead of direction/rail/instrument, and lowercase stored values throughout. The user decision reuses sentinel's React console and its typed explanations/`allowed_actions`, which are generated from these enums.",
+   "design_impact": "If the backend adopts the Notion enums (uppercase, richer), every sentinel frontend type, filter and action matrix changes; if it keeps sentinel's values, the Notion state machines (F06) and MX roles cannot be represented. The combinatorial `allowed_actions` test is worth keeping but must be regenerated against the new state × role matrix.",
+   "suggested_resolution": "Decide one convention in the foundations sub-spec (recommend 07's UPPERCASE text values, stored as non-native enums like sentinel does), publish the enums from a single Python module that also emits the TypeScript types for the console, and treat sentinel's enums/models as throwaway while reusing its service patterns (four-eyes checks, allowed_actions test, audit-chain verify endpoint)."
+  },
+  {
+   "title": "Sentinel divergence: integer PKs, no tenant_id, alert-always-in-case, single global audit chain and 0–100 screening scores conflict with the platform's structural rules",
+   "kind": "sentinel_divergence",
+   "severity": "medium",
+   "sources": [
+    "sentinel src/sentinel/models.py: `User.id Integer`, `Case.id Integer` (`reference 'SEN-{id:05d}'`), `Alert.id Integer`, `Alert.case_id ... ForeignKey('cases.id')` non-null, `ScreeningHit.score Integer`, `AuditEntry.id BigInteger ... hash String(64) unique`; no `tenant_id` on any table",
+    "sentinel docs/design.md §5: 'Appends take a transaction-scoped Postgres advisory lock so concurrent requests can't fork the chain ... A high-volume system would chain per partition'; §2 'Thresholds (85 potential, 95 strong)'",
+    "notion-export/10-f00-platform-foundations.md §2.3: 'UUIDv7 (time-ordered) for all primary keys'; §2.2 'Every tenant table has `tenant_id uuid NOT NULL` ... FORCE ROW LEVEL SECURITY'",
+    "notion-export/07-data-model.md §8: `audit_event (... prev_hash, hash, PRIMARY KEY (tenant_id, at, id)) PARTITION BY RANGE (at)`; `alert.case_id uuid REFERENCES aml_case(id)` nullable; research D.6 bands on a 0–1 scale"
+   ],
+   "detail": "Sentinel's models cannot be migrated forward: integer ids leak sequence order across tenants and break the UUIDv7 rule, every table lacks `tenant_id`, alerts are created inside a case (no triage state), the audit log is one global chain serialised by an advisory lock (07 implies a per-tenant chain across partitions, which is not specified either), and match scores are integers on a different scale with different thresholds. The console's URLs (`SEN-00012`) and sorting assume these.",
+   "design_impact": "Reusing sentinel's Alembic baseline or ORM models would bake single-tenancy into the MVP; reusing only `screening/normalize.py`, `matcher.py`, `audit.py` logic and the frontend components is feasible. 07 must still state the audit-chain scope (per tenant? per partition?) because the sentinel implementation makes it global.",
+   "suggested_resolution": "Start the kycaml schema from the (consolidated) Notion DDL, not sentinel's models; port sentinel's hash-chain code to a per-tenant chain keyed by `(tenant_id)` with the advisory lock keyed on tenant, and document that in 07 §8; port the matcher to return 0–1 scores with the research bands; give the console a human reference derived from UUIDv7 rather than a sequence."
+  }
+ ]
+}

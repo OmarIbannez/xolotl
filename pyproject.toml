@@ -1,0 +1,186 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "xolotl"
+version = "0.1.0"
+description = "Multi-tenant KYC/AML compliance platform for LATAM regulated entities: policy packs, screening, monitoring, regulatory reporting and case management."
+authors = [{ name = "Omar Ibañez" }]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.16",
+    "argon2-cffi>=25.1",
+    "fastapi>=0.146",
+    "httpx>=0.28",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.12",
+    "pydantic-settings>=2.11",
+    "pyjwt[crypto]>=2.10",
+    "pyotp>=2.9",
+    "sqlalchemy>=2.1",
+    "typer>=0.19",
+    "uvicorn[standard]>=0.37",
+]
+
+[project.scripts]
+xolotl = "xolotl.cli:app"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.37",
+    "httpx2>=2.14.0",
+    "import-linter>=2.3",
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
+    "ruff>=0.15",
+    "testcontainers[postgres]>=4.13",
+    "ty>=0.0.15",
+    "vulture>=2.14",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xolotl"]
+
+# ============================================================
+# RUFF
+# ============================================================
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+fix = true
+preview = true
+extend-exclude = ["console"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "missing-trailing-comma",                   # Conflicts with formatter
+    "single-line-implicit-string-concatenation", # Conflicts with formatter
+    "D1",                                        # Missing docstrings
+    "incorrect-blank-line-before-class",         # Conflicts with D211
+    "multi-line-summary-second-line",            # Conflicts with D212
+    "missing-copyright-notice",                  # No copyright headers
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "assert",                   # Allow assert
+    "magic-value-comparison",   # Allow magic values
+    "ANN",                      # Don't require annotations in tests
+    "S105", "S106",             # Test passwords are literals
+    "PLR0913",                  # Fixture-heavy test signatures
+    "ARG001",                   # Fixtures are requested for their side effects
+    "PT012",                    # Multi-statement pytest.raises blocks read better
+]
+"src/xolotl/migrations/versions/*.py" = ["INP001", "N999", "D"]
+"src/xolotl/migrations/env.py" = ["INP001"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-nested-blocks = 3
+max-args = 8
+
+[tool.ruff.lint.isort]
+known-first-party = ["xolotl", "tests"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["xolotl.platform.db.Base", "pydantic.BaseModel", "pydantic_settings.BaseSettings"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header", "fastapi.Body", "typer.Option", "typer.Argument"]
+
+# ============================================================
+# TY
+# ============================================================
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+division-by-zero = "error"
+
+[tool.ty.terminal]
+error-on-warning = true
+
+# ============================================================
+# BASEDPYRIGHT
+# ============================================================
+[tool.basedpyright]
+pythonVersion = "3.13"
+typeCheckingMode = "all"
+reportAny = "error"
+reportExplicitAny = "error"
+reportUnknownParameterType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownVariableType = "error"
+reportUnknownMemberType = "error"
+reportMissingParameterType = "error"
+reportMissingTypeArgument = "error"
+reportUnusedClass = "error"
+reportUnusedFunction = "error"
+reportUnusedVariable = "error"
+reportUnusedImport = "error"
+reportDuplicateImport = "error"
+reportUnnecessaryIsInstance = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryContains = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+exclude = ["**/__pycache__", ".venv", "build", "dist", "console", "src/xolotl/migrations/versions"]
+
+# Tests keep every rule except the ones that fight fixtures and untyped SQL rows.
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+extraPaths = [".", "src"]
+reportAny = "none"
+reportExplicitAny = "none"
+reportUnknownParameterType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
+reportUnknownMemberType = "none"
+reportMissingParameterType = "none"
+reportMissingTypeArgument = "none"
+reportUnusedParameter = "none"
+reportUnannotatedClassAttribute = "none"
+
+# ============================================================
+# VULTURE
+# ============================================================
+[tool.vulture]
+paths = ["src"]
+exclude = ["src/xolotl/migrations/"]
+min_confidence = 80
+sort_by_size = true
+
+# ============================================================
+# PYTEST & COVERAGE
+# ============================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--tb=short",
+    "--cov=src",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-fail-under=90",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["src/xolotl/migrations/*"]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+fail_under = 90
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
