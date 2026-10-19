@@ -89,9 +89,11 @@ the single-instance and disk caveats, and the costs.
 ## Configuration
 
 Environment variables are prefixed `XOLOTL_`; see `.env.example`. `XOLOTL_ENV=prod`
-refuses the default `XOLOTL_JWT_SECRET` and the default `XOLOTL_MASTER_KEY`. Database
-URLs may be spelled `postgres://` or `postgresql://`, as hosts hand them out; the
-psycopg driver is added.
+refuses the default `XOLOTL_JWT_SECRET`, the default `XOLOTL_MASTER_KEY` and the
+default `XOLOTL_DATABASE_URL` (set it, or let it be derived from
+`XOLOTL_DATABASE_ADMIN_URL` and `XOLOTL_APP_DB_PASSWORD`, as below). Database URLs
+may be spelled `postgres://` or `postgresql://`, as hosts hand them out; the psycopg
+driver is added.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

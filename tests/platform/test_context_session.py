@@ -325,6 +325,9 @@ def test_reset_refuses_in_prod(monkeypatch):
     monkeypatch.setenv("XOLOTL_ENV", "prod")
     monkeypatch.setenv("XOLOTL_JWT_SECRET", "p" * 40)
     monkeypatch.setenv("XOLOTL_MASTER_KEY", base64.b64encode(b"p" * 32).decode())
+    # Prod refuses the default app URL; reset refuses before it connects, so any
+    # other URL does (run alone, nothing has exported the suite's database yet).
+    monkeypatch.setenv("XOLOTL_DATABASE_URL", "postgresql://xolotl_app:pw@db/xolotl")
     get_settings.cache_clear()
     try:
         with pytest.raises(RuntimeError, match="prod"):
