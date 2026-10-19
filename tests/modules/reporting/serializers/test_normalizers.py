@@ -185,7 +185,7 @@ def test_negative_zero_renders_without_a_sign():
     assert n.quantity(Decimal("-0.000")) == "0.00"
 
 
-@pytest.mark.parametrize("value", [Decimal("1E+30"), Decimal("123456789012345678")])
+@pytest.mark.parametrize("value", [Decimal("1E+30"), Decimal(123456789012345678)])
 def test_huge_amounts_are_field_errors_not_decimal_errors(value):
     with pytest.raises(ReportFieldError, match="14 integer digits"):
         _ = n.amount(value)
@@ -196,9 +196,9 @@ def test_huge_amounts_are_field_errors_not_decimal_errors(value):
 def test_casfim_keys_take_ascii_digits_only_and_allow_the_eight_digit_form():
     assert n.casfim_key("08920001") == "08920001"
     with pytest.raises(ReportFieldError):
-        _ = n.casfim_key("４０-００２")
+        _ = n.casfim_key("\uff14\uff10-\uff10\uff10\uff12")
     with pytest.raises(ReportFieldError):
-        _ = n.casfim_key("０４０００２")
+        _ = n.casfim_key("\uff10\uff14\uff10\uff10\uff10\uff12")
 
 
 def test_yyyymmdd_refuses_a_datetime():
@@ -218,7 +218,7 @@ def test_identifiers_compose_a_decomposed_enye():
 
 
 def test_aviso_text_turns_control_characters_into_spaces():
-    assert n.aviso_text("A\x07B​C\x00") == "A B C"
+    assert n.aviso_text("A\x07B\u200bC\x00") == "A B C"
 
 
 def test_fit_drops_the_space_left_at_the_cut():
