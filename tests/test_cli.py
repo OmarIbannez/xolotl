@@ -814,7 +814,11 @@ def test_party_purge_due_counts_then_purges_the_due_parties(
 
 
 def test_party_purge_due_help_needs_no_database():
-    result = runner.invoke(app, ["party", "purge-due", "--help"])
+    result = runner.invoke(
+        app,
+        ["party", "purge-due", "--help"],
+        env={"COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"},
+    )
     assert result.exit_code == 0
     assert "--dry-run" in result.stdout
 
