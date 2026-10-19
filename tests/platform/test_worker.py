@@ -55,6 +55,7 @@ from xolotl.platform.jobs.queue import (
 )
 from xolotl.platform.jobs.runner import JobRunner
 from xolotl.platform.jobs.scheduler import Scheduler
+from xolotl.platform.units import UNITS_FETCH_KIND, UnitsFetchJob
 from xolotl.platform.workflows import ADVANCE_KIND, SWEEP_KIND, TIMER_KIND
 from xolotl.worker import (
     EMBEDDED_THREAD_NAME,
@@ -593,6 +594,9 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     assert job_handler(ADVANCE_KIND) == services.workflows.handle_job
     assert job_handler(TIMER_KIND) == services.workflows.handle_job
     assert job_handler(SWEEP_KIND) == services.workflows.handle_sweep
+    assert isinstance(
+        getattr(job_handler(UNITS_FETCH_KIND), "__self__", None), UnitsFetchJob
+    )
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):
@@ -634,7 +638,11 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
         keys = set(s.scalars(select(IdempotencyKey.key)))
         jobs = {row.kind: row.status for row in s.scalars(select(JobRow))}
     assert keys == {"live"}
-    assert jobs == {PURGE_KIND: JobStatus.DONE, SWEEP_KIND: JobStatus.DONE}
+    assert jobs == {
+        PURGE_KIND: JobStatus.DONE,
+        UNITS_FETCH_KIND: JobStatus.DONE,
+        SWEEP_KIND: JobStatus.DONE,
+    }
 
 
 # ---- xolotl worker ----------------------------------------------------------------
@@ -696,6 +704,7 @@ def test_the_worker_command_refuses_a_role_that_can_bypass_rls(
 
 PLATFORM_SCHEDULES = [
     ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", True),
+    ("units.fetch", "0 18 * * 1-5", "America/Mexico_City", "units.fetch", True),
     ("workflow.sweep", "0 * * * *", "UTC", "workflow.sweep", True),
 ]
 

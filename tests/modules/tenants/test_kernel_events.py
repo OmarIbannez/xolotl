@@ -5,7 +5,8 @@ The tenants service publishes ``tenant.created.v1``, ``staff.created.v1``,
 itself, and ``POST /v1/ping`` publishes ``test.ping.v1``. Every event is keyed by the
 entity's id (the ping by the actor's) and its data holds ids and codes, never
 personal data or secrets (program spec D8). Creating a tenant also schedules the
-platform's hourly jobs for it: the idempotency purge and the stranded-workflow sweep.
+platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep, and
+the weekday ``units.fetch`` in Mexico City.
 """
 
 import json
@@ -106,11 +107,25 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
         for row in schedules
     ] == [
         ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", {}, True),
+        (
+            "units.fetch",
+            "0 18 * * 1-5",
+            "America/Mexico_City",
+            "units.fetch",
+            {},
+            True,
+        ),
         ("workflow.sweep", "0 * * * *", "UTC", "workflow.sweep", {}, True),
     ]
-    # The first run is the next full hour, never the current one.
+    # The first run is the next slot, never the current one.
+    hourly = [row for row in schedules if row.name != "units.fetch"]
+    (units,) = [row for row in schedules if row.name == "units.fetch"]
     slots = {next_slot("0 * * * *", "UTC", after=moment) for moment in (before, after)}
-    assert {row.next_run_at for row in schedules} <= slots
+    assert {row.next_run_at for row in hourly} <= slots
+    assert units.next_run_at in {
+        next_slot("0 18 * * 1-5", "America/Mexico_City", after=m)
+        for m in (before, after)
+    }
     assert all(row.last_run_at is None for row in schedules)
 
 
@@ -264,4 +279,4 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
     for tenant_id in (created.tenant_id, legacy):
         with tenant_session(system_ctx(tenant_id)) as s:
             names = list(s.scalars(select(JobSchedule.name).order_by(JobSchedule.name)))
-        assert names == ["idempotency.purge", "workflow.sweep"]
+        assert names == ["idempotency.purge", "units.fetch", "workflow.sweep"]
