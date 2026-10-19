@@ -243,7 +243,14 @@ def test_only_the_local_object_store_exists_so_far(monkeypatch):
 def test_env_example_is_a_valid_configuration():
     s = make_settings(ENV_EXAMPLE)
     # The keys must be spelled right: Settings ignores names it does not know.
-    assert {"master_key", "object_store", "object_store_root"} <= s.model_fields_set
+    assert {
+        "master_key",
+        "object_store",
+        "object_store_root",
+        "packs_dir",
+        "allow_unverified_pack_values",
+        "units_fetch_cron",
+    } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
 
@@ -501,3 +508,40 @@ def test_prod_accepts_the_app_url_derived_from_the_admin_url(monkeypatch):
     monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
     s = make_settings()
     assert make_url(s.database_url).username == APP_ROLE
+
+
+def test_sp02_settings_have_their_defaults():
+    s = make_settings()
+    assert s.packs_dir == Path("./policy-packs")
+    assert s.allow_unverified_pack_values is False
+    assert s.banxico_token is None
+    assert s.units_fetch_cron == "0 18 * * 1-5"
+
+
+def test_sp02_settings_read_their_variables(monkeypatch):
+    # Settings ignores names it does not know, so setting the variable and seeing the
+    # value change proves the field reads XOLOTL_...
+    monkeypatch.setenv("XOLOTL_PACKS_DIR", "/srv/packs")
+    monkeypatch.setenv("XOLOTL_ALLOW_UNVERIFIED_PACK_VALUES", "true")
+    monkeypatch.setenv("XOLOTL_BANXICO_TOKEN", "tok-123")
+    monkeypatch.setenv("XOLOTL_UNITS_FETCH_CRON", "30 17 * * 1-5")
+    s = make_settings()
+    assert s.packs_dir == Path("/srv/packs")
+    assert s.allow_unverified_pack_values is True
+    assert s.banxico_token is not None
+    assert s.banxico_token.get_secret_value() == "tok-123"
+    assert "tok-123" not in repr(s)
+    assert s.units_fetch_cron == "30 17 * * 1-5"
+
+
+def test_a_bad_units_fetch_cron_is_refused(monkeypatch):
+    monkeypatch.setenv("XOLOTL_UNITS_FETCH_CRON", "every day")
+    with pytest.raises(ValidationError, match="UNITS_FETCH_CRON"):
+        _ = make_settings()
+
+
+def test_prod_refuses_unverified_pack_values(monkeypatch):
+    _prod(monkeypatch)
+    monkeypatch.setenv("XOLOTL_ALLOW_UNVERIFIED_PACK_VALUES", "true")
+    with pytest.raises(ValidationError, match="ALLOW_UNVERIFIED_PACK_VALUES"):
+        _ = make_settings()

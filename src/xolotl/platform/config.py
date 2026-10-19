@@ -8,7 +8,15 @@ from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, Literal, Self
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
+from croniter import croniter
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import make_url
 from sqlalchemy.exc import ArgumentError
@@ -98,6 +106,16 @@ class Settings(BaseSettings):
     embedded_worker: bool = True
     # Connect, write and read timeout of one webhook delivery request, in seconds.
     webhook_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    # Where the YAML packs, unit seeds and holidays live (the image copies them to
+    # /app/policy-packs).
+    packs_dir: Path = Path("./policy-packs")
+    # Loader switch for UNVERIFIED pack values; never true in prod.
+    allow_unverified_pack_values: bool = False
+    # Banxico SIE token; unset = demo mode over the seed files, which the source
+    # refuses in prod.
+    banxico_token: SecretStr | None = None
+    # Daily units fetch, five-field cron, evaluated in America/Mexico_City.
+    units_fetch_cron: str = "0 18 * * 1-5"
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -115,6 +133,17 @@ class Settings(BaseSettings):
     @classmethod
     def _check_master_key(cls, value: SecretStr) -> SecretStr:
         _ = _decode_master_key(value.get_secret_value())
+        return value
+
+    @field_validator("units_fetch_cron")
+    @classmethod
+    def _check_cron(cls, value: str, info: ValidationInfo) -> str:
+        if not croniter.is_valid(value):
+            msg = (
+                f"XOLOTL_{str(info.field_name).upper()} must be a five-field "
+                "cron expression"
+            )
+            raise ValueError(msg)
         return value
 
     @model_validator(mode="after")
@@ -176,6 +205,15 @@ class Settings(BaseSettings):
         if self.env == "prod" and self.worker_tick_seconds <= 0:
             msg = (
                 "XOLOTL_WORKER_TICK_SECONDS must be greater than 0 when XOLOTL_ENV=prod"
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_unverified_pack_values_in_prod(self) -> Self:
+        if self.env == "prod" and self.allow_unverified_pack_values:
+            msg = (
+                "XOLOTL_ALLOW_UNVERIFIED_PACK_VALUES must be false when XOLOTL_ENV=prod"
             )
             raise ValueError(msg)
         return self

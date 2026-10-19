@@ -39,6 +39,7 @@ services:
     buildFilter:
       paths:
         - src/**
+        - policy-packs/**
         - console/**
         - Dockerfile
         - .dockerignore
