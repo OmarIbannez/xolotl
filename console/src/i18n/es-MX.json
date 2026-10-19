@@ -40,7 +40,9 @@
     "connectors": "Conectores",
     "security": "Seguridad",
     "openMenu": "Abrir menú",
-    "apiDocs": "Documentación de la API"
+    "apiDocs": "Documentación de la API",
+    "units": "Unidades",
+    "calendar": "Calendario"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -128,7 +130,9 @@
     "scopesRequired": "Elige al menos un permiso.",
     "scopeFormat": "Usa el formato area:read o area:write: minúsculas sin acentos y guion bajo.",
     "scopeDraftPending": "Agrega el permiso que escribiste o bórralo antes de continuar.",
-    "rolesRequired": "Elige al menos un rol."
+    "rolesRequired": "Elige al menos un rol.",
+    "dateFormat": "Usa el formato de fecha u hora indicado.",
+    "positiveInteger": "Usa un número entero positivo dentro del rango permitido."
   },
   "home": {
     "title": "Inicio",
@@ -504,6 +508,67 @@
       "empty": "Todavía no hay ajustes a la política."
     },
     "noConversion": "Sin conversión: falta el valor de la unidad para esa fecha."
+  },
+  "units": {
+    "title": "Unidades",
+    "description": "Valores de UMA, UDI y tipo de cambio FIX con su fuente y sus correcciones; la conversión de umbrales y límites a pesos los lee de aquí.",
+    "table": {
+      "label": "Unidades de valor",
+      "unit": "Unidad",
+      "quoteCcy": "Moneda",
+      "latest": "Último valor vigente",
+      "fetchedAt": "Última consulta",
+      "source": "Fuente"
+    },
+    "history": {
+      "title": "Historial",
+      "from": "Desde",
+      "to": "Hasta",
+      "validFrom": "Vigente desde",
+      "validTo": "Vigente hasta",
+      "value": "Valor",
+      "fetchedAt": "Consultado",
+      "empty": "No hay valores en ese periodo."
+    },
+    "corrected": "Corregido",
+    "lookup": {
+      "title": "Consultar un valor",
+      "on": "Fecha",
+      "rule": "Regla de conversión",
+      "submit": "Consultar",
+      "result": "{{value}} {{ccy}} (valor del {{date}})"
+    }
+  },
+  "calendar": {
+    "title": "Calendario",
+    "description": "Días inhábiles por autoridad y cálculo de vencimientos regulatorios.",
+    "scope": "Calendario de",
+    "year": "Año",
+    "holidays": {
+      "label": "Días inhábiles",
+      "day": "Día",
+      "name": "Nombre",
+      "source": "Fuente",
+      "empty": "No hay días inhábiles registrados para ese año."
+    },
+    "evaluator": {
+      "title": "Calcular un vencimiento",
+      "kind": "Tipo de plazo",
+      "anchor": "Fecha de referencia",
+      "scope": "Días hábiles según",
+      "n": "Número de días",
+      "monthOffset": "Meses después",
+      "day": "Día del mes",
+      "roll": "Si cae en día inhábil",
+      "hours": "Horas",
+      "start": "Inicio (MM-DD)",
+      "end": "Fin (MM-DD)",
+      "yearOffset": "Años después",
+      "at": "Fecha y hora fija",
+      "time": "Hora límite (HH:MM, opcional)",
+      "submit": "Calcular",
+      "result": "Vence"
+    }
   },
   "forbidden": {
     "title": "Sin acceso",

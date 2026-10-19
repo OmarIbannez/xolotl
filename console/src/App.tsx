@@ -73,6 +73,17 @@ const router = createBrowserRouter([
                   import('@/features/policy/PolicyPage').then((m) => ({ Component: m.PolicyPage })),
               },
               {
+                // Unit values and the calendar are reference data every signed-in role reads.
+                path: '/units',
+                lazy: () =>
+                  import('@/features/units/UnitsPage').then((m) => ({ Component: m.UnitsPage })),
+              },
+              {
+                path: '/calendar',
+                lazy: () =>
+                  import('@/features/calendar/CalendarPage').then((m) => ({ Component: m.CalendarPage })),
+              },
+              {
                 element: <RequireRole roles={ACCESS.connectors} />,
                 children: [
                   {
