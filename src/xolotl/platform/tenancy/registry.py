@@ -7,9 +7,18 @@ isolated. Add a table here only when it is genuinely shared across tenants
 (reference data, lookups that must work before a tenant context exists).
 """
 
-SHARED_TABLES: frozenset[str] = frozenset({"alembic_version", "api_key_lookup"})
+SHARED_TABLES: frozenset[str] = frozenset({
+    "alembic_version",
+    "api_key_lookup",
+    "holiday",
+    "policy_pack",
+    "policy_pack_version",
+    "unit_value",
+})
 
 # Shared tables the application role may also write; the rest are read-only.
+# ``unit_value`` is not listed: its migration grants INSERT and UPDATE (the fetch job
+# appends values and marks corrections) but never DELETE.
 SHARED_WRITABLE: frozenset[str] = frozenset({"api_key_lookup"})
 
 # Tenant tables the application role may read and insert into but never update or

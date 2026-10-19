@@ -82,3 +82,20 @@ class KeyPurpose(StrEnum):
     DATA = "DATA"
     INDEX = "INDEX"
     BIOMETRIC = "BIOMETRIC"
+
+
+class Confidence(StrEnum):
+    VERIFIED = "VERIFIED"
+    UNVERIFIED = "UNVERIFIED"
+
+
+class HolidayScope(StrEnum):
+    NATIONAL = "NATIONAL"
+    CNBV = "CNBV"
+    SAT = "SAT"
+    BANXICO = "BANXICO"
+
+
+class BranchStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    CLOSED = "CLOSED"

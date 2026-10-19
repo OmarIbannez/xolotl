@@ -10,7 +10,7 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, literal_column, select, table, text
+from sqlalchemy import Engine, inspect, literal_column, select, table, text
 from sqlalchemy.orm import Session
 
 from xolotl.models import metadata
@@ -191,14 +191,17 @@ def leaked(haystack: str, *secrets: bytes) -> list[str]:
 
 # Every row of every table as text, read past row-level security and every column
 # type, for a search for what must never be stored in the clear. The partitions of the
-# audit log come with their parent.
+# audit log come with their parent. A migration test may have moved the database back
+# before a table existed, so only the tables the database holds are read.
 def everything_stored(admin_engine: Engine) -> str:
     with admin_engine.connect() as conn:
+        present = set(inspect(conn).get_table_names())
         dumps = [
             repr(
                 conn.execute(select(literal_column("*")).select_from(table(name))).all()
             )
             for name in metadata().tables
+            if name in present
         ]
     return "\n".join(dumps)
 

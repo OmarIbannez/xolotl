@@ -473,6 +473,7 @@ def test_model_partial_index_predicates_are_the_specs():
         ("outbox", "ix_outbox_pending"): "status = 'PENDING'",
         ("job", "job_dedup"): "key IS NOT NULL AND status IN ('PENDING','RUNNING')",
         ("workflow_signal", "ix_workflow_signal_pending"): "consumed_at IS NULL",
+        ("unit_value", "ix_unit_value_lookup"): "superseded_by IS NULL",
     }
 
 

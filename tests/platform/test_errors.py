@@ -13,6 +13,11 @@ from xolotl.platform.errors import (
     ValidationFailedError,
     XolotlError,
 )
+from xolotl.platform.units.errors import (
+    UnitSourceError,
+    UnitValueMissingError,
+    UnverifiedValueError,
+)
 
 
 @pytest.mark.parametrize(
@@ -28,6 +33,9 @@ from xolotl.platform.errors import (
         (IdempotencyConflictError, 422, "IDEMPOTENCY_KEY_REUSED"),
         (IdempotencyInProgressError, 409, "IDEMPOTENCY_IN_PROGRESS"),
         (ValidationFailedError, 422, "VALIDATION_FAILED"),
+        (UnitValueMissingError, 503, "UNIT_VALUE_MISSING"),
+        (UnitSourceError, 503, "UNIT_SOURCE_UNAVAILABLE"),
+        (UnverifiedValueError, 422, "UNVERIFIED_VALUE"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
