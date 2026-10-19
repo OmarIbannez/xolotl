@@ -1,0 +1,12 @@
+# Valores diarios anuales de la UMA. Rigen del 1 de febrero al 31 de enero siguiente.
+unit_code: UMA
+quote_ccy: MXN
+source: INEGI_DOF
+legal_basis: "Ley para Determinar el Valor de la Unidad de Medida y Actualización, arts. 4 y 5; INEGI publica el valor diario en el DOF en enero"
+confidence: VERIFIED
+verified_as_of: 2026-10-18
+values:
+  - {valid_from: 2024-02-01, valid_to: 2025-01-31, value: "108.57", legal_basis: "INEGI, DOF de enero de 2024 (completar el día de la publicación): UMA diaria 2024 = 108.57", confidence: VERIFIED, verified_as_of: 2024-01-10}
+  - {valid_from: 2025-02-01, valid_to: 2026-01-31, value: "113.14", legal_basis: "INEGI, DOF de enero de 2025 (completar el día de la publicación): UMA diaria 2025 = 113.14", confidence: VERIFIED, verified_as_of: 2025-01-10}
+  # The 2026 value is the figure INEGI published in January 2026 (inegi.org.mx/temas/uma and the DOF): copied, never computed from inflation. UNVERIFIED until the compliance review (spec §13).
+  - {valid_from: 2026-02-01, valid_to: 2027-01-31, value: "117.31", legal_basis: "INEGI, DOF de enero de 2026: UMA diaria 2026 (cita pendiente, §13)", confidence: UNVERIFIED, verified_as_of: 2026-10-18}
