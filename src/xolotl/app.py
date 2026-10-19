@@ -20,6 +20,7 @@ from xolotl.modules.party import routes as party_routes
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
+    routes_connectors,
     routes_notifications,
     routes_staff,
     routes_tenants,
@@ -231,6 +232,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             routes_staff.router,
             routes_notifications.router,
             routes_webhooks.router,
+            routes_connectors.router,
             party_routes.router,
             audit_routes.router,
         ],

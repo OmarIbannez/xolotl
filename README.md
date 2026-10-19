@@ -292,6 +292,38 @@ mounts no volume for it yet; nothing writes objects until a feature does.
   ciphertext is the plaintext's UTF-8 length plus 30 bytes: pad at the application layer
   where length matters, for example identifiers of fixed length.
 
+## Connectors
+
+A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a
+timeout, retries and a circuit breaker per connector and cell, and meters every call in
+`connector_call`. A call runs in mode `SANDBOX` (the built-in mock, no network, no
+credential read) or `LIVE`. A `SANDBOX` tenant always gets the mock, whatever the
+caller asks for; a `PROD` tenant uses the mode its call names, or
+`XOLOTL_CONNECTOR_MODE_DEFAULT` when it names none (`SANDBOX` by default, `LIVE` in the
+Render blueprint).
+
+The `banxico_sie` demo mode (no token outside prod) and its sandbox mock answer from
+the committed seed files in `policy-packs/_units`, the same files the units page and
+the demo unit fetcher read, and fall back to the constants `UDI = 8.500000` and
+`USD_MXN_FIX = 18.500000` only on a day the seed does not cover.
+
+The endpoints are for ADMIN staff only:
+
+- `GET /v1/connectors` lists the connectors with their mode, routes, circuit state (of
+  the process that answers) and the modes a credential is stored for.
+- `PUT /v1/connectors/{name}/credentials/{mode}` with `{"fields": {"token": "..."}}`
+  stores a tenant's credential encrypted under its data key, answers with the field
+  names and never a value, and audits `connector.credential_set`. A `SANDBOX` credential
+  is stored and listed, but no connector reads it yet.
+- `GET /v1/connectors/usage?from=YYYY-MM-DD&to=YYYY-MM-DD` counts the tenant's calls,
+  cost and outcomes per connector per UTC day (both days included, at most 366 days
+  apart).
+
+The raw answer of every call, credentials replaced by `[REDACTED]`, is stored as
+evidence in the object store at `connectors/<connector>/<call id>`. In production,
+add `XOLOTL_BANXICO_TOKEN` by hand in the Render dashboard; the blueprint does not set
+it.
+
 ## Development
 
 ```bash
