@@ -14,6 +14,7 @@ CHAIN = [
     "0004_encrypt_totp",
     "0005_encrypt_idempotency",
     "0006_policy_units_calendar",
+    "0007_connectors",
 ]
 
 
