@@ -14,3 +14,13 @@ class ReportFieldError(ValidationFailedError):
     def __init__(self, field: str, reason: str) -> None:
         self.field: str = field
         super().__init__(f"{field}: {reason}")
+
+
+class ZeroReportNotAllowedError(ValidationFailedError):
+    """The definition has no zero report and the input holds no item."""
+
+    default_code: ClassVar[str] = "ZERO_REPORT_NOT_ALLOWED"
+    default_detail: ClassVar[str] = "this report kind has no empty report"
+
+    def __init__(self, code: str) -> None:
+        super().__init__(f"{code} has no empty report")

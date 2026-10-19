@@ -1,0 +1,5 @@
+name: f41_tipo_persona
+version: 1
+source: F41_RESOLUTION
+confidence: VERIFIED
+entries: {"1": PERSONA FISICA, "2": PERSONA MORAL}

@@ -1,0 +1,16 @@
+# Reporte de Operaciones Relevantes (Formato 41, tipo 1). Periodic: the period is
+# AAAAMM. D14 models ROR runs per month under a quarterly obligation until the
+# regulator's expectation is confirmed; that is SP-05's concern, not the file's.
+code: MX_F41_ROR
+version: 1
+jurisdiction: MX
+regulator: UIF via CNBV (SITI PLD/FT)
+sources: [F41_RESOLUTION]
+serializer: DELIMITED
+encoding: ascii
+encoding_confidence: UNVERIFIED
+zero_report_rule: REQUIRED
+correction_rule: UNSUPPORTED
+valid_from: 2013-09-30
+report_type: "1"
+layout: MX_F41.v1

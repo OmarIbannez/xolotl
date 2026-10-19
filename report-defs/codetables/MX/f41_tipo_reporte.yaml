@@ -1,0 +1,5 @@
+name: f41_tipo_reporte
+version: 1
+source: F41_RESOLUTION
+confidence: VERIFIED
+entries: {"1": RELEVANTE, "2": INUSUAL, "3": PREOCUPANTE}

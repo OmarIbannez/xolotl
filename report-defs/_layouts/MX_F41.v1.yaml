@@ -1,0 +1,63 @@
+# Formato 41 integrated layout (Anexo 1 of the resolution, DOF 14-12-2004 as
+# reformed to DOF 01-08-2013), shared by MX_F41_ROR, MX_F41_ROI, MX_F41_ROI24 and
+# MX_F41_ROIP. Report-type codes: 1 relevante, 2 inusual, 3 preocupante.
+#
+# VERIFIED from the source: the 41 columns, their order, widths and types; the
+# separator; upper case; truncation of over-long values; columns 14 and 34-41 not
+# applying to relevantes; 29-33 only for insurers, sureties and money
+# transmitters (always empty here).
+# UNVERIFIED (layout_confidence): whether a record ends with a separator, the
+# line ending, and the shape of the reporte vacío (empty_report_columns). The
+# resolution requires an empty report (Art. 2) but does not print it.
+#
+# overflow ERROR is used where truncating would change an identifier or a code;
+# the layout's truncation rule is kept for free text.
+name: MX_F41.v1
+sources: [F41_RESOLUTION]
+separator: ";"
+trailing_separator: false
+line_ending: CRLF
+layout_confidence: UNVERIFIED
+empty_report_columns: [1, 2, 4, 5]
+columns:
+  - {number: 1, name: TIPO DE REPORTE, field: tipo_reporte, kind: CODE, width: 1, overflow: ERROR, code_table: MX/f41_tipo_reporte, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 2, name: PERIODO DEL REPORTE, field: periodo, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 3, name: FOLIO, field: folio, kind: NUMERIC, width: 6, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 4, name: ORGANO SUPERVISOR, field: organo_supervisor, kind: NUMERIC, width: 6, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 5, name: CLAVE DEL SUJETO OBLIGADO, field: clave_sujeto_obligado, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 6, name: LOCALIDAD, field: localidad, kind: CODE, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 7, name: SUCURSAL, field: sucursal, kind: CODE, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 8, name: TIPO DE OPERACION, field: tipo_operacion, kind: CODE, width: 2, overflow: ERROR, code_table: MX/f41_tipo_operacion, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 9, name: INSTRUMENTO MONETARIO, field: instrumento_monetario, kind: CODE, width: 2, overflow: ERROR, code_table: MX/f41_instrumento_monetario, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 10, name: NUMERO DE CUENTA, field: numero_cuenta, kind: CODE, width: 16, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 11, name: MONTO, field: monto, kind: DECIMAL, width: 17, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 12, name: MONEDA, field: moneda, kind: CODE, width: 3, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 13, name: FECHA DE LA OPERACION, field: fecha_operacion, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 14, name: FECHA DE DETECCION DE LA OPERACION, field: fecha_deteccion, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["2", "3"], required_for: ["2", "3"]}
+  - {number: 15, name: PAIS DE NACIONALIDAD, field: nacionalidad, kind: CODE, width: 2, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 16, name: TIPO DE PERSONA, field: tipo_persona, kind: CODE, width: 1, overflow: ERROR, code_table: MX/f41_tipo_persona, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 17, name: RAZON SOCIAL O DENOMINACION, field: razon_social, kind: TEXT, width: 60, report_types: ["1", "2", "3"]}
+  - {number: 18, name: NOMBRE, field: nombre, kind: TEXT, width: 60, report_types: ["1", "2", "3"]}
+  - {number: 19, name: APELLIDO PATERNO, field: apellido_paterno, kind: TEXT, width: 30, report_types: ["1", "2", "3"]}
+  - {number: 20, name: APELLIDO MATERNO, field: apellido_materno, kind: TEXT, width: 30, report_types: ["1", "2", "3"]}
+  - {number: 21, name: RFC, field: rfc, kind: CODE, width: 13, overflow: ERROR, report_types: ["1", "2", "3"]}
+  - {number: 22, name: CURP, field: curp, kind: CODE, width: 18, overflow: ERROR, report_types: ["1", "2", "3"]}
+  - {number: 23, name: FECHA DE NACIMIENTO O CONSTITUCION, field: fecha_nacimiento_constitucion, kind: NUMERIC, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["2", "3"]}
+  - {number: 24, name: DOMICILIO, field: domicilio, kind: TEXT, width: 60, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 25, name: COLONIA, field: colonia, kind: TEXT, width: 30, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 26, name: CIUDAD O POBLACION, field: ciudad_poblacion, kind: CODE, width: 8, overflow: ERROR, report_types: ["1", "2", "3"], required_for: ["1", "2", "3"]}
+  - {number: 27, name: TELEFONO OFICINA/PARTICULAR, field: telefono, kind: TEXT, width: 40, report_types: ["1", "2", "3"]}
+  - {number: 28, name: ACTIVIDAD ECONOMICA, field: actividad_economica, kind: CODE, width: 7, overflow: ERROR, report_types: ["1", "2", "3"]}
+  - {number: 29, name: AGENTE NOMBRE RAZON SOCIAL O DENOMINACION, field: agente_nombre, kind: TEXT, width: 60, report_types: ["1", "2", "3"]}
+  - {number: 30, name: AGENTE APELLIDO PATERNO, field: agente_apellido_paterno, kind: TEXT, width: 60, report_types: ["1", "2", "3"]}
+  - {number: 31, name: AGENTE APELLIDO MATERNO, field: agente_apellido_materno, kind: TEXT, width: 30, report_types: ["1", "2", "3"]}
+  - {number: 32, name: AGENTE RFC, field: agente_rfc, kind: CODE, width: 13, overflow: ERROR, report_types: ["1", "2", "3"]}
+  - {number: 33, name: AGENTE CURP, field: agente_curp, kind: CODE, width: 18, overflow: ERROR, report_types: ["1", "2", "3"]}
+  - {number: 34, name: CONSECUTIVO DE CUENTAS Y/O PERSONAS RELACIONADAS, field: consecutivo, kind: NUMERIC, width: 2, overflow: ERROR, report_types: ["2", "3"], required_for: ["2", "3"]}
+  - {number: 35, name: NUMERO DE CUENTA RELACIONADA, field: cuenta_relacionada, kind: CODE, width: 16, overflow: ERROR, report_types: ["2", "3"]}
+  - {number: 36, name: CLAVE DEL SUJETO OBLIGADO RELACIONADO, field: clave_sujeto_obligado_relacionado, kind: NUMERIC, width: 6, overflow: ERROR, report_types: ["2", "3"]}
+  - {number: 37, name: NOMBRE DEL TITULAR O PERSONA RELACIONADA, field: nombre_relacionado, kind: TEXT, width: 60, report_types: ["2", "3"]}
+  - {number: 38, name: APELLIDO PATERNO RELACIONADO, field: apellido_paterno_relacionado, kind: TEXT, width: 60, report_types: ["2", "3"]}
+  - {number: 39, name: APELLIDO MATERNO RELACIONADO, field: apellido_materno_relacionado, kind: TEXT, width: 30, report_types: ["2", "3"]}
+  - {number: 40, name: DESCRIPCION DE LA OPERACION, field: descripcion_operacion, kind: TEXT, report_types: ["2", "3"], required_for: ["2", "3"]}
+  - {number: 41, name: RAZONES POR LAS QUE SE CONSIDERA INUSUAL O PREOCUPANTE, field: razones, kind: TEXT, report_types: ["2", "3"], required_for: ["2", "3"]}

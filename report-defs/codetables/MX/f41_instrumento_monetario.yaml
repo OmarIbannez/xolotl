@@ -1,0 +1,14 @@
+name: f41_instrumento_monetario
+version: 1
+source: F41_RESOLUTION
+confidence: VERIFIED
+entries:
+  "01": EFECTIVO
+  "02": DOCUMENTOS O VALORES
+  "03": TRANSFERENCIA
+  "04": CHEQUES DE VIAJERO
+  "05": ORO O PLATINO AMONEDADOS
+  "06": PLATA AMONEDADA
+  "07": DIVISAS
+  "08": DERECHOS
+  "09": BIENES O MERCANCIAS
