@@ -25,3 +25,19 @@ def are_nicknames(first: str, second: str) -> bool:
         return False
     table = _groups_by_name()
     return not table.get(first, frozenset()).isdisjoint(table.get(second, frozenset()))
+
+
+def nickname_variants(name: str) -> frozenset[str]:
+    """List the other names that share a nickname group with ``name``.
+
+    Returns:
+        The folded variants, without ``name`` itself; empty for an unknown name.
+
+    """
+    table = _groups_by_name()
+    groups = nickname_groups()
+    variants = {
+        other for number in table.get(name, frozenset()) for other in groups[number]
+    }
+    variants.discard(name)
+    return frozenset(variants)
