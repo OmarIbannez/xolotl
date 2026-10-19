@@ -287,17 +287,25 @@ def _key_material(
     return unwrapped + wrapped_keys(admin_engine, tenant_id)
 
 
+def _help(*args: str) -> str:
+    # Help is rendered by rich: on a narrow, colourless CI terminal it wraps the
+    # option table and interleaves ANSI codes, so the text is read plain and wide.
+    result = runner.invoke(
+        app, [*args, "--help"], env={"COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"}
+    )
+    assert result.exit_code == 0, result.output
+    return re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+
+
 def test_keys_help_works_without_a_database():
-    assert runner.invoke(app, ["keys", "--help"]).exit_code == 0
-    rotate = runner.invoke(app, ["keys", "rotate", "--help"])
-    assert rotate.exit_code == 0
-    assert "--tenant" in rotate.output
-    assert "--purpose" in rotate.output
-    assert "DATA|BIOMETRIC" in rotate.output
-    assert "INDEX" not in rotate.output  # accepted, then refused; never offered
-    destroy = runner.invoke(app, ["keys", "destroy", "--help"])
-    assert destroy.exit_code == 0
-    assert "--tenant" in destroy.output
+    _ = _help("keys")
+    rotate = _help("keys", "rotate")
+    assert "--tenant" in rotate
+    assert "--purpose" in rotate
+    assert "DATA|BIOMETRIC" in rotate
+    assert "INDEX" not in rotate  # accepted, then refused; never offered
+    destroy = _help("keys", "destroy")
+    assert "--tenant" in destroy
     assert "--yes" in destroy.output
 
 
