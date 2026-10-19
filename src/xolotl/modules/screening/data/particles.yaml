@@ -1,0 +1,14 @@
+# Name words that carry no matching weight (SP-03 spec section 4.2). All values are
+# folded: lower case, no diacritics. Changing this file changes scores, so it bumps
+# MATCHER_VERSION.
+
+# Connectors inside personal and company names (Spanish, Portuguese, Italian,
+# Dutch, German, French, Arabic transliterations).
+particles: [de, del, la, las, los, y, e, da, das, do, dos, di, du, van, von, der, den, le, al, el, bin, ibn, bint]
+
+# Titles and honorifics that precede or follow personal names.
+honorifics: [sr, sra, srta, dr, dra, lic, ing, arq, mtro, mtra, prof, don, dona, mr, mrs, ms, miss, sir, haji, hajji, mullah, maulavi, mawlawi, sheikh, shaykh, qari, jr, junior]
+
+# Words so common in organization names that they say nothing about which
+# organization it is.
+generic: [grupo, group, corporativo, corporacion, corporation, compania, company, comercializadora, servicios, services, international, internacional, industrial, industries, industrias, holding, holdings, trading, the, and, of, for]
