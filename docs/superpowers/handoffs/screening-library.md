@@ -8,7 +8,7 @@ You are working on **xolotl**, a multi-tenant KYC/AML compliance platform for La
 
 ## Your package
 
-Build the **pure, database-free core of screening** that SP-03 (lists and screening) is built on. It parses sanctions and watch lists into one normalized record shape, and it scores how well a person or company name matches a list entry, explaining why. It has **no database tables, no migrations, no HTTP routes and no jobs**. The SP-03 design spec (being written now on branch `docs/sp03-spec`, `docs/superpowers/specs/2026-10-19-sp03-lists-screening-design.md` once merged) adds list versions in Postgres, runs, matches, dispositions, re-screening and the console on top of your library.
+Build the **pure, database-free core of screening** that SP-03 (lists and screening) is built on. It parses sanctions and watch lists into one normalized record shape, and it scores how well a person or company name matches a list entry, explaining why. It has **no database tables, no migrations, no HTTP routes and no jobs**. The SP-03 design spec (`docs/superpowers/specs/2026-10-19-sp03-lists-screening-design.md`, on `main`) adds list versions in Postgres, runs, matches, dispositions, re-screening and the console on top of your library.
 
 **Start by reading the SP-03 spec** if it is on `main` or in an open PR. Where it fixes a name, type or behaviour for these parts, follow it. Where it does not exist yet, follow the program spec below, keep your public interface small, and note your choices so the SP-03 plans can adopt them.
 
@@ -37,7 +37,7 @@ Out of scope: storing lists or versions in Postgres, downloading files on a sche
 
 ## Where the code goes
 
-- Library: `src/xolotl/modules/screening/` with subpackages such as `lists/` (parsers, `ListEntry`, delta) and `matching/` (normalize, phonetic, nicknames, idf, index, scorer, explain). Create `src/xolotl/modules/screening/__init__.py`. It may import `xolotl.platform` only, never `xolotl.app`/`xolotl.cli`; import-linter enforces this. If you need party types, define a small input type of your own instead (for example `NameQuery`).
+- Library: `src/xolotl/modules/screening/` with subpackages such as `lists/` (parsers, `ListEntry`, delta) and `matching/` (normalize, phonetic, nicknames, idf, index, scorer, explain). Create `src/xolotl/modules/screening/__init__.py`. It may import only `xolotl.platform.errors` and `xolotl.platform.enums`; never `sqlalchemy`, `fastapi`, `xolotl.modules.party`, `xolotl.app` or `xolotl.cli`. The SP-03 spec (§4) fixes this rule and its public interface (`ListEntry`, `parse`, `diff`, `normalize_name`, `phonetic_key`, `MemoryIndex`, `score`, `band_for` and the corpus floors); follow it exactly. If you need party types, define a small input type of your own instead (for example `NameQuery`).
 - Fixtures: small, **trimmed real samples** of each official file (a few dozen entries, with their source URL and retrieval date in a README beside them) under `tests/modules/screening/fixtures/`. Do not commit full list files. Never commit real personal data beyond what the public lists themselves publish.
 - Nickname and particle tables are data files (YAML or CSV) under `src/xolotl/modules/screening/data/`, loaded once.
 - New dependencies (for example `lxml`, `rapidfuzz`, a phonetic library) go in `pyproject.toml` with `uv add`; prefer few and well-maintained. No network access at test time.
