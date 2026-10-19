@@ -8,9 +8,14 @@ from uuid import uuid4
 import pytest
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy import Engine, create_engine, select, text
 from sqlalchemy.exc import DataError, IntegrityError, PendingRollbackError
 
-from tests.helpers import system_ctx
+from tests.helpers import make_tenant, system_ctx
+from xolotl.modules.tenants.models import Tenant
+from xolotl.platform.crypto.encrypted import STR_CODEC, Encrypted
+from xolotl.platform.db import get_engine, tenant_session
+from xolotl.platform.enums import KeyPurpose
 from xolotl.platform.logging import (
     EXCEPTION_SUMMARY_LIMIT,
     JsonFormatter,
@@ -595,3 +600,218 @@ def test_the_summary_is_cleaned_before_it_is_cut():
     summary = safe_exception_summary(RuntimeError("\x00" * 50 + "x" * 1000))
     assert len(summary) == EXCEPTION_SUMMARY_LIMIT
     assert summary.startswith("RuntimeError: xxx")
+
+
+# ---- key material and SQL row logging (plan 1b task B3) ---------------------------
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "master_key",
+        "MASTER_KEY",
+        "master-key",
+        "Xolotl-Master-Key",
+        "XOLOTL_MASTER_KEY",
+    ],
+)
+def test_master_key_is_a_sensitive_key(key):
+    assert is_sensitive_key(key)
+
+
+def test_a_master_key_in_extra_fields_or_nested_mappings_is_masked():
+    logger, stream = _capture()
+    logger.info(
+        "configured",
+        extra={"master_key": "a2V5", "settings": {"master-key": "a2V5", "port": 8000}},
+    )
+    line = _last_line(stream)
+    assert line["master_key"] == "***"
+    assert line["settings"] == {"master-key": "***", "port": 8000}
+    assert "a2V5" not in stream.getvalue()
+
+
+ENGINE_LOGGER = "sqlalchemy.engine"
+
+
+@pytest.fixture
+def untouched_logging():
+    # configure_logging replaces the root handlers and sets levels process-wide.
+    loggers = [logging.getLogger(name) for name in ("", "sqlalchemy", ENGINE_LOGGER)]
+    handlers, levels = list(loggers[0].handlers), [logger.level for logger in loggers]
+    yield
+    loggers[0].handlers[:] = handlers
+    for logger, level in zip(loggers, levels, strict=True):
+        logger.setLevel(level)
+
+
+@pytest.mark.parametrize(
+    ("parent", "engine", "configured", "effective"),
+    [
+        # Lowered by someone (sitecustomize, a logging config, echo recipes): capped.
+        (logging.WARNING, logging.DEBUG, "DEBUG", logging.INFO),
+        (logging.WARNING, logging.DEBUG, "WARNING", logging.INFO),
+        # A parent that follows the root level would otherwise pass DEBUG down.
+        (logging.NOTSET, logging.NOTSET, "DEBUG", logging.INFO),
+        # INFO is allowed, and nothing quieter is raised: capping never turns
+        # statement logging on (SQLAlchemy's own default is WARNING).
+        (logging.WARNING, logging.INFO, "DEBUG", logging.INFO),
+        (logging.WARNING, logging.NOTSET, "DEBUG", logging.WARNING),
+        (logging.WARNING, logging.NOTSET, "INFO", logging.WARNING),
+        (logging.WARNING, logging.ERROR, "DEBUG", logging.ERROR),
+    ],
+)
+def test_the_engine_logger_is_never_more_verbose_than_info(
+    untouched_logging, parent, engine, configured, effective
+):
+    logging.getLogger().setLevel(logging.WARNING)  # quieter than anything configured
+    logging.getLogger("sqlalchemy").setLevel(parent)
+    logging.getLogger(ENGINE_LOGGER).setLevel(engine)
+    configure_logging(configured)
+    assert logging.getLogger(ENGINE_LOGGER).getEffectiveLevel() == effective
+
+
+def _record(name: str, level: int) -> logging.LogRecord:
+    return logging.LogRecord(name, level, __file__, 1, "Row (%s)", ("hunter2",), None)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["sqlalchemy.engine", "sqlalchemy.engine.Engine", "sqlalchemy.engine.Engine.reads"],
+)
+def test_the_filter_drops_engine_records_below_info_whatever_the_logger_levels_say(
+    name,
+):
+    # SQLAlchemy prints every result row at DEBUG on this logger subtree: password
+    # hashes, e-mail addresses, wrapped keys, ciphertexts.
+    assert not RedactionFilter().filter(_record(name, logging.DEBUG))
+    assert not RedactionFilter().filter(_record(name, logging.NOTSET + 5))
+    assert RedactionFilter().filter(_record(name, logging.INFO))
+    assert RedactionFilter().filter(_record(name, logging.WARNING))
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["sqlalchemy.engineer", "sqlalchemy.pool", "sqlalchemy", "xolotl.platform", "root"],
+)
+def test_the_filter_keeps_debug_records_of_every_other_logger(name):
+    assert RedactionFilter().filter(_record(name, logging.DEBUG))
+
+
+class _Collect(logging.Handler):
+    """Keeps what reaches it, with no filter: what SQLAlchemy really emitted."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.DEBUG)
+        self.messages: list[str] = []
+
+    @override
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+def _read_the_tenant(tenant_id) -> None:
+    with tenant_session(system_ctx(tenant_id)) as s:
+        _ = s.scalars(select(Tenant)).all()
+
+
+def _our_handler_stream() -> io.StringIO:
+    (handler,) = logging.getLogger().handlers
+    assert isinstance(handler, logging.StreamHandler)
+    stream = io.StringIO()
+    _ = handler.setStream(stream)
+    return stream
+
+
+def test_result_rows_never_reach_our_handler_however_the_engine_logger_is_set(
+    engine: Engine, untouched_logging
+):
+    tenant_id = make_tenant("alpha")
+    logging.getLogger(ENGINE_LOGGER).setLevel(logging.DEBUG)
+    configure_logging("DEBUG")  # lifts the engine logger to INFO
+    stream = _our_handler_stream()
+    emitted = _Collect()  # no filter: it sees what SQLAlchemy emits, so the checks bite
+    logging.getLogger().addHandler(emitted)
+
+    _read_the_tenant(tenant_id)  # the cap alone keeps the engine logger at INFO
+    assert "SELECT" in stream.getvalue()  # statements are logged
+    assert not any("Row (" in message for message in emitted.messages)
+
+    # A later setLevel, as a debugging recipe does, defeats the cap on the logger.
+    logging.getLogger(ENGINE_LOGGER).setLevel(logging.DEBUG)
+    _read_the_tenant(tenant_id)
+    assert any("Row (" in message for message in emitted.messages)  # emitted ...
+    assert "Row (" not in stream.getvalue()  # ... and dropped before our handler
+    assert "SELECT" in stream.getvalue()  # while the statements still come through
+
+
+def test_an_engine_that_echoes_at_debug_puts_no_rows_in_our_handler(
+    engine: Engine, untouched_logging
+):
+    configure_logging("DEBUG")
+    stream = _our_handler_stream()
+    emitted = _Collect()
+    # SQLAlchemy attaches a stdout handler to its engine logger unless it has one.
+    engine_logger = logging.getLogger("sqlalchemy.engine.Engine")
+    engine_logger.addHandler(emitted)
+    echoing = create_engine(get_engine().url, echo="debug", hide_parameters=True)
+    try:
+        with echoing.connect() as conn:
+            # The result is not in the statement text, which is logged at INFO.
+            digest = conn.scalar(text("SELECT md5('echoed')"))
+    finally:
+        echoing.dispose()
+        engine_logger.removeHandler(emitted)
+    assert digest
+    assert any(digest in message for message in emitted.messages)  # it did echo
+    assert digest not in stream.getvalue()
+    assert "Row (" not in stream.getvalue()
+
+
+# ---- opaque values (plan 1b task B3) ----------------------------------------------
+
+
+class Vault:
+    """Any class that declares itself opaque is masked whole, with no import."""
+
+    log_opaque = True
+
+
+class Window:
+    log_opaque = False
+
+
+def _encrypted() -> Encrypted[str]:
+    return Encrypted(
+        ciphertext=b"\x00\x01" + bytes(range(40)),
+        tenant_id=uuid4(),
+        purpose=KeyPurpose.DATA,
+        version=1,
+        _codec=STR_CODEC,
+    )
+
+
+@pytest.mark.parametrize("make", [Vault, _encrypted])
+def test_an_opaque_object_is_masked_in_every_position_of_a_record(make):
+    logger, stream = _capture()
+    logger.info("opened %s", make())
+    assert _last_line(stream)["msg"] == "opened ***"
+    logger.info("opened %(vault)s", {"vault": make()})
+    assert _last_line(stream)["msg"] == "opened ***"
+    logger.info("listed", extra={"vault": make(), "items": [make(), {"d": make()}]})
+    line = _last_line(stream)
+    assert (line["vault"], line["items"]) == ("***", ["***", {"d": "***"}])
+    assert redact(make()) == "***"
+    assert redact({"k": (make(),)}) == {"k": ["***"]}
+
+
+def test_a_class_that_does_not_declare_itself_opaque_is_left_alone():
+    window = Window()
+    assert redact(window) is window
+    assert redact(object) is object
+
+
+def test_an_encrypted_value_is_masked_even_where_it_is_the_whole_message():
+    logger, stream = _capture()
+    logger.info(_encrypted())
+    assert _last_line(stream)["msg"] == "Encrypted(***)"

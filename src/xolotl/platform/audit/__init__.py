@@ -17,6 +17,7 @@ checkpoint of the latest ``(seq, hash)``) is a later requirement.
 
 from xolotl.platform.audit.chain import (
     GENESIS_HASH,
+    VIEW_PII,
     AuditEvent,
     ChainVerification,
     canonical_json,
@@ -27,6 +28,7 @@ from xolotl.platform.audit.chain import (
 
 __all__ = [
     "GENESIS_HASH",
+    "VIEW_PII",
     "AuditEvent",
     "ChainVerification",
     "canonical_json",

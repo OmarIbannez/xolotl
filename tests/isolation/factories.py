@@ -13,10 +13,14 @@ from xolotl.modules.tenants.models import ApiKey, StaffCredential, StaffUser
 from xolotl.platform import clock
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.audit.models import AuditEventRow
+from xolotl.platform.crypto.encrypted import encrypt, encrypt_json
+from xolotl.platform.crypto.models import TenantKey
+from xolotl.platform.crypto.provider import get_key_provider
 from xolotl.platform.enums import (
     ApiKeyStatus,
     DeliveryStatus,
     EndpointStatus,
+    KeyPurpose,
     RunStatus,
     StaffStatus,
     StepStatus,
@@ -58,8 +62,18 @@ def staff_user(session: Session, tenant_id: UUID) -> None:
 
 def staff_credential(session: Session, tenant_id: UUID) -> None:
     user = _staff_user(session, tenant_id)
+    # A real ciphertext, so the harness replays what the column really holds. The
+    # tenant has no keys yet (the harness makes bare tenants), so it gets them here.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
     session.add(
-        StaffCredential(tenant_id=tenant_id, staff_user_id=user.id, password_hash="x")
+        StaffCredential(
+            tenant_id=tenant_id,
+            staff_user_id=user.id,
+            password_hash="x",
+            totp_secret=encrypt(
+                "JBSWY3DPEHPK3PXP", tenant_id=tenant_id, session=session
+            ),
+        )
     )
     session.flush()
 
@@ -82,6 +96,8 @@ def api_key(session: Session, tenant_id: UUID) -> None:
 
 
 def idempotency_key(session: Session, tenant_id: UUID) -> None:
+    # A real ciphertext, as for staff_credential: the column holds nothing else.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
     session.add(
         IdempotencyKey(
             tenant_id=tenant_id,
@@ -89,7 +105,9 @@ def idempotency_key(session: Session, tenant_id: UUID) -> None:
             key="k1",
             request_hash=b"\x00" * 32,
             status_code=200,
-            response_body={"ok": True},
+            response_body=encrypt_json(
+                {"ok": True}, tenant_id=tenant_id, session=session
+            ),
             expires_at=clock.now(),
         )
     )
@@ -236,6 +254,19 @@ def notification(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def tenant_key(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        TenantKey(
+            tenant_id=tenant_id,
+            purpose=KeyPurpose.DATA,
+            version=1,
+            wrapped_dek=b"\x00" * 60,
+            kek_ref="local:v1",
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -253,3 +284,4 @@ def register_all() -> None:
     register_isolation_factory("workflow_step", workflow_step)
     register_isolation_factory("workflow_signal", workflow_signal)
     register_isolation_factory("notification", notification)
+    register_isolation_factory("tenant_key", tenant_key)

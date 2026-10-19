@@ -20,6 +20,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.schema import SchemaItem
 
+from xolotl.platform.crypto.encrypted import Encrypted, EncryptedStr
 from xolotl.platform.db import Base
 from xolotl.platform.enums import ApiKeyStatus, StaffStatus, TenantEnv, TenantStatus
 from xolotl.platform.ids import uuid7
@@ -84,7 +85,9 @@ class StaffCredential(TenantTableMixin, Base):
 
     staff_user_id: Mapped[UUID] = mapped_column(Uuid)
     password_hash: Mapped[str] = mapped_column(Text)
-    totp_secret: Mapped[bytes | None] = mapped_column(LargeBinary)
+    # Encrypted under the tenant's DATA key. The enrolment response shows the base32
+    # secret once; nothing else holds it in the clear.
+    totp_secret: Mapped[Encrypted[str] | None] = mapped_column(EncryptedStr)
     totp_enabled: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=text("false")
     )

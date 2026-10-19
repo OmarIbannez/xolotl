@@ -3,10 +3,12 @@
 Two session shapes are used:
 
 * ``auth`` sessions (``auth_context()``): a platform-operator session with no
-  tenant, used by login before anyone is authenticated. ``login`` resolves the
-  tenant and switches the session into that tenant's scope with
-  ``apply_context``. Failure bookkeeping (counters, audit) is committed before
-  the error is raised so a rollback cannot erase it.
+  tenant, used by login before anyone is authenticated. ``login`` and
+  ``login_totp`` resolve the tenant and switch the session into that tenant's scope
+  with ``_in_tenant``, which applies the context to the session and also binds it as
+  the current context (loading the encrypted TOTP secret needs that). Failure
+  bookkeeping (counters, audit) is committed before the error is raised so a
+  rollback cannot erase it.
 * staff sessions: bound by ``get_session`` to the authenticated staff actor;
   ``actor_id`` is the ``staff_user.id``.
 """
@@ -15,12 +17,15 @@ import hashlib
 import hmac
 import re
 import secrets
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from xolotl.modules.tenants.models import (
@@ -51,6 +56,8 @@ from xolotl.platform.auth.passwords import (
 from xolotl.platform.auth.tokens import TokenClaims, decode_token, issue_token
 from xolotl.platform.auth.totp import new_secret, otpauth_uri, verify_code
 from xolotl.platform.config import get_settings
+from xolotl.platform.crypto import KeyNotFoundError, TenantKey, get_key_provider
+from xolotl.platform.crypto.encrypted import encrypt
 from xolotl.platform.db import (
     SessionFactory,
     apply_context,
@@ -60,6 +67,7 @@ from xolotl.platform.db import (
 from xolotl.platform.enums import (
     ActorType,
     ApiKeyStatus,
+    KeyPurpose,
     Role,
     StaffStatus,
     TenantEnv,
@@ -72,7 +80,7 @@ from xolotl.platform.errors import (
     UnauthorizedError,
     ValidationFailedError,
 )
-from xolotl.platform.tenancy.context import TenantContext
+from xolotl.platform.tenancy.context import TenantContext, bind_context
 
 AUTH_ACTOR = "auth"
 MAX_FAILED_ATTEMPTS = 10
@@ -89,6 +97,26 @@ _INVALID_CREDENTIALS = "invalid credentials"
 
 def auth_context() -> TenantContext:
     return TenantContext.platform(AUTH_ACTOR)
+
+
+@contextmanager
+def _in_tenant(s: Session, tenant_id: UUID) -> Generator[None]:
+    """Move an auth session into one tenant's scope, as the system actor ``auth``.
+
+    ``apply_context`` points the session's row-level security settings at the tenant.
+    It does not set the current context, and that is where a result processor takes the
+    tenant from, having no session: loading the credential's encrypted TOTP secret
+    would fail for a session that only had ``apply_context``. So the context is bound
+    as well, for as long as the tenant's rows are being worked on.
+
+    Yields:
+        Nothing; the session and the current context are both in the tenant's scope.
+
+    """
+    ctx = TenantContext.system(tenant_id, AUTH_ACTOR)
+    with bind_context(ctx):
+        apply_context(s, ctx)
+        yield
 
 
 # --- validation ----------------------------------------------------------------
@@ -213,6 +241,9 @@ def create_tenant(
         s.flush()
         # Same transaction, now scoped to the new tenant (still as the operator).
         apply_context(s, TenantContext.platform(actor_id, tenant_id=tenant.id))
+        # In this transaction too: there is no tenant without its keys, and nothing
+        # that would encrypt for it before they exist.
+        get_key_provider().create_tenant_keys(tenant.id, session=s)
         password = generate_password()
         admin = _add_staff(
             s,
@@ -229,6 +260,15 @@ def create_tenant(
                 entity_type="tenant",
                 entity_id=str(tenant.id),
                 detail={"slug": slug, "env": env.value},
+            ),
+        )
+        _ = record(
+            s,
+            AuditEvent(
+                action="tenant.keys_created",
+                entity_type="tenant",
+                entity_id=str(tenant.id),
+                detail={"purposes": [purpose.value for purpose in KeyPurpose]},
             ),
         )
         _ = record(
@@ -375,8 +415,14 @@ def login(s: Session, *, tenant_slug: str, email: str, password: str) -> LoginOu
     if tenant is None:
         verify_dummy(password)  # see _fail_and_commit
         raise UnauthorizedError(_INVALID_CREDENTIALS)
-    apply_context(s, TenantContext.system(tenant.id, AUTH_ACTOR))
-    user, cred = _load_staff(s, email.strip().lower())
+    with _in_tenant(s, tenant.id):
+        return _password_step(s, tenant, email=email.strip().lower(), password=password)
+
+
+def _password_step(
+    s: Session, tenant: Tenant, *, email: str, password: str
+) -> LoginOutcome:
+    user, cred = _load_staff(s, email)
     if user is None or cred is None or user.status is not StaffStatus.ACTIVE:
         raise _fail_and_commit(s, user, "unknown_or_disabled", attempt=password)
     now = clock.now()
@@ -407,7 +453,11 @@ def login(s: Session, *, tenant_slug: str, email: str, password: str) -> LoginOu
 def login_totp(s: Session, *, mfa_token: str, code: str) -> LoginOutcome:
     # TOTP step. ``s`` is bound to ``auth_context()``.
     claims = decode_token(mfa_token, purpose="mfa")
-    apply_context(s, TenantContext.system(claims.tenant_id, AUTH_ACTOR))
+    with _in_tenant(s, claims.tenant_id):
+        return _totp_step(s, claims, code=code)
+
+
+def _totp_step(s: Session, claims: TokenClaims, *, code: str) -> LoginOutcome:
     tenant = s.get(Tenant, claims.tenant_id)
     user = s.get(StaffUser, (claims.tenant_id, UUID(claims.sub)))
     # FOR UPDATE: see _load_staff.
@@ -433,7 +483,7 @@ def login_totp(s: Session, *, mfa_token: str, code: str) -> LoginOutcome:
     now = clock.now()
     if _is_locked(cred, now):
         raise _fail_and_commit(s, user, "locked", attempt=code)
-    if not verify_code(cred.totp_secret.decode(), code):
+    if not verify_code(cred.totp_secret.reveal(session=s), code):
         # The early exits above spend a dummy verification, so a wrong code does too:
         # every failure of this step costs the same.
         verify_dummy(code)
@@ -484,7 +534,9 @@ def enroll_totp(s: Session) -> TotpEnrollResponse:
         msg = "TOTP is already enabled"
         raise DomainError(msg)
     secret = new_secret()
-    cred.totp_secret = secret.encode()
+    # Sealed here, for this tenant and in this transaction, rather than left to the
+    # column: an Encrypted is stored as it is, and the plain text never sits on the row.
+    cred.totp_secret = encrypt(secret, tenant_id=tenant.id, session=s)
     s.flush()
     return TotpEnrollResponse(
         secret=secret,
@@ -500,7 +552,7 @@ def confirm_totp(s: Session, *, code: str) -> None:
     if cred.totp_enabled:
         msg = "TOTP is already enabled"
         raise DomainError(msg)
-    if not verify_code(cred.totp_secret.decode(), code):
+    if not verify_code(cred.totp_secret.reveal(session=s), code):
         msg = "invalid TOTP code"
         raise ValidationFailedError(msg)
     cred.totp_enabled = True
@@ -762,3 +814,124 @@ def resolve_bearer(session_factory: SessionFactory, token: str) -> Actor:
     if token.startswith("xk_"):
         return _resolve_api_key(session_factory, token)
     return _resolve_staff_token(session_factory, token)
+
+
+# --- tenant keys (platform operator) -------------------------------------------
+
+# Rotating and destroying keys lock the tenant's key rows and its audit chain. An
+# operation that cannot get a lock within this long gives up with a conflict instead of
+# waiting for ever, for instance behind a transaction that someone left open. Same
+# setting and value as the audit partitions use.
+KEY_LOCK_TIMEOUT = "5s"
+_LOCK_NOT_AVAILABLE = "55P03"
+_KEYS_BUSY = "this tenant's keys or audit trail are in use by another transaction"
+_LOCK_TIMEOUT_SQL = text("SELECT current_setting('lock_timeout')")
+_SET_LOCK_TIMEOUT_SQL = text("SELECT set_config('lock_timeout', :value, true)")
+
+
+@contextmanager
+def _bounded_lock_waits(session: Session) -> Generator[None]:
+    # Bounds every lock wait of the block by KEY_LOCK_TIMEOUT and turns a timeout into a
+    # DomainError (409). The setting is made in a savepoint. A give-up rolls the
+    # savepoint back, which undoes the setting and leaves the caller's transaction
+    # usable. On success the caller's own value is put back, because a setting made in
+    # a savepoint outlives its release.
+    callers_timeout = cast("str", session.scalar(_LOCK_TIMEOUT_SQL))
+    try:
+        with session.begin_nested():
+            _ = session.execute(_SET_LOCK_TIMEOUT_SQL, {"value": KEY_LOCK_TIMEOUT})
+            yield
+            _ = session.execute(_SET_LOCK_TIMEOUT_SQL, {"value": callers_timeout})
+    except OperationalError as exc:
+        sqlstate = cast("str | None", getattr(exc.orig, "sqlstate", None))
+        if sqlstate != _LOCK_NOT_AVAILABLE:
+            raise
+        msg = f"{_KEYS_BUSY}; try again shortly"
+        raise DomainError(msg) from exc
+
+
+def rotate_tenant_key(session: Session, purpose: KeyPurpose) -> int:
+    """Add a new version of one of the session's tenant's keys and audit it.
+
+    The process that rotates seals every value it writes from now on under the new
+    version; another process does so once the key it cached expires (the provider's
+    cache TTL). Values sealed earlier stay readable: the old version is retired, not
+    destroyed, and nothing is re-encrypted. INDEX keys are never rotated (every blind
+    index would need recomputing), and a tenant whose keys were destroyed cannot
+    rotate: the provider raises DomainError, KeyNotFoundError or KeyDestroyedError
+    (410) and nothing is audited. The event and the new key are one transaction: the
+    caller's.
+
+    A lock wait (the purpose's key rows, then the tenant's audit lock) lasts at most
+    KEY_LOCK_TIMEOUT. After that it gives up with a DomainError (409), and the caller's
+    transaction is still usable. To compose it with other work, call it before
+    anything else in the transaction records an audit event: that lock is held until
+    the commit, so an event recorded earlier would put it before the key rows again,
+    the order that deadlocks with a destroy under way.
+
+    The session is bound to the tenant. The CLI runs it as the platform operator.
+
+    Returns:
+        The new version number.
+
+    """
+    tenant_id = bound_context(session).require_tenant_id()
+    with _bounded_lock_waits(session):
+        version = get_key_provider().rotate(tenant_id, purpose, session=session)
+        _ = record(
+            session,
+            AuditEvent(
+                action="tenant.key_rotated",
+                entity_type="tenant",
+                entity_id=str(tenant_id),
+                detail={"purpose": purpose.value, "version": version},
+            ),
+        )
+    return version
+
+
+def destroy_tenant_keys(session: Session) -> None:
+    """Destroy every key of the session's tenant for good (crypto-shredding).
+
+    Irreversible: every value sealed for the tenant, under any purpose or version,
+    becomes unreadable, and nothing creates its keys again. Destroying twice is
+    harmless (the first destruction time stands) but is audited each time.
+
+    The event is recorded before the keys are destroyed, in the same transaction, so
+    a failure on either side rolls both back and the destruction never goes unrecorded.
+    The key rows are locked first, in the order rotation takes them, and the audit
+    lock comes second: taking them the other way round could deadlock with a rotation
+    that is under way. That holds only if nothing earlier in the transaction recorded
+    an audit event (that lock is held until the commit), so call it before any other
+    record() of the same transaction. A lock wait lasts at most KEY_LOCK_TIMEOUT;
+    after that it gives up with a DomainError (409), and the caller's transaction is
+    still usable. This process forgets the keys it cached when the transaction
+    commits; another process serves what it cached for up to the provider's cache TTL.
+
+    The session is bound to the tenant. The CLI runs it as the platform operator.
+
+    Raises:
+        KeyNotFoundError: When the tenant has no keys, so nothing is destroyed and
+            nothing is audited.
+
+    """
+    tenant_id = bound_context(session).require_tenant_id()
+    with _bounded_lock_waits(session):
+        held = session.scalars(
+            select(TenantKey.id)
+            .where(TenantKey.tenant_id == tenant_id)
+            .order_by(TenantKey.id)
+            .with_for_update()
+        ).all()
+        if not held:
+            msg = "this tenant has no encryption keys to destroy"
+            raise KeyNotFoundError(msg)
+        _ = record(
+            session,
+            AuditEvent(
+                action="tenant.keys_destroyed",
+                entity_type="tenant",
+                entity_id=str(tenant_id),
+            ),
+        )
+        get_key_provider().destroy(tenant_id, session=session)

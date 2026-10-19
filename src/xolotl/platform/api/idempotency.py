@@ -27,6 +27,17 @@ goes into a session of its own.
 
 The reservation is released, so the client can retry with the same key, only
 when the endpoint raises or returns a non-2xx response.
+
+How it is protected: a response can carry a one-time secret (``POST /v1/api-keys``
+returns the whole key, ``POST /v1/staff`` an initial password) and is kept for 24
+hours, so the record is ``EncryptedJson``: sealed under the tenant's DATA key, read
+and written through the request's own tenant-bound session (no second connection, and
+a destruction of the keys is seen at once). A reservation holds a sealed ``{}``.
+When the tenant's keys were destroyed, a replay and a new request alike fail with the
+crypto layer's 410 ``KEY_DESTROYED``, a new one before its endpoint runs; a stored
+body that does not open (another tenant's, altered) is a 500 ``DECRYPTION_FAILED``
+and is never replayed. The secret is never logged: the stored value is an
+``Encrypted``, which the logging filter masks.
 """
 
 import base64
@@ -51,6 +62,7 @@ from xolotl.platform.api.app import app_state
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.auth.actor import Actor
 from xolotl.platform.auth.principal import resolve_request_actor
+from xolotl.platform.crypto import encrypt_json
 from xolotl.platform.db import SessionFactory, tenant_session
 from xolotl.platform.errors import (
     IdempotencyConflictError,
@@ -139,8 +151,11 @@ def _encode(stored: Stored) -> dict[str, object]:
     }
 
 
-def _decode(row: IdempotencyKey) -> Stored:
-    record = row.response_body
+def _decode(s: Session, row: IdempotencyKey) -> Stored:
+    # Opened in the request's own tenant-bound session: the key is read in that
+    # transaction, so a destruction committed anywhere is seen at once and the replay
+    # fails closed (410 KEY_DESTROYED), and no second connection is taken.
+    record = row.response_body.reveal(session=s)
     media_type = record.get("media_type")
     raw = record.get("raw")
     return Stored(
@@ -191,6 +206,11 @@ def _reserve(
 ) -> Stored | None:
     """Return the stored response for a replay, or ``None`` after reserving the key.
 
+    The reservation is sealed and a stored response opened with the tenant's keys, read
+    in this session. A tenant whose keys were destroyed gets the crypto layer's 410
+    (``KeyDestroyedError``) for a replay and for a new request alike, and a stored body
+    that does not authenticate fails as ``DecryptionError`` and is never replayed.
+
     Returns:
         The stored response when the same request already completed, otherwise
         ``None`` once the key is reserved for this request.
@@ -219,6 +239,12 @@ def _reserve(
             existing = None
         if existing is None:
             tenant_id, actor_id, _ = _pk(actor, key)
+            # Sealed like the response that replaces it, so the column never holds
+            # anything else. A tenant whose keys are gone is refused here, before its
+            # request runs, with the same 410 a replay gets.
+            placeholder = encrypt_json(
+                {}, tenant_id=actor.context.require_tenant_id(), session=s
+            )
             inserted = s.execute(
                 insert(IdempotencyKey)
                 .values(
@@ -227,7 +253,7 @@ def _reserve(
                     key=key,
                     request_hash=digest,
                     status_code=RESERVED_STATUS,
-                    response_body={},
+                    response_body=placeholder,
                     expires_at=now + TTL,
                 )
                 .on_conflict_do_nothing(index_elements=["tenant_id", "actor_id", "key"])
@@ -242,14 +268,16 @@ def _reserve(
             raise IdempotencyConflictError
         if existing.status_code == RESERVED_STATUS:
             raise IdempotencyInProgressError
-        return _decode(existing)
+        return _decode(s, existing)
 
 
 def _store(s: Session, actor: Actor, key: str, stored: Stored) -> None:
     row = s.get(IdempotencyKey, _pk(actor, key))
     if row is not None:
         row.status_code = stored.status_code
-        row.response_body = _encode(stored)
+        row.response_body = encrypt_json(
+            _encode(stored), tenant_id=row.tenant_id, session=s
+        )
         s.flush()
 
 
