@@ -4,6 +4,7 @@ Connectors look up tenant-encrypted credentials, retry behind a circuit breaker,
 store the raw answer as evidence and meter every call in ``connector_call``.
 """
 
+from xolotl.platform.connectors.base import Connector, ConnectorDeps, redact
 from xolotl.platform.connectors.breaker import CircuitBreaker
 from xolotl.platform.connectors.errors import NoRouteError
 from xolotl.platform.connectors.types import (
@@ -32,7 +33,9 @@ __all__ = [
     "CheckType",
     "CircuitBreaker",
     "CircuitState",
+    "Connector",
     "ConnectorCallError",
+    "ConnectorDeps",
     "ConnectorMode",
     "ConnectorRequest",
     "ConnectorRoute",
@@ -44,4 +47,5 @@ __all__ = [
     "RawResponse",
     "TransientCallError",
     "VerificationOutcome",
+    "redact",
 ]
