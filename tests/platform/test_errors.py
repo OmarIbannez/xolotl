@@ -1,5 +1,6 @@
 import pytest
 
+from xolotl.platform.connectors import NoRouteError
 from xolotl.platform.enums import ActorType, Role
 from xolotl.platform.errors import (
     ContextMissingError,
@@ -36,6 +37,7 @@ from xolotl.platform.units.errors import (
         (UnitValueMissingError, 503, "UNIT_VALUE_MISSING"),
         (UnitSourceError, 503, "UNIT_SOURCE_UNAVAILABLE"),
         (UnverifiedValueError, 422, "UNVERIFIED_VALUE"),
+        (NoRouteError, 409, "CONNECTOR_NO_ROUTE"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
