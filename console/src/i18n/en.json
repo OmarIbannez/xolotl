@@ -40,7 +40,9 @@
     "connectors": "Connectors",
     "security": "Security",
     "openMenu": "Open menu",
-    "apiDocs": "API documentation"
+    "apiDocs": "API documentation",
+    "units": "Units",
+    "calendar": "Calendar"
   },
   "header": {
     "tenant": "Workspace",
@@ -128,7 +130,9 @@
     "scopesRequired": "Choose at least one scope.",
     "scopeFormat": "Use the format area:read or area:write, lowercase with underscores.",
     "scopeDraftPending": "Add the scope you typed or clear it before continuing.",
-    "rolesRequired": "Choose at least one role."
+    "rolesRequired": "Choose at least one role.",
+    "dateFormat": "Use the date or time format shown.",
+    "positiveInteger": "Use a whole positive number within the allowed range."
   },
   "home": {
     "title": "Home",
@@ -504,6 +508,67 @@
       "empty": "No policy overrides yet."
     },
     "noConversion": "Not converted: the unit's value for that date is missing."
+  },
+  "units": {
+    "title": "Units",
+    "description": "UMA, UDI and FIX exchange-rate values with their source and corrections; thresholds and limits convert to pesos from here.",
+    "table": {
+      "label": "Value units",
+      "unit": "Unit",
+      "quoteCcy": "Currency",
+      "latest": "Latest value in force",
+      "fetchedAt": "Last fetched",
+      "source": "Source"
+    },
+    "history": {
+      "title": "History",
+      "from": "From",
+      "to": "To",
+      "validFrom": "Valid from",
+      "validTo": "Valid to",
+      "value": "Value",
+      "fetchedAt": "Fetched",
+      "empty": "No values in that period."
+    },
+    "corrected": "Corrected",
+    "lookup": {
+      "title": "Look up a value",
+      "on": "Date",
+      "rule": "Conversion rule",
+      "submit": "Look up",
+      "result": "{{value}} {{ccy}} (value of {{date}})"
+    }
+  },
+  "calendar": {
+    "title": "Calendar",
+    "description": "Non-business days per authority and regulatory deadline calculation.",
+    "scope": "Calendar of",
+    "year": "Year",
+    "holidays": {
+      "label": "Non-business days",
+      "day": "Day",
+      "name": "Name",
+      "source": "Source",
+      "empty": "No non-business days recorded for that year."
+    },
+    "evaluator": {
+      "title": "Work out a deadline",
+      "kind": "Deadline kind",
+      "anchor": "Reference date",
+      "scope": "Business days per",
+      "n": "Number of days",
+      "monthOffset": "Months after",
+      "day": "Day of the month",
+      "roll": "If it falls on a non-business day",
+      "hours": "Hours",
+      "start": "Start (MM-DD)",
+      "end": "End (MM-DD)",
+      "yearOffset": "Years after",
+      "at": "Fixed date and time",
+      "time": "Cut-off time (HH:MM, optional)",
+      "submit": "Work out",
+      "result": "Due"
+    }
   },
   "forbidden": {
     "title": "No access",
