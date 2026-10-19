@@ -132,13 +132,17 @@ def _ensure_key_provider() -> None:
 def _connection_failure(exc: OperationalError) -> str | None:
     """Say why the database could not be reached, or return None for any other error.
 
-    The driver's cause is ``exc.orig``. Nothing came from a server when it is a
-    ``psycopg.OperationalError`` without a SQLSTATE: the connection was refused, the
-    host is unreachable, or the connect timeout expired. The reason is the first
+    The driver's cause is ``exc.orig``. A ``psycopg.OperationalError`` without a
+    SQLSTATE is libpq's own report rather than an error a server sent to a running
+    session: the connection was refused, the host is unreachable, the connect
+    timeout expired, the server answered the attempt with a FATAL (a wrong password,
+    a missing database) or the connection was lost mid-way. The reason is the first
     line of its text with the ``connection failed: `` libpq puts first removed; it
     reads ``connection to server at "127.0.0.1", port 1 failed: Connection refused``
-    (a hint line follows) or ``connection timeout expired``. An ``OperationalError``
-    a server sent carries a SQLSTATE and keeps its traceback.
+    (a hint line follows) or ``connection timeout expired``, which goes on to name
+    the wait and the setting that sets it, since nothing else in that line says the
+    host was never reached. An ``OperationalError`` a server sent to a running
+    session carries a SQLSTATE and keeps its traceback.
 
     Returns:
         The reason, or None when the error is not a failure to reach the database.
@@ -147,8 +151,11 @@ def _connection_failure(exc: OperationalError) -> str | None:
     cause = exc.orig
     if not isinstance(cause, psycopg.OperationalError) or cause.sqlstate is not None:
         return None
-    reason = str(cause).partition("\n")[0]
-    return reason.removeprefix("connection failed: ")
+    reason = str(cause).partition("\n")[0].removeprefix("connection failed: ")
+    if isinstance(cause, psycopg.errors.ConnectionTimeout):
+        seconds = get_settings().database_connect_timeout_seconds
+        reason += f" after {seconds} s (XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS)"
+    return reason
 
 
 @contextmanager
@@ -163,8 +170,9 @@ def _cli_errors() -> Generator[None]:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     except OperationalError as exc:
-        # A database that cannot be reached; an error a server sent keeps its
-        # traceback, which says what went wrong once the database was reached.
+        # A database that cannot be reached; an error a server sent to a running
+        # session keeps its traceback, which says what went wrong once the database
+        # was reached.
         reason = _connection_failure(exc)
         if reason is None:
             raise

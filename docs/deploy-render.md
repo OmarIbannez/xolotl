@@ -49,7 +49,8 @@ dependencies; several minutes), mounts the disk and starts the image's command,
 `xolotl serve`, which:
 
 1. **Reads the configuration.** `XOLOTL_ENV=prod` refuses the development JWT secret and
-   master key. Render hands over the database owner's URL only
+   master key, and the default database URL, which cannot happen here: Render hands over
+   the database owner's URL only
    (`XOLOTL_DATABASE_ADMIN_URL`, a `postgresql://` URL on the private network), so the
    application's URL is derived from it: the same database, signing in as `xolotl_app`
    with `XOLOTL_APP_DB_PASSWORD`.

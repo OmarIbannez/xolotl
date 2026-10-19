@@ -1,18 +1,19 @@
 """Every engine connects with libpq's ``connect_timeout`` (``db.connect_args``).
 
 A database that completes the TCP handshake and never answers (a hung server, a
-firewall that drops packets) would otherwise hold ``serve`` and every command for as
-long as the TCP stack waits, which can be for ever; ``silent_server`` is one. Only
-the first connection to it is sure to wait, because its backlog is one deep and what
-the kernel does with the next connection differs by platform, so each test times
-the connection it makes first.
+firewall that drops packets) would otherwise hold ``serve`` and every command for
+130 s per address, psycopg's own default; ``silent_server`` is one. Only the first
+connection to it is sure to wait, because its backlog is one deep and what the
+kernel does with the next connection differs by platform, so each test times the
+connection it makes first.
 """
 
 import time
 from typing import Any, cast
 
+import psycopg
 import pytest
-from sqlalchemy import Engine, create_engine, make_url
+from sqlalchemy import Engine, make_url
 from sqlalchemy.exc import OperationalError
 
 from xolotl.platform import db, migrate
@@ -67,20 +68,17 @@ def test_the_app_role_probe_gives_up_after_the_connect_timeout(
     monkeypatch.setenv("XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS", str(TIMEOUT))
     settings = cast("Any", Settings)(_env_file=None)
     assert settings.database_connect_timeout_seconds == TIMEOUT
-    owner = create_engine(
-        settings.database_admin_url,
-        connect_args={"connect_timeout": TIMEOUT},
-        hide_parameters=True,
-    )
+    bootstrapped: list[None] = []
     monkeypatch.setattr(migrate, "get_settings", lambda: settings)
     monkeypatch.setattr(db, "get_settings", lambda: settings)  # connect_args reads it
-    monkeypatch.setattr(migrate, "get_admin_engine", lambda: owner)
-    try:
-        started = time.monotonic()
-        # The probe gives up after the timeout, then bootstrap's own connect does.
-        with pytest.raises(OperationalError):
-            _ = migrate.ensure_app_role()
-        elapsed = time.monotonic() - started
-    finally:
-        owner.dispose()
-    assert elapsed < 10
+    monkeypatch.setattr(migrate, "bootstrap", lambda: bootstrapped.append(None))
+    started = time.monotonic()
+    with pytest.raises(OperationalError) as caught:
+        _ = migrate.ensure_app_role()
+    elapsed = time.monotonic() - started
+    assert elapsed < 8
+    # A database that never answers is not a role that cannot sign in: the probe's
+    # timeout is the end of it, and bootstrap (a second connect, a second timeout)
+    # never runs.
+    assert isinstance(caught.value.orig, psycopg.errors.ConnectionTimeout)
+    assert bootstrapped == []

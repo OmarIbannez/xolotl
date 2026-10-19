@@ -250,14 +250,18 @@ def _app_role_signs_in(url: str) -> bool:
     # A connection of its own, outside the application's pool: one pooled before a
     # password change would still answer. The server reports a missing role and a
     # wrong password alike, and either way the sign-in fails. It connects with the
-    # same timeout as every engine, so a database that never answers ends it too.
+    # same timeout as every engine, and a database that never answers is not a role
+    # that cannot sign in: the timeout is raised as it is, since bootstrapping could
+    # not help and its own connect would wait a second timeout.
     probe = create_engine(
         url, poolclass=NullPool, hide_parameters=True, connect_args=connect_args()
     )
     try:
         with probe.connect():
             pass
-    except OperationalError:
+    except OperationalError as exc:
+        if isinstance(exc.orig, psycopg.errors.ConnectionTimeout):
+            raise
         return False
     finally:
         probe.dispose()
@@ -273,8 +277,9 @@ def ensure_app_role() -> bool:
     password; both fail the sign-in, and ``bootstrap`` creates the role or sets its
     password. A role that signs in is left as it is. Nothing happens unless
     ``XOLOTL_DATABASE_ADMIN_URL`` is set: the default points at a local development
-    database. When the sign-in fails because the database is down, the bootstrap
-    fails too.
+    database. A database that refuses the connection fails the sign-in and then
+    the bootstrap's own connect, at once; one that never answers ends it with the
+    probe's connect timeout, raised as it is.
 
     Returns:
         Whether it bootstrapped the role.
