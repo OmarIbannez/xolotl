@@ -24,15 +24,24 @@ _PRINTABLE_LOW = 0x20
 _PRINTABLE_HIGH = 0x7E
 _SPACES = re.compile(r"\s+")
 _IDENTIFIER_JUNK = re.compile(r"[^A-ZÑ&0-9]")
+# Latin letters that have no Unicode decomposition to a base letter.
+_UNDECOMPOSABLE = str.maketrans({
+    "Ł": "L", "Ø": "O", "Æ": "AE", "Œ": "OE", "Đ": "D", "Ð": "D", "Þ": "TH",
+    "Ħ": "H", "Ŧ": "T", "Ŀ": "L", "Ŋ": "N", "Ə": "E",
+})  # fmt: skip
 CURP_SHAPE = re.compile(r"^[A-Z]{4}\d{6}[HMX][A-Z]{5}[A-Z\d]\d$")
-_CASFIM = re.compile(r"^\d{1,2}-\d{3}$")
+_CASFIM = re.compile(r"^[0-9]{1,2}-[0-9]{3}$")
+# Six digits from a CASFIM key; eight for a CNBV-assigned centro cambiario or
+# transmisor key (sector plus institution, column 5 "6/8").
+_CASFIM_DIGITS = re.compile(r"^(?:[0-9]{6}|[0-9]{8})$")
 _CASFIM_LENGTH = 6
 _MAX_INTEGER_DIGITS = 14
 _ENYE = "Ñ"
+_CONTROL_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 
 
 def _strip_marks(value: str) -> str:
-    decomposed = unicodedata.normalize("NFKD", value)
+    decomposed = unicodedata.normalize("NFKD", value.translate(_UNDECOMPOSABLE))
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
@@ -66,8 +75,9 @@ def f41_text(value: str | None) -> str:
 def aviso_text(value: str | None) -> str:
     """Bring free text to the aviso character set: upper case, Ñ kept.
 
-    Every other diacritic is stripped and whitespace is collapsed; the XSD
-    patterns decide what else is allowed.
+    Every other diacritic is stripped, control and unassigned characters become
+    spaces and whitespace is collapsed; the XSD patterns decide what else is
+    allowed.
 
     Returns:
         The cleaned text, ``""`` for ``None`` or blank input.
@@ -76,20 +86,29 @@ def aviso_text(value: str | None) -> str:
     if value is None:
         return ""
     upper = unicodedata.normalize("NFC", value).upper()
-    kept = "".join(ch if ch == _ENYE else _strip_marks(ch) for ch in upper)
+    kept = "".join(
+        " "
+        if unicodedata.category(ch) in _CONTROL_CATEGORIES
+        else ch
+        if ch == _ENYE
+        else _strip_marks(ch)
+        for ch in upper
+    )
     return _collapse(kept.upper())
 
 
 def fit(value: str, width: int) -> tuple[str, bool]:
     """Truncate ``value`` to ``width`` characters, as the Formato 41 layout says.
 
+    A space left at the cut is dropped.
+
     Returns:
-        The value cut to ``width`` and whether anything was cut.
+        The value cut to at most ``width`` and whether anything was cut.
 
     """
     if len(value) <= width:
         return value, False
-    return value[:width], True
+    return value[:width].rstrip(), True
 
 
 def compact_identifier(value: str) -> str:
@@ -99,7 +118,7 @@ def compact_identifier(value: str) -> str:
         Only ``A-Z``, ``Ñ``, ``&`` and digits, in their original order.
 
     """
-    return _IDENTIFIER_JUNK.sub("", value.upper())
+    return _IDENTIFIER_JUNK.sub("", unicodedata.normalize("NFC", value).upper())
 
 
 def rfc(value: str, *, field: str = "rfc") -> str:
@@ -147,7 +166,10 @@ def amount(value: Decimal, *, field: str = "amount", places: int = 2) -> str:
     """
     if not value.is_finite() or value < 0:
         raise ReportFieldError(field, "must be a finite non-negative amount")
-    quantized = value.quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
+    # Checked before rounding: quantizing a huge value overflows the context.
+    if not value.is_zero() and value.adjusted() >= _MAX_INTEGER_DIGITS:
+        raise ReportFieldError(field, "more than 14 integer digits")
+    quantized = abs(value).quantize(Decimal(1).scaleb(-places), rounding=ROUND_HALF_UP)
     text = f"{quantized:f}"
     if len(text.split(".", maxsplit=1)[0]) > _MAX_INTEGER_DIGITS:
         raise ReportFieldError(field, "more than 14 integer digits")
@@ -189,10 +211,19 @@ def yyyymm(value: date) -> str:
 def yyyymmdd(value: date) -> str:
     """Render a calendar date.
 
+    A ``datetime`` is refused: its calendar day depends on the time zone, so the
+    caller converts it to a Mexico City date first.
+
     Returns:
         ``AAAAMMDD``.
 
+    Raises:
+        TypeError: ``value`` is a ``datetime``.
+
     """
+    if isinstance(value, datetime):
+        msg = "pass a date, not a datetime"
+        raise TypeError(msg)
     return f"{value.year:04d}{value.month:02d}{value.day:02d}"
 
 
@@ -212,21 +243,24 @@ def mx_datetime(value: datetime, *, field: str = "datetime") -> str:
 
 
 def casfim_key(value: str, *, field: str = "casfim") -> str:
-    """Turn a CASFIM key such as ``40-002`` into the six digits Formato 41 wants.
+    """Turn a CASFIM key such as ``40-002`` into the digits Formato 41 wants.
 
     The hyphen is dropped and the key is left-padded with zeros, so ``40-002``
-    becomes ``040002``. A key already in six-digit form is returned unchanged.
+    becomes ``040002``. A key already in six-digit form, or the eight-digit form
+    the CNBV assigns to centros cambiarios and transmisores, is returned
+    unchanged. Only ASCII digits are accepted.
 
     Returns:
-        Six digits.
+        Six or eight digits.
 
     Raises:
-        ReportFieldError: the value is neither ``N-NNN``/``NN-NNN`` nor six digits.
+        ReportFieldError: the value is not ``N-NNN``/``NN-NNN`` nor six or eight
+            ASCII digits.
 
     """
     stripped = value.strip()
     if _CASFIM.fullmatch(stripped):
         return stripped.replace("-", "").rjust(_CASFIM_LENGTH, "0")
-    if stripped.isdigit() and len(stripped) == _CASFIM_LENGTH:
+    if _CASFIM_DIGITS.fullmatch(stripped):
         return stripped
     raise ReportFieldError(field, "not a CASFIM key")

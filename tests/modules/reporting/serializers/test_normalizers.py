@@ -175,3 +175,60 @@ def test_casfim_keys_lose_the_hyphen_and_gain_a_leading_zero():
 def test_bad_casfim_keys_are_refused(value):
     with pytest.raises(ReportFieldError):
         _ = n.casfim_key(value, field="col4")
+
+
+# ---- Review findings --------------------------------------------------------------
+
+
+def test_negative_zero_renders_without_a_sign():
+    assert n.amount(Decimal("-0")) == "0.00"
+    assert n.quantity(Decimal("-0.000")) == "0.00"
+
+
+@pytest.mark.parametrize("value", [Decimal("1E+30"), Decimal("123456789012345678")])
+def test_huge_amounts_are_field_errors_not_decimal_errors(value):
+    with pytest.raises(ReportFieldError, match="14 integer digits"):
+        _ = n.amount(value)
+    with pytest.raises(ReportFieldError, match="14 integer digits"):
+        _ = n.quantity(value)
+
+
+def test_casfim_keys_take_ascii_digits_only_and_allow_the_eight_digit_form():
+    assert n.casfim_key("08920001") == "08920001"
+    with pytest.raises(ReportFieldError):
+        _ = n.casfim_key("４０-００２")
+    with pytest.raises(ReportFieldError):
+        _ = n.casfim_key("０４０００２")
+
+
+def test_yyyymmdd_refuses_a_datetime():
+    with pytest.raises(TypeError, match="not a datetime"):
+        _ = n.yyyymmdd(datetime(2026, 1, 1, 3, tzinfo=UTC))
+
+
+def test_letters_without_a_decomposition_are_transliterated():
+    assert n.f41_text("Łukasz Øster Æble Đorđe Œuvre") == (
+        "LUKASZ OSTER AEBLE DORDE OEUVRE"
+    )
+    assert n.aviso_text("Łódź") == "LODZ"
+
+
+def test_identifiers_compose_a_decomposed_enye():
+    assert n.compact_identifier("PEÑA800101AB1") == "PEÑA800101AB1"
+
+
+def test_aviso_text_turns_control_characters_into_spaces():
+    assert n.aviso_text("A\x07B​C\x00") == "A B C"
+
+
+def test_fit_drops_the_space_left_at_the_cut():
+    assert n.fit("ABC DEF", 4) == ("ABC", True)
+
+
+@given(st.decimals(allow_nan=False, allow_infinity=False))
+def test_amount_raises_only_field_errors(value):
+    try:
+        text = n.amount(value)
+    except ReportFieldError:
+        return
+    assert not text.startswith("-")
