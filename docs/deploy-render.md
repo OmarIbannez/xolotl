@@ -163,9 +163,13 @@ user, and reports from other projects say disks mount owned by root. The image's
 (uid 10001) also belongs to group 1000, the group Render documents for the
 [secret files][docker-secrets] it mounts at runtime. If the start logs
 `object store root is not writable by this process`, nothing fails today, because no
-feature writes objects yet, but uploads will. Compare `id` and `ls -ldn /var/data` in the
-Shell, then ask Render support how the disk is owned, or have the image start as root to
-hand `/var/data/objects` to uid 10001 before it drops to that user.
+feature writes objects yet, but uploads will. The warning names the directory it checked
+(`decided_by`: the nearest one on the root's path that exists, `/var/data` until
+`/var/data/objects` is created), the process's `uid` and `gids`, and carries a `hint`
+that says what to compare, so the operator sees what to do without this page. Compare
+`id` and `ls -ldn` of that directory in the Shell, then ask Render support how the disk
+is owned, or have the image start as root to hand `/var/data/objects` to uid 10001
+before it drops to that user.
 
 ## The database role
 

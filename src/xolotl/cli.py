@@ -66,7 +66,8 @@ def _report_object_store(root: Path) -> None:
     A host's persistent disk may mount for another user than the image's (Render
     documents nothing about disks and non-root images), and nothing writes an object
     at start, so the log says it before the first upload finds out. The nearest
-    directory that exists decides; nothing is created.
+    directory that exists decides; nothing is created. The warning names that
+    directory and says what to do, so an operator reading the log needs no manual.
     """
     existing = root.absolute()
     while not existing.exists():
@@ -75,9 +76,20 @@ def _report_object_store(root: Path) -> None:
     if os.access(existing, os.W_OK | os.X_OK):
         logger.info("object store root is writable", extra=where)
         return
+    hint = (
+        "nothing is written at start, but uploads will fail: in the service's shell "
+        "compare 'id' with 'ls -ldn' of that directory, and make it writable by this "
+        "uid or one of these gids; see docs/deploy-render.md, Disk permissions"
+    )
     logger.warning(
         "object store root is not writable by this process",
-        extra={**where, "uid": os.getuid(), "gids": os.getgroups()},
+        extra={
+            **where,
+            "uid": os.getuid(),
+            "gids": os.getgroups(),
+            "decided_by": str(existing),
+            "hint": hint,
+        },
     )
 
 

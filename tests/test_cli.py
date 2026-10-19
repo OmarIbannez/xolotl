@@ -197,6 +197,28 @@ def test_serve_says_whether_it_can_write_the_object_store(
     assert "not writable" not in said["disk"]
     assert "object store root is not writable by this process" in said["locked"]
     assert str(locked / "objects") in said["locked"]
+    records = {
+        name: [json.loads(line) for line in output.splitlines() if line.startswith("{")]
+        for name, output in said.items()
+    }
+    # The warning names the directory it checked and says what to do, so the operator
+    # needs no manual; the INFO line carries no hint.
+    (warning,) = [
+        r
+        for r in records["locked"]
+        if r["level"] == "WARNING"
+        and r["msg"] == "object store root is not writable by this process"
+    ]
+    assert warning["decided_by"] == str(locked)
+    assert "ls -ldn" in warning["hint"]
+    assert "docs/deploy-render.md" in warning["hint"]
+    assert warning["object_store_root"] == str(locked / "objects")
+    (info,) = [
+        r
+        for r in records["disk"]
+        if r["level"] == "INFO" and r["msg"] == "object store root is writable"
+    ]
+    assert "hint" not in info
 
 
 def _serve_warnings(
