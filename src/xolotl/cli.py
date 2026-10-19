@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
+import psycopg
 import typer
 import uvicorn
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from xolotl.app import build_key_provider, build_worker
 from xolotl.modules.tenants import service
@@ -115,6 +117,28 @@ def _ensure_key_provider() -> None:
         set_key_provider(build_key_provider(get_settings(), get_sessionmaker()))
 
 
+def _connection_failure(exc: OperationalError) -> str | None:
+    """Say why the database could not be reached, or return None for any other error.
+
+    The driver's cause is ``exc.orig``. Nothing came from a server when it is a
+    ``psycopg.OperationalError`` without a SQLSTATE: the connection was refused, the
+    host is unreachable, or the connect timeout expired. The reason is the first
+    line of its text with the ``connection failed: `` libpq puts first removed; it
+    reads ``connection to server at "127.0.0.1", port 1 failed: Connection refused``
+    (a hint line follows) or ``connection timeout expired``. An ``OperationalError``
+    a server sent carries a SQLSTATE and keeps its traceback.
+
+    Returns:
+        The reason, or None when the error is not a failure to reach the database.
+
+    """
+    cause = exc.orig
+    if not isinstance(cause, psycopg.OperationalError) or cause.sqlstate is not None:
+        return None
+    reason = str(cause).partition("\n")[0]
+    return reason.removeprefix("connection failed: ")
+
+
 @contextmanager
 def _cli_errors() -> Generator[None]:
     # The errors a user can act on: one "error:" line on stderr and exit status 1.
@@ -125,6 +149,14 @@ def _cli_errors() -> Generator[None]:
         raise typer.Exit(code=1) from exc
     except (RoleBypassError, BootstrapError) as exc:
         typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    except OperationalError as exc:
+        # A database that cannot be reached; an error a server sent keeps its
+        # traceback, which says what went wrong once the database was reached.
+        reason = _connection_failure(exc)
+        if reason is None:
+            raise
+        typer.echo(f"error: cannot connect to the database: {reason}", err=True)
         raise typer.Exit(code=1) from exc
 
 
@@ -166,7 +198,8 @@ def serve(
     role check, to its shutdown. It logs whether it can write the object store's root
     (a persistent disk may not let it), and warns when the public development master
     key is in use (XOLOTL_ENV=prod refuses it). Exits 1 without serving when the app
-    role can bypass row-level security or bootstrap fails. uvicorn runs with
+    role can bypass row-level security, bootstrap fails or the database cannot be
+    reached (one line on stderr, within the connect timeout). uvicorn runs with
     ``log_config=None``, so its loggers propagate to the JSON root handler that
     ``configure_logging`` installs, redaction filter included.
     """
@@ -175,8 +208,7 @@ def serve(
     _warn_about_the_dev_master_key(settings)
     with _cli_errors():
         _ = migrate.ensure_app_role()
-    migrate.upgrade()
-    with _cli_errors():
+        migrate.upgrade()
         assert_app_role_safe(get_engine())
     _report_object_store(settings.object_store_root)
     uvicorn.run(
@@ -220,9 +252,13 @@ def db_bootstrap() -> None:
 
 @db_app.command("upgrade")
 def db_upgrade() -> None:
-    """Apply migrations up to head, logging what they do like ``serve`` does."""
+    """Apply migrations up to head, logging what they do like ``serve`` does.
+
+    Exits 1 with one line on stderr when the database cannot be reached.
+    """
     configure_logging(get_settings().log_level)
-    migrate.upgrade()
+    with _cli_errors():
+        migrate.upgrade()
     typer.echo("database upgraded to head")
 
 
@@ -242,7 +278,8 @@ def db_reset(
     if not yes:
         typer.echo("refusing to reset without --yes", err=True)
         raise typer.Exit(code=2)
-    migrate.reset()
+    with _cli_errors():
+        migrate.reset()
     typer.echo("database reset and migrated")
 
 
@@ -278,7 +315,7 @@ def tenant_create(
 @tenant_app.command("list")
 def tenant_list() -> None:
     """List tenants as slug, env, status and id."""
-    with tenant_session(TenantContext.platform(_cli_actor())) as s:
+    with _cli_errors(), tenant_session(TenantContext.platform(_cli_actor())) as s:
         for tenant in service.list_tenants(s):
             typer.echo(
                 f"{tenant.slug}\t{tenant.env.value}\t{tenant.status.value}\t{tenant.id}"
@@ -299,8 +336,8 @@ def audit_verify(
     actor = _cli_actor()
     with _cli_errors():
         tenant_id, _ = _resolve_tenant(actor, tenant)
-    with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
-        result = verify_chain(s)
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            result = verify_chain(s)
     typer.echo(result.model_dump_json(indent=2))
     if not result.valid:
         raise typer.Exit(code=1)

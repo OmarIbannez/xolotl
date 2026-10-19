@@ -18,6 +18,7 @@ from xolotl.platform.db import (
     APP_ROLE,
     BootstrapError,
     RoleBypassError,
+    connect_args,
     get_admin_engine,
 )
 
@@ -248,8 +249,11 @@ def bootstrap() -> None:
 def _app_role_signs_in(url: str) -> bool:
     # A connection of its own, outside the application's pool: one pooled before a
     # password change would still answer. The server reports a missing role and a
-    # wrong password alike, and either way the sign-in fails.
-    probe = create_engine(url, poolclass=NullPool, hide_parameters=True)
+    # wrong password alike, and either way the sign-in fails. It connects with the
+    # same timeout as every engine, so a database that never answers ends it too.
+    probe = create_engine(
+        url, poolclass=NullPool, hide_parameters=True, connect_args=connect_args()
+    )
     try:
         with probe.connect():
             pass

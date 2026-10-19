@@ -152,6 +152,9 @@ home page. Turn on two-step verification under **Security**. The API documentati
   and `embedded worker started`.
 - `GET https://<service>.onrender.com/readyz` answers `{"status":"ok","database":"ok"}`.
 - `object store root is writable` appears once per start.
+- A database the service cannot reach fails the start in one line,
+  `error: cannot connect to the database: ...`, after the connect timeout (10 s by
+  default, `XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS`) instead of hanging it.
 
 ## Disk permissions
 

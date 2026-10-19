@@ -8,6 +8,7 @@ touches the database.
 """
 
 import os
+import socket
 from collections.abc import Generator, Iterator
 from typing import cast
 
@@ -72,17 +73,21 @@ def engines(
     # can create a tenant, which gives it keys. Tests that build the app replace it
     # with an equal one; tests that need none ask for no_key_provider.
     set_key_provider(build_key_provider(get_settings(), db.get_sessionmaker()))
-    yield db.get_engine(), db.get_admin_engine()
+    pair = db.get_engine(), db.get_admin_engine()
+    yield pair
     set_key_provider(None)
-    db.get_engine().dispose()
-    db.get_admin_engine().dispose()
+    # These two and whatever the caches hold by now: a test that pointed the commands
+    # at another database (database_at in test_cli.py) left the cached ones to be
+    # rebuilt, and a pool that is garbage collected finalizes its connections
+    # unclosed, which is a ResourceWarning and so an error here.
+    for built in {*pair, db.get_engine(), db.get_admin_engine()}:
+        built.dispose()
 
 
 @pytest.fixture
 def clean_db(engines: tuple[Engine, Engine]) -> None:
     """Truncate every table except alembic_version before the test runs."""
-    _, admin = engines
-    with admin.begin() as conn:
+    with db.get_admin_engine().begin() as conn:
         names = cast(
             "list[str]",
             conn.scalars(
@@ -116,14 +121,38 @@ def no_key_provider() -> Iterator[None]:
     set_key_provider(previous)
 
 
+# The engines the code under test uses: the cached ones, which a test that pointed
+# the commands at another database (database_at in test_cli.py) leaves to be rebuilt
+# from the environment, so a listener a test attaches to one hears the statements.
 @pytest.fixture
 def engine(engines: tuple[Engine, Engine], clean_db: None) -> Engine:
-    return engines[0]
+    return db.get_engine()
 
 
 @pytest.fixture
 def admin_engine(engines: tuple[Engine, Engine], clean_db: None) -> Engine:
-    return engines[1]
+    return db.get_admin_engine()
+
+
+@pytest.fixture
+def silent_server() -> Iterator[tuple[str, int]]:
+    """Listen on a loopback port and never accept: a database that never answers.
+
+    The kernel completes the TCP handshake for a listening socket by itself, so a
+    client connects, and libpq then waits for the server's greeting, which never
+    comes. That is what a hung or firewalled database looks like, and what only a
+    connect timeout ends; a closed port is refused at once and proves nothing about
+    one. The backlog is one deep: a test's first connection is the one sure to wait.
+
+    Yields:
+        The host and port to put in a database URL.
+
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        host, port = server.getsockname()
+        yield host, port
 
 
 @pytest.fixture

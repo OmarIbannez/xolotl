@@ -341,6 +341,26 @@ def test_the_webhook_timeout_rejects_nonsense(monkeypatch, value):
         _ = make_settings()
 
 
+def test_the_connect_timeout_defaults_to_ten_seconds():
+    assert make_settings().database_connect_timeout_seconds == 10
+
+
+def test_the_connect_timeout_is_read_from_the_environment(monkeypatch):
+    # Settings ignores names it does not know, so setting the variable and seeing
+    # the value change proves the field reads XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS.
+    monkeypatch.setenv("XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS", "30")
+    assert make_settings().database_connect_timeout_seconds == 30
+
+
+# libpq treats a connect_timeout under 2 as 2, so 2 is the floor; five minutes is
+# longer than any start should wait to learn that the database cannot be reached.
+@pytest.mark.parametrize("value", ["0", "1", "-5", "301", "soon", "2.5"])
+def test_the_connect_timeout_rejects_nonsense(monkeypatch, value):
+    monkeypatch.setenv("XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValidationError, match="database_connect_timeout_seconds"):
+        _ = make_settings()
+
+
 # --- Database URLs as a host hands them out (Render) ---------------------------------
 # Render's connectionString is postgresql://..., Heroku's postgres://...: libpq URLs,
 # which SQLAlchemy would read as the psycopg2 driver or not at all.

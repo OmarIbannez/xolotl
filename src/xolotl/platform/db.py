@@ -77,19 +77,40 @@ def context_params(ctx: TenantContext) -> dict[str, str]:
     }
 
 
+def connect_args() -> dict[str, int]:
+    """Return the driver options every engine connects with.
+
+    libpq's ``connect_timeout`` (``XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS``), so a
+    database that cannot be reached, whether the connection is refused, the host is
+    unreachable or a server never answers, fails within the timeout instead of
+    hanging the start or the command.
+
+    Returns:
+        The ``connect_args`` for ``create_engine``.
+
+    """
+    return {"connect_timeout": get_settings().database_connect_timeout_seconds}
+
+
 # Both engines hide bound parameters: error text and SQL logs must not carry
 # row values (emails, CURPs, password hashes).
 @lru_cache
 def get_engine() -> Engine:
     return create_engine(
-        get_settings().database_url, pool_pre_ping=True, hide_parameters=True
+        get_settings().database_url,
+        pool_pre_ping=True,
+        hide_parameters=True,
+        connect_args=connect_args(),
     )
 
 
 @lru_cache
 def get_admin_engine() -> Engine:
     return create_engine(
-        get_settings().database_admin_url, pool_pre_ping=True, hide_parameters=True
+        get_settings().database_admin_url,
+        pool_pre_ping=True,
+        hide_parameters=True,
+        connect_args=connect_args(),
     )
 
 

@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     # URL signing in as APP_ROLE with this password. An explicit XOLOTL_DATABASE_URL
     # wins, and nothing is derived from the local default admin URL.
     app_db_password: SecretStr | None = Field(default=None, min_length=1)
+    # libpq's connect_timeout, in seconds, for every engine (db.connect_args): a
+    # database that cannot be reached fails within it instead of hanging. libpq
+    # treats a value under 2 as 2, so 2 is the floor.
+    database_connect_timeout_seconds: int = Field(default=10, ge=2, le=300)
     env: Literal["dev", "test", "prod"] = "dev"
     jwt_secret: str = Field(default=DEV_JWT_SECRET, min_length=32, repr=False)
     jwt_issuer: str = "xolotl"
