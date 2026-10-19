@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
 from xolotl.modules.party import routes as party_routes
+from xolotl.modules.party.retention import register_party
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
@@ -125,6 +126,9 @@ def wire_platform(
     register_webhooks(bus, queue, settings=settings)
     # One store for the routes and the connectors' evidence alike.
     store = build_object_store(settings)
+    # The daily party.retention_sweep job purges parties whose retention ended and
+    # deletes their documents from this store.
+    register_party(object_store=store)
     # The daily units.fetch job: Banxico SIE with a token, else the seed files
     # (demo mode, refused in prod, where the job notifies ADMIN and MLRO instead).
     _ = register_units(
