@@ -110,6 +110,8 @@ class ReportDefinition(BaseModel):
     valid_from: date
     valid_to: date | None = None
     report_type: str
+    # The 24-hour report takes a legend that heads column 40 (D14).
+    legend_required: bool = False
     layout: str
 
 
