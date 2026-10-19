@@ -1,0 +1,72 @@
+# Valores diarios de la UDI del 2025-12-01 al 2026-01-31, copiados el 2026-10-19 de la
+# publicación de Banxico en el DOF (dof.gob.mx, indicador UDIS, que coincide con la serie
+# SP68257 de la SIE en las fechas comparadas). Una fila por día natural, seis decimales.
+unit_code: UDI
+quote_ccy: MXN
+source: "BANXICO_SIE:SP68257"
+legal_basis: "Banxico, serie SP68257 (valor de la UDI), publicada para cada día natural"
+confidence: VERIFIED
+verified_as_of: 2026-10-19
+values:
+  - {valid_from: 2025-12-01, value: "8.614745"}
+  - {valid_from: 2025-12-02, value: "8.617416"}
+  - {valid_from: 2025-12-03, value: "8.620088"}
+  - {valid_from: 2025-12-04, value: "8.622761"}
+  - {valid_from: 2025-12-05, value: "8.625435"}
+  - {valid_from: 2025-12-06, value: "8.628109"}
+  - {valid_from: 2025-12-07, value: "8.630785"}
+  - {valid_from: 2025-12-08, value: "8.633461"}
+  - {valid_from: 2025-12-09, value: "8.636138"}
+  - {valid_from: 2025-12-10, value: "8.638816"}
+  - {valid_from: 2025-12-11, value: "8.640225"}
+  - {valid_from: 2025-12-12, value: "8.641634"}
+  - {valid_from: 2025-12-13, value: "8.643044"}
+  - {valid_from: 2025-12-14, value: "8.644454"}
+  - {valid_from: 2025-12-15, value: "8.645864"}
+  - {valid_from: 2025-12-16, value: "8.647274"}
+  - {valid_from: 2025-12-17, value: "8.648685"}
+  - {valid_from: 2025-12-18, value: "8.650096"}
+  - {valid_from: 2025-12-19, value: "8.651507"}
+  - {valid_from: 2025-12-20, value: "8.652918"}
+  - {valid_from: 2025-12-21, value: "8.654329"}
+  - {valid_from: 2025-12-22, value: "8.655741"}
+  - {valid_from: 2025-12-23, value: "8.657153"}
+  - {valid_from: 2025-12-24, value: "8.658565"}
+  - {valid_from: 2025-12-25, value: "8.659978"}
+  - {valid_from: 2025-12-26, value: "8.660879"}
+  - {valid_from: 2025-12-27, value: "8.661780"}
+  - {valid_from: 2025-12-28, value: "8.662682"}
+  - {valid_from: 2025-12-29, value: "8.663583"}
+  - {valid_from: 2025-12-30, value: "8.664485"}
+  - {valid_from: 2025-12-31, value: "8.665387"}
+  - {valid_from: 2026-01-01, value: "8.666288"}
+  - {valid_from: 2026-01-02, value: "8.667190"}
+  - {valid_from: 2026-01-03, value: "8.668092"}
+  - {valid_from: 2026-01-04, value: "8.668994"}
+  - {valid_from: 2026-01-05, value: "8.669897"}
+  - {valid_from: 2026-01-06, value: "8.670799"}
+  - {valid_from: 2026-01-07, value: "8.671701"}
+  - {valid_from: 2026-01-08, value: "8.672604"}
+  - {valid_from: 2026-01-09, value: "8.673506"}
+  - {valid_from: 2026-01-10, value: "8.674409"}
+  - {valid_from: 2026-01-11, value: "8.674288"}
+  - {valid_from: 2026-01-12, value: "8.674166"}
+  - {valid_from: 2026-01-13, value: "8.674045"}
+  - {valid_from: 2026-01-14, value: "8.673924"}
+  - {valid_from: 2026-01-15, value: "8.673803"}
+  - {valid_from: 2026-01-16, value: "8.673681"}
+  - {valid_from: 2026-01-17, value: "8.673560"}
+  - {valid_from: 2026-01-18, value: "8.673439"}
+  - {valid_from: 2026-01-19, value: "8.673318"}
+  - {valid_from: 2026-01-20, value: "8.673196"}
+  - {valid_from: 2026-01-21, value: "8.673075"}
+  - {valid_from: 2026-01-22, value: "8.672954"}
+  - {valid_from: 2026-01-23, value: "8.672832"}
+  - {valid_from: 2026-01-24, value: "8.672711"}
+  - {valid_from: 2026-01-25, value: "8.672590"}
+  - {valid_from: 2026-01-26, value: "8.674251"}
+  - {valid_from: 2026-01-27, value: "8.675913"}
+  - {valid_from: 2026-01-28, value: "8.677575"}
+  - {valid_from: 2026-01-29, value: "8.679237"}
+  - {valid_from: 2026-01-30, value: "8.680900"}
+  - {valid_from: 2026-01-31, value: "8.682563"}
