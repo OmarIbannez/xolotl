@@ -16,6 +16,7 @@ from xolotl.platform.db import tenant_session
 from xolotl.platform.policy import (
     PackConfig,
     PackImmutableError,
+    PackValidationError,
     PolicyPack,
     PolicyPackVersion,
     Quantity,
@@ -86,6 +87,14 @@ def test_the_loader_refuses_unverified_values_by_default():
         "MX/LFPIORPI-AVI v1: captures[AVI_XVI_B].merge_into, "
         "captures[AVI_XVI_B].threshold, retention.kyc_after_relationship"
     )
+
+
+def test_the_loader_refuses_a_file_that_is_not_a_mapping(tmp_path: Path):
+    for name, text in (("list.yaml", "- 1\n"), ("bad.yaml", "a: [\n")):
+        path = tmp_path / name
+        _ = path.write_text(text, encoding="utf-8")
+        with pytest.raises(PackValidationError, match=f"{name}: not a pack"):
+            _ = load_pack(path)
 
 
 def test_content_hash_matches_the_golden():

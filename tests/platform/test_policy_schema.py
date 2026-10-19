@@ -125,6 +125,8 @@ def test_add_iso_duration():
     assert add_iso_duration(date(2026, 3, 15), "P10Y") == date(2036, 3, 15)
     assert add_iso_duration(date(2026, 12, 31), "P45D") == date(2027, 2, 14)
     assert add_iso_duration(date(2026, 11, 30), "P2M") == date(2027, 1, 30)
+    with pytest.raises(ValueError, match="ISO-8601"):
+        _ = add_iso_duration(date(2026, 1, 1), "PT1H")
 
 
 def test_the_minimal_pack_is_valid():
