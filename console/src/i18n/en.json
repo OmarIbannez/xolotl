@@ -42,7 +42,8 @@
     "openMenu": "Open menu",
     "apiDocs": "API documentation",
     "units": "Units",
-    "calendar": "Calendar"
+    "calendar": "Calendar",
+    "parties": "Parties"
   },
   "header": {
     "tenant": "Workspace",
@@ -132,7 +133,9 @@
     "scopeDraftPending": "Add the scope you typed or clear it before continuing.",
     "rolesRequired": "Choose at least one role.",
     "dateFormat": "Use the date or time format shown.",
-    "positiveInteger": "Use a whole positive number within the allowed range."
+    "positiveInteger": "Use a whole positive number within the allowed range.",
+    "countryCode": "Use the two-letter country code in capitals, for example MX.",
+    "identifierValue": "Enter the whole identifier (at most 64 characters)."
   },
   "home": {
     "title": "Home",
@@ -261,6 +264,103 @@
     "secret": {
       "title": "Initial password for {{name}}",
       "hint": "Share it with {{email}} through a secure channel. They must change it on their first sign-in. For security, it cannot be viewed again."
+    }
+  },
+  "parties": {
+    "title": "Parties",
+    "description": "Customers and counterparties: people and organisations with their identifiers. Personal data is shown masked and revealed only on request, with an audit record.",
+    "new": "New party",
+    "empty": "There are no parties yet.",
+    "emptyFiltered": "No party has that identifier.",
+    "table": {
+      "label": "Parties",
+      "name": "Name",
+      "noName": "No name",
+      "type": "Type",
+      "identifiers": "Identifiers",
+      "status": "Status",
+      "createdAt": "Created"
+    },
+    "type": {
+      "PERSON": "Person",
+      "ORGANIZATION": "Organisation"
+    },
+    "status": {
+      "ACTIVE": "Active",
+      "MERGED": "Merged",
+      "PURGED": "Purged"
+    },
+    "identifierType": {
+      "CURP": "CURP",
+      "RFC": "RFC",
+      "CLABE": "CLABE",
+      "INE": "INE",
+      "CPF": "CPF",
+      "CNPJ": "CNPJ",
+      "CUIT": "CUIT",
+      "RUT": "RUT",
+      "NIT": "NIT",
+      "CEDULA_CO": "Citizenship card (CO)",
+      "DNI_PE": "National ID (PE)",
+      "PASSPORT": "Passport"
+    },
+    "search": {
+      "idType": "Identifier type",
+      "value": "Identifier value",
+      "submit": "Search",
+      "clear": "Clear"
+    },
+    "create": {
+      "title": "New party",
+      "partyType": "Party type",
+      "givenNames": "Given names",
+      "firstSurname": "First surname",
+      "secondSurname": "Second surname",
+      "birthDate": "Date of birth",
+      "legalName": "Legal name",
+      "tradeName": "Trade name",
+      "countryCode": "Country",
+      "identifierType": "Identifier type",
+      "identifierValue": "Identifier value",
+      "submit": "Create",
+      "submitting": "Creating…",
+      "done": "The party was created.",
+      "identifierExists": "A party with that identifier already exists.",
+      "identifierInvalid": "The identifier is not valid for its type. Check that it is complete and correctly typed."
+    },
+    "detail": {
+      "title": "Party",
+      "summary": "Summary",
+      "type": "Type",
+      "status": "Status",
+      "country": "Country",
+      "identifiers": "Identifiers",
+      "retentionUntil": "Retain until",
+      "legalHold": "Legal hold",
+      "legalHoldOn": "On",
+      "legalHoldOff": "Off"
+    },
+    "reveal": {
+      "title": "Personal data",
+      "button": "Reveal",
+      "hide": "Hide",
+      "running": "Revealing…",
+      "notice": "This view was recorded in the audit log.",
+      "givenNames": "Given names",
+      "surnames": "Surnames",
+      "birthDate": "Date of birth",
+      "legalName": "Legal name",
+      "identifiers": "Identifiers",
+      "contacts": "Contacts",
+      "addresses": "Addresses"
+    },
+    "legalHold": {
+      "title": "Legal hold",
+      "set": "Place on legal hold",
+      "clear": "Release legal hold",
+      "confirmSet": "While the legal hold is on, this party is not purged even after its retention period ends.",
+      "confirmClear": "Once the legal hold is released, this party can be purged when its retention period ends.",
+      "pending": "Saving…"
     }
   },
   "audit": {
@@ -602,6 +702,9 @@
     "CONNECTOR_NO_ROUTE": "No connector serves this check in this country.",
     "UNIT_VALUE_MISSING": "The unit's value for that date is missing, and nothing fills it in silently. Try again once it is published.",
     "POLICY_NOT_ASSIGNED": "No policy pack is assigned for that date and product.",
-    "POLICY_LOOSENING": "The override would loosen the policy: only overrides stricter than the pack are allowed."
+    "POLICY_LOOSENING": "The override would loosen the policy: only overrides stricter than the pack are allowed.",
+    "IDENTIFIER_EXISTS": "A party with that identifier already exists.",
+    "IDENTIFIER_INVALID": "The identifier is not valid for its type.",
+    "OBJECT_CORRUPT": "The stored file failed its integrity check. Tell support."
   }
 }

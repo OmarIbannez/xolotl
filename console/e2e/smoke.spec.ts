@@ -215,6 +215,30 @@ test('a new tenant administrator signs in, secures the account and works in the 
     expect(Object.keys(stored.session)).toContain('xolotl.token')
   })
 
+  await test.step('a party is created, listed masked and its RFC revealed with an audit row', async () => {
+    const RFC = 'CACX7605101P8'
+    await page.getByRole('link', { name: es.nav.parties, exact: true }).click()
+    await page.getByRole('button', { name: es.parties.new, exact: true }).click()
+    await page.getByLabel(es.parties.create.givenNames, { exact: true }).fill('Ana María')
+    await page.getByLabel(es.parties.create.firstSurname, { exact: true }).fill('Pérez')
+    await page.getByLabel(es.parties.create.secondSurname, { exact: true }).fill('Gómez')
+    await page.getByLabel(es.parties.create.birthDate, { exact: true }).fill('1976-05-10')
+    // The identifier type defaults to RFC.
+    await page.getByLabel(es.parties.create.identifierValue, { exact: true }).fill(RFC)
+    await page.getByRole('button', { name: es.parties.create.submit, exact: true }).click()
+    await expect(page.getByRole('heading', { name: es.parties.detail.title, level: 1 })).toBeVisible()
+    await expect(page.locator('body')).toContainText('****01P8')
+    await expect(page.locator('body')).not.toContainText(RFC)
+    await page.getByRole('button', { name: es.parties.reveal.button, exact: true }).click()
+    await expect(page.locator('body')).toContainText(RFC)
+    await expect(page.locator('body')).toContainText(es.parties.reveal.notice)
+    const token = await page.evaluate(() => window.sessionStorage.getItem('xolotl.token'))
+    const audit = await page.request.get('/v1/audit?action=VIEW_PII', {
+      headers: { Authorization: `Bearer ${token ?? ''}` },
+    })
+    expect(((await audit.json()) as { items: { action: string }[] }).items.length).toBeGreaterThan(0)
+  })
+
   await test.step('the audit chain verifies, after a reload on a deep link', async () => {
     await page.goto('/audit') // a fresh load of a console route: the API serves the console's page
     await expect(page.getByRole('heading', { name: es.audit.title, level: 1 })).toBeVisible()

@@ -63,6 +63,23 @@ export type HolidayScope = Schemas['HolidayScope']
 export type Quantity = Schemas['Quantity-Output']
 export type Confidence = Schemas['Confidence']
 
+export type PartyResponse = Schemas['PartyResponse']
+/** The staff shape of `GET /v1/parties/{id}`: masked values, with the sub-collections embedded. */
+export type PartyStaffResponse = Schemas['PartyStaffResponse']
+/** The plaintext of `GET /v1/parties/{id}/pii`: each request is audited as `VIEW_PII`. Never cache it. */
+export type PartyPiiResponse = Schemas['PartyPiiResponse']
+export type PartyCreateRequest = Schemas['PartyCreateRequest']
+export type PartyUpdateRequest = Schemas['PartyUpdateRequest']
+export type PartyPage = Schemas['Page_PartyResponse_']
+export type PartyType = Schemas['PartyType']
+export type PartyStatus = Schemas['PartyStatus']
+export type IdentifierType = Schemas['IdentifierType']
+export type MaskedIdentifier = Schemas['MaskedIdentifier']
+export type LegalHoldRequest = Schemas['LegalHoldRequest']
+export type PersonInput = Schemas['PersonInput']
+export type OrganizationInput = Schemas['OrganizationInput']
+export type IdentifierInput = Schemas['IdentifierInput']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

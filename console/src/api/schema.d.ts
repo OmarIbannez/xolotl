@@ -638,7 +638,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Party */
+        patch: operations["update_party"];
         trace?: never;
     };
     "/v1/parties/{party_id}/pii": {
@@ -703,6 +704,108 @@ export interface paths {
         put?: never;
         /** Add Party Address */
         post: operations["add_party_address"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/relationships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add Party Relationship */
+        post: operations["add_party_relationship"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Party Document */
+        post: operations["upload_party_document"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/documents/{document_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Party Document */
+        get: operations["download_party_document"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/legal-hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set Party Legal Hold */
+        post: operations["set_party_legal_hold"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/relationships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open Customer Relationship */
+        post: operations["open_customer_relationship"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/relationships/{relationship_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Customer Relationship */
+        post: operations["close_customer_relationship"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1437,6 +1540,11 @@ export interface components {
             /** Assurance */
             assurance: string;
         };
+        /** LegalHoldRequest */
+        LegalHoldRequest: {
+            /** Legal Hold */
+            legal_hold: boolean;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Tenant Slug */
@@ -1560,6 +1668,24 @@ export interface components {
         OrganizationInput: {
             /** Legal Name */
             legal_name: string;
+            /** Trade Name */
+            trade_name?: string | null;
+            /** Legal Form */
+            legal_form?: string | null;
+            /** Incorporation Date */
+            incorporation_date?: string | null;
+            /** Industry Code */
+            industry_code?: string | null;
+            /** Registry Ref */
+            registry_ref?: string | null;
+            /** Country Of Incorporation */
+            country_of_incorporation?: string | null;
+        };
+        /**
+         * OrganizationUpdate
+         * @description An organisation's patchable attributes; the legal name is not among them.
+         */
+        OrganizationUpdate: {
             /** Trade Name */
             trade_name?: string | null;
             /** Legal Form */
@@ -1743,6 +1869,25 @@ export interface components {
             /** Addresses */
             addresses: components["schemas"]["RevealedAddress"][];
         };
+        /** PartyRelationshipInput */
+        PartyRelationshipInput: {
+            /**
+             * To Party Id
+             * Format: uuid
+             */
+            to_party_id: string;
+            rel_type: components["schemas"]["RelationshipType"];
+            /** Ownership Pct */
+            ownership_pct?: number | string | null;
+            /** Control Basis */
+            control_basis?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid To */
+            valid_to?: string | null;
+            /** Source Doc Id */
+            source_doc_id?: string | null;
+        };
         /** PartyRelationshipResponse */
         PartyRelationshipResponse: {
             /**
@@ -1857,6 +2002,11 @@ export interface components {
          * @enum {string}
          */
         PartyType: "PERSON" | "ORGANIZATION";
+        /** PartyUpdateRequest */
+        PartyUpdateRequest: {
+            person?: components["schemas"]["PersonUpdate"] | null;
+            organization?: components["schemas"]["OrganizationUpdate"] | null;
+        };
         /** PasswordChangeRequest */
         PasswordChangeRequest: {
             /** Current Password */
@@ -1930,6 +2080,31 @@ export interface components {
             pep_until?: string | null;
             /** Clave Elector */
             clave_elector?: string | null;
+        };
+        /**
+         * PersonUpdate
+         * @description A person's patchable attributes; names and birth date are not among them.
+         */
+        PersonUpdate: {
+            /** Birth Country */
+            birth_country?: string | null;
+            /** Birth State */
+            birth_state?: string | null;
+            /** Nationalities */
+            nationalities?: string[] | null;
+            /** Gender */
+            gender?: string | null;
+            /** Occupation Code */
+            occupation_code?: string | null;
+            /** Economic Activity Code */
+            economic_activity_code?: string | null;
+            /** Is Resident */
+            is_resident?: boolean | null;
+            pep_status?: components["schemas"]["PepStatus"] | null;
+            /** Pep Since */
+            pep_since?: string | null;
+            /** Pep Until */
+            pep_until?: string | null;
         };
         /** PingRequest */
         PingRequest: {
@@ -2158,6 +2333,27 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** RelationshipCloseRequest */
+        RelationshipCloseRequest: {
+            /** Ended At */
+            ended_at?: string | null;
+        };
+        /** RelationshipOpenRequest */
+        RelationshipOpenRequest: {
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /** External Ref */
+            external_ref: string;
+            /** Product */
+            product?: string | null;
+            /** Account Tier */
+            account_tier?: string | null;
+            /** Started At */
+            started_at?: string | null;
         };
         /**
          * RelationshipType
@@ -4081,6 +4277,41 @@ export interface operations {
             };
         };
     };
+    update_party: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartyUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     reveal_party_pii: {
         parameters: {
             query?: never;
@@ -4204,6 +4435,214 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AddressResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_party_relationship: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PartyRelationshipInput"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyRelationshipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_party_document: {
+        parameters: {
+            query: {
+                doc_type: components["schemas"]["DocumentType"];
+            };
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_party_document: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+                document_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/octet-stream": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_party_legal_hold: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LegalHoldRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_customer_relationship: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationshipOpenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerRelationshipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_customer_relationship: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                relationship_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationshipCloseRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerRelationshipResponse"];
                 };
             };
             /** @description Validation Error */

@@ -12,6 +12,10 @@ export const ACCESS = {
   staff: ['ADMIN'],
   audit: ['MLRO', 'ADMIN', 'AUDITOR_RO'],
   connectors: ['ADMIN'],
+  // Every staff role reads parties and may reveal their personal data (each reveal is audited).
+  parties: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
+  partiesWrite: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
+  legalHold: ['MLRO'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */

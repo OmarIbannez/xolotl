@@ -9,7 +9,7 @@ import { ACCESS } from './access'
 import { RequireRole } from './guards'
 import { AuthContext } from './use-auth'
 
-/** The three admin pages behind the guards the console's routes use. */
+/** The admin pages and the parties area behind the guards the console's routes use. */
 function visit(path: string, roles: Role[]) {
   render(
     <AuthContext value={makeAuth(makeUser({ roles }))}>
@@ -23,6 +23,9 @@ function visit(path: string, roles: Role[]) {
           </Route>
           <Route element={<RequireRole roles={ACCESS.connectors} />}>
             <Route path="/connectors" element={<p>page of connectors</p>} />
+          </Route>
+          <Route element={<RequireRole roles={ACCESS.parties} />}>
+            <Route path="/parties" element={<p>page of parties</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -66,5 +69,21 @@ describe('the API keys, staff and connectors routes are for ADMIN only', () => {
     visit('/staff', ['MLRO', 'ADMIN'])
 
     expect(screen.getByText('page of staff')).toBeTruthy()
+  })
+})
+
+describe('the parties area is open to every staff role', () => {
+  it.each(['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'] as const)('lets a user who is %s open /parties', (role) => {
+    visit('/parties', [role])
+
+    expect(screen.getByText('page of parties')).toBeTruthy()
+    expect(screen.queryByText(esMX.forbidden.title)).toBeNull()
+  })
+
+  it('shows "no access" to a user with no role', () => {
+    visit('/parties', [])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+    expect(screen.queryByText('page of parties')).toBeNull()
   })
 })

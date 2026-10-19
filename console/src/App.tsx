@@ -31,6 +31,28 @@ const router = createBrowserRouter([
                   import('@/features/home/HomePage').then((m) => ({ Component: m.HomePage })),
               },
               {
+                element: <RequireRole roles={ACCESS.parties} />,
+                children: [
+                  {
+                    path: '/parties',
+                    lazy: () =>
+                      import('@/features/parties/PartiesPage').then((m) => ({ Component: m.PartiesPage })),
+                  },
+                  {
+                    path: '/parties/new',
+                    lazy: () =>
+                      import('@/features/parties/CreatePartyPage').then((m) => ({
+                        Component: m.CreatePartyPage,
+                      })),
+                  },
+                  {
+                    path: '/parties/:partyId',
+                    lazy: () =>
+                      import('@/features/parties/PartyPage').then((m) => ({ Component: m.PartyPage })),
+                  },
+                ],
+              },
+              {
                 element: <RequireRole roles={ACCESS.apiKeys} />,
                 children: [
                   {
