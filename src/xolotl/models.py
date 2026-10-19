@@ -10,8 +10,19 @@ from xolotl.modules.tenants import models as tenants_models
 from xolotl.platform.api import models as api_models
 from xolotl.platform.audit import models as audit_models
 from xolotl.platform.db import Base
+from xolotl.platform.events import models as events_models
+from xolotl.platform.jobs import models as jobs_models
+from xolotl.platform.workflows import models as workflows_models
 
-__all__ = ["api_models", "audit_models", "metadata", "tenants_models"]
+__all__ = [
+    "api_models",
+    "audit_models",
+    "events_models",
+    "jobs_models",
+    "metadata",
+    "tenants_models",
+    "workflows_models",
+]
 
 
 def metadata() -> MetaData:

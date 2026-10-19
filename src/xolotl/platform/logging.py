@@ -22,25 +22,42 @@ handler. uvicorn logs the exception Starlette re-raises on its own ``uvicorn.err
 logger, whose default configuration has a handler of its own and never reaches ours,
 so ``xolotl serve`` runs uvicorn with ``log_config=None``: its loggers then
 propagate to the root handler.
+
+Text that is stored instead of logged never meets the filter. ``job.last_error`` is
+the example: it is a plain column that outlives the log line and sits outside the
+audit trail. ``safe_exception_summary`` applies the same rule at the moment the text
+is written, to a stricter degree because there are no frames to keep: any SQLAlchemy
+or psycopg error reachable through ``__cause__`` or ``__context__`` reduces the whole
+exception to its class and SQLSTATE, a Pydantic ``ValidationError`` (which echoes the
+input) to its error count, and only an exception with neither keeps its message. Its
+walk is wider than the filter's: it also follows a context that ``raise ... from
+None`` hides from tracebacks, because the message may have quoted it all the same.
+The text it returns can always be written: producing it cannot raise, and it holds
+no NUL and no lone surrogate.
 """
 
 import json
 import logging
 import sys
 import traceback
+from collections import deque
 from collections.abc import Iterable, Mapping
+from contextlib import suppress
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from types import TracebackType
 from typing import cast, override
 
 import psycopg
-from pydantic import BaseModel
-from sqlalchemy.exc import DBAPIError
+from pydantic import BaseModel, ValidationError
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 
 from xolotl.platform.tenancy.context import current_context
 
 request_id_var: ContextVar[str] = ContextVar("xolotl_request_id", default="")
+
+# The longest exception summary safe_exception_summary returns.
+EXCEPTION_SUMMARY_LIMIT = 500
 
 SENSITIVE_KEYS = frozenset({
     "password",
@@ -116,12 +133,21 @@ _CAUSE_NOTE = "The above exception was the direct cause of the following excepti
 _CONTEXT_NOTE = "During handling of the above exception, another exception occurred:"
 
 
+def _driver_error(error: BaseException) -> object:
+    # SQLAlchemy keeps the driver's own error in .orig; a psycopg error is its own.
+    return cast("object", error.orig if isinstance(error, DBAPIError) else error)
+
+
+def _sqlstate(error: BaseException) -> str | None:
+    state = cast("object", getattr(_driver_error(error), "sqlstate", None))
+    return state if isinstance(state, str) else None
+
+
 def _database_error_details(error: DBAPIError | psycopg.Error) -> str:
     # The driver's message, the statement and its parameters carry row values (emails,
     # CURPs, "DETAIL: Key (...)=(...)" lines): keep what failed, never the text.
-    orig = cast("object", error.orig if isinstance(error, DBAPIError) else error)
-    state = cast("object", getattr(orig, "sqlstate", None))
-    sqlstate = state if isinstance(state, str) else None
+    orig = _driver_error(error)
+    sqlstate = _sqlstate(error)
     diag = cast("object", getattr(orig, "diag", None))
     message = cast("object", getattr(diag, "message_primary", None))
     primary = message if isinstance(message, str) else None
@@ -186,6 +212,85 @@ def _scrub_database_error(record: logging.LogRecord) -> None:
     if any(isinstance(link, DBAPIError | psycopg.Error) for link, _ in chain):
         record.exc_text = _chain_text(chain, exc_info[2])
         record.exc_info = None  # the formatter must not print the original
+
+
+def _reachable(error: BaseException) -> list[BaseException]:
+    # Every exception reachable from ``error`` through __cause__ or __context__, the
+    # outermost first. Unlike _exception_chain, which prints what traceback prints, it
+    # does not stop at a context that ``raise ... from None`` suppresses: suppressing
+    # only hides it from tracebacks, and the new message may have quoted it.
+    found: list[BaseException] = []
+    seen: set[int] = set()
+    pending = deque([error])
+    while pending:
+        link = pending.popleft()
+        if id(link) in seen:
+            continue
+        seen.add(id(link))
+        found.append(link)
+        pending.extend(
+            nested
+            for nested in (link.__cause__, link.__context__)
+            if nested is not None
+        )
+    return found
+
+
+def _storable(text: str) -> str:
+    # Postgres text cannot hold a NUL, and psycopg cannot encode a lone surrogate
+    # (which str allows): either one would make the write that records a failure fail.
+    return text.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
+
+
+def _summary(error: BaseException) -> str:
+    related = _reachable(error)
+    name = type(error).__name__
+    if any(isinstance(link, SQLAlchemyError | psycopg.Error) for link in related):
+        states = (_sqlstate(link) for link in related)
+        sqlstate = next((state for state in states if state), None)
+        return f"{name} [sqlstate={sqlstate}]" if sqlstate else name
+    invalid = next(
+        (link for link in related if isinstance(link, ValidationError)), None
+    )
+    if invalid is not None:
+        count = invalid.error_count()
+        if invalid is error:
+            return f"{name} ({count} errors)"
+        return f"{name} (caused by ValidationError, {count} errors)"
+    message = f"<unprintable {name}>"
+    with suppress(Exception):  # an exception whose __str__ raises must not fail us too
+        message = str(error)
+    return f"{name}: {message}" if message else name
+
+
+def safe_exception_summary(error: BaseException) -> str:
+    """Summarise ``error`` in one short line that is safe to store.
+
+    For text that goes into a table rather than a log (``job.last_error``): the
+    redaction filter never sees it, so the message must not carry row values. Any
+    SQLAlchemy or psycopg error reachable through ``__cause__`` or ``__context__``,
+    suppressed or not, makes the whole exception sensitive, however it is wrapped: the
+    driver text echoes the values it choked on, an outer message may embed it
+    (``raise Domain(f"... {exc}") from exc``, or ``from None``, which hides the
+    context from tracebacks but leaves it in place), and a session error such as
+    ``PendingRollbackError`` quotes the original error. A Pydantic
+    ``ValidationError`` echoes the input value of every failing field and is
+    summarised the same way.
+
+    The text can always be stored: it is built without raising, even when the
+    exception's ``__str__`` does (the message is then ``<unprintable Class>``), and it
+    holds no NUL and no lone surrogate, which a Postgres text column cannot take.
+
+    Returns:
+        ``"<Class> [sqlstate=XXXXX]"`` for a database error (the class alone when
+        the driver gave no SQLSTATE), ``"ValidationError (N errors)"`` for a
+        validation error, ``"<Class> (caused by ValidationError, N errors)"`` when one
+        is further down, and otherwise ``"<Class>: <message>"``, all cut to
+        ``EXCEPTION_SUMMARY_LIMIT`` characters. ``<Class>`` is the outermost
+        exception's.
+
+    """
+    return _storable(_summary(error))[:EXCEPTION_SUMMARY_LIMIT]
 
 
 class RedactionFilter(logging.Filter):

@@ -36,8 +36,10 @@ def tenant_table_args(table: str, *extra: SchemaItem) -> tuple[SchemaItem, ...]:
 
     The primary key ``(tenant_id, id)`` is the target of composite foreign keys, so
     no separate ``UNIQUE (tenant_id, id)`` is added (Postgres discards it as a
-    duplicate of the primary key). A table whose primary key is not
-    ``(tenant_id, id)`` must declare its own unique constraint in ``extra``.
+    duplicate of the primary key). A table that has an ``id`` but whose primary key
+    is not ``(tenant_id, id)`` must declare its own unique constraint in ``extra``.
+    A table keyed naturally, with no ``id`` column (``event_consumption``,
+    ``workflow_step``), has nothing to declare.
     ``table`` stays in the signature so every tenant model declares its arguments
     through this one function.
 
