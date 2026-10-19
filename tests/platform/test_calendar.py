@@ -201,11 +201,35 @@ def test_a_naive_anchor_is_refused():
         {"kind": "FIXED", "params": {"at": 20261130}},
         {"kind": "FIXED", "params": {"at": "not a date"}},
         {"kind": "NTH_BUSINESS_DAY_OF", "params": {"month_offset": 1, "n": 10}, "x": 1},
+        {"kind": "CALENDAR_DAYS_AFTER", "params": {"n": 10**10}},
+        {"kind": "BUSINESS_DAYS_AFTER", "params": {"n": 10**8}},
+        {"kind": "HOURS_AFTER", "params": {"hours": 10**12}},
+        {"kind": "NTH_BUSINESS_DAY_OF", "params": {"month_offset": 10**6, "n": 1}},
+        {
+            "kind": "DATE_RANGE",
+            "params": {"start": "01-01", "end": "03-31", "year_offset": 10**6},
+        },
     ],
 )
 def test_rule_params_are_validated(rule: dict[str, Any]):
     with pytest.raises(pydantic.ValidationError):
         _ = DeadlineRule.model_validate(rule)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"kind": "CALENDAR_DAYS_AFTER", "params": {"n": 3660}},
+        {"kind": "BUSINESS_DAYS_AFTER", "params": {"n": 3660}},
+        {"kind": "HOURS_AFTER", "params": {"hours": 87840}},
+    ],
+)
+def test_a_due_date_past_the_end_of_time_is_a_422(rule: dict[str, Any]):
+    anchor = datetime.fromisoformat("9999-12-01T12:00:00-06:00")
+    with pytest.raises(ValidationFailedError):
+        _ = due_at(
+            DeadlineRule.model_validate(rule), anchor, holidays=holidays_of("CNBV")
+        )
 
 
 def test_nth_beyond_the_month_is_a_422():

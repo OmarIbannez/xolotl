@@ -47,10 +47,10 @@ audit_app = typer.Typer(no_args_is_help=True, help="Audit chain tools")
 keys_app = typer.Typer(
     no_args_is_help=True, help="Tenant data keys: rotation and destruction"
 )
+holidays_app = typer.Typer(no_args_is_help=True, help="Regulatory calendar")
 app.add_typer(db_app, name="db")
 app.add_typer(tenant_app, name="tenant")
 app.add_typer(audit_app, name="audit")
-holidays_app = typer.Typer(no_args_is_help=True, help="Regulatory calendar")
 app.add_typer(keys_app, name="keys")
 app.add_typer(holidays_app, name="holidays")
 

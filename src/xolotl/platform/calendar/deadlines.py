@@ -98,18 +98,24 @@ def _aware_datetime(value: object) -> str | None:
 
 _Check = Callable[[object], str | None]
 _TIME: dict[str, _Check] = {"time": _hour_minute}
+# Caps keep due_at's arithmetic inside the range of date and its loops short: ten
+# years of days or hours, ten years of month or year offsets either way.
+_DAYS = _integer(1, 3660)
+_HOURS = _integer(1, 87840)
+_MONTH_OFFSET = _integer(-120, 120)
+_YEAR_OFFSET = _integer(-10, 10)
 # Per kind: the required keys, then the optional ones, each with its check.
 _PARAMS: dict[DeadlineKind, tuple[dict[str, _Check], dict[str, _Check]]] = {
-    DeadlineKind.BUSINESS_DAYS_AFTER: ({"n": _integer(1)}, _TIME),
+    DeadlineKind.BUSINESS_DAYS_AFTER: ({"n": _DAYS}, _TIME),
     DeadlineKind.NTH_BUSINESS_DAY_OF: (
-        {"month_offset": _integer(), "n": _integer(1)},
+        {"month_offset": _MONTH_OFFSET, "n": _integer(1, 31)},
         _TIME,
     ),
     DeadlineKind.DAY_OF_NEXT_MONTH: ({"day": _integer(1, 28), "roll": _roll}, _TIME),
-    DeadlineKind.CALENDAR_DAYS_AFTER: ({"n": _integer(1)}, _TIME),
-    DeadlineKind.HOURS_AFTER: ({"hours": _integer(1)}, {}),
+    DeadlineKind.CALENDAR_DAYS_AFTER: ({"n": _DAYS}, _TIME),
+    DeadlineKind.HOURS_AFTER: ({"hours": _HOURS}, {}),
     DeadlineKind.DATE_RANGE: (
-        {"start": _month_day, "end": _month_day, "year_offset": _integer()},
+        {"start": _month_day, "end": _month_day, "year_offset": _YEAR_OFFSET},
         _TIME,
     ),
     DeadlineKind.FIXED: ({"at": _aware_datetime}, {}),
@@ -213,7 +219,8 @@ def due_at(rule: DeadlineRule, anchor: datetime, *, holidays: Holidays) -> datet
     Raises:
         ValueError: When ``anchor`` is naive.
         ValidationFailedError: When ``NTH_BUSINESS_DAY_OF`` asks for a business day
-            the month does not have.
+            the month does not have, or the due date falls outside what ``date``
+            can hold.
 
     """
     if anchor.utcoffset() is None:
@@ -221,14 +228,15 @@ def due_at(rule: DeadlineRule, anchor: datetime, *, holidays: Holidays) -> datet
         raise ValueError(msg)
     zone = ZoneInfo(rule.tz)
     local = anchor.astimezone(zone)
-    if rule.kind is DeadlineKind.HOURS_AFTER:
-        return local + timedelta(hours=_int(rule.params, "hours"))
     if rule.kind is DeadlineKind.FIXED:
         return datetime.fromisoformat(_str(rule.params, "at")).astimezone(zone)
     try:
+        if rule.kind is DeadlineKind.HOURS_AFTER:
+            return local + timedelta(hours=_int(rule.params, "hours"))
         due_day = _due_day(rule, local.date(), holidays)
-    except ValueError as exc:
-        # Only nth_business_day_of_month raises here: the params were validated.
+    except (ValueError, OverflowError) as exc:
+        # The params were validated: a ValueError is a month without the asked
+        # business day, an OverflowError an anchor too close to the end of time.
         raise ValidationFailedError(str(exc)) from exc
     at = (
         time.fromisoformat(_str(rule.params, "time"))
