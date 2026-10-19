@@ -289,6 +289,28 @@ def test_no_plaintext_is_stored_or_logged(
     created = post(client, admin_headers, PARTIES, body, "p1")
     assert created.status_code == 201, created.text
     party_id = created.json()["id"]
+    email = f"zaira.{uuid4().hex[:8]}@acme.mx"
+    street = f"Calle Zaira {uuid4().hex[:8]}"
+    contact = post(
+        client,
+        admin_headers,
+        f"{PARTIES}/{party_id}/contacts",
+        {"kind": "EMAIL", "value": email},
+        "c1",
+    )
+    assert contact.status_code == 201, contact.text
+    address = post(
+        client,
+        admin_headers,
+        f"{PARTIES}/{party_id}/addresses",
+        {
+            "address_type": "RESIDENTIAL",
+            "lines": {"street": street, "ext_number": "123"},
+            "postal_code": "06600",
+        },
+        "a1",
+    )
+    assert address.status_code == 201, address.text
     _ = client.get(f"{PARTIES}/{party_id}", headers=admin_headers)
     _ = client.get(
         f"{PARTIES}/{party_id}", headers=machine_headers(tenant, "parties:read")
@@ -297,7 +319,15 @@ def test_no_plaintext_is_stored_or_logged(
     assert "Row (" in caplog.text
     stored = everything_stored(admin_engine)
     payloads = payloads_of(tenant.tenant_id)
-    for secret in (given, "Pérez", "PEGA760510XY0", "PEGA760510MDFRMN03"):
+    secrets = (
+        given,
+        "Pérez",
+        "PEGA760510XY0",
+        "PEGA760510MDFRMN03",
+        email,
+        street,
+    )
+    for secret in secrets:
         assert leaked(caplog.text, secret.encode()) == []
         assert leaked(stored, secret.encode()) == []
         assert secret not in payloads
