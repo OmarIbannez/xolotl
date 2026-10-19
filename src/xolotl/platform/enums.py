@@ -99,3 +99,35 @@ class HolidayScope(StrEnum):
 class BranchStatus(StrEnum):
     ACTIVE = "ACTIVE"
     CLOSED = "CLOSED"
+
+
+class ConnectorMode(StrEnum):
+    SANDBOX = "SANDBOX"
+    LIVE = "LIVE"
+
+
+class CheckType(StrEnum):
+    UNIT_VALUE = "UNIT_VALUE"
+    RFC_VALIDATION = "RFC_VALIDATION"
+    CURP_VALIDATION = "CURP_VALIDATION"
+
+
+class ConnectorRoute(StrEnum):
+    PRIMARY = "PRIMARY"
+    FALLBACK = "FALLBACK"
+    MOCK = "MOCK"
+
+
+class CallOutcome(StrEnum):
+    PASS = "PASS"  # ruff: ignore[hardcoded-password-string] -- a check outcome, not a password
+    FAIL = "FAIL"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    ERROR = "ERROR"
+    TIMEOUT = "TIMEOUT"
+    CIRCUIT_OPEN = "CIRCUIT_OPEN"
+
+
+class CircuitState(StrEnum):
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    HALF_OPEN = "HALF_OPEN"

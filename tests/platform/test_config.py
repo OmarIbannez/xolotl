@@ -250,6 +250,7 @@ def test_env_example_is_a_valid_configuration():
         "packs_dir",
         "allow_unverified_pack_values",
         "units_fetch_cron",
+        "connector_mode_default",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -544,4 +545,28 @@ def test_prod_refuses_unverified_pack_values(monkeypatch):
     _prod(monkeypatch)
     monkeypatch.setenv("XOLOTL_ALLOW_UNVERIFIED_PACK_VALUES", "true")
     with pytest.raises(ValidationError, match="ALLOW_UNVERIFIED_PACK_VALUES"):
+        _ = make_settings()
+
+
+def test_connector_settings_default_to_sandbox_and_no_token():
+    s = make_settings()
+    assert s.connector_mode_default == "SANDBOX"
+    assert (
+        s.banxico_token is None
+    )  # plan 2a's A1 field: a cross-check that A1 is merged
+
+
+def test_connector_settings_are_read_from_the_environment(monkeypatch):
+    # Settings ignores names it does not know, so setting the variable and seeing
+    # the value change proves the field reads XOLOTL_CONNECTOR_MODE_DEFAULT.
+    # (XOLOTL_BANXICO_TOKEN is plan 2a's A1 field: its
+    # test_sp02_settings_read_their_variables already pins the read and the repr.)
+    monkeypatch.setenv("XOLOTL_CONNECTOR_MODE_DEFAULT", "LIVE")
+    s = make_settings()
+    assert s.connector_mode_default == "LIVE"
+
+
+def test_the_connector_mode_rejects_nonsense(monkeypatch):
+    monkeypatch.setenv("XOLOTL_CONNECTOR_MODE_DEFAULT", "demo")
+    with pytest.raises(ValidationError, match="connector_mode_default"):
         _ = make_settings()
