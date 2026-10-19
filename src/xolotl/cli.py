@@ -1,6 +1,7 @@
 """The ``xolotl`` command line (spec §10)."""
 
 import getpass
+import json
 import logging
 import os
 from collections.abc import Generator
@@ -13,9 +14,9 @@ from uuid import UUID
 import psycopg
 import typer
 import uvicorn
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from xolotl.app import build_key_provider, build_worker
 from xolotl.modules.tenants import service
@@ -40,6 +41,15 @@ from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
 from xolotl.platform.errors import NotFoundError, XolotlError
 from xolotl.platform.events import InAppNotifier
 from xolotl.platform.logging import configure_logging
+from xolotl.platform.policy import (
+    PolicyPack,
+    PolicyPackVersion,
+    content_hash,
+    install_pack,
+    load_pack,
+    pack_files,
+    unverified_paths,
+)
 from xolotl.platform.tenancy.context import TenantContext
 from xolotl.platform.units import (
     UNITS,
@@ -60,11 +70,13 @@ keys_app = typer.Typer(
     no_args_is_help=True, help="Tenant data keys: rotation and destruction"
 )
 holidays_app = typer.Typer(no_args_is_help=True, help="Regulatory calendar")
+packs_app = typer.Typer(no_args_is_help=True, help="Policy packs")
 app.add_typer(db_app, name="db")
 app.add_typer(tenant_app, name="tenant")
 app.add_typer(audit_app, name="audit")
 app.add_typer(keys_app, name="keys")
 app.add_typer(holidays_app, name="holidays")
+app.add_typer(packs_app, name="packs")
 units_app = typer.Typer(
     no_args_is_help=True, help="Monetary units: seeds and Banxico fetches"
 )
@@ -601,3 +613,119 @@ def units_fetch(
                 f"({first.isoformat()}..{last.isoformat()}) [{source.mode}]"
             )
     typer.echo(line)
+
+
+def _short_hash(digest: bytes) -> str:
+    return f"sha256 {digest.hex()[:12]}"
+
+
+@packs_app.command("load")
+def packs_load(
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="A pack file or a directory of packs; default packs_dir"),
+    ] = None,
+    *,
+    allow_unverified: Annotated[
+        bool,
+        typer.Option(
+            "--allow-unverified", help="Install values still marked UNVERIFIED"
+        ),
+    ] = False,
+) -> None:
+    """Validate and install policy packs (idempotent; versions are immutable).
+
+    Runs as the database owner, the only role that writes the pack tables. Every
+    pack is validated before the first is installed, and all are installed in one
+    transaction. Prints one ``installed`` or ``unchanged`` line per pack.
+
+    Raises:
+        Exit: With code 2 when UNVERIFIED values are allowed in prod.
+
+    """
+    settings = get_settings()
+    allow = allow_unverified or settings.allow_unverified_pack_values
+    if allow and settings.env == "prod":
+        typer.echo("refusing to install UNVERIFIED pack values in prod", err=True)
+        raise typer.Exit(code=2)
+    source = path or settings.packs_dir
+    files = pack_files(source) if source.is_dir() else [source]
+    actor = _cli_actor()
+    lines: list[str] = []
+    with _cli_errors():
+        configs = [(file, load_pack(file, allow_unverified=allow)) for file in files]
+        owner = sessionmaker(bind=get_admin_engine(), expire_on_commit=False)
+        with tenant_session(TenantContext.platform(actor), factory=owner) as s:
+            for file, config in configs:
+                before = s.scalar(
+                    select(func.count())
+                    .select_from(PolicyPackVersion)
+                    .join(PolicyPack, PolicyPack.id == PolicyPackVersion.pack_id)
+                    .where(
+                        PolicyPack.code == config.pack,
+                        PolicyPackVersion.version == config.version,
+                    )
+                )
+                _ = install_pack(s, config, source_path=str(file), loaded_by=actor)
+                verb = "unchanged" if before else "installed"
+                digest = _short_hash(content_hash(config))
+                lines.append(f"{verb} {config.pack} v{config.version} ({digest})")
+    for line in lines:
+        typer.echo(line)
+
+
+@packs_app.command("validate")
+def packs_validate(
+    path: Annotated[Path, typer.Argument(help="The pack file to check")],
+) -> None:
+    """Validate one pack file without a database and name its UNVERIFIED values."""
+    with _cli_errors():
+        config = load_pack(path, allow_unverified=True)
+    unverified = ", ".join(unverified_paths(config)) or "none"
+    digest = _short_hash(content_hash(config))
+    typer.echo(
+        f"valid {config.pack} v{config.version} ({digest}); unverified: {unverified}"
+    )
+
+
+def _pack_version(session: Session, code: str, version: int) -> PolicyPackVersion:
+    """Find an installed pack version by pack code and number.
+
+    Returns:
+        The version row.
+
+    Raises:
+        NotFoundError: When no such version is installed.
+
+    """
+    row = session.scalar(
+        select(PolicyPackVersion)
+        .join(PolicyPack, PolicyPack.id == PolicyPackVersion.pack_id)
+        .where(PolicyPack.code == code, PolicyPackVersion.version == version)
+    )
+    if row is None:
+        msg = f"no pack {code} version {version}"
+        raise NotFoundError(msg)
+    return row
+
+
+@packs_app.command("show")
+def packs_show(
+    code: Annotated[str, typer.Argument(help="Pack code, such as MX/ITF-IFPE")],
+    *,
+    version: Annotated[int, typer.Option(help="The installed version to show")],
+) -> None:
+    """Print an installed pack version and its config as JSON."""
+    with (
+        _cli_errors(),
+        tenant_session(TenantContext.platform(_cli_actor())) as s,
+    ):
+        row = _pack_version(s, code, version)
+        shown = {
+            "code": code,
+            "version": row.version,
+            "effective_from": row.effective_from.isoformat(),
+            "content_hash": row.content_hash.hex(),
+            "config": row.config,
+        }
+    typer.echo(json.dumps(shown, indent=2, ensure_ascii=False))

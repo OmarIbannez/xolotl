@@ -1073,3 +1073,128 @@ def test_units_fetch_refuses_demo_mode_in_prod(
         "demo mode is refused when XOLOTL_ENV=prod\n"
     )
     assert _unit_values(admin_engine) == 0
+
+
+ITF_PACK = "policy-packs/MX/ITF-IFPE/v1.yaml"
+_HASHED = r"\(sha256 [0-9a-f]{12}\)"
+
+
+def test_packs_help_lists_load_validate_and_show():
+    result = runner.invoke(app, ["packs", "--help"])
+    assert result.exit_code == 0
+    for command in ("load", "validate", "show"):
+        assert command in result.stdout
+
+
+def test_packs_validate_names_the_unverified_values_without_a_database():
+    result = runner.invoke(app, ["packs", "validate", ITF_PACK])
+    assert (result.exit_code, result.stderr) == (0, ""), result.stderr
+    unverified = r"unverified: captures\[ITF_ROR_CASH\]\.period"
+    expected = rf"valid MX/ITF-IFPE v1 {_HASHED}; {unverified}\n"
+    assert re.fullmatch(expected, result.stdout)
+
+
+def test_packs_validate_says_none_when_every_value_is_verified(tmp_path: Path):
+    text_ = Path(ITF_PACK).read_text(encoding="utf-8")
+    verified = tmp_path / "v1.yaml"
+    _ = verified.write_text(
+        text_.replace("confidence: UNVERIFIED", "confidence: VERIFIED"),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["packs", "validate", str(verified)])
+    assert result.exit_code == 0
+    assert result.stdout.endswith("; unverified: none\n")
+
+
+def test_packs_validate_refuses_an_invalid_file_in_one_line(tmp_path: Path):
+    broken = tmp_path / "v1.yaml"
+    _ = broken.write_text("pack: MX/X-Y\nversion: 1\n", encoding="utf-8")
+    result = runner.invoke(app, ["packs", "validate", str(broken)])
+    assert (result.exit_code, result.stdout) == (1, "")
+    [line] = result.stderr.splitlines()
+    assert line.startswith("error: PACK_INVALID: v1.yaml: ")
+    missing = runner.invoke(app, ["packs", "validate", str(tmp_path / "nope.yaml")])
+    assert missing.exit_code == 1
+    assert missing.stderr == "error: PACK_INVALID: nope.yaml: not a pack\n"
+
+
+def test_packs_load_refuses_unverified_values_without_the_flag(admin_engine: Engine):
+    result = runner.invoke(app, ["packs", "load"])
+    assert (result.exit_code, result.stdout) == (1, "")
+    assert result.stderr == (
+        "error: UNVERIFIED_VALUE: MX/ITF-IFPE v1: captures[ITF_ROR_CASH].period\n"
+    )
+    with admin_engine.connect() as conn:
+        assert conn.scalar(text("SELECT count(*) FROM policy_pack_version")) == 0
+
+
+def test_packs_load_installs_both_packs_once(admin_engine: Engine):
+    first = runner.invoke(app, ["packs", "load", "--allow-unverified"])
+    assert first.exit_code == 0, first.stderr
+    itf, avi = first.stdout.splitlines()
+    assert re.fullmatch(rf"installed MX/ITF-IFPE v1 {_HASHED}", itf)
+    assert re.fullmatch(rf"installed MX/LFPIORPI-AVI v1 {_HASHED}", avi)
+    again = runner.invoke(app, ["packs", "load", "--allow-unverified"])
+    assert again.exit_code == 0, again.stderr
+    assert again.stdout == first.stdout.replace("installed", "unchanged")
+    one = runner.invoke(app, ["packs", "load", "--allow-unverified", ITF_PACK])
+    assert one.stdout.startswith("unchanged MX/ITF-IFPE v1 ")
+    with admin_engine.connect() as conn:
+        assert conn.scalar(text("SELECT count(*) FROM policy_pack_version")) == 2
+
+
+def test_packs_load_refuses_a_changed_version(admin_engine: Engine, tmp_path: Path):
+    loaded = runner.invoke(app, ["packs", "load", "--allow-unverified", ITF_PACK])
+    assert loaded.exit_code == 0
+    changed = tmp_path / "v1.yaml"
+    _ = changed.write_text(
+        Path(ITF_PACK).read_text(encoding="utf-8").replace("— IFPE", "— IFPE (2)"),
+        encoding="utf-8",
+    )
+    result = runner.invoke(app, ["packs", "load", "--allow-unverified", str(changed)])
+    assert result.exit_code == 1
+    assert result.stderr.startswith("error: PACK_VERSION_IMMUTABLE: ")
+
+
+def test_packs_load_takes_the_flag_from_the_settings(
+    admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    settings = get_settings().model_copy(update={"allow_unverified_pack_values": True})
+    monkeypatch.setattr("xolotl.cli.get_settings", lambda: settings)
+    result = runner.invoke(app, ["packs", "load", ITF_PACK])
+    assert result.exit_code == 0, result.stderr
+    assert result.stdout.startswith("installed MX/ITF-IFPE v1 ")
+
+
+def test_packs_load_refuses_unverified_values_in_prod_before_the_database(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_settings().model_copy(update={"env": "prod"})
+    monkeypatch.setattr("xolotl.cli.get_settings", lambda: settings)
+
+    def no_database() -> NoReturn:
+        pytest.fail("packs load reached the database")
+
+    monkeypatch.setattr("xolotl.cli.get_admin_engine", no_database)
+    result = runner.invoke(app, ["packs", "load", "--allow-unverified"])
+    assert (result.exit_code, result.stdout) == (2, "")
+    assert "prod" in result.stderr
+
+
+def test_packs_show_prints_the_installed_version(admin_engine: Engine):
+    assert runner.invoke(app, ["packs", "load", "--allow-unverified"]).exit_code == 0
+    result = runner.invoke(app, ["packs", "show", "MX/ITF-IFPE", "--version", "1"])
+    assert result.exit_code == 0, result.stderr
+    shown = json.loads(result.stdout)
+    assert set(shown) == {"code", "version", "effective_from", "content_hash", "config"}
+    assert (shown["code"], shown["version"], shown["effective_from"]) == (
+        "MX/ITF-IFPE",
+        1,
+        "2026-01-01",
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", shown["content_hash"])
+    assert shown["config"]["pack"] == "MX/ITF-IFPE"
+    assert "Tecnología" in result.stdout
+    missing = runner.invoke(app, ["packs", "show", "MX/ITF-IFPE", "--version", "9"])
+    assert missing.exit_code == 1
+    assert missing.stderr == "error: NOT_FOUND: no pack MX/ITF-IFPE version 9\n"

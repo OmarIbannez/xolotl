@@ -229,6 +229,8 @@ def purge_expired(session: Session) -> int:
 
     """
     tenant_id = bound_context(session).require_tenant_id()
+    # A CTE, so Postgres takes the batch once instead of re-running the limited,
+    # locking subquery per probe, which deleted more than one batch on CI.
     batch = (
         select(IdempotencyKey.tenant_id, IdempotencyKey.actor_id, IdempotencyKey.key)
         .where(
@@ -238,6 +240,7 @@ def purge_expired(session: Session) -> int:
         .order_by(IdempotencyKey.expires_at)
         .limit(PURGE_BATCH)
         .with_for_update(skip_locked=True)
+        .cte("batch")
     )
     # Counted by Postgres (WITH deleted AS (DELETE ... RETURNING) SELECT count(*)), so
     # the deleted keys never travel back to the application.
@@ -246,7 +249,7 @@ def purge_expired(session: Session) -> int:
         .where(
             tuple_(
                 IdempotencyKey.tenant_id, IdempotencyKey.actor_id, IdempotencyKey.key
-            ).in_(batch)
+            ).in_(select(batch.c.tenant_id, batch.c.actor_id, batch.c.key))
         )
         .returning(IdempotencyKey.key)
         .cte("deleted")
