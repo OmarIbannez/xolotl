@@ -7,8 +7,10 @@ raised.
 """
 
 from datetime import date
+from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import Engine, func, select
 
 from tests.helpers import (
@@ -34,6 +36,7 @@ from xolotl.modules.party.enums import (
     IdentifierType,
     PartyType,
     PepStatus,
+    RelationshipType,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.party.models import Party, PartyIdentifier, Person
@@ -42,6 +45,10 @@ from xolotl.modules.party.schemas import (
     AddressLines,
     ContactInput,
     IdentifierInput,
+    OrganizationUpdate,
+    PartyRelationshipInput,
+    PartyUpdateRequest,
+    PersonUpdate,
 )
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.audit import VIEW_PII, verify_chain
@@ -49,6 +56,7 @@ from xolotl.platform.crypto import Encrypted
 from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import ActorType
 from xolotl.platform.errors import DomainError, NotFoundError, ValidationFailedError
+from xolotl.platform.ids import uuid7
 from xolotl.platform.tenancy.context import TenantContext
 
 
@@ -452,3 +460,121 @@ def test_a_failed_create_leaves_nothing_behind(engine: Engine, tenant: CreatedTe
     assert of_type(tenant.tenant_id, "party.created.v1") == []
     assert _party_count(tenant) == 0
     assert "party.created" not in [e.action for e in audit_events(tenant.tenant_id)]
+
+
+def test_relationships_validate_the_pair_and_ownership(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        ana = service.create_party(s, ANA)
+        acme = service.create_party(s, ACME)
+        edge = service.add_relationship(
+            s,
+            ana.id,
+            PartyRelationshipInput(
+                to_party_id=acme.id,
+                rel_type=RelationshipType.SHAREHOLDER,
+                ownership_pct=Decimal("51.5"),
+            ),
+        )
+        view = service.staff_view(s, acme.id)
+    assert edge.valid_from is not None
+    assert [(r.id, r.ownership_pct) for r in view.relationships] == [
+        (edge.id, Decimal("51.5"))
+    ]
+    for body, detail in (
+        (
+            PartyRelationshipInput(
+                to_party_id=acme.id,
+                rel_type=RelationshipType.DIRECTOR,
+                ownership_pct=Decimal(10),
+            ),
+            "ownership_pct applies to SHAREHOLDER only",
+        ),
+        (
+            PartyRelationshipInput(
+                to_party_id=ana.id, rel_type=RelationshipType.DIRECTOR
+            ),
+            "a party cannot relate to itself",
+        ),
+        (
+            PartyRelationshipInput(
+                to_party_id=uuid7(), rel_type=RelationshipType.DIRECTOR
+            ),
+            "unknown to_party_id",
+        ),
+    ):
+        with (
+            pytest.raises(ValidationFailedError) as refused,
+            staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
+        ):
+            _ = service.add_relationship(s, ana.id, body)
+        assert refused.value.detail == detail
+    (added,) = [
+        e
+        for e in audit_events(tenant.tenant_id)
+        if e.action == "party.relationship_added"
+    ]
+    assert (added.entity_type, added.entity_id) == ("party_relationship", str(edge.id))
+    assert added.detail == {
+        "from_party_id": str(ana.id),
+        "to_party_id": str(acme.id),
+        "rel_type": "SHAREHOLDER",
+    }
+
+
+def test_update_changes_only_attributes_and_audits_the_field_names(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        ana = service.create_party(s, ANA)
+    change = PartyUpdateRequest(
+        person=PersonUpdate(pep_status=PepStatus.DOMESTIC, is_resident=True)
+    )
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        _ = service.update_party(s, ana.id, change)
+        person = s.get_one(Person, (tenant.tenant_id, ana.id))
+        assert (person.pep_status, person.is_resident) == (PepStatus.DOMESTIC, True)
+    (updated,) = [
+        e for e in audit_events(tenant.tenant_id) if e.action == "party.updated"
+    ]
+    assert updated.detail == {"fields": ["is_resident", "pep_status"]}
+    (event,) = of_type(tenant.tenant_id, "party.updated.v1")
+    assert event.data == {
+        "party_id": str(ana.id),
+        "fields": ["is_resident", "pep_status"],
+    }
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        _ = service.update_party(s, ana.id, change)
+    assert [
+        e.id for e in audit_events(tenant.tenant_id) if e.action == "party.updated"
+    ] == [updated.id]
+    assert len(of_type(tenant.tenant_id, "party.updated.v1")) == 1
+    with (
+        pytest.raises(ValidationFailedError) as refused,
+        staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
+    ):
+        _ = service.update_party(
+            s,
+            ana.id,
+            PartyUpdateRequest(organization=OrganizationUpdate(trade_name="x")),
+        )
+    assert refused.value.detail == "attributes do not match the party type"
+
+
+def test_an_organisation_update_applies_its_own_attributes(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        acme = service.create_party(s, ACME)
+        _ = service.update_party(
+            s,
+            acme.id,
+            PartyUpdateRequest(organization=OrganizationUpdate(trade_name="Acme MX")),
+        )
+        view = service.staff_view(s, acme.id)
+    assert view.organization is not None
+    assert view.organization.trade_name == "Acme MX"
+    assert audit_events(tenant.tenant_id)[-1].detail == {"fields": ["trade_name"]}
+    with pytest.raises(PydanticValidationError, match="pep_status cannot be null"):
+        _ = PersonUpdate(pep_status=None)

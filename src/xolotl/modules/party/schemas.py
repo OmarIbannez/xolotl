@@ -96,6 +96,71 @@ class PartyCreateRequest(BaseModel):
         return self
 
 
+class PersonUpdate(BaseModel):
+    """A person's patchable attributes; names and birth date are not among them."""
+
+    birth_country: CountryCode | None = None
+    birth_state: str | None = Field(default=None, max_length=64)
+    nationalities: list[CountryCode] | None = None
+    gender: str | None = Field(default=None, max_length=16)
+    occupation_code: str | None = Field(default=None, max_length=16)
+    economic_activity_code: str | None = Field(default=None, max_length=16)
+    is_resident: bool | None = None
+    pep_status: PepStatus | None = None
+    pep_since: date | None = None
+    pep_until: date | None = None
+
+    @model_validator(mode="after")
+    def _no_null_for_required_columns(self) -> Self:
+        for name in ("nationalities", "pep_status"):
+            if name in self.model_fields_set and getattr(self, name) is None:
+                msg = f"{name} cannot be null"
+                raise ValueError(msg)
+        return self
+
+
+class OrganizationUpdate(BaseModel):
+    """An organisation's patchable attributes; the legal name is not among them."""
+
+    trade_name: str | None = Field(default=None, max_length=300)
+    legal_form: str | None = Field(default=None, max_length=64)
+    incorporation_date: date | None = None
+    industry_code: str | None = Field(default=None, max_length=16)
+    registry_ref: str | None = Field(default=None, max_length=64)
+    country_of_incorporation: CountryCode | None = None
+
+
+class PartyUpdateRequest(BaseModel):
+    person: PersonUpdate | None = None
+    organization: OrganizationUpdate | None = None
+
+
+class PartyRelationshipInput(BaseModel):
+    to_party_id: UUID
+    rel_type: RelationshipType
+    ownership_pct: Decimal | None = Field(default=None, gt=0, le=100, decimal_places=4)
+    control_basis: str | None = Field(default=None, max_length=200)
+    valid_from: date | None = None
+    valid_to: date | None = None
+    source_doc_id: UUID | None = None
+
+
+class RelationshipOpenRequest(BaseModel):
+    party_id: UUID
+    external_ref: str = Field(min_length=1, max_length=100)
+    product: str | None = Field(default=None, max_length=32)
+    account_tier: str | None = Field(default=None, max_length=32)
+    started_at: datetime | None = None
+
+
+class RelationshipCloseRequest(BaseModel):
+    ended_at: datetime | None = None
+
+
+class LegalHoldRequest(BaseModel):
+    legal_hold: bool
+
+
 class ContactInput(BaseModel):
     kind: ContactKind
     value: str = Field(min_length=1, max_length=254, json_schema_extra=_PII)
