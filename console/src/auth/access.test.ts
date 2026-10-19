@@ -15,19 +15,62 @@ describe('hasAnyRole', () => {
     expect(hasAnyRole([], ACCESS.staff)).toBe(false)
   })
 
-  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit', () => {
+  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit; every role reads parties, all but AUDITOR_RO write them, and only MLRO sets a legal hold', () => {
     const allowed = (role: Role) => ({
       apiKeys: hasAnyRole([role], ACCESS.apiKeys),
       staff: hasAnyRole([role], ACCESS.staff),
       audit: hasAnyRole([role], ACCESS.audit),
       connectors: hasAnyRole([role], ACCESS.connectors),
+      parties: hasAnyRole([role], ACCESS.parties),
+      partiesWrite: hasAnyRole([role], ACCESS.partiesWrite),
+      legalHold: hasAnyRole([role], ACCESS.legalHold),
     })
 
-    expect(allowed('ADMIN')).toEqual({ apiKeys: true, staff: true, audit: true, connectors: true })
-    expect(allowed('MLRO')).toEqual({ apiKeys: false, staff: false, audit: true, connectors: false })
-    expect(allowed('AUDITOR_RO')).toEqual({ apiKeys: false, staff: false, audit: true, connectors: false })
-    expect(allowed('ANALYST')).toEqual({ apiKeys: false, staff: false, audit: false, connectors: false })
-    expect(allowed('SENIOR_ANALYST')).toEqual({ apiKeys: false, staff: false, audit: false, connectors: false })
+    expect(allowed('ADMIN')).toEqual({
+      apiKeys: true,
+      staff: true,
+      audit: true,
+      connectors: true,
+      parties: true,
+      partiesWrite: true,
+      legalHold: false,
+    })
+    expect(allowed('MLRO')).toEqual({
+      apiKeys: false,
+      staff: false,
+      audit: true,
+      connectors: false,
+      parties: true,
+      partiesWrite: true,
+      legalHold: true,
+    })
+    expect(allowed('AUDITOR_RO')).toEqual({
+      apiKeys: false,
+      staff: false,
+      audit: true,
+      connectors: false,
+      parties: true,
+      partiesWrite: false,
+      legalHold: false,
+    })
+    expect(allowed('ANALYST')).toEqual({
+      apiKeys: false,
+      staff: false,
+      audit: false,
+      connectors: false,
+      parties: true,
+      partiesWrite: true,
+      legalHold: false,
+    })
+    expect(allowed('SENIOR_ANALYST')).toEqual({
+      apiKeys: false,
+      staff: false,
+      audit: false,
+      connectors: false,
+      parties: true,
+      partiesWrite: true,
+      legalHold: false,
+    })
   })
 })
 

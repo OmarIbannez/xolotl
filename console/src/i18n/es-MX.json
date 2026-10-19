@@ -42,7 +42,8 @@
     "openMenu": "Abrir menú",
     "apiDocs": "Documentación de la API",
     "units": "Unidades",
-    "calendar": "Calendario"
+    "calendar": "Calendario",
+    "parties": "Personas"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -132,7 +133,9 @@
     "scopeDraftPending": "Agrega el permiso que escribiste o bórralo antes de continuar.",
     "rolesRequired": "Elige al menos un rol.",
     "dateFormat": "Usa el formato de fecha u hora indicado.",
-    "positiveInteger": "Usa un número entero positivo dentro del rango permitido."
+    "positiveInteger": "Usa un número entero positivo dentro del rango permitido.",
+    "countryCode": "Usa el código de país de dos letras en mayúsculas, por ejemplo MX.",
+    "identifierValue": "Escribe el identificador completo (64 caracteres como máximo)."
   },
   "home": {
     "title": "Inicio",
@@ -261,6 +264,103 @@
     "secret": {
       "title": "Contraseña inicial de {{name}}",
       "hint": "Compártela con {{email}} por un canal seguro. Deberá cambiarla en su primer inicio de sesión. Por seguridad no se puede volver a consultar."
+    }
+  },
+  "parties": {
+    "title": "Personas y empresas",
+    "description": "Clientes y contrapartes: personas físicas y morales con sus identificadores. Los datos personales se muestran enmascarados y solo se revelan a petición, con registro en la auditoría.",
+    "new": "Nueva persona o empresa",
+    "empty": "Aún no hay personas ni empresas registradas.",
+    "emptyFiltered": "Ninguna persona o empresa tiene ese identificador.",
+    "table": {
+      "label": "Personas y empresas",
+      "name": "Nombre",
+      "noName": "Sin nombre",
+      "type": "Tipo",
+      "identifiers": "Identificadores",
+      "status": "Estado",
+      "createdAt": "Alta"
+    },
+    "type": {
+      "PERSON": "Persona física",
+      "ORGANIZATION": "Persona moral"
+    },
+    "status": {
+      "ACTIVE": "Activa",
+      "MERGED": "Fusionada",
+      "PURGED": "Depurada"
+    },
+    "identifierType": {
+      "CURP": "CURP",
+      "RFC": "RFC",
+      "CLABE": "CLABE",
+      "INE": "INE",
+      "CPF": "CPF",
+      "CNPJ": "CNPJ",
+      "CUIT": "CUIT",
+      "RUT": "RUT",
+      "NIT": "NIT",
+      "CEDULA_CO": "Cédula de ciudadanía (CO)",
+      "DNI_PE": "DNI (PE)",
+      "PASSPORT": "Pasaporte"
+    },
+    "search": {
+      "idType": "Tipo de identificador",
+      "value": "Identificador",
+      "submit": "Buscar",
+      "clear": "Limpiar"
+    },
+    "create": {
+      "title": "Nueva persona o empresa",
+      "partyType": "Tipo de persona",
+      "givenNames": "Nombre(s)",
+      "firstSurname": "Primer apellido",
+      "secondSurname": "Segundo apellido",
+      "birthDate": "Fecha de nacimiento",
+      "legalName": "Razón social",
+      "tradeName": "Nombre comercial",
+      "countryCode": "País",
+      "identifierType": "Tipo de identificador",
+      "identifierValue": "Identificador",
+      "submit": "Registrar",
+      "submitting": "Registrando…",
+      "done": "Se registró la persona o empresa.",
+      "identifierExists": "Ya existe una persona o empresa con ese identificador.",
+      "identifierInvalid": "El identificador no es válido para su tipo. Revisa que esté completo y bien escrito."
+    },
+    "detail": {
+      "title": "Persona o empresa",
+      "summary": "Resumen",
+      "type": "Tipo",
+      "status": "Estado",
+      "country": "País",
+      "identifiers": "Identificadores",
+      "retentionUntil": "Conservar hasta",
+      "legalHold": "Retención legal",
+      "legalHoldOn": "Activa",
+      "legalHoldOff": "Sin retención"
+    },
+    "reveal": {
+      "title": "Datos personales",
+      "button": "Revelar",
+      "hide": "Ocultar",
+      "running": "Revelando…",
+      "notice": "Esta consulta quedó registrada en la auditoría.",
+      "givenNames": "Nombre(s)",
+      "surnames": "Apellidos",
+      "birthDate": "Fecha de nacimiento",
+      "legalName": "Razón social",
+      "identifiers": "Identificadores",
+      "contacts": "Contactos",
+      "addresses": "Domicilios"
+    },
+    "legalHold": {
+      "title": "Retención legal",
+      "set": "Activar retención legal",
+      "clear": "Quitar retención legal",
+      "confirmSet": "Mientras la retención legal esté activa, esta persona o empresa no se depurará aunque su periodo de conservación termine.",
+      "confirmClear": "Al quitar la retención legal, esta persona o empresa podrá depurarse cuando termine su periodo de conservación.",
+      "pending": "Guardando…"
     }
   },
   "audit": {
@@ -602,6 +702,9 @@
     "CONNECTOR_NO_ROUTE": "Ningún conector atiende esta verificación en este país.",
     "UNIT_VALUE_MISSING": "Falta el valor de la unidad para esa fecha; nadie lo completa en silencio. Inténtalo cuando se haya publicado.",
     "POLICY_NOT_ASSIGNED": "No hay ningún paquete de política asignado para esa fecha y producto.",
-    "POLICY_LOOSENING": "El ajuste relajaría la política: solo se permiten ajustes más estrictos que el paquete."
+    "POLICY_LOOSENING": "El ajuste relajaría la política: solo se permiten ajustes más estrictos que el paquete.",
+    "IDENTIFIER_EXISTS": "Ya existe una persona o empresa con ese identificador.",
+    "IDENTIFIER_INVALID": "El identificador no es válido para su tipo.",
+    "OBJECT_CORRUPT": "El archivo guardado no pasó la verificación de integridad. Avisa a soporte."
   }
 }

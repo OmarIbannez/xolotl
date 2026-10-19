@@ -35,6 +35,15 @@ const SAME_IN_BOTH = new Set([
   'connectors.checkType.UNIT_VALUE', // API identifiers, not copy
   'connectors.checkType.RFC_VALIDATION',
   'connectors.checkType.CURP_VALIDATION',
+  'parties.identifierType.CURP', // identifier acronyms: the same text in both languages
+  'parties.identifierType.RFC',
+  'parties.identifierType.CLABE',
+  'parties.identifierType.INE',
+  'parties.identifierType.CPF',
+  'parties.identifierType.CNPJ',
+  'parties.identifierType.CUIT',
+  'parties.identifierType.RUT',
+  'parties.identifierType.NIT',
 ])
 
 describe('translation catalogues', () => {
@@ -78,6 +87,9 @@ describe('translation catalogues', () => {
       'UNIT_VALUE_MISSING',
       'POLICY_NOT_ASSIGNED',
       'POLICY_LOOSENING',
+      'IDENTIFIER_EXISTS',
+      'IDENTIFIER_INVALID',
+      'OBJECT_CORRUPT',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

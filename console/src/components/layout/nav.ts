@@ -1,4 +1,4 @@
-import { BookOpen, CalendarDays, Coins, House, KeyRound, Plug, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
+import { BookOpen, CalendarDays, Coins, Contact, House, KeyRound, Plug, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/api/types'
 import { ACCESS } from '@/auth/access'
 
@@ -6,6 +6,7 @@ export interface NavItem {
   to: string
   labelKey:
     | 'nav.home'
+    | 'nav.parties'
     | 'nav.apiKeys'
     | 'nav.staff'
     | 'nav.audit'
@@ -23,6 +24,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/', labelKey: 'nav.home', icon: House, end: true },
+  { to: '/parties', labelKey: 'nav.parties', icon: Contact, roles: ACCESS.parties },
   { to: '/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound, roles: ACCESS.apiKeys },
   { to: '/staff', labelKey: 'nav.staff', icon: Users, roles: ACCESS.staff },
   { to: '/audit', labelKey: 'nav.audit', icon: ScrollText, roles: ACCESS.audit },
