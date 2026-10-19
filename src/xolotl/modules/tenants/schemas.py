@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import ClassVar, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from xolotl.platform.enums import (
     ApiKeyStatus,
@@ -139,3 +139,15 @@ class PingResponse(BaseModel):
     pong: str
     actor_id: str
     at: datetime
+
+
+class NotificationResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
+
+    id: UUID
+    template: str
+    data: dict[str, JsonValue]
+    recipient_user_id: UUID | None
+    recipient_role: Role | None
+    created_at: datetime
+    read_at: datetime | None

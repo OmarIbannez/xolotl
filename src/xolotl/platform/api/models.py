@@ -20,7 +20,7 @@ class IdempotencyKey(Base):
     """
 
     __tablename__: str = "idempotency_key"
-    # Each reservation purges its tenant's expired keys by this range (_reserve).
+    # purge_expired deletes a tenant's expired keys by this range.
     __table_args__: tuple[Index, ...] = (
         Index("ix_idempotency_key_tenant_id_expires_at", "tenant_id", "expires_at"),
     )

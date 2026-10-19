@@ -4,9 +4,9 @@ from typing import Annotated
 
 from fastapi import Depends
 
+from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.modules.tenants.schemas import PingRequest, PingResponse, TenantResponse
-from xolotl.platform import clock
 from xolotl.platform.api.router import v1_router
 from xolotl.platform.auth.actor import Actor
 from xolotl.platform.auth.principal import SessionDep, require_access
@@ -29,7 +29,8 @@ def tenants_me(actor: TenantReader, session: SessionDep) -> TenantResponse:
 
 
 @router.post("/ping")
-def ping(body: PingRequest, actor: TenantWriter) -> PingResponse:
+def ping(body: PingRequest, actor: TenantWriter, session: SessionDep) -> PingResponse:
+    # Publishes test.ping.v1, keyed by the caller; the message stays out of it.
     return PingResponse(
-        pong=body.message, actor_id=actor.context.actor_id, at=clock.now()
+        pong=body.message, actor_id=actor.context.actor_id, at=service.ping(session)
     )

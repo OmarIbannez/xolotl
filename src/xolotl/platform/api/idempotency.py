@@ -6,8 +6,9 @@ Flow per request: validate the header, resolve the actor, hash
 stored response; a different hash is a 422; a reservation whose request is
 still running is a 409, unless it is older than ``RESERVATION_TTL`` (the
 request died without releasing it), in which case it is replaced. Each
-reservation first deletes the tenant's expired keys (an opportunistic purge until
-plan 1c's job runs).
+reservation first deletes a batch of the tenant's expired keys (``purge_expired``),
+and the hourly ``idempotency.purge`` job (``purge_expired_keys``) deletes them all,
+batch after batch, for every tenant, including the ones that make no requests.
 
 What is stored: whenever the endpoint returns normally with a 2xx status, its
 response, whatever the shape, because the endpoint's work commits on that same
@@ -43,6 +44,7 @@ and is never replayed. The secret is never logged: the stored value is an
 import base64
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -52,7 +54,7 @@ from typing import cast, override
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -63,13 +65,19 @@ from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.auth.actor import Actor
 from xolotl.platform.auth.principal import resolve_request_actor
 from xolotl.platform.crypto import encrypt_json
-from xolotl.platform.db import SessionFactory, tenant_session
+from xolotl.platform.db import SessionFactory, bound_context, tenant_session
 from xolotl.platform.errors import (
     IdempotencyConflictError,
     IdempotencyInProgressError,
     IdempotencyKeyRequiredError,
 )
+from xolotl.platform.jobs.queue import Job
 
+logger = logging.getLogger(__name__)
+
+PURGE_KIND = "idempotency.purge"
+# The most expired keys one purge deletes, and so the most row locks it takes.
+PURGE_BATCH = 1000
 RESERVED_STATUS = 0
 TTL = timedelta(hours=24)
 RESERVATION_TTL = timedelta(seconds=60)
@@ -201,6 +209,69 @@ def _is_dead(row: IdempotencyKey, now: datetime) -> bool:
     return row.expires_at <= now or abandoned
 
 
+def purge_expired(session: Session) -> int:
+    """Delete one batch of the session tenant's expired keys, whoever holds them.
+
+    An expired key no longer guards anything (``_is_dead``), so deleting it changes
+    no answer. At most ``PURGE_BATCH`` keys go per call, the longest expired first,
+    and a key another transaction has locked is passed by rather than waited for
+    (``FOR UPDATE SKIP LOCKED``): a request's purge and the purge job never queue
+    behind each other, and neither holds more than one batch of locks. The query
+    names the tenant as well as relying on row-level security, so the
+    ``(tenant_id, expires_at)`` index keeps it a range scan.
+
+    Returns:
+        How many keys were deleted; fewer than ``PURGE_BATCH`` means the tenant has
+        no expired key left that was free to take.
+
+    """
+    tenant_id = bound_context(session).require_tenant_id()
+    batch = (
+        select(IdempotencyKey.tenant_id, IdempotencyKey.actor_id, IdempotencyKey.key)
+        .where(
+            IdempotencyKey.tenant_id == tenant_id,
+            IdempotencyKey.expires_at <= clock.now(),
+        )
+        .order_by(IdempotencyKey.expires_at)
+        .limit(PURGE_BATCH)
+        .with_for_update(skip_locked=True)
+    )
+    # Counted by Postgres (WITH deleted AS (DELETE ... RETURNING) SELECT count(*)), so
+    # the deleted keys never travel back to the application.
+    deleted = (
+        delete(IdempotencyKey)
+        .where(
+            tuple_(
+                IdempotencyKey.tenant_id, IdempotencyKey.actor_id, IdempotencyKey.key
+            ).in_(batch)
+        )
+        .returning(IdempotencyKey.key)
+        .cte("deleted")
+    )
+    return session.scalar(select(func.count()).select_from(deleted)) or 0
+
+
+def purge_expired_keys(session: Session, job: Job) -> None:
+    """Run an ``idempotency.purge`` job: purge all of the job's tenant's expired keys.
+
+    Every tenant gets the job hourly from a schedule made when the tenant is
+    created; the job's session is already bound to that tenant. The keys go batch
+    by batch, each batch committed before the next is taken, so the purge never
+    holds the locks of more than one batch at a time. The session carries on in a
+    new transaction after each commit, under the same tenant context.
+    """
+    purged = taken = purge_expired(session)
+    while taken == PURGE_BATCH:
+        session.commit()
+        taken = purge_expired(session)
+        purged += taken
+    if purged:
+        logger.info(
+            "expired idempotency keys purged",
+            extra={"job_id": str(job.id), "purged": purged},
+        )
+
+
 def _reserve(
     factory: SessionFactory, actor: Actor, key: str, digest: bytes
 ) -> Stored | None:
@@ -223,15 +294,8 @@ def _reserve(
     now = clock.now()
     with tenant_session(actor.context, factory=factory) as s:
         # Opportunistic purge: the tenant's expired keys go before a new one is
-        # reserved. Row-level security bounds it to the tenant, the
-        # (tenant_id, expires_at) index keeps it a range scan, and plan 1c adds
-        # the periodic purge job.
-        _ = s.execute(
-            delete(IdempotencyKey).where(
-                IdempotencyKey.tenant_id == actor.context.require_tenant_id(),
-                IdempotencyKey.expires_at <= now,
-            )
-        )
+        # reserved, between the hourly runs of the purge job.
+        _ = purge_expired(s)
         existing = s.get(IdempotencyKey, _pk(actor, key))
         if existing is not None and _is_dead(existing, now):
             s.delete(existing)
