@@ -247,6 +247,11 @@ def test_the_build_filter_covers_everything_the_image_copies():
             assert covered(source, paths), source
 
 
+def test_the_image_carries_the_policy_packs():
+    assert "policy-packs" in copy_sources()
+    assert "policy-packs/**" in web_service()["buildFilter"]["paths"]
+
+
 def test_the_environment_render_gives_is_a_valid_production_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ):
