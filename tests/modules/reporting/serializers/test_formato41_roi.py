@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from tests.modules.reporting.serializers.support import (
+    ACME,
     DEFS_DIR,
     HEADER_ROI,
     ROI_OPERATION,
@@ -166,3 +167,41 @@ def test_at_most_99_related_rows():
     operation = replace(ROI_OPERATION, related=ROI_OPERATION.related[:1] * 100)
     with pytest.raises(ReportFieldError, match="99 related rows"):
         _ = serialize_f41(DEFS_DIR, ROI, HEADER_ROI, [operation])
+
+
+@pytest.mark.parametrize(
+    ("related", "message"),
+    [
+        (F41Related(), "an account or a person"),
+        (F41Related(maternal_surname="Ruiz"), "column 37"),
+    ],
+)
+def test_related_rows_need_an_account_or_a_named_person(related, message):
+    operation = replace(ROI_OPERATION, related=(related,))
+    with pytest.raises(ReportFieldError, match=message):
+        _ = serialize_f41(DEFS_DIR, ROI, HEADER_ROI, [operation])
+
+
+def test_a_related_sat_key_passes_through_column_36():
+    related = F41Related(account="77", entity_key="ABC123")
+    operation = replace(ROI_OPERATION, related=(related,))
+    report = serialize_f41(DEFS_DIR, ROI, HEADER_ROI, [operation])
+    _, row = _records(report.parts[0])
+    assert row[34:36] == ["77", "ABC123"]
+
+
+def test_a_preocupante_reports_a_natural_person():
+    operation = replace(ROIP_OPERATION, subject=ACME)
+    with pytest.raises(ReportFieldError, match="natural person"):
+        _ = serialize_f41(DEFS_DIR, ROIP, HEADER_ROI, [operation])
+
+
+def test_the_legend_is_not_repeated_when_the_description_already_has_it():
+    operation = replace(
+        ROI_OPERATION, related=(), description="Reporte de 24 horas. Cliente X."
+    )
+    report = serialize_f41(
+        DEFS_DIR, ROI24, HEADER_ROI, [operation], legend=Legend.REPORTE_24_HORAS
+    )
+    (row,) = _records(report.parts[0])
+    assert row[39] == "REPORTE DE 24 HORAS. CLIENTE X."

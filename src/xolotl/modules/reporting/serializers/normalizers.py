@@ -30,7 +30,7 @@ _UNDECOMPOSABLE = str.maketrans({
     "Ħ": "H", "Ŧ": "T", "Ŀ": "L", "Ŋ": "N", "Ə": "E",
 })  # fmt: skip
 CURP_SHAPE = re.compile(r"^[A-Z]{4}\d{6}[HMX][A-Z]{5}[A-Z\d]\d$")
-_CASFIM = re.compile(r"^[0-9]{1,2}-[0-9]{3}$")
+CASFIM_KEY = re.compile(r"^[0-9]{1,2}-[0-9]{3}$")
 # Six digits from a CASFIM key; eight for a CNBV-assigned centro cambiario or
 # transmisor key (sector plus institution, column 5 "6/8").
 _CASFIM_DIGITS = re.compile(r"^(?:[0-9]{6}|[0-9]{8})$")
@@ -259,7 +259,7 @@ def casfim_key(value: str, *, field: str = "casfim") -> str:
 
     """
     stripped = value.strip()
-    if _CASFIM.fullmatch(stripped):
+    if CASFIM_KEY.fullmatch(stripped):
         return stripped.replace("-", "").rjust(_CASFIM_LENGTH, "0")
     if _CASFIM_DIGITS.fullmatch(stripped):
         return stripped
