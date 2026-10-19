@@ -7,12 +7,15 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import NoReturn
 from uuid import UUID
 
+import httpx
 import psycopg
 import pytest
+import respx
 import uvicorn
 from psycopg import sql
 from pydantic import SecretStr
@@ -45,6 +48,7 @@ from xolotl.platform.crypto import (
     set_key_provider,
 )
 from xolotl.platform.enums import KeyPurpose
+from xolotl.platform.units.banxico import BASE_URL as BANXICO_BASE_URL
 
 runner = CliRunner()
 
@@ -912,6 +916,163 @@ def test_holidays_seed_refuses_a_missing_file_in_one_line(
     assert "nope.yaml" in line
     with admin_engine.connect() as conn:
         assert conn.scalar(text("SELECT count(*) FROM holiday")) == 0
+
+
+# ---- units ------------------------------------------------------------------------
+
+UNITS_SEEDED = (
+    "UMA: 3 rows (3 new, 0 unchanged)\n"
+    "UDI: 62 rows (62 new, 0 unchanged)\n"
+    "USD_MXN_FIX: 42 rows (42 new, 0 unchanged)\n"
+)
+
+
+def _unit_values(admin_engine: Engine) -> int:
+    with admin_engine.connect() as conn:
+        return conn.scalar(text("SELECT count(*) FROM unit_value")) or 0
+
+
+def _with_settings(monkeypatch: pytest.MonkeyPatch, **changes: object) -> None:
+    settings = get_settings().model_copy(update=changes)
+    monkeypatch.setattr("xolotl.cli.get_settings", lambda: settings)
+
+
+def test_units_seed_refuses_unverified_values_without_the_flag(
+    engine: Engine, admin_engine: Engine
+):
+    result = runner.invoke(app, ["units", "seed"])
+    assert (result.exit_code, result.stdout) == (1, "")
+    assert result.stderr == "error: UNVERIFIED_VALUE: UMA 2026-02-01\n"
+    assert _unit_values(admin_engine) == 0
+
+
+def test_units_seed_with_the_flag_loads_every_unit_once(
+    engine: Engine, admin_engine: Engine
+):
+    first = runner.invoke(app, ["units", "seed", "--allow-unverified"])
+    assert (first.exit_code, first.stdout) == (0, UNITS_SEEDED), first.output
+    again = runner.invoke(
+        app, ["units", "seed", "--allow-unverified", "policy-packs/_units"]
+    )
+    assert again.exit_code == 0, again.output
+    assert again.stdout == (
+        "UMA: 3 rows (0 new, 3 unchanged)\n"
+        "UDI: 62 rows (0 new, 62 unchanged)\n"
+        "USD_MXN_FIX: 42 rows (0 new, 42 unchanged)\n"
+    )
+    assert _unit_values(admin_engine) == 107
+
+
+def test_units_seed_refuses_the_flag_in_prod(
+    engine: Engine, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _with_settings(monkeypatch, env="prod")
+    result = runner.invoke(app, ["units", "seed", "--allow-unverified"])
+    assert result.exit_code == 2
+    assert (
+        result.stderr == "error: --allow-unverified is refused when XOLOTL_ENV=prod\n"
+    )
+    assert _unit_values(admin_engine) == 0
+
+
+def test_units_fetch_in_demo_mode_reads_the_seeds(
+    engine: Engine, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _with_settings(monkeypatch, banxico_token=None)
+    args = ["units", "fetch", "--unit", "UDI", "--from", "2026-01-01"]
+    result = runner.invoke(app, [*args, "--to", "2026-01-05"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout == (
+        "UDI: fetched 5, inserted 5, corrected 0 (2026-01-01..2026-01-05) [demo]\n"
+    )
+    assert _unit_values(admin_engine) == 5
+
+
+def test_units_fetch_without_a_range_continues_from_the_latest_row(
+    engine: Engine, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _with_settings(monkeypatch, banxico_token=None)
+    seeded = runner.invoke(app, ["units", "seed", "--allow-unverified"])
+    assert seeded.exit_code == 0, seeded.output
+    monkeypatch.setattr(
+        "xolotl.platform.clock.now", lambda: datetime(2026, 1, 31, 20, 0, tzinfo=UTC)
+    )
+    result = runner.invoke(app, ["units", "fetch", "--unit", "UDI"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout == "UDI: up to date (latest 2026-01-31)\n"
+
+
+def test_units_fetch_live_calls_the_sie_with_the_token(
+    engine: Engine, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _with_settings(monkeypatch, banxico_token=SecretStr("tok-1"))
+    body = {
+        "bmx": {
+            "series": [
+                {
+                    "idSerie": "SP68257",
+                    "datos": [{"fecha": "02/01/2026", "dato": "8.700000"}],
+                }
+            ]
+        }
+    }
+    with respx.mock() as sie:
+        route = sie.get(
+            f"{BANXICO_BASE_URL}/series/SP68257/datos/2026-01-01/2026-01-05"
+        ).mock(return_value=httpx.Response(200, json=body))
+        result = runner.invoke(
+            app,
+            [
+                "units",
+                "fetch",
+                "--unit",
+                "UDI",
+                "--from",
+                "2026-01-01",
+                "--to",
+                "2026-01-05",
+            ],
+        )
+    assert result.exit_code == 0, result.output
+    assert result.stdout == (
+        "UDI: fetched 1, inserted 1, corrected 0 (2026-01-01..2026-01-05) [live]\n"
+    )
+    assert route.calls.last.request.headers["Bmx-Token"] == "tok-1"
+
+
+def test_units_fetch_refuses_what_it_cannot_act_on(engine: Engine):
+    unknown = runner.invoke(app, ["units", "fetch", "--unit", "TIIE"])
+    assert unknown.exit_code == 1
+    assert unknown.stderr.startswith("error: VALIDATION_FAILED: ")
+    half = runner.invoke(
+        app, ["units", "fetch", "--unit", "UDI", "--from", "2026-01-01"]
+    )
+    assert half.exit_code == 2
+
+
+def test_units_fetch_refuses_demo_mode_in_prod(
+    engine: Engine, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _with_settings(monkeypatch, env="prod", banxico_token=None)
+    result = runner.invoke(
+        app,
+        [
+            "units",
+            "fetch",
+            "--unit",
+            "UDI",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-01-05",
+        ],
+    )
+    assert result.exit_code == 1
+    assert result.stderr == (
+        "error: UNIT_SOURCE_UNAVAILABLE: no XOLOTL_BANXICO_TOKEN; "
+        "demo mode is refused when XOLOTL_ENV=prod\n"
+    )
+    assert _unit_values(admin_engine) == 0
 
 
 ITF_PACK = "policy-packs/MX/ITF-IFPE/v1.yaml"
