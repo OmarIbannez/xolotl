@@ -1,0 +1,53 @@
+# Tipo de cambio FIX del 2025-12-01 al 2026-01-31 por fecha de determinación, copiado el
+# 2026-10-19 de banxico.org.mx/tipcamb (columna FIX, serie SF43718 de la SIE). Una fila por
+# día hábil bancario, cuatro decimales; sin fila en fines de semana, el 2025-12-12, el
+# 2025-12-25 ni el 2026-01-01.
+unit_code: USD_MXN_FIX
+quote_ccy: MXN
+source: "BANXICO_SIE:SF43718"
+legal_basis: "Banxico, serie SF43718 (tipo de cambio FIX), publicada por día hábil bancario"
+confidence: VERIFIED
+verified_as_of: 2026-10-19
+values:
+  - {valid_from: 2025-12-01, value: "18.2757"}
+  - {valid_from: 2025-12-02, value: "18.2910"}
+  - {valid_from: 2025-12-03, value: "18.2642"}
+  - {valid_from: 2025-12-04, value: "18.2293"}
+  - {valid_from: 2025-12-05, value: "18.1860"}
+  - {valid_from: 2025-12-08, value: "18.2367"}
+  - {valid_from: 2025-12-09, value: "18.1940"}
+  - {valid_from: 2025-12-10, value: "18.2085"}
+  - {valid_from: 2025-12-11, value: "18.0543"}
+  - {valid_from: 2025-12-15, value: "17.9925"}
+  - {valid_from: 2025-12-16, value: "17.9525"}
+  - {valid_from: 2025-12-17, value: "18.0200"}
+  - {valid_from: 2025-12-18, value: "17.9792"}
+  - {valid_from: 2025-12-19, value: "18.0065"}
+  - {valid_from: 2025-12-22, value: "17.9785"}
+  - {valid_from: 2025-12-23, value: "17.9332"}
+  - {valid_from: 2025-12-24, value: "17.9248"}
+  - {valid_from: 2025-12-26, value: "17.9042"}
+  - {valid_from: 2025-12-29, value: "17.9667"}
+  - {valid_from: 2025-12-30, value: "17.9528"}
+  - {valid_from: 2025-12-31, value: "18.0012"}
+  - {valid_from: 2026-01-02, value: "17.8803"}
+  - {valid_from: 2026-01-05, value: "17.8905"}
+  - {valid_from: 2026-01-06, value: "17.9697"}
+  - {valid_from: 2026-01-07, value: "17.9587"}
+  - {valid_from: 2026-01-08, value: "17.9807"}
+  - {valid_from: 2026-01-09, value: "17.9842"}
+  - {valid_from: 2026-01-12, value: "17.9075"}
+  - {valid_from: 2026-01-13, value: "17.8540"}
+  - {valid_from: 2026-01-14, value: "17.8167"}
+  - {valid_from: 2026-01-15, value: "17.6897"}
+  - {valid_from: 2026-01-16, value: "17.6867"}
+  - {valid_from: 2026-01-19, value: "17.5990"}
+  - {valid_from: 2026-01-20, value: "17.6008"}
+  - {valid_from: 2026-01-21, value: "17.4520"}
+  - {valid_from: 2026-01-22, value: "17.4828"}
+  - {valid_from: 2026-01-23, value: "17.4545"}
+  - {valid_from: 2026-01-26, value: "17.2830"}
+  - {valid_from: 2026-01-27, value: "17.2357"}
+  - {valid_from: 2026-01-28, value: "17.2322"}
+  - {valid_from: 2026-01-29, value: "17.2532"}
+  - {valid_from: 2026-01-30, value: "17.3310"}
