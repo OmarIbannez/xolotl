@@ -8,6 +8,7 @@ its sessions through ``session_factory``, so one process has one connection pool
 
 from dataclasses import dataclass
 
+from xolotl.platform.connectors.router import ConnectorRouter
 from xolotl.platform.db import SessionFactory
 from xolotl.platform.events.bus import OutboxEventBus
 from xolotl.platform.events.notifier import Notifier
@@ -28,3 +29,4 @@ class PlatformServices:
     workflows: PostgresWorkflowRunner
     notifier: Notifier
     object_store: ObjectStore
+    connectors: ConnectorRouter
