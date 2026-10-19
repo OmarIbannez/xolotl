@@ -22,8 +22,10 @@ from xolotl.modules.tenants import (
     routes_auth,
     routes_connectors,
     routes_notifications,
+    routes_policy,
     routes_staff,
     routes_tenants,
+    routes_units,
     routes_webhooks,
 )
 from xolotl.modules.tenants.service import ensure_platform_schedules, resolve_bearer
@@ -232,6 +234,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             routes_staff.router,
             routes_notifications.router,
             routes_webhooks.router,
+            routes_policy.router,
+            routes_units.router,
             routes_connectors.router,
             party_routes.router,
             audit_routes.router,
