@@ -1,0 +1,2 @@
+# Official list samples are kept byte for byte (encoding and line endings matter).
+tests/modules/screening/fixtures/** -text

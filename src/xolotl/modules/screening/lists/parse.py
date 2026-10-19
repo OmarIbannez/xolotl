@@ -5,11 +5,15 @@ from types import MappingProxyType
 from typing import BinaryIO
 
 from xolotl.modules.screening.lists.errors import ListFormatError
+from xolotl.modules.screening.lists.sat69b import parse_sat_69b
 from xolotl.modules.screening.lists.types import ListCode, ParsedList
+from xolotl.modules.screening.lists.uk import parse_uk
 from xolotl.modules.screening.lists.un import parse_un
 
 _PARSERS: Mapping[str, Callable[[BinaryIO], ParsedList]] = MappingProxyType({
     ListCode.UN_CONSOLIDATED: parse_un,
+    ListCode.UK_FCDO: parse_uk,
+    ListCode.MX_SAT_69B: parse_sat_69b,
 })
 
 
