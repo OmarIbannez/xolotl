@@ -1,4 +1,5 @@
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Pencil } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import type { PartyResponse } from '@/api/types'
@@ -12,9 +13,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useFormat } from '@/i18n/use-locale'
 import { NotFound } from '@/NotFound'
 import { calendarDay } from './dates'
+import { EditPartyDialog } from './EditPartyDialog'
 import { LegalHoldCard } from './LegalHoldCard'
 import { PartyStatusBadge } from './PartyStatusBadge'
-import { useParty } from './queries'
+import { PartyCollections } from './PartyCollections'
+import { isStaffView, useParty } from './queries'
 import { RevealCard } from './RevealCard'
 
 function Summary({ party }: { party: PartyResponse }) {
@@ -69,11 +72,16 @@ function Summary({ party }: { party: PartyResponse }) {
   )
 }
 
-/** One party: its masked summary, the explicit reveal of its personal data and (MLRO) its legal hold. */
+/**
+ * One party: its masked summary, the explicit reveal of its personal data, (MLRO) its legal hold,
+ * and its collections with their add actions and the attribute edit (writers only).
+ */
 function PartyDetail({ partyId }: { partyId: string }) {
   const { t } = useTranslation()
   const { hasRole } = useAuth()
   const party = useParty(partyId)
+  const [editing, setEditing] = useState(false)
+  const staff = party.data !== undefined && isStaffView(party.data) ? party.data : undefined
 
   let body
   if (party.isError) body = <ErrorBlock error={party.error} onRetry={() => void party.refetch()} />
@@ -84,6 +92,7 @@ function PartyDetail({ partyId }: { partyId: string }) {
         <Summary party={party.data} />
         {hasRole(ACCESS.parties) && <RevealCard partyId={partyId} />}
         {hasRole(ACCESS.legalHold) && <LegalHoldCard partyId={partyId} legalHold={party.data.legal_hold} />}
+        {staff && <PartyCollections party={staff} />}
       </div>
     )
   }
@@ -93,15 +102,24 @@ function PartyDetail({ partyId }: { partyId: string }) {
       <PageHeader
         title={t('parties.detail.title')}
         actions={
-          <Button asChild variant="outline">
-            <Link to="/parties">
-              <ArrowLeft aria-hidden />
-              {t('parties.title')}
-            </Link>
-          </Button>
+          <>
+            {staff && hasRole(ACCESS.partiesWrite) && (
+              <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+                <Pencil aria-hidden />
+                {t('parties.edit.button')}
+              </Button>
+            )}
+            <Button asChild variant="outline">
+              <Link to="/parties">
+                <ArrowLeft aria-hidden />
+                {t('parties.title')}
+              </Link>
+            </Button>
+          </>
         }
       />
       {body}
+      {editing && staff && <EditPartyDialog party={staff} onClose={() => setEditing(false)} />}
     </>
   )
 }

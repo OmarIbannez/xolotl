@@ -135,7 +135,11 @@
     "dateFormat": "Usa el formato de fecha u hora indicado.",
     "positiveInteger": "Usa un número entero positivo dentro del rango permitido.",
     "countryCode": "Usa el código de país de dos letras en mayúsculas, por ejemplo MX.",
-    "identifierValue": "Escribe el identificador completo (64 caracteres como máximo)."
+    "identifierValue": "Escribe el identificador completo (64 caracteres como máximo).",
+    "fileTooLarge": "El archivo pasa de 25 MB.",
+    "fileType": "Elige un archivo PDF, JPEG o PNG.",
+    "ownership": "Escribe un porcentaje mayor que 0 y hasta 100, con 4 decimales como máximo; solo aplica a accionistas.",
+    "uuid": "Pega el identificador completo de la otra persona o empresa (lo ves en la dirección de su página)."
   },
   "home": {
     "title": "Inicio",
@@ -338,7 +342,16 @@
       "retentionUntil": "Conservar hasta",
       "legalHold": "Retención legal",
       "legalHoldOn": "Activa",
-      "legalHoldOff": "Sin retención"
+      "legalHoldOff": "Sin retención",
+      "tabs": {
+        "identifiers": "Identificadores",
+        "contacts": "Contactos",
+        "addresses": "Domicilios",
+        "relationships": "Relaciones",
+        "documents": "Documentos",
+        "customer": "Relaciones de cliente",
+        "label": "Datos de la persona o empresa"
+      }
     },
     "reveal": {
       "title": "Datos personales",
@@ -361,6 +374,158 @@
       "confirmSet": "Mientras la retención legal esté activa, esta persona o empresa no se depurará aunque su periodo de conservación termine.",
       "confirmClear": "Al quitar la retención legal, esta persona o empresa podrá depurarse cuando termine su periodo de conservación.",
       "pending": "Guardando…"
+    },
+    "save": "Guardar",
+    "saving": "Guardando…",
+    "edit": {
+      "button": "Editar datos",
+      "title": "Editar datos",
+      "description": "Los nombres, la fecha de nacimiento y los identificadores no se editan aquí.",
+      "submit": "Guardar cambios",
+      "submitting": "Guardando…",
+      "done": "Se guardaron los cambios.",
+      "noChanges": "No cambiaste ningún dato.",
+      "pepStatus": "Persona políticamente expuesta",
+      "pep": {
+        "NONE": "No es PEP",
+        "DOMESTIC": "PEP nacional",
+        "FOREIGN": "PEP extranjera",
+        "RCA": "Familiar o asociado cercano de una PEP",
+        "INTL_ORG": "PEP de organismo internacional"
+      },
+      "pepSince": "PEP desde",
+      "pepUntil": "PEP hasta",
+      "isResident": "Residencia",
+      "residentUnknown": "Sin dato",
+      "residentYes": "Residente",
+      "residentNo": "No residente",
+      "nationalities": "Nacionalidades",
+      "nationalitiesHint": "Códigos de dos letras separados por comas, por ejemplo MX, US.",
+      "occupationCode": "Clave de ocupación",
+      "economicActivityCode": "Clave de actividad económica",
+      "birthCountry": "País de nacimiento",
+      "birthState": "Entidad de nacimiento",
+      "gender": "Género",
+      "tradeName": "Nombre comercial",
+      "legalForm": "Forma jurídica",
+      "incorporationDate": "Fecha de constitución",
+      "industryCode": "Clave de giro",
+      "registryRef": "Folio mercantil",
+      "countryOfIncorporation": "País de constitución"
+    },
+    "identifiers": {
+      "add": "Agregar identificador",
+      "type": "Tipo",
+      "value": "Identificador",
+      "country": "País",
+      "validFrom": "Vigente desde",
+      "validTo": "Vigente hasta",
+      "added": "Se agregó el identificador.",
+      "empty": "Sin identificadores."
+    },
+    "contacts": {
+      "add": "Agregar contacto",
+      "kindLabel": "Medio",
+      "kind": {
+        "EMAIL": "Correo electrónico",
+        "PHONE": "Teléfono"
+      },
+      "value": "Contacto",
+      "primary": "Principal",
+      "added": "Se agregó el contacto.",
+      "empty": "Sin contactos."
+    },
+    "addresses": {
+      "add": "Agregar domicilio",
+      "typeLabel": "Tipo de domicilio",
+      "type": {
+        "RESIDENTIAL": "Particular",
+        "FISCAL": "Fiscal",
+        "OPERATIONAL": "Operativo"
+      },
+      "street": "Calle",
+      "extNumber": "Número exterior",
+      "intNumber": "Número interior",
+      "neighbourhood": "Colonia",
+      "city": "Ciudad",
+      "country": "País",
+      "adminArea": "Clave de entidad",
+      "municipality": "Clave de municipio",
+      "postalCode": "Código postal",
+      "validFrom": "Vigente desde",
+      "validTo": "Vigente hasta",
+      "linesHidden": "La calle y el número solo se muestran al revelar los datos personales.",
+      "added": "Se agregó el domicilio.",
+      "empty": "Sin domicilios."
+    },
+    "relationships": {
+      "add": "Agregar relación",
+      "to": "Identificador de la otra persona o empresa",
+      "typeLabel": "Relación",
+      "type": {
+        "SHAREHOLDER": "Accionista",
+        "DIRECTOR": "Consejero",
+        "LEGAL_REP": "Representante legal",
+        "ATTORNEY": "Apoderado",
+        "CONTROLLER": "Propietario real"
+      },
+      "ownership": "Participación (%)",
+      "controlBasis": "Fundamento del control",
+      "validFrom": "Vigente desde",
+      "validTo": "Vigente hasta",
+      "added": "Se agregó la relación.",
+      "from": "Con",
+      "directionLabel": "Sentido",
+      "direction": {
+        "outgoing": "Esta persona o empresa respecto de la otra",
+        "incoming": "La otra respecto de esta persona o empresa"
+      },
+      "empty": "Sin relaciones."
+    },
+    "documents": {
+      "title": "Documentos",
+      "upload": "Subir documento",
+      "uploading": "Subiendo…",
+      "typeLabel": "Tipo de documento",
+      "type": {
+        "IDENTITY": "Identificación",
+        "PROOF_OF_ADDRESS": "Comprobante de domicilio",
+        "CONSTITUTIVE_ACT": "Acta constitutiva",
+        "POWER_OF_ATTORNEY": "Poder notarial",
+        "TAX_CERTIFICATE": "Constancia de situación fiscal",
+        "OTHER": "Otro"
+      },
+      "file": "Archivo (PDF, JPEG o PNG, hasta 25 MB)",
+      "size": "Tamaño (bytes)",
+      "uploadedAt": "Subido",
+      "download": "Descargar",
+      "downloadNotice": "Cada descarga queda registrada en la auditoría.",
+      "uploaded": "Se subió el documento.",
+      "empty": "Sin documentos."
+    },
+    "customer": {
+      "title": "Relaciones de cliente",
+      "open": "Abrir relación",
+      "opening": "Abriendo…",
+      "opened": "Se abrió la relación de cliente.",
+      "externalRef": "Referencia externa",
+      "product": "Producto",
+      "tier": "Nivel de cuenta",
+      "statusLabel": "Estado",
+      "status": {
+        "PENDING": "Pendiente",
+        "ACTIVE": "Activa",
+        "RESTRICTED": "Restringida",
+        "BLOCKED": "Bloqueada",
+        "EXITED": "Terminada"
+      },
+      "startedAt": "Inicio",
+      "endedAt": "Fin",
+      "close": "Terminar relación",
+      "closing": "Terminando…",
+      "confirmClose": "Al terminar la relación empieza a contar el periodo de conservación de los datos de esta persona o empresa, según la política vigente.",
+      "closed": "Se terminó la relación de cliente.",
+      "empty": "Sin relaciones de cliente."
     }
   },
   "audit": {
