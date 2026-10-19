@@ -1,5 +1,6 @@
 import pytest
 
+from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.platform.connectors import NoRouteError
 from xolotl.platform.enums import ActorType, Role
 from xolotl.platform.errors import (
@@ -43,9 +44,14 @@ from xolotl.platform.units.errors import (
         (UnitSourceError, 503, "UNIT_SOURCE_UNAVAILABLE"),
         (UnverifiedValueError, 422, "UNVERIFIED_VALUE"),
         (NoRouteError, 409, "CONNECTOR_NO_ROUTE"),
+<<<<<<< HEAD
         (PackValidationError, 422, "PACK_INVALID"),
         (PackImmutableError, 409, "PACK_VERSION_IMMUTABLE"),
         (PolicyLooseningError, 409, "POLICY_LOOSENING"),
+=======
+        (IdentifierExistsError, 409, "IDENTIFIER_EXISTS"),
+        (IdentifierInvalidError, 422, "IDENTIFIER_INVALID"),
+>>>>>>> origin/main
     ],
 )
 def test_error_status_and_default_code(cls, status, code):

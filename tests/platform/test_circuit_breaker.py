@@ -112,3 +112,25 @@ def test_a_failure_while_open_does_not_extend_the_open_period(
     breaker.record_failure()
     fake.advance(10)
     assert breaker.state is CircuitState.HALF_OPEN
+
+
+def test_a_released_trial_lets_the_next_call_try(
+    breaker: CircuitBreaker, fake: FakeMonotonic
+):
+    _half_open(breaker, fake)
+    assert breaker.allow() is False
+    breaker.release()
+    assert breaker.state is CircuitState.HALF_OPEN
+    assert breaker.allow() is True
+
+
+def test_release_leaves_a_closed_or_open_breaker_alone(
+    breaker: CircuitBreaker, fake: FakeMonotonic
+):
+    breaker.release()
+    assert breaker.state is CircuitState.CLOSED
+    _half_open(breaker, fake)
+    breaker.record_failure()
+    breaker.release()
+    assert breaker.state is CircuitState.OPEN
+    assert breaker.allow() is False

@@ -3,8 +3,10 @@
 ``CLOSED`` turns ``OPEN`` after ``FAILURE_THRESHOLD`` failures within
 ``FAILURE_WINDOW_S`` seconds; ``OPEN`` turns ``HALF_OPEN`` ``OPEN_FOR_S`` seconds
 after it opened; ``HALF_OPEN`` admits one trial, whose success closes the breaker and
-whose failure reopens it for another ``OPEN_FOR_S`` seconds. The state lives in
-process memory and is computed from the clock on every read.
+whose failure reopens it for another ``OPEN_FOR_S`` seconds. A trial that ends
+without reporting either (a 4xx, a permanent error) is released, so the next call may
+try again. The state lives in process memory and is computed from the clock on every
+read.
 """
 
 import threading
@@ -63,6 +65,12 @@ class CircuitBreaker:
                 return False
             self._trial = True
             return True
+
+    def release(self) -> None:
+        """End a half-open trial that reported neither a success nor a failure."""
+        with self._lock:
+            if self._state() is CircuitState.HALF_OPEN:
+                self._trial = False
 
     def record_success(self) -> None:
         """Close the breaker, forget its failures and end any trial."""
