@@ -467,3 +467,8 @@ class OutboxEventBus:
             row.status = OutboxStatus.PUBLISHED
             row.published_at = self._clock_fn()
             row.locked_until = None
+
+
+# The kernel's way to publish, as a function: publishing needs only the caller's
+# session, so services call it like audit.record, with no bus instance to hand round.
+publish = OutboxEventBus.publish

@@ -1,5 +1,6 @@
 import base64
 import os
+import socket
 from pathlib import Path
 from typing import Any, cast
 
@@ -236,3 +237,76 @@ def test_env_example_is_a_valid_configuration():
     # The keys must be spelled right: Settings ignores names it does not know.
     assert {"master_key", "object_store", "object_store_root"} <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
+
+
+def test_worker_defaults():
+    s = make_settings()
+    assert s.worker_tick_seconds == pytest.approx(1.0)
+    assert s.worker_id == f"{socket.gethostname()}:{os.getpid()}"
+
+
+def test_worker_settings_are_read_from_the_environment(monkeypatch):
+    # Settings ignores names it does not know, so a misspelled field would
+    # silently keep its default; setting both through their env names proves them.
+    monkeypatch.setenv("XOLOTL_WORKER_TICK_SECONDS", "0.25")
+    monkeypatch.setenv("XOLOTL_WORKER_ID", "worker-7")
+    s = make_settings()
+    assert s.worker_tick_seconds == pytest.approx(0.25)
+    assert s.worker_id == "worker-7"
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "field"),
+    [
+        ("XOLOTL_WORKER_TICK_SECONDS", "-1", "worker_tick_seconds"),
+        ("XOLOTL_WORKER_TICK_SECONDS", "soon", "worker_tick_seconds"),
+        ("XOLOTL_WORKER_ID", "", "worker_id"),
+    ],
+)
+def test_worker_settings_reject_nonsense(monkeypatch, name, value, field):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError, match=field):
+        _ = make_settings()
+
+
+def test_a_zero_tick_is_allowed_for_tests_that_must_not_wait(monkeypatch):
+    monkeypatch.setenv("XOLOTL_WORKER_TICK_SECONDS", "0")
+    assert make_settings().worker_tick_seconds == 0
+
+
+def test_the_api_runs_the_embedded_worker_by_default():
+    assert make_settings().embedded_worker is True
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("false", False), ("0", False), ("true", True)]
+)
+def test_the_embedded_worker_is_read_from_the_environment(monkeypatch, value, expected):
+    monkeypatch.setenv("XOLOTL_EMBEDDED_WORKER", value)
+    assert make_settings().embedded_worker is expected
+
+
+def test_the_embedded_worker_setting_rejects_nonsense(monkeypatch):
+    monkeypatch.setenv("XOLOTL_EMBEDDED_WORKER", "sometimes")
+    with pytest.raises(ValidationError, match="embedded_worker"):
+        _ = make_settings()
+
+
+def _prod(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XOLOTL_ENV", "prod")
+    monkeypatch.setenv("XOLOTL_JWT_SECRET", "x" * 40)
+    monkeypatch.setenv("XOLOTL_MASTER_KEY", CUSTOM_MASTER_KEY)
+
+
+def test_prod_refuses_a_worker_that_never_pauses(monkeypatch):
+    # The loop runs inside the API process: no pause is a hot loop beside requests.
+    _prod(monkeypatch)
+    monkeypatch.setenv("XOLOTL_WORKER_TICK_SECONDS", "0")
+    with pytest.raises(ValidationError, match="WORKER_TICK_SECONDS"):
+        _ = make_settings()
+
+
+def test_prod_accepts_a_positive_tick(monkeypatch):
+    _prod(monkeypatch)
+    monkeypatch.setenv("XOLOTL_WORKER_TICK_SECONDS", "0.5")
+    assert make_settings().worker_tick_seconds == pytest.approx(0.5)

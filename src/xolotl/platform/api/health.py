@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Request
+from typing import cast
+
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from xolotl.platform.api.problems import problem
@@ -10,6 +12,14 @@ router = APIRouter(tags=["health"])
 @router.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+def _embedded_worker_stopped(request: Request) -> bool:
+    # AppState.embedded_worker_alive, read by name: AppState lives in app.py, which
+    # mounts this router, so even a typing-only import of it would be a cycle.
+    state = cast("object", cast("FastAPI", request.app).state.xolotl)
+    alive = cast("object", getattr(state, "embedded_worker_alive", None))
+    return callable(alive) and not alive()
 
 
 @router.get("/readyz")
@@ -28,5 +38,12 @@ def readyz(request: Request) -> JSONResponse:
     except Exception:  # ruff: ignore[blind-except]  # readiness must never raise
         return problem(
             request, status=503, code="NOT_READY", detail="database unreachable"
+        )
+    # An API whose embedded worker died still serves requests but runs no event,
+    # job or schedule (in one container it is the only loop): not ready, so the
+    # orchestrator restarts it.
+    if _embedded_worker_stopped(request):
+        return problem(
+            request, status=503, code="NOT_READY", detail="embedded worker stopped"
         )
     return JSONResponse({"status": "ok", "database": "ok"})

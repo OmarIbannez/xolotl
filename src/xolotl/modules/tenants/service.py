@@ -11,6 +11,11 @@ Two session shapes are used:
   rollback cannot erase it.
 * staff sessions: bound by ``get_session`` to the authenticated staff actor;
   ``actor_id`` is the ``staff_user.id``.
+
+Writes publish their kernel event (``tenant.created.v1``, ``staff.created.v1``,
+``api_key.created.v1``, ``api_key.revoked.v1``) in their own transaction, next to
+their audit event: keyed by the entity's id, with ids and codes as data and never
+personal data or secrets (program spec D8).
 """
 
 import hashlib
@@ -24,6 +29,7 @@ from datetime import datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -44,6 +50,7 @@ from xolotl.modules.tenants.schemas import (
     TotpEnrollResponse,
 )
 from xolotl.platform import clock
+from xolotl.platform.api.idempotency import PURGE_KIND
 from xolotl.platform.audit import AuditEvent, record
 from xolotl.platform.auth.actor import Actor
 from xolotl.platform.auth.passwords import (
@@ -80,9 +87,20 @@ from xolotl.platform.errors import (
     UnauthorizedError,
     ValidationFailedError,
 )
+from xolotl.platform.events import Event, publish
+from xolotl.platform.ids import uuid7
+from xolotl.platform.jobs.queue import PostgresJobQueue
 from xolotl.platform.tenancy.context import TenantContext, bind_context
+from xolotl.platform.tenancy.tenants import tenant_ids
+from xolotl.platform.workflows import SWEEP_KIND
 
 AUTH_ACTOR = "auth"
+SCHEDULES_ACTOR = "platform-schedules"
+EVENT_SOURCE = "xolotl.tenants"
+# The platform's own jobs that every tenant runs hourly, in UTC, from schedules made
+# when the tenant is created: the idempotency purge and the stranded-workflow sweep.
+TENANT_JOBS = (PURGE_KIND, SWEEP_KIND)
+HOURLY = "0 * * * *"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -155,6 +173,103 @@ def _ensure_tenant_active(tenant: Tenant) -> None:
     if tenant.status is not TenantStatus.ACTIVE:
         msg = "tenant is not active"
         raise ForbiddenError(msg, code="TENANT_SUSPENDED")
+
+
+# --- kernel events and platform schedules --------------------------------------
+
+
+def _publish(
+    s: Session,
+    event_type: str,
+    *,
+    entity: str,
+    entity_id: UUID | str,
+    data: dict[str, JsonValue],
+) -> Event:
+    """Publish a kernel event about one entity in the caller's transaction.
+
+    Keyed by the entity's id, so each consumer gets one entity's events in order;
+    the subject names the entity. Inside an HTTP request the request id becomes the
+    correlation id.
+
+    Returns:
+        The event as published.
+
+    """
+    ctx = bound_context(s)
+    event = Event(
+        id=uuid7(),
+        type=event_type,
+        source=EVENT_SOURCE,
+        tenant_id=ctx.require_tenant_id(),
+        subject=f"{entity}/{entity_id}",
+        time=clock.now(),
+        key=str(entity_id),
+        correlation_id=ctx.request_id or None,
+        data=data,
+    )
+    publish(s, event)
+    return event
+
+
+def _publish_staff_created(s: Session, user: StaffUser) -> None:
+    _ = _publish(
+        s,
+        "staff.created.v1",
+        entity="staff_user",
+        entity_id=user.id,
+        data={"staff_user_id": str(user.id), "roles": list(user.roles)},
+    )
+
+
+def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
+    """Declare the platform's hourly jobs for the session's tenant.
+
+    Each schedule is named after the job it runs. ``schedule`` is an upsert on the
+    tenant and the name that keeps the next slot of an unchanged schedule, so
+    declaring them again never postpones nor duplicates them.
+    """
+    for kind in TENANT_JOBS:
+        _ = queue.schedule(s, name=kind, cron=HOURLY, tz="UTC", kind=kind, payload={})
+
+
+def ensure_platform_schedules(
+    session_factory: SessionFactory, queue: PostgresJobQueue
+) -> int:
+    """Declare the platform's hourly jobs for every tenant, each in its own session.
+
+    Tenant creation declares them; this reaches the tenants created before a
+    schedule existed, and does nothing to the others (see
+    ``schedule_platform_jobs``). A worker loop runs it as it starts.
+
+    Returns:
+        How many tenants were covered.
+
+    """
+    covered = tenant_ids(session_factory, actor_id=SCHEDULES_ACTOR)
+    for tenant_id in covered:
+        with tenant_session(
+            TenantContext.system(tenant_id, SCHEDULES_ACTOR), factory=session_factory
+        ) as s:
+            schedule_platform_jobs(s, queue)
+    return len(covered)
+
+
+def ping(s: Session) -> datetime:
+    """Publish ``test.ping.v1`` for the session's actor, keyed by the actor's id.
+
+    Returns:
+        The event's time, which ``POST /v1/ping`` reports.
+
+    """
+    ctx = bound_context(s)
+    return _publish(
+        s,
+        "test.ping.v1",
+        entity="actor",
+        entity_id=ctx.actor_id,
+        data={"actor_id": ctx.actor_id, "actor_type": ctx.actor_type.value},
+    ).time
 
 
 # --- tenants -------------------------------------------------------------------
@@ -280,6 +395,15 @@ def create_tenant(
                 detail={"roles": ["ADMIN"]},
             ),
         )
+        _ = _publish(
+            s,
+            "tenant.created.v1",
+            entity="tenant",
+            entity_id=tenant.id,
+            data={"tenant_id": str(tenant.id), "slug": slug, "env": env.value},
+        )
+        _publish_staff_created(s, admin)
+        schedule_platform_jobs(s, PostgresJobQueue(session_factory))
         return CreatedTenant(tenant.id, slug, admin.id, email, password)
 
 
@@ -617,6 +741,7 @@ def create_staff(
             detail={"roles": list(user.roles)},
         ),
     )
+    _publish_staff_created(s, user)
     return StaffCreatedResponse(
         id=user.id,
         email=user.email,
@@ -698,6 +823,13 @@ def create_api_key(
             detail={"name": row.name, "scopes": list(cleaned), "env": key_env.value},
         ),
     )
+    _ = _publish(
+        s,
+        "api_key.created.v1",
+        entity="api_key",
+        entity_id=row.id,
+        data={"api_key_id": str(row.id), "scopes": list(cleaned), "env": key_env.value},
+    )
     return ApiKeyCreatedResponse(
         id=row.id,
         name=row.name,
@@ -720,6 +852,13 @@ def revoke_api_key(s: Session, api_key_id: UUID) -> ApiKeyResponse:
             AuditEvent(
                 action="api_key.revoked", entity_type="api_key", entity_id=str(row.id)
             ),
+        )
+        _ = _publish(
+            s,
+            "api_key.revoked.v1",
+            entity="api_key",
+            entity_id=row.id,
+            data={"api_key_id": str(row.id)},
         )
         s.flush()
     return ApiKeyResponse.model_validate(row)
