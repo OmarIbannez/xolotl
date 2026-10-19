@@ -1,18 +1,21 @@
 """Request and response bodies for the tenants module."""
 
 from datetime import datetime
-from typing import ClassVar, Literal
+from typing import Annotated, ClassVar, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 
 from xolotl.platform.enums import (
     ApiKeyStatus,
+    DeliveryStatus,
+    EndpointStatus,
     Role,
     StaffStatus,
     TenantEnv,
     TenantStatus,
 )
+from xolotl.platform.events.url_policy import MAX_URL_LENGTH
 
 
 class LoginRequest(BaseModel):
@@ -151,3 +154,49 @@ class NotificationResponse(BaseModel):
     recipient_role: Role | None
     created_at: datetime
     read_at: datetime | None
+
+
+# One event type, such as ``party.created.v1``, or ``*`` for all of them.
+EventTypeName = Annotated[
+    str, StringConstraints(pattern=r"^(\*|[a-z][a-z0-9_.-]*)$", max_length=100)
+]
+
+
+class WebhookEndpointCreateRequest(BaseModel):
+    url: str = Field(min_length=1, max_length=MAX_URL_LENGTH)
+    event_types: list[EventTypeName] = Field(min_length=1, max_length=50)
+
+
+class WebhookEndpointResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
+
+    id: UUID
+    url: str
+    event_types: list[str]
+    status: EndpointStatus
+    created_at: datetime
+
+
+class WebhookEndpointCreatedResponse(WebhookEndpointResponse):
+    # Shown once, here, and never again; repr=False keeps it out of any printed model.
+    secret: str = Field(repr=False)
+
+
+class WebhookSecretResponse(BaseModel):
+    id: UUID
+    secret: str = Field(repr=False)  # shown once, like the one a new endpoint gets
+
+
+class WebhookDeliveryResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
+
+    id: UUID
+    endpoint_id: UUID
+    event_id: UUID
+    attempt: int
+    status: DeliveryStatus
+    response_code: int | None
+    last_error: str | None
+    next_attempt_at: datetime | None
+    delivered_at: datetime | None
+    created_at: datetime

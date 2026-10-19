@@ -31,15 +31,16 @@ MISMATCH = (
 
 @contextmanager
 def another_master_key(monkeypatch: pytest.MonkeyPatch) -> Generator[None]:
-    # The environment of a new process; settings are read once per process.
-    monkeypatch.setenv("XOLOTL_MASTER_KEY", OTHER_MASTER_KEY)
-    get_settings.cache_clear()
-    set_key_provider(None)  # nothing has installed a provider yet
+    # The environment of a new process; settings are read once per process. Only this
+    # setenv is undone on the way out, not whatever else the test patched.
     try:
-        yield
+        with monkeypatch.context() as patch:
+            patch.setenv("XOLOTL_MASTER_KEY", OTHER_MASTER_KEY)
+            get_settings.cache_clear()
+            set_key_provider(None)  # nothing has installed a provider yet
+            yield
     finally:
-        monkeypatch.undo()
-        get_settings.cache_clear()
+        get_settings.cache_clear()  # the environment is back, so read it again
         set_key_provider(None)
 
 

@@ -5,7 +5,9 @@ from types import SimpleNamespace
 from typing import override
 from uuid import uuid4
 
+import httpx
 import pytest
+import respx
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Engine, create_engine, select, text
@@ -280,6 +282,27 @@ def test_database_errors_are_scrubbed_whichever_logger_emits_them(
     assert line["logger"] == "uvicorn.error"
     assert line["msg"] == "Exception in ASGI application"
     assert line["exc_info"].startswith(head)
+    assert "frames:" in line["exc_info"]
+    assert "_raise" in line["exc_info"]
+
+
+def test_a_session_error_that_quotes_the_database_message_is_scrubbed_from_the_log(
+    served_logging,
+):
+    # After a failed flush the session refuses further work and quotes the original
+    # error, row values included, in its own message. It is not a driver error and no
+    # driver error is in its chain, but it is a SQLAlchemy error all the same.
+    original = f"(psycopg.errors.UniqueViolation) {DRIVER_MESSAGE}"
+    refusal = "This Session's transaction has been rolled back"
+    try:
+        _raise(PendingRollbackError(f"{refusal}. Original exception was: {original}"))
+    except PendingRollbackError:
+        logging.getLogger("uvicorn.error").exception("Exception in ASGI application")
+    text = served_logging.getvalue()
+    assert "a@b.mx" not in text
+    assert "duplicate key" not in text
+    (line,) = [json.loads(row) for row in text.splitlines()]
+    assert line["exc_info"].startswith("PendingRollbackError")
     assert "frames:" in line["exc_info"]
     assert "_raise" in line["exc_info"]
 
@@ -634,10 +657,14 @@ def test_a_master_key_in_extra_fields_or_nested_mappings_is_masked():
 ENGINE_LOGGER = "sqlalchemy.engine"
 
 
+OUTBOUND_LOGGERS = ("httpx", "httpcore")
+
+
 @pytest.fixture
 def untouched_logging():
     # configure_logging replaces the root handlers and sets levels process-wide.
-    loggers = [logging.getLogger(name) for name in ("", "sqlalchemy", ENGINE_LOGGER)]
+    names = ("", "sqlalchemy", ENGINE_LOGGER, *OUTBOUND_LOGGERS)
+    loggers = [logging.getLogger(name) for name in names]
     handlers, levels = list(loggers[0].handlers), [logger.level for logger in loggers]
     yield
     loggers[0].handlers[:] = handlers
@@ -815,3 +842,75 @@ def test_an_encrypted_value_is_masked_even_where_it_is_the_whole_message():
     logger, stream = _capture()
     logger.info(_encrypted())
     assert _last_line(stream)["msg"] == "Encrypted(***)"
+
+
+# ---- the HTTP client's own logging -----------------------------------------------
+
+# httpx logs every request it makes, method and full URL, at INFO. The URL of a
+# webhook (or of any other service we call) often carries a token in its path or query,
+# and the redaction filter cannot see inside a message.
+
+
+@pytest.mark.parametrize("name", OUTBOUND_LOGGERS)
+@pytest.mark.parametrize(
+    ("own", "configured", "effective"),
+    [
+        # Lowered by someone, or following a root that is: capped at WARNING.
+        (logging.DEBUG, "DEBUG", logging.WARNING),
+        (logging.INFO, "INFO", logging.WARNING),
+        (logging.NOTSET, "DEBUG", logging.WARNING),
+        (logging.NOTSET, "INFO", logging.WARNING),
+        # Nothing quieter is raised.
+        (logging.WARNING, "DEBUG", logging.WARNING),
+        (logging.ERROR, "DEBUG", logging.ERROR),
+    ],
+)
+def test_the_http_clients_are_never_more_verbose_than_warning(
+    untouched_logging, name, own, configured, effective
+):
+    logging.getLogger().setLevel(logging.DEBUG)
+    logging.getLogger(name).setLevel(own)
+    configure_logging(configured)
+    assert logging.getLogger(name).getEffectiveLevel() == effective
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["httpx", "httpcore", "httpcore.connection", "httpcore.http11", "httpcore.proxy"],
+)
+def test_the_filter_drops_http_client_records_below_warning(name):
+    assert not RedactionFilter().filter(_record(name, logging.DEBUG))
+    assert not RedactionFilter().filter(_record(name, logging.INFO))
+    assert RedactionFilter().filter(_record(name, logging.WARNING))
+    assert RedactionFilter().filter(_record(name, logging.ERROR))
+
+
+@pytest.mark.parametrize(
+    "name", ["httpxy", "httpx2", "httpcorex", "xolotl.httpx", "xolotl.platform"]
+)
+def test_the_filter_leaves_look_alike_loggers_alone(name):
+    assert RedactionFilter().filter(_record(name, logging.INFO))
+
+
+def test_a_url_with_a_token_never_reaches_our_handler(untouched_logging):
+    configure_logging("DEBUG")
+    stream = _our_handler_stream()
+    emitted = _Collect()  # no filter: it sees what the client really emitted
+    logging.getLogger().addHandler(emitted)
+    url = "https://hooks.example.com/services/tok_s3cr3t?key=k_s3cr3t"
+
+    def post() -> None:
+        with respx.mock() as router:
+            _ = router.post(url).mock(return_value=httpx.Response(200))
+            _ = httpx.post(url, content=b"{}")
+
+    post()  # the logger's own cap keeps the client quiet
+    assert not any("tok_s3cr3t" in message for message in emitted.messages)
+
+    # A later setLevel, as a debugging recipe does, defeats the cap on the logger.
+    for name in OUTBOUND_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG)
+    post()
+    assert any("tok_s3cr3t" in message for message in emitted.messages)  # emitted ...
+    assert "tok_s3cr3t" not in stream.getvalue()  # ... and dropped before our handler
+    assert "k_s3cr3t" not in stream.getvalue()

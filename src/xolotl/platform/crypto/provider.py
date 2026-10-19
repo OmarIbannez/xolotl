@@ -21,15 +21,19 @@ The master key's reference. Every row records which key-encryption key wrapped i
 fixed label under the master key (``kek_ref_for``). The reference is not secret and
 cannot be turned back into the key. A read compares the row's reference with this
 provider's before it unwraps anything, and a write (a new version, or a purpose that
-had no key) compares it with the tenant's live keys before it writes anything, so a
-process started with another ``XOLOTL_MASTER_KEY`` gets ``KekMismatchError`` instead
-of leaving a version nobody else can read. A tenant that has no live key yet takes
-the reference of whoever writes first. A write needs only one live key of the tenant
-to carry this provider's reference, which is how a chain broken by an earlier mistake
-is mended by rotating under the right master key. ``destroy`` needs no key at all and
-is not checked. Rows written before references carried a fingerprint hold the bare
-scheme, ``local:v1``: a read takes the authenticated unwrap as their check, and a
-write proves a master key by unwrapping one of them.
+had no key) compares it with the tenant's current keys, those neither retired nor
+destroyed, before it writes anything, so a process started with another
+``XOLOTL_MASTER_KEY`` gets ``KekMismatchError`` instead of leaving a version nobody
+else can read. A tenant that has no current key yet takes the reference of whoever
+writes first. A write needs only one current key of the tenant to carry this
+provider's reference, which is how a chain broken by an earlier mistake is mended by
+rotating under the right master key (the INDEX key is never rotated, so the tenant's
+own reference stays current). A retired row counts for nothing: a stale one under
+another master key, left by a chain that was mended since, must not let that key write
+again. ``destroy`` needs no key at all and is not checked. Rows written before
+references carried a fingerprint hold the bare scheme, ``local:v1``: a read takes the
+authenticated unwrap as their check, and a write proves a master key by unwrapping one
+of them.
 
 Cache. Unwrapped DEKs stay in memory for ``cache_ttl``, measured on a monotonic clock
 so that a step of the wall clock cannot stretch it, keyed by tenant, purpose and
@@ -121,8 +125,8 @@ def kek_ref_for(kek: bytes) -> str:
 # Rows of (version, wrapped_dek, kek_ref, retired_at, destroyed_at), newest version
 # first.
 type KeyRows = Sequence[Row[int, bytes | None, str, datetime | None, datetime | None]]
-# The live keys of a tenant, as (purpose, version, wrapped_dek, kek_ref).
-type LiveKeys = Sequence[Row[KeyPurpose, int, bytes | None, str]]
+# The current keys of a tenant, as (purpose, version, wrapped_dek, kek_ref).
+type CurrentKeys = Sequence[Row[KeyPurpose, int, bytes | None, str]]
 
 # A key row is destroyed when its key is gone or it is marked so (fail closed).
 _DESTROYED = or_(TenantKey.wrapped_dek.is_(None), TenantKey.destroyed_at.is_not(None))
@@ -602,31 +606,38 @@ class LocalKeyProvider(KeyProvider):
         return found.version, dek
 
     def _require_this_kek(self, session: Session, tenant_id: UUID) -> None:
-        """Refuse to add a key to a tenant whose live keys are not this provider's.
+        """Refuse to add a key to a tenant whose current keys are not this provider's.
 
-        Call it with the tenant's rows locked and before writing anything. A tenant
-        with no live key takes the reference of whoever writes first. Otherwise one
-        live key has to carry this provider's reference, or be one of the unlabelled
-        rows from before references carried a fingerprint and open under this
-        provider's key. Requiring one such key, not all of them and not the newest,
-        is what lets a rotation under the right master key mend a chain whose newest
-        version was written under a wrong one.
+        Call it with the tenant's rows locked and before writing anything. Only
+        current keys count, those that are neither retired nor destroyed: a retired row
+        is history, and a stale one under another master key must not let that key in
+        again. A tenant with no current key takes the reference of whoever writes
+        first. Otherwise one current key has to carry this provider's reference, or be
+        one of the unlabelled rows from before references carried a fingerprint and
+        open under this provider's key. Requiring one such key, not all of them and not
+        the newest, is what lets a rotation under the right master key mend a chain
+        whose newest version was written under a wrong one: the INDEX key is never
+        rotated, so the tenant's own reference is always among the current keys.
 
         Raises:
-            KekMismatchError: When no live key of the tenant is this provider's.
+            KekMismatchError: When no current key of the tenant is this provider's.
 
         """
-        live: LiveKeys = session.execute(
+        current: CurrentKeys = session.execute(
             select(
                 TenantKey.purpose,
                 TenantKey.version,
                 TenantKey.wrapped_dek,
                 TenantKey.kek_ref,
-            ).where(TenantKey.tenant_id == tenant_id, ~_DESTROYED)
+            ).where(
+                TenantKey.tenant_id == tenant_id,
+                TenantKey.retired_at.is_(None),
+                ~_DESTROYED,
+            )
         ).all()
-        if not live or any(ref == self._kek_ref for _, _, _, ref in live):
+        if not current or any(ref == self._kek_ref for _, _, _, ref in current):
             return
-        for purpose, version, wrapped, ref in live:
+        for purpose, version, wrapped, ref in current:
             if ref == KEK_SCHEME and wrapped is not None:
                 try:
                     _ = unwrap_dek(

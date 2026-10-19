@@ -37,10 +37,13 @@ dev = [
     "import-linter>=2.3",
     "pytest>=9.0",
     "pytest-cov>=7.0",
+    "pyyaml>=6.0.3",
+    "respx>=0.23.1",
     "ruff>=0.15",
     "testcontainers[postgres]>=4.13",
     "ty>=0.0.15",
     "types-croniter>=6.2.4.20261006",
+    "types-pyyaml>=6.0.12.20260906",
     "vulture>=2.14",
 ]
 

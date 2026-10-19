@@ -192,7 +192,8 @@ class Encrypted[T]:
             The decrypted value.
 
         Raises:
-            DecryptionError: When the value does not authenticate, or is not text.
+            DecryptionError: When the value does not authenticate, or is not what
+                its column holds (text, a JSON object).
 
         """
         # No local holds the key, and the plaintext is gone before this can raise: a

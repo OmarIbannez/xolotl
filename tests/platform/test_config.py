@@ -1,13 +1,16 @@
 import base64
 import os
 import socket
+import traceback
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import make_url
 
 from xolotl.platform.config import (
+    APP_ROLE,
     DEV_JWT_SECRET,
     DEV_MASTER_KEY,
     Settings,
@@ -311,3 +314,133 @@ def test_prod_accepts_a_positive_tick(monkeypatch):
     _prod(monkeypatch)
     monkeypatch.setenv("XOLOTL_WORKER_TICK_SECONDS", "0.5")
     assert make_settings().worker_tick_seconds == pytest.approx(0.5)
+
+
+def test_the_webhook_timeout_defaults_to_five_seconds():
+    assert make_settings().webhook_timeout_seconds == 5
+
+
+def test_the_webhook_timeout_is_read_from_the_environment(monkeypatch):
+    # Settings ignores names it does not know, so setting the variable and seeing
+    # the value change proves the field reads XOLOTL_WEBHOOK_TIMEOUT_SECONDS.
+    monkeypatch.setenv("XOLOTL_WEBHOOK_TIMEOUT_SECONDS", "12")
+    assert make_settings().webhook_timeout_seconds == 12
+
+
+# Zero would read as "no time at all" to the HTTP client, and more than a minute
+# would hold a delivery's database lock for longer than a job's lease.
+@pytest.mark.parametrize("value", ["0", "-3", "61", "soon", "2.5"])
+def test_the_webhook_timeout_rejects_nonsense(monkeypatch, value):
+    monkeypatch.setenv("XOLOTL_WEBHOOK_TIMEOUT_SECONDS", value)
+    with pytest.raises(ValidationError, match="webhook_timeout_seconds"):
+        _ = make_settings()
+
+
+# --- Database URLs as a host hands them out (Render) ---------------------------------
+# Render's connectionString is postgresql://..., Heroku's postgres://...: libpq URLs,
+# which SQLAlchemy would read as the psycopg2 driver or not at all.
+OWNER_URL = "postgres://xolotl:owner-pw-77@dpg-d1abc-a:5432/xolotl"
+# What Render's generateValue makes: base64 of 32 random bytes, "+", "/" and "=" too.
+APP_DB_PASSWORD = "B0jrphAPOY7pg92AN0c9MN4ye+czLMdwnx4OkA1/FUk="
+
+
+@pytest.mark.parametrize("name", ["XOLOTL_DATABASE_URL", "XOLOTL_DATABASE_ADMIN_URL"])
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
+def test_libpq_urls_get_the_psycopg_driver(monkeypatch, name, scheme):
+    monkeypatch.setenv(name, f"{scheme}://u:p@db.internal:5432/x?sslmode=require")
+    s = make_settings()
+    assert getattr(s, name.removeprefix("XOLOTL_").lower()) == (
+        "postgresql+psycopg://u:p@db.internal:5432/x?sslmode=require"
+    )
+
+
+def test_a_url_that_names_its_driver_is_kept(monkeypatch):
+    url = "postgresql+psycopg://xolotl_app:pw@db:5432/x"
+    monkeypatch.setenv("XOLOTL_DATABASE_URL", url)
+    assert make_settings().database_url == url
+
+
+def test_the_app_url_is_the_admin_url_signing_in_as_the_app_role(monkeypatch):
+    monkeypatch.setenv("XOLOTL_DATABASE_ADMIN_URL", OWNER_URL)
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
+    s = make_settings()
+    app, admin = make_url(s.database_url), make_url(s.database_admin_url)
+    assert (app.drivername, app.username, app.password) == (
+        "postgresql+psycopg",
+        APP_ROLE,
+        APP_DB_PASSWORD,
+    )
+    assert (app.host, app.port, app.database) == ("dpg-d1abc-a", 5432, "xolotl")
+    assert (admin.drivername, admin.username, admin.password) == (
+        "postgresql+psycopg",
+        "xolotl",
+        "owner-pw-77",
+    )
+
+
+def test_the_derived_url_keeps_the_admin_urls_host_options_and_missing_port(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "XOLOTL_DATABASE_ADMIN_URL",
+        "postgresql://xolotl:pw@dpg-d1abc-a/xolotl?sslmode=require",
+    )
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", "app-pw")
+    app = make_url(make_settings().database_url)
+    assert (app.host, app.port, app.database) == ("dpg-d1abc-a", None, "xolotl")
+    assert dict(app.query) == {"sslmode": "require"}
+
+
+def test_an_explicit_app_url_wins_over_the_app_password(monkeypatch):
+    monkeypatch.setenv(
+        "XOLOTL_DATABASE_URL", "postgres://xolotl_app:explicit@db:5432/x"
+    )
+    monkeypatch.setenv("XOLOTL_DATABASE_ADMIN_URL", OWNER_URL)
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
+    s = make_settings()
+    assert s.database_url == "postgresql+psycopg://xolotl_app:explicit@db:5432/x"
+
+
+def test_the_app_password_without_an_admin_url_changes_nothing(monkeypatch):
+    # Derived from a configured admin URL only, never from the local default.
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
+    s = make_settings()
+    assert s.database_url == Settings.model_fields["database_url"].default
+    assert APP_DB_PASSWORD not in s.database_url
+
+
+def test_repr_hides_the_app_password_and_the_derived_url(monkeypatch):
+    monkeypatch.setenv("XOLOTL_DATABASE_ADMIN_URL", OWNER_URL)
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
+    s = make_settings()
+    for shown in (repr(s), str(s)):
+        for hidden in (APP_DB_PASSWORD, "owner-pw-77", "dpg-d1abc-a", "database_url"):
+            assert hidden not in shown
+        assert "app_db_password=SecretStr('**********')" in shown
+
+
+@pytest.mark.parametrize(
+    "admin_url",
+    [
+        "not a database url, owner-pw-77",
+        "postgresql://xolotl:owner-pw-77@db:port/xolotl",
+    ],
+    ids=["unparsable", "port-not-a-number"],
+)
+def test_an_admin_url_that_does_not_parse_fails_without_echoing_it(
+    monkeypatch, admin_url
+):
+    monkeypatch.setenv("XOLOTL_DATABASE_ADMIN_URL", admin_url)
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", APP_DB_PASSWORD)
+    with pytest.raises(ValidationError, match="XOLOTL_DATABASE_ADMIN_URL") as excinfo:
+        _ = make_settings()
+    shown = "".join(traceback.format_exception(excinfo.value))
+    assert "owner-pw-77" not in shown
+    assert APP_DB_PASSWORD[:8] not in shown
+
+
+def test_an_empty_app_password_is_refused(monkeypatch):
+    monkeypatch.setenv("XOLOTL_DATABASE_ADMIN_URL", OWNER_URL)
+    monkeypatch.setenv("XOLOTL_APP_DB_PASSWORD", "")
+    with pytest.raises(ValidationError, match="app_db_password"):
+        _ = make_settings()

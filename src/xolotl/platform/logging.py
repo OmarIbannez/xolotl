@@ -11,18 +11,20 @@ so it needs no registration. An object whose class sets ``log_opaque = True``
 (``Encrypted``) is masked whole, wherever it appears.
 
 A record whose exception is, or has anywhere in its cause or context chain, a
-database error (SQLAlchemy ``DBAPIError`` or ``psycopg.Error``) loses its messages:
+database error (any SQLAlchemy error, or ``psycopg.Error``) loses its messages:
 the driver text, the statement and its parameters carry row values (``DETAIL: Key
-(email)=(...)``), and an outer message may embed them. The filter replaces the
-exception with the chain rendered innermost first, each link as its class and its
-traceback frames, never ``str(exc)``; a database link also gets the driver class,
-SQLSTATE and primary message (dropped for SQLSTATE class 22, whose data exceptions
-echo the offending literal). The formatter emits that text as ``exc_info``. Other
-exceptions keep their full traceback. This holds for every logger that reaches the
-handler. uvicorn logs the exception Starlette re-raises on its own ``uvicorn.error``
-logger, whose default configuration has a handler of its own and never reaches ours,
-so ``xolotl serve`` runs uvicorn with ``log_config=None``: its loggers then
-propagate to the root handler.
+(email)=(...)``), and an outer message may embed them. That includes a SQLAlchemy
+error that is not the driver's, such as the ``PendingRollbackError`` a session raises
+after a failed flush, which quotes the original error in its own message and has none
+in its chain. The filter replaces the exception with the chain rendered innermost
+first, each link as its class and its traceback frames, never ``str(exc)``; a driver
+error link also gets the driver class, SQLSTATE and primary message (dropped for
+SQLSTATE class 22, whose data exceptions echo the offending literal). The formatter
+emits that text as ``exc_info``. Other exceptions keep their full traceback. This
+holds for every logger that reaches the handler. uvicorn logs the exception Starlette
+re-raises on its own ``uvicorn.error`` logger, whose default configuration has a
+handler of its own and never reaches ours, so ``xolotl serve`` runs uvicorn with
+``log_config=None``: its loggers then propagate to the root handler.
 
 Text that is stored instead of logged never meets the filter. ``job.last_error`` is
 the example: it is a plain column that outlives the log line and sits outside the
@@ -46,6 +48,12 @@ of it below INFO, so the rows stay out of the handler even when the logger is li
 again later (a ``setLevel(DEBUG)``) or an engine is created with ``echo="debug"``.
 What it cannot reach is the stream handler SQLAlchemy attaches itself to the engine
 logger for an ``echo`` engine: the application creates none.
+
+The HTTP client is treated the same way. ``httpx`` logs each request it makes, method
+and full URL, at INFO, and ``httpcore`` logs hosts and connection steps at DEBUG. The
+URL of a webhook, like that of any service we call, often carries a token in its path
+or query, and a message is beyond the redaction filter. ``configure_logging`` therefore
+holds both loggers at WARNING, and the filter drops their records below WARNING.
 """
 
 import json
@@ -86,6 +94,8 @@ SENSITIVE_KEYS = frozenset({
 })
 REDACTED = "***"
 ENGINE_LOGGER = "sqlalchemy.engine"
+# The HTTP client's loggers: they log the URL of every request (see the module doc).
+OUTBOUND_HTTP_LOGGERS = ("httpx", "httpcore")
 _PII_FIELDS: set[str] = set()
 _STANDARD_ATTRS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", None, None))) | {
     "message",
@@ -231,7 +241,7 @@ def _scrub_database_error(record: logging.LogRecord) -> None:
     if error is None:
         return
     chain = _exception_chain(error)
-    if any(isinstance(link, DBAPIError | psycopg.Error) for link, _ in chain):
+    if any(isinstance(link, SQLAlchemyError | psycopg.Error) for link, _ in chain):
         record.exc_text = _chain_text(chain, exc_info[2])
         record.exc_info = None  # the formatter must not print the original
 
@@ -322,10 +332,18 @@ def _is_engine_row_log(record: logging.LogRecord) -> bool:
     return in_engine_tree and record.levelno < logging.INFO
 
 
+def _is_http_client_log(record: logging.LogRecord) -> bool:
+    in_client_tree = any(
+        record.name == name or record.name.startswith(f"{name}.")
+        for name in OUTBOUND_HTTP_LOGGERS
+    )
+    return in_client_tree and record.levelno < logging.WARNING
+
+
 class RedactionFilter(logging.Filter):
     @override
     def filter(self, record: logging.LogRecord) -> bool:
-        if _is_engine_row_log(record):
+        if _is_engine_row_log(record) or _is_http_client_log(record):
             return False
         message = cast("object", record.msg)
         if isinstance(message, Mapping | BaseModel):
@@ -379,5 +397,9 @@ def configure_logging(level: str = "INFO") -> None:
     engine_logger = logging.getLogger(ENGINE_LOGGER)
     if engine_logger.getEffectiveLevel() < logging.INFO:
         engine_logger.setLevel(logging.INFO)
+    for name in OUTBOUND_HTTP_LOGGERS:
+        client_logger = logging.getLogger(name)
+        if client_logger.getEffectiveLevel() < logging.WARNING:
+            client_logger.setLevel(logging.WARNING)
     # uvicorn's access log duplicates the request line emitted by RequestIdMiddleware.
     logging.getLogger("uvicorn.access").disabled = True

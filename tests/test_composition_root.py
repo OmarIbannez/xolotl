@@ -1,18 +1,20 @@
 """The composition root installs the key provider that the configuration names.
 
 ``xolotl.app`` is where adapters meet ports: the object store is picked there, and so
-is the key provider. The application and the command line both go through it.
+is the key provider. The application, the standalone worker and the command line all
+go through it.
 """
 
 import base64
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from tests.helpers import data_key_of, make_tenant
-from xolotl.app import build_app, build_key_provider
+from xolotl.app import build_app, build_key_provider, build_worker
 from xolotl.platform.config import Settings
 from xolotl.platform.crypto.provider import LocalKeyProvider, get_key_provider
 from xolotl.platform.db import get_sessionmaker
@@ -46,6 +48,37 @@ def test_build_app_installs_the_provider_and_serving_installs_no_other(
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
     assert get_key_provider() is installed  # serving does not install another
+
+
+def test_build_worker_installs_the_provider_a_process_without_an_app_needs(
+    engine: Engine, admin_engine: Engine, no_key_provider: None
+):
+    # `xolotl worker` builds no app, so build_app never runs there; what it opens
+    # (the secrets its webhook deliveries sign with) needs a provider all the same.
+    with pytest.raises(RuntimeError):
+        _ = get_key_provider()
+    _ = build_worker()
+    installed = get_key_provider()
+    assert isinstance(installed, LocalKeyProvider)
+    tenant_id = make_tenant("alpha")
+    installed.create_tenant_keys(tenant_id)
+    _, dek = installed.data_key(tenant_id, KeyPurpose.DATA)
+    assert data_key_of(admin_engine, tenant_id) == dek  # the configured master key
+
+
+def test_build_worker_reads_keys_through_the_session_factory_it_is_given(
+    engine: Engine, no_key_provider: None
+):
+    opened: list[Session] = []
+
+    def factory() -> Session:
+        opened.append(get_sessionmaker()())
+        return opened[-1]
+
+    _ = build_worker(session_factory=factory)
+    tenant_id = make_tenant("alpha")
+    get_key_provider().create_tenant_keys(tenant_id)
+    assert len(opened) == 1  # the provider's own short session came from the factory
 
 
 def test_the_provider_reads_keys_through_the_session_factory_the_app_serves_with(

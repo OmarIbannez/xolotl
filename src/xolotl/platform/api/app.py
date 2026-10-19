@@ -36,6 +36,25 @@ def app_state(request: Request) -> AppState:
     return cast("AppState", app.state.xolotl)
 
 
+def app_services(request: Request) -> PlatformServices:
+    """Give a route the platform services its application was composed with.
+
+    Returns:
+        The bus, queue, workflow runner and notifier of the process.
+
+    Raises:
+        RuntimeError: When the application was built without them (a bare
+            ``create_app``, as some tests do): a route that needs them cannot work
+            there, and it is the composition that is wrong.
+
+    """
+    services = app_state(request).services
+    if services is None:
+        msg = "the application was built without platform services"
+        raise RuntimeError(msg)
+    return services
+
+
 def _operation_id(route: APIRoute) -> str:
     return route.name
 

@@ -1280,6 +1280,18 @@ wheels = [
 ]
 
 [[package]]
+name = "respx"
+version = "0.23.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/98/4e55c9c486404ec12373708d015ebce157966965a5ebe7f28ff2c784d41b/respx-0.23.1.tar.gz", hash = "sha256:242dcc6ce6b5b9bf621f5870c82a63997e8e82bc7c947f9ffe272b8f3dd5a780", size = 29243, upload-time = "2026-04-08T14:37:16.008Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/4a/221da6ca167db45693d8d26c7dc79ccfc978a440251bf6721c9aaf251ac0/respx-0.23.1-py2.py3-none-any.whl", hash = "sha256:b18004b029935384bccfa6d7d9d74b4ec9af73a081cc28600fffc0447f4b8c1a", size = 25557, upload-time = "2026-04-08T14:37:14.613Z" },
+]
+
+[[package]]
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1481,6 +1493,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7c/3d/ce852f015fd6ae2babd67b8e5a7c8dedb52f1cd717b6cac6da3483e82f89/types_croniter-6.2.4.20261006.tar.gz", hash = "sha256:7c2bccf800beed6f52ec89f5f8f23b2c0b0cd9c941f059c2a7405de0e62fb54b", size = 12368, upload-time = "2026-10-06T08:15:24.32Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e6/d0/98d0e4fb118717b308ddfad8ca18ba1cc2419439a224dc49a89a46067eea/types_croniter-6.2.4.20261006-py3-none-any.whl", hash = "sha256:1aff83e76866cd01abbe3bb3b18b27f038d65a097b5995bdcc11a658d972cfa0", size = 9787, upload-time = "2026-10-06T08:15:23.47Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260906"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/6e/abec85b9013db5b934b0280a6dd104904d84f7bcbaab2e2f3def87ac7463/types_pyyaml-6.0.12.20260906.tar.gz", hash = "sha256:f59c1cc05010b833d2d72287bbaa72610106b28d42d89a907313117faba85212", size = 18649, upload-time = "2026-09-06T06:35:35.362Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/c0/fc0644b7ddcfb969e95845837143cb5173ddd6e06ee4ba5fc493cd9329b7/types_pyyaml-6.0.12.20260906-py3-none-any.whl", hash = "sha256:bca893ff0d51df5c9053137d5d0e6ccd36e939a196356f1d5c16372422f5137b", size = 21282, upload-time = "2026-09-06T06:35:34.372Z" },
 ]
 
 [[package]]
@@ -1833,10 +1854,13 @@ dev = [
     { name = "import-linter" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pyyaml" },
+    { name = "respx" },
     { name = "ruff" },
     { name = "testcontainers" },
     { name = "ty" },
     { name = "types-croniter" },
+    { name = "types-pyyaml" },
     { name = "vulture" },
 ]
 
@@ -1866,9 +1890,12 @@ dev = [
     { name = "import-linter", specifier = ">=2.3" },
     { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-cov", specifier = ">=7.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "respx", specifier = ">=0.23.1" },
     { name = "ruff", specifier = ">=0.15" },
     { name = "testcontainers", extras = ["postgres"], specifier = ">=4.13" },
     { name = "ty", specifier = ">=0.0.15" },
     { name = "types-croniter", specifier = ">=6.2.4.20261006" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
     { name = "vulture", specifier = ">=2.14" },
 ]

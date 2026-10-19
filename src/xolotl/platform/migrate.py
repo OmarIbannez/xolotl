@@ -1,5 +1,6 @@
 """Alembic entry points and database bootstrap (spec §4.5, §10)."""
 
+import logging
 from pathlib import Path
 from typing import LiteralString, cast
 
@@ -7,8 +8,9 @@ import psycopg
 from alembic import command
 from alembic.config import Config
 from psycopg import sql
-from sqlalchemy import Connection, make_url, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import Connection, create_engine, make_url, text
+from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.pool import NullPool
 
 from xolotl.platform.audit.partitions import ensure_partitions
 from xolotl.platform.config import get_settings
@@ -18,6 +20,8 @@ from xolotl.platform.db import (
     RoleBypassError,
     get_admin_engine,
 )
+
+logger = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 # Read as the owner role: is the role a superuser, does it have BYPASSRLS, and is
@@ -106,8 +110,8 @@ def verify_app_role(conn: Connection, *, role: str = APP_ROLE) -> None:
         raise RoleBypassError(msg)
 
 
-def _alter_app_role(conn: Connection, clauses: sql.Composable, *, purpose: str) -> None:
-    """Run ``ALTER ROLE xolotl_app WITH <clauses>``, the only way bootstrap alters it.
+def _app_role_ddl(conn: Connection, statement: sql.Composable, *, purpose: str) -> None:
+    """Run DDL that creates or alters the app role.
 
     Raises:
         BootstrapError: When the database refuses the statement. The message says
@@ -117,15 +121,24 @@ def _alter_app_role(conn: Connection, clauses: sql.Composable, *, purpose: str) 
 
     """
     try:
-        exec_literal_ddl(
-            conn,
-            sql.SQL("ALTER ROLE {} WITH {}").format(sql.Identifier(APP_ROLE), clauses),
-        )
+        exec_literal_ddl(conn, statement)
     except (DBAPIError, psycopg.Error) as exc:
         cause = exc.orig if isinstance(exc, DBAPIError) else exc
         sqlstate = cast("str | None", getattr(cause, "sqlstate", None))
         msg = f"could not {purpose} role {APP_ROLE} (sqlstate {sqlstate})"
         raise BootstrapError(msg) from None
+
+
+def _alter_app_role(conn: Connection, clauses: sql.Composable, *, purpose: str) -> None:
+    """Run ``ALTER ROLE xolotl_app WITH <clauses>``, the only way bootstrap alters it.
+
+    A refusal is a ``BootstrapError`` (see ``_app_role_ddl``).
+    """
+    _app_role_ddl(
+        conn,
+        sql.SQL("ALTER ROLE {} WITH {}").format(sql.Identifier(APP_ROLE), clauses),
+        purpose=purpose,
+    )
 
 
 def _remove_bypass_attributes(conn: Connection) -> None:
@@ -153,12 +166,13 @@ def bootstrap() -> None:
     ``CREATEROLE`` but not ``SUPERUSER``: a role that already satisfies the
     invariants only gets ``LOGIN`` and its password set (on PG16 and later the owner
     needs ``ADMIN OPTION`` on it for that, which it has when it created the role).
-    ``SUPERUSER`` or ``BYPASSRLS`` is removed first if the role has either. An
-    ALTER the database refuses fails the bootstrap with ``BootstrapError``, which
-    names the role and the SQLSTATE but never the statement (it can carry the
-    password). Every run then verifies the role with ``verify_app_role``, so a role
-    that could bypass row-level security fails the bootstrap (``RoleBypassError``,
-    naming the attribute). Either way nothing is changed.
+    ``SUPERUSER`` or ``BYPASSRLS`` is removed first if the role has either. A CREATE
+    or ALTER the database refuses (an owner without ``CREATEROLE`` cannot create the
+    role) fails the bootstrap with ``BootstrapError``, which names the role and the
+    SQLSTATE but never the statement (it can carry the password). Every run then
+    verifies the role with ``verify_app_role``, so a role that could bypass
+    row-level security fails the bootstrap (``RoleBypassError``, naming the
+    attribute). Either way nothing is changed.
     """
     password = _app_password()
     database = make_url(get_settings().database_admin_url).database or "xolotl"
@@ -170,11 +184,12 @@ def bootstrap() -> None:
             ),
         )
         if exists is None:
-            exec_literal_ddl(
+            _app_role_ddl(
                 conn,
                 sql.SQL(
                     "CREATE ROLE {} LOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB"
                 ).format(sql.Identifier(APP_ROLE)),
+                purpose="create",
             )
         # Before the password: a non-superuser owner may not alter a superuser role.
         _remove_bypass_attributes(conn)
@@ -196,6 +211,62 @@ def bootstrap() -> None:
             ),
         )
         verify_app_role(conn)
+
+
+def _app_role_signs_in(url: str) -> bool:
+    # A connection of its own, outside the application's pool: one pooled before a
+    # password change would still answer. The server reports a missing role and a
+    # wrong password alike, and either way the sign-in fails.
+    probe = create_engine(url, poolclass=NullPool, hide_parameters=True)
+    try:
+        with probe.connect():
+            pass
+    except OperationalError:
+        return False
+    finally:
+        probe.dispose()
+    return True
+
+
+def ensure_app_role() -> bool:
+    """Bootstrap the app role when it cannot sign in with the configured password.
+
+    ``serve`` runs this before the migrations, which grant to the role. A database
+    the application has never started on (a host's first deploy) has no app role
+    yet, and after ``XOLOTL_APP_DB_PASSWORD`` changes the role still has the old
+    password; both fail the sign-in, and ``bootstrap`` creates the role or sets its
+    password. A role that signs in is left as it is. Nothing happens unless
+    ``XOLOTL_DATABASE_ADMIN_URL`` is set: the default points at a local development
+    database. When the sign-in fails because the database is down, the bootstrap
+    fails too.
+
+    Returns:
+        Whether it bootstrapped the role.
+
+    Raises:
+        BootstrapError: When the admin URL is set without an app-role credential
+            (``XOLOTL_APP_DB_PASSWORD`` or ``XOLOTL_DATABASE_URL``): bootstrapping
+            would create the role with the default password.
+
+    """
+    settings = get_settings()
+    if "database_admin_url" not in settings.model_fields_set:
+        return False
+    if (
+        "database_url" not in settings.model_fields_set
+        and settings.app_db_password is None
+    ):
+        msg = (
+            "XOLOTL_DATABASE_ADMIN_URL is set but no app-role credential is: set "
+            "XOLOTL_APP_DB_PASSWORD (or XOLOTL_DATABASE_URL) so the role is never "
+            "created with the default password"
+        )
+        raise BootstrapError(msg)
+    if _app_role_signs_in(settings.database_url):
+        return False
+    logger.info("app role cannot sign in; bootstrapping it", extra={"role": APP_ROLE})
+    bootstrap()
+    return True
 
 
 def reset() -> None:

@@ -151,10 +151,12 @@ def event_consumption(session: Session, tenant_id: UUID) -> None:
 
 
 def _webhook_endpoint(session: Session, tenant_id: UUID) -> WebhookEndpoint:
+    # A real ciphertext, as for the TOTP secret above: the tenant gets its keys here.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
     endpoint = WebhookEndpoint(
         tenant_id=tenant_id,
         url="https://hooks.test/harness",
-        secret=b"\x00" * 32,
+        secret=encrypt("whsec_harness", tenant_id=tenant_id, session=session),
         event_types=["*"],
         status=EndpointStatus.ACTIVE,
         created_by=uuid7(),

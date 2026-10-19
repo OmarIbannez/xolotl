@@ -20,8 +20,13 @@ class KekMismatchError(DecryptionError):
     A kind of ``DecryptionError``, since nothing can be decrypted; the code tells an
     operator to look at ``XOLOTL_MASTER_KEY`` instead of at the data. The text names
     neither master key, nor a reference to one: both stay out of what an API shows.
+
+    It answers 503, like ``/readyz`` does for an instance that is not fit to serve:
+    the fault is this process's configuration, not the data and not a bug. No
+    ``Retry-After`` goes with it, because the condition does not heal by itself.
     """
 
+    status: ClassVar[int] = 503
     default_code: ClassVar[str] = "KEK_MISMATCH"
     default_detail: ClassVar[str] = (
         "the keys of this tenant were wrapped under a different master key"

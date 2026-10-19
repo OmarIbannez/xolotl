@@ -38,7 +38,9 @@ When the tenant's keys were destroyed, a replay and a new request alike fail wit
 crypto layer's 410 ``KEY_DESTROYED``, a new one before its endpoint runs; a stored
 body that does not open (another tenant's, altered) is a 500 ``DECRYPTION_FAILED``
 and is never replayed. The secret is never logged: the stored value is an
-``Encrypted``, which the logging filter masks.
+``Encrypted``, which the logging filter masks. The purge in front of each reservation
+commits on its own, so such a refusal cannot roll it back: a tenant whose keys are
+destroyed still has its expired keys purged, and no stored body is read to do it.
 """
 
 import base64
@@ -50,6 +52,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from http import HTTPStatus
 from typing import cast, override
+from uuid import UUID
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -112,7 +115,7 @@ def is_idempotent_request(request: Request) -> bool:
     )
 
 
-def _pk(actor: Actor, key: str) -> tuple[object, str, str]:
+def _pk(actor: Actor, key: str) -> tuple[UUID, str, str]:
     return (actor.context.require_tenant_id(), actor.context.actor_id, key)
 
 
@@ -296,6 +299,12 @@ def _reserve(
         # Opportunistic purge: the tenant's expired keys go before a new one is
         # reserved, between the hourly runs of the purge job.
         _ = purge_expired(s)
+        # Committed on its own, so that nothing the reservation does next can undo it. A
+        # tenant whose keys are gone is refused on every request (the placeholder below
+        # cannot be sealed, a replay cannot be opened) and a refusal rolls the
+        # transaction back: without this its expired keys would wait for the purge job.
+        # The delete reads no column back, so no sealed body is opened or even read.
+        s.commit()
         existing = s.get(IdempotencyKey, _pk(actor, key))
         if existing is not None and _is_dead(existing, now):
             s.delete(existing)
@@ -306,9 +315,7 @@ def _reserve(
             # Sealed like the response that replaces it, so the column never holds
             # anything else. A tenant whose keys are gone is refused here, before its
             # request runs, with the same 410 a replay gets.
-            placeholder = encrypt_json(
-                {}, tenant_id=actor.context.require_tenant_id(), session=s
-            )
+            placeholder = encrypt_json({}, tenant_id=tenant_id, session=s)
             inserted = s.execute(
                 insert(IdempotencyKey)
                 .values(

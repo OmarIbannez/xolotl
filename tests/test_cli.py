@@ -1,12 +1,19 @@
+import base64
 import getpass
+import json
+import os
 import re
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from uuid import UUID
 
 import pytest
 import uvicorn
-from sqlalchemy import Engine, text
+from psycopg import sql
+from pydantic import SecretStr
+from sqlalchemy import Engine, create_engine, make_url, text
+from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
 
 from tests.helpers import (
@@ -24,7 +31,7 @@ from tests.helpers import (
 from xolotl.cli import app
 from xolotl.modules.tenants import service
 from xolotl.platform import db, migrate
-from xolotl.platform.config import get_settings
+from xolotl.platform.config import DEV_MASTER_KEY, get_settings
 from xolotl.platform.crypto import (
     KeyDestroyedError,
     KeyProvider,
@@ -35,6 +42,16 @@ from xolotl.platform.crypto import (
 from xolotl.platform.enums import KeyPurpose
 
 runner = CliRunner()
+
+# One key has more than one base64 spelling: the last character of the public key
+# carries two unused bits, so this decodes to the same 32 bytes (the settings
+# compare bytes).
+RESPELLED_DEV_MASTER_KEY = DEV_MASTER_KEY[:-2] + "J="
+REAL_MASTER_KEY = base64.b64encode(bytes(range(100, 132))).decode()
+DEV_KEY_WARNING = (
+    "the public development master key is in use; every tenant's keys are readable "
+    "to anyone with the repository; set XOLOTL_MASTER_KEY before creating real tenants"
+)
 
 
 def _create(slug: str = "cli-demo"):
@@ -63,6 +80,11 @@ def test_serve_migrates_and_checks_the_role_before_it_serves(
 ):
     calls: list[str] = []
     served: dict[str, object] = {}
+    ensure_app_role = migrate.ensure_app_role
+
+    def ensured() -> bool:
+        calls.append("app role")
+        return ensure_app_role()  # the real one: this role signs in, so it stays
 
     def checked(target: Engine) -> None:
         calls.append("role check")
@@ -72,12 +94,14 @@ def test_serve_migrates_and_checks_the_role_before_it_serves(
         calls.append("uvicorn")
         served.update(options, target=target)
 
+    monkeypatch.setattr(migrate, "ensure_app_role", ensured)
     monkeypatch.setattr(migrate, "upgrade", lambda: calls.append("upgrade"))
     monkeypatch.setattr("xolotl.cli.assert_app_role_safe", checked)
     monkeypatch.setattr(uvicorn, "run", run)
     result = runner.invoke(app, ["serve", "--port", "8123"])
     assert result.exit_code == 0, result.output
-    assert calls == ["upgrade", "role check", "uvicorn"]
+    # The role first: the migrations grant to it, so it must exist before they run.
+    assert calls == ["app role", "upgrade", "role check", "uvicorn"]
     assert (served["target"], served["factory"], served["port"]) == (
         "xolotl.app:build_app",
         True,
@@ -103,6 +127,136 @@ def test_serve_refuses_a_role_that_can_bypass_rls(engine: Engine, monkeypatch):
     assert result.exit_code == 1
     assert "can bypass row-level security" in result.output
     assert ran == []
+
+
+def test_serve_bootstraps_an_app_role_that_cannot_sign_in(
+    admin_engine: Engine, monkeypatch
+):
+    # What a redeploy after XOLOTL_APP_DB_PASSWORD changed on Render looks like.
+    configured = make_url(get_settings().database_url)
+    assert configured.password
+    rotate = sql.SQL("ALTER ROLE {} PASSWORD {}")
+    with admin_engine.begin() as conn:
+        migrate.exec_literal_ddl(
+            conn, rotate.format(sql.Identifier(db.APP_ROLE), sql.Literal("elsewhere"))
+        )
+    served: list[str] = []
+
+    def run(target: str, **_options: object) -> None:
+        served.append(target)
+
+    monkeypatch.setattr(uvicorn, "run", run)
+    try:
+        result = runner.invoke(app, ["serve"])
+        probe = create_engine(configured, poolclass=NullPool)
+        with probe.connect() as conn:  # a new sign-in, with the configured password
+            assert conn.scalar(text("SELECT current_user")) == db.APP_ROLE
+        probe.dispose()
+    finally:
+        with admin_engine.begin() as conn:
+            migrate.exec_literal_ddl(
+                conn,
+                rotate.format(
+                    sql.Identifier(db.APP_ROLE), sql.Literal(configured.password)
+                ),
+            )
+    assert result.exit_code == 0, result.output
+    assert served == ["xolotl.app:build_app"]
+    assert "app role cannot sign in; bootstrapping it" in result.output
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root may write anywhere")
+def test_serve_says_whether_it_can_write_the_object_store(
+    engine: Engine, monkeypatch, tmp_path: Path
+):
+    # A persistent disk can mount for another user: serve tells, and creates nothing.
+    disk = tmp_path / "disk"
+    disk.mkdir()
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o555)
+
+    def run(*_args: object, **_options: object) -> None:
+        pass
+
+    monkeypatch.setattr(migrate, "upgrade", lambda: None)
+    monkeypatch.setattr(uvicorn, "run", run)
+    said: dict[str, str] = {}
+    for name, root in (("disk", disk / "objects"), ("locked", locked / "objects")):
+        settings = get_settings().model_copy(update={"object_store_root": root})
+        monkeypatch.setattr("xolotl.cli.get_settings", lambda s=settings: s)
+        result = runner.invoke(app, ["serve"])
+        assert result.exit_code == 0, result.output
+        assert not root.exists()
+        said[name] = result.output
+    assert "object store root is writable" in said["disk"]
+    assert "not writable" not in said["disk"]
+    assert "object store root is not writable by this process" in said["locked"]
+    assert str(locked / "objects") in said["locked"]
+
+
+def _serve_warnings(
+    monkeypatch: pytest.MonkeyPatch, **changes: object
+) -> tuple[list[str], str]:
+    # `serve` with the settings changed, past the migrations and short of listening.
+    # Returns the messages of the WARNING records it logged and everything it wrote.
+    settings = get_settings().model_copy(update=changes)
+
+    def run(*_args: object, **_options: object) -> None:
+        pass
+
+    monkeypatch.setattr("xolotl.cli.get_settings", lambda: settings)
+    monkeypatch.setattr(migrate, "upgrade", lambda: None)
+    monkeypatch.setattr(uvicorn, "run", run)
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 0, result.output
+    records = [
+        json.loads(line) for line in result.output.splitlines() if line.startswith("{")
+    ]
+    return [r["msg"] for r in records if r["level"] == "WARNING"], result.output
+
+
+@pytest.mark.parametrize(
+    ("env", "key"),
+    [
+        ("dev", DEV_MASTER_KEY),  # what a deployment that sets neither variable runs
+        ("test", DEV_MASTER_KEY),
+        ("dev", RESPELLED_DEV_MASTER_KEY),
+    ],
+    ids=["dev", "test", "respelled"],
+)
+def test_serve_warns_once_when_the_public_development_master_key_is_in_use(
+    engine: Engine, monkeypatch, env: str, key: str
+):
+    decode = base64.b64decode
+    assert decode(key, validate=True) == decode(DEV_MASTER_KEY, validate=True)
+    warned, output = _serve_warnings(monkeypatch, env=env, master_key=SecretStr(key))
+    assert warned.count(DEV_KEY_WARNING) == 1
+    # It names the setting to change and never shows a key.
+    assert DEV_MASTER_KEY not in output
+    assert key not in output
+
+
+@pytest.mark.parametrize("env", ["dev", "test", "prod"])
+def test_serve_does_not_warn_when_the_master_key_is_a_real_one(
+    engine: Engine, monkeypatch, env: str
+):
+    warned, output = _serve_warnings(
+        monkeypatch, env=env, master_key=SecretStr(REAL_MASTER_KEY)
+    )
+    assert not [message for message in warned if "master key" in message]
+    assert REAL_MASTER_KEY not in output
+
+
+def test_serve_does_not_warn_in_prod_where_the_settings_refuse_the_public_key(
+    engine: Engine, monkeypatch
+):
+    # `Settings` refuses this pair when it loads (tests/platform/test_config.py), so
+    # no environment can produce it; copying one skips the check. Prod is not this
+    # warning's business: it either runs a key of its own or does not start.
+    warned, _ = _serve_warnings(
+        monkeypatch, env="prod", master_key=SecretStr(DEV_MASTER_KEY)
+    )
+    assert not [message for message in warned if "master key" in message]
 
 
 def test_db_bootstrap_is_idempotent(admin_engine: Engine):

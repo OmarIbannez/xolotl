@@ -22,7 +22,7 @@ from uuid import UUID
 import pytest
 from alembic import command
 from alembic.script import ScriptDirectory
-from sqlalchemy import Connection, Engine, create_engine, inspect, make_url, text
+from sqlalchemy import Connection, Engine, inspect, text
 
 from tests.helpers import everything_stored, leaked
 from xolotl.platform import db, migrate
@@ -281,59 +281,7 @@ def test_downgrading_restores_jsonb_and_discards_what_it_cannot_convert(
 
 
 # ---- the owner a managed server gives you --------------------------------------------
-
-SCRATCH_DATABASE = "xolotl_b8_scratch"
-SCRATCH_OWNER = "xolotl_b8_owner"
-
-
-def drop_scratch(admin_engine: Engine) -> None:
-    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        _ = conn.execute(
-            text(f"DROP DATABASE IF EXISTS {SCRATCH_DATABASE} WITH (FORCE)")
-        )
-        _ = conn.execute(text(f"DROP ROLE IF EXISTS {SCRATCH_OWNER}"))
-
-
-@pytest.fixture
-def bound_owner_database(
-    admin_engine: Engine, admin_url: str, monkeypatch: pytest.MonkeyPatch
-) -> Generator[tuple[Engine, Engine]]:
-    """Create a database owned by a role that row-level security binds.
-
-    The session database belongs to a superuser, whom row-level security never binds,
-    so a migration that deletes rows without naming a tenant passes there and finds none
-    on a managed server (an owner with neither SUPERUSER nor BYPASSRLS, which is what
-    ``bootstrap`` is documented to need). The migrations run against this one as that
-    owner: the alembic environment takes its engine from ``db``.
-
-    Yields:
-        The owner's engine and a superuser's engine on the same database.
-
-    """
-    drop_scratch(admin_engine)  # whatever an interrupted run left behind
-    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        _ = conn.execute(
-            text(
-                f"""
-                CREATE ROLE {SCRATCH_OWNER} LOGIN PASSWORD 'owner-password'
-                NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
-                """
-            )
-        )
-        _ = conn.execute(
-            text(f"CREATE DATABASE {SCRATCH_DATABASE} OWNER {SCRATCH_OWNER}")
-        )
-    root_url = make_url(admin_url).set(database=SCRATCH_DATABASE)
-    owner_url = root_url.set(username=SCRATCH_OWNER, password="owner-password")
-    owner = create_engine(owner_url, hide_parameters=True)
-    root = create_engine(root_url, hide_parameters=True)
-    monkeypatch.setattr(db, "get_admin_engine", lambda: owner)
-    try:
-        yield owner, root
-    finally:
-        owner.dispose()
-        root.dispose()
-        drop_scratch(admin_engine)
+# It is the ``bound_owner_database`` fixture of conftest.py, which 0004's test uses too.
 
 
 def test_an_owner_that_row_level_security_binds_still_empties_the_table(

@@ -17,6 +17,7 @@ import io
 import json
 import logging
 from collections.abc import Generator
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import pytest
@@ -34,6 +35,8 @@ from tests.helpers import (
 from xolotl.app import build_app
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.service import CreatedTenant
+from xolotl.platform import clock
+from xolotl.platform.api.idempotency import TTL
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.api.router import v1_router
 from xolotl.platform.audit import canonical_json
@@ -48,6 +51,7 @@ from xolotl.platform.crypto.primitives import (
     TAG_LEN,
     aad_for,
     decrypt_value,
+    parse_header,
 )
 from xolotl.platform.db import bound_context, tenant_session
 from xolotl.platform.enums import KeyPurpose
@@ -111,6 +115,24 @@ def found_in_store(admin_engine: Engine, secret: str) -> list[str]:
 def destroy_keys(tenant_id: UUID) -> None:
     with tenant_session(TenantContext.platform("cli:test", tenant_id=tenant_id)) as s:
         service.destroy_tenant_keys(s)
+
+
+# A sealed stored response of ``actor`` that expires at ``expires_at``.
+def add_stored(
+    tenant_id: UUID, key: str, *, expires_at: datetime, actor: str = "an-actor"
+) -> None:
+    with tenant_session(system_ctx(tenant_id)) as s:
+        s.add(
+            IdempotencyKey(
+                tenant_id=tenant_id,
+                actor_id=actor,
+                key=key,
+                request_hash=b"",
+                status_code=200,
+                response_body={},
+                expires_at=expires_at,
+            )
+        )
 
 
 def rotate_data_key(tenant_id: UUID) -> int:
@@ -352,6 +374,73 @@ def test_a_fresh_request_after_destruction_is_refused_before_it_runs(
     assert (refused.status_code, refused.json()["code"]) == (410, "KEY_DESTROYED")
     assert attempts == [1]  # the endpoint did not run for it
     assert set(stored_bodies(admin_engine)) == {"k-before"}  # nor was it reserved
+
+
+@pytest.mark.parametrize("request_kind", ["new", "replay"])
+def test_a_destroyed_tenants_expired_keys_are_purged_without_opening_them(
+    client: TestClient,
+    tenant: CreatedTenant,
+    admin_headers,
+    admin_engine: Engine,
+    monkeypatch,
+    request_kind: str,
+):
+    # A stored response to replay, two expired keys of two actors, and a live one.
+    assert create_api_key(client, admin_headers, "k-stored").status_code == 201
+    gone = clock.now() - timedelta(minutes=1)
+    add_stored(tenant.tenant_id, "expired-1", expires_at=gone)
+    add_stored(tenant.tenant_id, "expired-2", expires_at=gone, actor="another-actor")
+    add_stored(tenant.tenant_id, "live", expires_at=clock.now() + TTL)
+    destroy_keys(tenant.tenant_id)
+    # Opening a sealed body starts with reading its header, so this counts the bodies
+    # that were read at all, whether or not they could then be opened.
+    read: list[int] = []
+
+    def counting(data: bytes) -> int:
+        read.append(len(data))
+        return parse_header(data)
+
+    monkeypatch.setattr("xolotl.platform.crypto.encrypted.parse_header", counting)
+
+    key = "k-stored" if request_kind == "replay" else "k-new"
+    refused = create_api_key(client, admin_headers, key)
+
+    assert (refused.status_code, refused.json()["code"]) == (410, "KEY_DESTROYED")
+    # The refusal did not roll the purge back: the expired keys are gone, the others
+    # stay, closed for good.
+    assert set(stored_bodies(admin_engine)) == {"k-stored", "live"}
+    # And no body was read to do it: only a replay reads one, the response it asks for.
+    assert len(read) == (1 if request_kind == "replay" else 0)
+
+
+def test_a_tenant_without_keys_is_refused_with_the_crypto_error_and_stores_nothing(
+    tenant: CreatedTenant, admin_headers, admin_engine: Engine
+):
+    attempts: list[int] = []
+    router = v1_router()
+
+    @router.post("/probe/work")
+    def work() -> dict[str, int]:
+        attempts.append(len(attempts) + 1)
+        return {"attempt": len(attempts)}
+
+    # A tenant put into the table by hand: the ones the application creates get their
+    # keys on the way in, and an older one gets them from migration 0004.
+    with admin_engine.begin() as conn:
+        _ = conn.execute(
+            text("DELETE FROM tenant_key WHERE tenant_id = :tenant_id"),
+            {"tenant_id": tenant.tenant_id},
+        )
+    app = build_app()
+    app.include_router(router, prefix="/v1")
+    with TestClient(app) as probe:
+        headers = {**admin_headers, "Idempotency-Key": "k-1"}
+        refused = probe.post("/v1/probe/work", headers=headers)
+    # The crypto layer's own error, not the generic INTERNAL a stray exception gets.
+    assert (refused.status_code, refused.json()["code"]) == (500, "KEY_NOT_FOUND")
+    assert refused.json()["detail"] == "no such encryption key for this tenant"
+    assert attempts == []  # the endpoint did not run
+    assert stored_bodies(admin_engine) == {}  # and no reservation was left behind
 
 
 def test_a_replay_still_opens_after_the_data_key_rotates(

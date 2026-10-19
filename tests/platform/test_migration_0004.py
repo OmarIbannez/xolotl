@@ -28,18 +28,22 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import (
     Connection,
     Engine,
-    create_engine,
     inspect,
-    make_url,
     select,
     text,
 )
 from typer.testing import CliRunner
 
-from tests.helpers import data_key_of, everything_stored, leaked, system_ctx
+from tests.helpers import (
+    data_key_of,
+    everything_stored,
+    leaked,
+    require_server_admin,
+    system_ctx,
+)
 from xolotl.cli import app as cli_app
 from xolotl.modules.tenants.models import StaffCredential
-from xolotl.platform import db, migrate
+from xolotl.platform import migrate
 from xolotl.platform.auth.totp import new_secret
 from xolotl.platform.config import get_settings
 from xolotl.platform.crypto import primitives
@@ -676,90 +680,15 @@ def test_a_sealed_secret_that_cannot_be_opened_again_stops_the_migration(
 
 # ---- the owner a managed server gives you --------------------------------------------
 
-SCRATCH_DATABASE = "xolotl_b4_scratch"
-SCRATCH_OWNER = "xolotl_b4_owner"
 
-
-def drop_scratch(admin_engine: Engine) -> None:
-    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        _ = conn.execute(text("DROP DATABASE IF EXISTS xolotl_b4_scratch WITH (FORCE)"))
-        _ = conn.execute(text("DROP ROLE IF EXISTS xolotl_b4_owner"))
-
-
-def server_admin_may_create(admin_engine: Engine) -> bool:
-    with admin_engine.connect() as conn:
-        return bool(
-            conn.scalar(
-                text(
-                    """
-                    SELECT rolsuper OR (rolcreaterole AND rolcreatedb)
-                    FROM pg_roles WHERE rolname = current_user
-                    """
-                )
-            )
-        )
-
-
-# The test below is the only guard that the migration scopes its statements to a tenant,
-# so a server it cannot run on is a failure of the run and not a skipped test: point
-# XOLOTL_TEST_DATABASE_ADMIN_URL at a role that can create roles and databases, or leave
-# it unset for the container.
-def require_server_admin(*, allowed: bool) -> None:
-    if not allowed:
-        pytest.fail(
-            "admin role cannot create roles or databases: the scoping test needs both"
-        )
-
-
+# The owner these tests run as is the ``bound_owner_database`` fixture of conftest.py,
+# which test_migration_0005.py uses as well.
 def test_the_scoping_test_fails_the_run_when_the_server_cannot_run_it():
     require_server_admin(allowed=True)
     # Broad on purpose: a skip is an outcome exception too, and must not pass for this.
     with pytest.raises(BaseException, match="the scoping test needs both") as refused:
         require_server_admin(allowed=False)
     assert refused.type is pytest.fail.Exception
-
-
-@pytest.fixture
-def bound_owner_database(
-    admin_engine: Engine, admin_url: str, monkeypatch: pytest.MonkeyPatch
-) -> Generator[tuple[Engine, Engine]]:
-    """Create a database owned by a role that row-level security binds.
-
-    The session database belongs to a superuser, whom row-level security never binds,
-    so a migration that forgets to scope its statements to a tenant passes there and
-    finds no row on a managed server (an owner with neither SUPERUSER nor BYPASSRLS,
-    which is what ``bootstrap`` is documented to need). The migrations run against this
-    one as that owner: the alembic environment takes its engine from ``db``.
-
-    Yields:
-        The owner's engine and a superuser's engine on the same database.
-
-    """
-    require_server_admin(allowed=server_admin_may_create(admin_engine))
-    drop_scratch(admin_engine)  # whatever an interrupted run left behind
-    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        _ = conn.execute(
-            text(
-                """
-                CREATE ROLE xolotl_b4_owner LOGIN PASSWORD 'owner-password'
-                NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
-                """
-            )
-        )
-        _ = conn.execute(
-            text("CREATE DATABASE xolotl_b4_scratch OWNER xolotl_b4_owner")
-        )
-    root_url = make_url(admin_url).set(database=SCRATCH_DATABASE)
-    owner_url = root_url.set(username=SCRATCH_OWNER, password="owner-password")
-    owner = create_engine(owner_url, hide_parameters=True)
-    root = create_engine(root_url, hide_parameters=True)
-    monkeypatch.setattr(db, "get_admin_engine", lambda: owner)
-    try:
-        yield owner, root
-    finally:
-        owner.dispose()
-        root.dispose()
-        drop_scratch(admin_engine)
 
 
 def test_the_migration_scopes_every_statement_to_a_tenant_for_an_owner_that_rls_binds(
