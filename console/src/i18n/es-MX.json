@@ -1,0 +1,414 @@
+{
+  "app": {
+    "name": "xolotl",
+    "title": "xolotl · Consola",
+    "console": "Consola",
+    "skipToContent": "Saltar al contenido"
+  },
+  "common": {
+    "close": "Cerrar",
+    "loading": "Cargando",
+    "retry": "Reintentar",
+    "goHome": "Ir al inicio",
+    "cancel": "Cancelar",
+    "yes": "Sí",
+    "no": "No",
+    "never": "Nunca",
+    "you": "tú",
+    "pager": {
+      "label": "Paginación",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "page": "Página {{page}}"
+    },
+    "oneTime": {
+      "copy": "Copiar",
+      "copied": "Copiado",
+      "copiedToast": "Copiado al portapapeles",
+      "copyFailed": "No se pudo copiar. Selecciona el texto y cópialo manualmente.",
+      "acknowledge": "Ya la guardé",
+      "acknowledgeRequired": "Marca la casilla cuando la hayas guardado para poder cerrar esta ventana."
+    }
+  },
+  "nav": {
+    "label": "Navegación principal",
+    "home": "Inicio",
+    "apiKeys": "Llaves API",
+    "staff": "Personal",
+    "audit": "Auditoría",
+    "security": "Seguridad",
+    "openMenu": "Abrir menú",
+    "apiDocs": "Documentación de la API"
+  },
+  "header": {
+    "tenant": "Espacio de trabajo",
+    "language": "Idioma",
+    "accountMenu": "Menú de cuenta",
+    "signOut": "Cerrar sesión",
+    "themeToLight": "Cambiar a modo claro",
+    "themeToDark": "Cambiar a modo oscuro"
+  },
+  "language": {
+    "es-MX": "Español (México)",
+    "en": "English"
+  },
+  "env": {
+    "SANDBOX": "Sandbox",
+    "PROD": "Producción"
+  },
+  "tenantStatus": {
+    "ONBOARDING": "En proceso de alta",
+    "ACTIVE": "Activo",
+    "SUSPENDED": "Suspendido",
+    "OFFBOARDED": "Dado de baja"
+  },
+  "roles": {
+    "ANALYST": "Analista",
+    "SENIOR_ANALYST": "Analista sénior",
+    "MLRO": "Oficial de cumplimiento (MLRO)",
+    "AUDITOR_RO": "Auditor (solo lectura)",
+    "ADMIN": "Administrador"
+  },
+  "auth": {
+    "login": {
+      "title": "Iniciar sesión",
+      "description": "Accede a la consola de tu espacio de trabajo.",
+      "tenantSlug": "Espacio de trabajo",
+      "tenantSlugHint": "El identificador de tu organización, por ejemplo: acme.",
+      "email": "Correo electrónico",
+      "password": "Contraseña",
+      "submit": "Iniciar sesión",
+      "submitting": "Verificando…",
+      "invalid": "Espacio de trabajo, correo o contraseña incorrectos.",
+      "expired": "Tu sesión expiró. Inicia sesión de nuevo."
+    },
+    "totp": {
+      "title": "Verificación en dos pasos",
+      "description": "Ingresa el código de 6 a 8 dígitos que genera tu app de autenticación.",
+      "code": "Código de verificación",
+      "submit": "Verificar",
+      "submitting": "Verificando…",
+      "invalid": "El código no es válido o la verificación expiró. Revisa el código o vuelve a iniciar sesión.",
+      "back": "Volver a iniciar sesión"
+    },
+    "setupPassword": {
+      "title": "Crea una nueva contraseña",
+      "description": "Por seguridad, debes reemplazar la contraseña temporal antes de continuar.",
+      "current": "Contraseña actual",
+      "new": "Nueva contraseña",
+      "confirm": "Confirmar nueva contraseña",
+      "rules": "Al menos 12 caracteres y distinta de la contraseña actual.",
+      "strength": {
+        "label": "Seguridad de la nueva contraseña",
+        "empty": "Aún no escribes una contraseña",
+        "weak": "Débil: usa al menos 12 caracteres",
+        "fair": "Aceptable",
+        "strong": "Fuerte"
+      },
+      "submit": "Guardar contraseña",
+      "submitting": "Guardando…",
+      "rejected": "No se pudo cambiar la contraseña. Verifica que la contraseña actual sea correcta y que la nueva tenga al menos 12 caracteres y sea distinta.",
+      "success": "Contraseña actualizada",
+      "signOut": "Cerrar sesión"
+    }
+  },
+  "validation": {
+    "required": "Este campo es obligatorio.",
+    "email": "Ingresa un correo electrónico válido.",
+    "totpCode": "Ingresa el código de 6 a 8 dígitos.",
+    "passwordMin": "Usa al menos 12 caracteres.",
+    "passwordMismatch": "Las contraseñas no coinciden.",
+    "passwordSame": "La nueva contraseña debe ser distinta de la actual.",
+    "nameTooLong": "Usa 120 caracteres como máximo.",
+    "displayNameTooLong": "Usa 200 caracteres como máximo.",
+    "tooLong": "El valor es demasiado largo.",
+    "invalid": "El valor no es válido.",
+    "scopesRequired": "Elige al menos un permiso.",
+    "scopeFormat": "Usa el formato area:read o area:write: minúsculas sin acentos y guion bajo.",
+    "scopeDraftPending": "Agrega el permiso que escribiste o bórralo antes de continuar.",
+    "rolesRequired": "Elige al menos un rol."
+  },
+  "home": {
+    "title": "Inicio",
+    "welcome": "Hola, {{name}}",
+    "description": "Resumen de tu espacio de trabajo y de tu acceso.",
+    "tenant": {
+      "title": "Espacio de trabajo",
+      "legalName": "Razón social",
+      "slug": "Identificador",
+      "country": "País",
+      "cell": "Celda",
+      "env": "Entorno",
+      "status": "Estado",
+      "createdAt": "Fecha de alta"
+    },
+    "access": {
+      "title": "Tu acceso",
+      "name": "Nombre",
+      "email": "Correo electrónico",
+      "roles": "Roles",
+      "totp": "Verificación en dos pasos",
+      "totpOn": "Activa",
+      "totpOff": "Inactiva"
+    }
+  },
+  "pending": {
+    "badge": "Próximamente",
+    "body": "Esta sección se habilitará en la siguiente entrega de la consola."
+  },
+  "apiKeys": {
+    "title": "Llaves API",
+    "description": "Crea, consulta y revoca las llaves con las que tus sistemas llaman a la API.",
+    "new": "Nueva llave",
+    "table": {
+      "label": "Llaves API",
+      "name": "Nombre",
+      "prefix": "Prefijo",
+      "scopes": "Permisos",
+      "env": "Entorno",
+      "status": "Estado",
+      "createdAt": "Creada",
+      "lastUsedAt": "Último uso",
+      "actions": "Acciones"
+    },
+    "status": {
+      "ACTIVE": "Activa",
+      "REVOKED": "Revocada"
+    },
+    "empty": "Aún no hay llaves API. Crea la primera para conectar tus sistemas.",
+    "revoke": {
+      "action": "Revocar",
+      "actionFor": "Revocar la llave {{name}}",
+      "title": "¿Revocar la llave “{{name}}”?",
+      "body": "Los sistemas que la usen dejarán de poder llamar a la API de inmediato. Esta acción no se puede deshacer.",
+      "confirm": "Revocar llave",
+      "confirming": "Revocando…",
+      "done": "Llave “{{name}}” revocada."
+    },
+    "create": {
+      "title": "Nueva llave API",
+      "description": "Define qué podrá hacer la llave. La llave completa se muestra una sola vez, al crearla.",
+      "name": "Nombre",
+      "nameHint": "Para reconocerla después, por ejemplo: integración de onboarding.",
+      "scopes": "Permisos",
+      "env": "Entorno",
+      "envHint": "Las llaves pertenecen siempre al entorno de tu espacio de trabajo.",
+      "submit": "Crear llave",
+      "submitting": "Creando…",
+      "conflict": "El entorno de la llave debe coincidir con el de tu espacio de trabajo. Recarga la página e inténtalo de nuevo."
+    },
+    "scopes": {
+      "tenantsRead": "Consultar los datos del espacio de trabajo",
+      "tenantsWrite": "Modificar los datos del espacio de trabajo",
+      "custom": "Otro permiso",
+      "customHint": "Formato area:read o area:write, en minúsculas y sin acentos, por ejemplo: reports:read.",
+      "placeholder": "reports:read",
+      "add": "Agregar",
+      "remove": "Quitar el permiso {{scope}}",
+      "added": "Permisos agregados"
+    },
+    "secret": {
+      "title": "Llave “{{name}}” creada",
+      "hint": "Cópiala y guárdala ahora en un lugar seguro. Por seguridad no se puede volver a consultar."
+    }
+  },
+  "staff": {
+    "title": "Personal",
+    "description": "Da de alta al personal, asigna roles y deshabilita accesos.",
+    "new": "Nuevo usuario",
+    "table": {
+      "label": "Personal",
+      "email": "Correo electrónico",
+      "displayName": "Nombre",
+      "roles": "Roles",
+      "status": "Estado",
+      "mustChangePassword": "Cambio de contraseña pendiente",
+      "createdAt": "Fecha de alta",
+      "actions": "Acciones"
+    },
+    "status": {
+      "ACTIVE": "Activo",
+      "DISABLED": "Deshabilitado"
+    },
+    "empty": "Aún no hay personal registrado.",
+    "disable": {
+      "action": "Deshabilitar",
+      "actionFor": "Deshabilitar a {{name}}",
+      "title": "¿Deshabilitar a {{name}}?",
+      "body": "{{email}} ya no podrá iniciar sesión y sus sesiones abiertas dejarán de funcionar.",
+      "confirm": "Deshabilitar usuario",
+      "confirming": "Deshabilitando…",
+      "done": "Se deshabilitó la cuenta de {{name}}.",
+      "conflict": "No puedes deshabilitar tu propia cuenta."
+    },
+    "create": {
+      "title": "Nuevo usuario",
+      "description": "Se genera una contraseña inicial que se muestra una sola vez; la persona deberá cambiarla al iniciar sesión.",
+      "email": "Correo electrónico",
+      "displayName": "Nombre",
+      "roles": "Roles",
+      "rolesHint": "Elige al menos uno.",
+      "submit": "Crear usuario",
+      "submitting": "Creando…",
+      "conflict": "Ya existe un usuario con ese correo en tu espacio de trabajo."
+    },
+    "secret": {
+      "title": "Contraseña inicial de {{name}}",
+      "hint": "Compártela con {{email}} por un canal seguro. Deberá cambiarla en su primer inicio de sesión. Por seguridad no se puede volver a consultar."
+    }
+  },
+  "audit": {
+    "title": "Auditoría",
+    "description": "Consulta la bitácora de eventos y verifica la integridad de su cadena.",
+    "verify": {
+      "button": "Verificar cadena",
+      "running": "Verificando…",
+      "checkedAt": "Verificado el {{at}}",
+      "entriesChecked": "Eventos verificados",
+      "valid": {
+        "title": "Cadena íntegra",
+        "body": "Se recorrió toda la cadena: cada evento coincide con su hash y con el evento que lo precede."
+      },
+      "empty": {
+        "title": "Cadena vacía",
+        "body": "Todavía no hay eventos de auditoría, así que no hay nada que verificar. Esto no es una falla."
+      },
+      "broken": {
+        "title": "Cadena rota",
+        "body": "La verificación encontró una inconsistencia. Revisa el evento indicado y escala el caso a tu equipo de seguridad.",
+        "firstBrokenSeq": "Primer evento afectado (secuencia)",
+        "entriesChecked": "Eventos revisados hasta la falla",
+        "reason": "Motivo",
+        "rawReason": "Respuesta de la API"
+      },
+      "reason": {
+        "sequence": "Falta un evento o un número de secuencia está repetido.",
+        "prevHash": "El hash previo no coincide con el del evento anterior.",
+        "content": "El contenido del evento no coincide con su hash.",
+        "unknown": "La verificación falló por un motivo que esta consola no reconoce."
+      }
+    },
+    "filter": {
+      "label": "Acción",
+      "hint": "Coincidencia exacta, por ejemplo: staff.created",
+      "clear": "Limpiar filtro",
+      "refresh": "Actualizar"
+    },
+    "table": {
+      "caption": "Eventos de auditoría, del más reciente al más antiguo",
+      "seq": "Secuencia",
+      "at": "Fecha y hora",
+      "actorType": "Tipo de actor",
+      "actorId": "ID de actor",
+      "action": "Acción",
+      "entity": "Entidad",
+      "detail": "Detalle",
+      "hashes": "Hash previo y del evento"
+    },
+    "actorType": {
+      "STAFF": "Personal",
+      "API_CLIENT": "Cliente API",
+      "SYSTEM": "Sistema",
+      "PLATFORM_OPERATOR": "Operador de plataforma"
+    },
+    "entity": {
+      "none": "Sin entidad"
+    },
+    "detail": {
+      "none": "Sin detalle",
+      "expand": "Ver detalle completo",
+      "expandFor": "Ver detalle completo del evento {{seq}}",
+      "sheetTitle": "Detalle del evento {{seq}}",
+      "sheetDescription": "Acción {{action}}, registrada el {{at}}",
+      "copy": "Copiar JSON",
+      "copied": "JSON copiado"
+    },
+    "hash": {
+      "copyPrev": "Copiar hash previo del evento {{seq}}",
+      "copyHash": "Copiar hash del evento {{seq}}",
+      "copied": "Hash copiado",
+      "prevLabel": "previo",
+      "eventLabel": "evento"
+    },
+    "copyFailed": "No se pudo copiar al portapapeles",
+    "empty": {
+      "none": "Aún no hay eventos de auditoría.",
+      "filtered": "Ningún evento tiene la acción «{{action}}»."
+    },
+    "pager": {
+      "label": "Paginación",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "page": "Página {{page}}"
+    }
+  },
+  "security": {
+    "title": "Seguridad",
+    "description": "Administra la verificación en dos pasos y la contraseña de tu cuenta.",
+    "totp": {
+      "title": "Verificación en dos pasos",
+      "description": "Además de tu contraseña, el inicio de sesión pedirá un código temporal (TOTP) de tu app de autenticación.",
+      "on": "Activa",
+      "off": "Inactiva",
+      "onBody": "Tu cuenta ya pide un código de tu app de autenticación al iniciar sesión.",
+      "offBody": "Tu cuenta solo está protegida con la contraseña. Actívala con una app como Google Authenticator, Microsoft Authenticator o 1Password.",
+      "enable": "Activar TOTP",
+      "enabling": "Preparando…",
+      "scanTitle": "1. Escanea el código QR",
+      "scanBody": "Abre tu app de autenticación y escanea este código.",
+      "qrLabel": "Código QR para configurar tu app de autenticación",
+      "manualTitle": "¿No puedes escanear el código?",
+      "manualBody": "Escribe esta clave en tu app, como clave basada en tiempo.",
+      "secret": "Clave secreta",
+      "copySecret": "Copiar clave secreta",
+      "secretCopied": "Clave copiada",
+      "copyFailed": "No se pudo copiar al portapapeles",
+      "onceTitle": "Esta clave se muestra una sola vez",
+      "onceBody": "No se puede volver a consultar. Si cancelas o sales de esta página, tendrás que iniciar la activación de nuevo.",
+      "confirmTitle": "2. Confirma con un código",
+      "code": "Código de verificación",
+      "codeHint": "El código de 6 a 8 dígitos que muestra tu app.",
+      "codeInvalid": "El código no es correcto. Revísalo en tu app (y que la hora de tu dispositivo sea la correcta) e inténtalo de nuevo.",
+      "confirm": "Confirmar y activar",
+      "confirming": "Verificando…",
+      "cancel": "Cancelar",
+      "alreadyEnabled": "La verificación en dos pasos ya estaba activa en tu cuenta.",
+      "success": "Verificación en dos pasos activada",
+      "successBody": "Desde ahora, al iniciar sesión te pediremos el código de tu app."
+    },
+    "password": {
+      "title": "Cambiar contraseña",
+      "description": "Elige una contraseña nueva de al menos 12 caracteres. Tu sesión actual sigue abierta."
+    }
+  },
+  "forbidden": {
+    "title": "Sin acceso",
+    "body": "Tu rol no permite ver esta sección."
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "body": "La página que buscas no existe o cambió de lugar."
+  },
+  "boot": {
+    "errorTitle": "No se pudo cargar tu sesión"
+  },
+  "errors": {
+    "generic": "Ocurrió un error inesperado. Inténtalo de nuevo.",
+    "reference": "Referencia: {{id}}",
+    "UNAUTHENTICATED": "Tu sesión no es válida o expiró. Inicia sesión de nuevo.",
+    "ROLE_FORBIDDEN": "Tu rol no tiene permiso para realizar esta acción.",
+    "SCOPE_MISSING": "La credencial no incluye el permiso necesario para esta operación.",
+    "TENANT_SUSPENDED": "El espacio de trabajo está suspendido. Contacta a tu administrador.",
+    "PASSWORD_CHANGE_REQUIRED": "Debes cambiar tu contraseña antes de continuar.",
+    "FORBIDDEN": "No tienes permiso para realizar esta acción.",
+    "NOT_FOUND": "No se encontró lo que buscas.",
+    "CONFLICT": "La operación entra en conflicto con el estado actual. Actualiza e inténtalo de nuevo.",
+    "BAD_REQUEST": "La solicitud no es válida.",
+    "IDEMPOTENCY_KEY_REQUIRED": "A la solicitud le falta su llave de idempotencia.",
+    "IDEMPOTENCY_KEY_REUSED": "Esta solicitud ya se envió con otros datos. Vuelve a intentarlo desde el inicio.",
+    "IDEMPOTENCY_IN_PROGRESS": "La solicitud anterior sigue en proceso. Espera un momento y vuelve a intentarlo.",
+    "VALIDATION_FAILED": "Revisa los datos capturados: hay valores no válidos.",
+    "INTERNAL": "Ocurrió un error interno. Inténtalo de nuevo en unos minutos.",
+    "NETWORK_ERROR": "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo."
+  }
+}

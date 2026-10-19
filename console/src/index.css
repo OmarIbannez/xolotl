@@ -1,0 +1,145 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * xolotl console design system. Every color lives here; components use tokens only.
+ * Palette: green-tinted neutrals, a deep teal primary, and a reserved status
+ * scale (good / warning / serious / critical / info). Status colors always ship
+ * with an icon + label, never alone.
+ */
+
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  /*
+   * Hover moves toward the text color, in both themes, so the label only gains contrast.
+   * Fading the fill instead (primary/80) pulls it toward the page, and the label fell to
+   * 4.1:1 in light mode.
+   */
+  --color-primary-hover: color-mix(in oklch, var(--primary), var(--foreground) 12%);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-good: var(--status-good);
+  --color-warning: var(--status-warning);
+  --color-serious: var(--status-serious);
+  --color-critical: var(--status-critical);
+  --color-info: var(--status-info);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+
+  --animate-fade-in-up: fade-in-up 0.35s ease-out both;
+}
+
+:root {
+  --background: oklch(0.985 0.004 190);
+  --foreground: oklch(0.2 0.02 200);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 200);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 200);
+  --primary: oklch(0.46 0.09 190);
+  --primary-foreground: oklch(0.985 0.005 190);
+  --secondary: oklch(0.955 0.008 190);
+  --secondary-foreground: oklch(0.28 0.03 200);
+  --muted: oklch(0.955 0.008 190);
+  --muted-foreground: oklch(0.5 0.02 200);
+  --accent: oklch(0.94 0.02 185);
+  --accent-foreground: oklch(0.3 0.06 190);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.91 0.01 190);
+  --input: oklch(0.88 0.012 190);
+  --ring: oklch(0.55 0.09 190);
+  --radius: 0.5rem;
+
+  --surface-1: oklch(0.975 0.005 190);
+  --surface-2: oklch(0.955 0.008 190);
+  --surface-3: oklch(0.925 0.01 190);
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-info: #2a78d6;
+}
+
+.dark {
+  --background: oklch(0.17 0.012 200);
+  --foreground: oklch(0.96 0.005 190);
+  --card: oklch(0.21 0.014 200);
+  --card-foreground: oklch(0.96 0.005 190);
+  --popover: oklch(0.21 0.014 200);
+  --popover-foreground: oklch(0.96 0.005 190);
+  --primary: oklch(0.74 0.1 185);
+  --primary-foreground: oklch(0.17 0.02 200);
+  --secondary: oklch(0.27 0.016 200);
+  --secondary-foreground: oklch(0.96 0.005 190);
+  --muted: oklch(0.26 0.014 200);
+  --muted-foreground: oklch(0.72 0.015 190);
+  --accent: oklch(0.3 0.04 190);
+  --accent-foreground: oklch(0.96 0.005 190);
+  --destructive: oklch(0.68 0.18 22);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.62 0.09 190);
+
+  --surface-1: oklch(0.19 0.013 200);
+  --surface-2: oklch(0.23 0.015 200);
+  --surface-3: oklch(0.27 0.016 200);
+
+  --status-info: #3987e5;
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply font-sans; }
+  body { @apply bg-background text-foreground antialiased; }
+  h1, h2, h3 { @apply tracking-tight; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-ring; }
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+  .stagger-1 { animation-delay: 0ms; }
+  .stagger-2 { animation-delay: 60ms; }
+  .stagger-3 { animation-delay: 120ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up { animation: none; }
+}

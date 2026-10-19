@@ -31,3 +31,69 @@ jobs:
           load: true
           tags: xolotl:ci
       - run: docker run --rm xolotl:ci xolotl --help
+
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      E2E_TENANT_SLUG: ci-smoke
+      E2E_TENANT_LEGAL_NAME: CI SA de CV
+      E2E_ADMIN_EMAIL: admin@ci.mx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # The same exact version as ARG NODE_VERSION in the Dockerfile, which builds the
+          # shipped console with it (tests/test_toolchain_pins.py keeps the two equal).
+          node-version: 22.23.3
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - name: Install dependencies
+        working-directory: console
+        run: npm ci
+      - name: Typecheck
+        working-directory: console
+        run: npm run typecheck
+      - name: Lint
+        working-directory: console
+        run: npm run lint
+      - name: Unit and component tests
+        working-directory: console
+        run: npm run test
+      - name: Build
+        working-directory: console
+        run: npm run build
+      - name: Install the browser for the smoke
+        working-directory: console
+        run: npx playwright install --with-deps chromium
+      # The smoke runs against the deployment as it ships: Postgres plus the application
+      # image, which serves the console and the API from one origin on 127.0.0.1:8000.
+      - name: Start Postgres and the application image
+        run: docker compose up -d --build --wait
+      - name: Create the smoke tenant
+        run: |
+          created="$(docker compose run --rm -T api xolotl tenant create \
+            --slug "$E2E_TENANT_SLUG" --legal-name "$E2E_TENANT_LEGAL_NAME" \
+            --admin-email "$E2E_ADMIN_EMAIL")"
+          password="$(printf '%s\n' "$created" | sed -n 's/^one-time password: //p')"
+          test -n "$password"
+          echo "::add-mask::$password"
+          echo "E2E_ADMIN_PASSWORD=$password" >> "$GITHUB_ENV"
+      - name: Smoke test
+        working-directory: console
+        run: npm run test:e2e
+      - name: Show the application logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Keep the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            console/playwright-report
+            console/test-results
+          retention-days: 7
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
