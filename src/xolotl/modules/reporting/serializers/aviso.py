@@ -13,7 +13,7 @@ files, each with the same ``mes_reportado`` and ``sujeto_obligado``.
 """
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -325,7 +325,11 @@ def _n(tag: str, *children: "Node | None") -> Node:
 
 
 def _leaf(tag: str, value: str | None) -> Node | None:
-    return None if value is None else Node(tag, value)
+    # Every leaf passes the aviso character rules, so control characters and
+    # lone surrogates never reach lxml; a blank value leaves the element out,
+    # which the XSD accepts for optional elements and rejects for required ones.
+    text = norm.aviso_text(value)
+    return Node(tag, text) if text else None
 
 
 def _t(value: str | None) -> str | None:
@@ -333,7 +337,12 @@ def _t(value: str | None) -> str | None:
 
 
 def _date(value: date | None) -> str | None:
-    return None if value is None else norm.yyyymmdd(value)
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        where = "date"
+        raise ReportFieldError(where, "pass a date, not a datetime")
+    return norm.yyyymmdd(value)
 
 
 def _rfc(value: str | None, where: str) -> str | None:
@@ -608,9 +617,10 @@ def _operations(ops: Operations) -> Node:
     )
 
 
-def _aviso(aviso: Aviso) -> Node:
+def _aviso(aviso: Aviso, number: int) -> Node:
     if aviso.operations.is_empty:
-        where = f"aviso {aviso.reference}"
+        # The position, not the reference: a reference is free text.
+        where = f"aviso {number}"
         raise ReportFieldError(where, "has no operation")
     return _n(
         "aviso",
@@ -668,12 +678,12 @@ def to_xml(namespace: str, root: Node) -> bytes:
     """
     element = etree.Element(f"{{{namespace}}}{root.tag}", nsmap={None: namespace})
     element.text = root.text
-    pending = [(element, child) for child in root.children]
+    pending = [(element, child) for child in reversed(root.children)]
     while pending:
-        parent, node = pending.pop(0)
+        parent, node = pending.pop()
         child = etree.SubElement(parent, f"{{{namespace}}}{node.tag}")
         child.text = node.text
-        pending.extend((child, grandchild) for grandchild in node.children)
+        pending.extend((child, grandchild) for grandchild in reversed(node.children))
     etree.indent(element, space="  ")
     return etree.tostring(element, xml_declaration=True, encoding="UTF-8") + b"\n"
 
@@ -748,30 +758,54 @@ def _validate(schema: etree.XMLSchema, data: bytes, part: int) -> None:
 def _parts(
     definition: XmlDefinition, informe: AvisoInforme, avisos: Sequence[Node]
 ) -> list[bytes]:
+    """Pack avisos into as few files under the size limit as order allows.
+
+    Each aviso is measured once, as the growth it adds to an empty informe, so
+    packing is linear; every packed part is then rendered and checked, and a
+    part the estimate got wrong is halved until it fits.
+
+    Returns:
+        The file parts, in aviso order.
+
+    Raises:
+        ReportTooLargeError: One aviso alone exceeds the limit.
+
+    """
+    limit = definition.size_limit_bytes
+
     def render(batch: Sequence[Node]) -> bytes:
         return to_xml(definition.namespace, _archivo(definition, informe, batch))
 
     whole = render(avisos)
-    if len(whole) <= definition.size_limit_bytes:
+    if len(whole) <= limit:
         return [whole]
-    parts: list[bytes] = []
+    envelope = len(render([]))
+    batches: list[list[Node]] = []
     batch: list[Node] = []
-    current = b""
+    size = envelope
     for aviso in avisos:
-        candidate = render([*batch, aviso])
-        if len(candidate) <= definition.size_limit_bytes:
-            batch.append(aviso)
-            current = candidate
-            continue
-        if not batch:
+        growth = len(render([aviso])) - envelope
+        if envelope + growth > limit:
             raise ReportTooLargeError
-        parts.append(current)
-        batch = [aviso]
-        current = render(batch)
-        if len(current) > definition.size_limit_bytes:
-            raise ReportTooLargeError
-    parts.append(current)
-    return parts
+        if batch and size + growth > limit:
+            batches.append(batch)
+            batch, size = [], envelope
+        batch.append(aviso)
+        size += growth
+    batches.append(batch)
+    return [part for chunk in batches for part in _fit(render, chunk, limit)]
+
+
+def _fit(
+    render: Callable[[Sequence[Node]], bytes], batch: Sequence[Node], limit: int
+) -> list[bytes]:
+    data = render(batch)
+    if len(data) <= limit:
+        return [data]
+    if len(batch) == 1:
+        raise ReportTooLargeError
+    middle = len(batch) // 2
+    return _fit(render, batch[:middle], limit) + _fit(render, batch[middle:], limit)
 
 
 def serialize_aviso(
@@ -799,7 +833,11 @@ def serialize_aviso(
         and definition.zero_report_rule is not ZeroReportRule.REQUIRED
     ):
         raise ZeroReportNotAllowedError(definition.code)
-    parts = _parts(definition, informe, [_aviso(aviso) for aviso in informe.avisos])
+    parts = _parts(
+        definition,
+        informe,
+        [_aviso(aviso, number) for number, aviso in enumerate(informe.avisos, start=1)],
+    )
     for number, part in enumerate(parts, start=1):
         _validate(schema, part, number)
     return SerializedReport(

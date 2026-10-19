@@ -1,6 +1,7 @@
 """LFPIORPI aviso XML for fr. XVI against the official avi.xsd (no database)."""
 
 import shutil
+import time
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from tests.modules.reporting.serializers.support import DEFS_DIR, assert_golden
 from xolotl.modules.reporting.serializers.aviso import (
     ForeignAddress,
     LegalPerson,
+    MexicanAddress,
     NaturalPerson,
     Operations,
     ReportTooLargeError,
@@ -268,3 +270,77 @@ def test_a_definition_without_a_schema_refuses_to_serialize(tmp_path: Path):
     defs = _defs_with(tmp_path, xsd=None, xsd_sha256=None)
     with pytest.raises(SchemaUnavailableError, match="no official schema yet"):
         _ = serialize_aviso(defs, load_xml(defs, "MX_AVISO_AVI", 1), MARCH_2027)
+
+
+# ---- Review findings --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"nationality": "M\x00X"},
+        {"economic_activity": "81\ud80021001"},
+    ],
+)
+def test_control_characters_and_surrogates_never_reach_lxml(change):
+    person = PERSON_CLIENT.person
+    assert isinstance(person, NaturalPerson)
+    client = replace(PERSON_CLIENT, person=replace(person, **change))
+    informe = replace(MARCH_2027, avisos=(replace(small_aviso(1), client=client),))
+    with pytest.raises(SchemaInvalidError):
+        _ = serialize_aviso(DEFS_DIR, AVI, informe)
+
+
+def test_a_datetime_birth_date_is_a_field_error():
+    person = PERSON_CLIENT.person
+    assert isinstance(person, NaturalPerson)
+    born = datetime.fromisoformat("1978-07-02T00:00:00+00:00")
+    client = replace(PERSON_CLIENT, person=replace(person, birth_date=born))
+    informe = replace(MARCH_2027, avisos=(replace(small_aviso(1), client=client),))
+    with pytest.raises(ReportFieldError, match="not a datetime"):
+        _ = serialize_aviso(DEFS_DIR, AVI, informe)
+
+
+def test_an_instant_outside_mexico_city_range_is_a_field_error():
+    trade = replace(
+        FULL_OPERATIONS.purchases[0],
+        at=datetime.fromisoformat("0001-01-01T00:00:00+00:00"),
+    )
+    aviso = replace(AVISO_FULL, operations=Operations(purchases=(trade,)))
+    with pytest.raises(ReportFieldError, match="out of range"):
+        _ = serialize_aviso(DEFS_DIR, AVI, replace(MARCH_2027, avisos=(aviso,)))
+
+
+def test_blank_optional_values_leave_their_element_out():
+    original = COMPANY_CLIENT.address
+    assert isinstance(original, MexicanAddress)
+    address = replace(original, interior_number="  ")
+    aviso = replace(
+        AVISO_FULL,
+        alert_description="  ",
+        client=replace(COMPANY_CLIENT, address=address),
+    )
+    data = serialize_aviso(DEFS_DIR, AVI, replace(MARCH_2027, avisos=(aviso,))).parts[0]
+    assert b"descripcion_alerta" not in data
+    assert b"numero_interior" not in data
+
+
+def test_the_no_operation_error_does_not_echo_the_reference():
+    aviso = replace(AVISO_FULL, reference="JUAN PEREZ", operations=Operations())
+    with pytest.raises(ReportFieldError) as err:
+        _ = serialize_aviso(DEFS_DIR, AVI, replace(MARCH_2027, avisos=(aviso,)))
+    assert err.value.detail == "aviso 1: has no operation"
+
+
+def test_splitting_five_thousand_avisos_is_linear(tmp_path: Path):
+    defs = _defs_with(tmp_path, size_limit_bytes=2_000_000)
+    definition = load_xml(defs, "MX_AVISO_AVI", 1)
+    avisos = tuple(small_aviso(i) for i in range(1, 5001))
+    started = time.perf_counter()
+    report = serialize_aviso(defs, definition, replace(MARCH_2027, avisos=avisos))
+    elapsed = time.perf_counter() - started
+    assert len(report.parts) >= 5
+    assert all(len(part) <= 2_000_000 for part in report.parts)
+    assert report.record_count == 5000
+    # The quadratic packer took about two minutes here.
+    assert elapsed < 30
