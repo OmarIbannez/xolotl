@@ -11,6 +11,7 @@ export const ACCESS = {
   apiKeys: ['ADMIN'],
   staff: ['ADMIN'],
   audit: ['MLRO', 'ADMIN', 'AUDITOR_RO'],
+  connectors: ['ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */

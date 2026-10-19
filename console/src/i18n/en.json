@@ -36,6 +36,7 @@
     "apiKeys": "API keys",
     "staff": "Staff",
     "audit": "Audit",
+    "connectors": "Connectors",
     "security": "Security",
     "openMenu": "Open menu",
     "apiDocs": "API documentation"
@@ -381,6 +382,56 @@
       "description": "Choose a new password of at least 12 characters. Your current session stays open."
     }
   },
+  "connectors": {
+    "title": "Connectors",
+    "description": "External verification services: mode, route, circuit state and usage.",
+    "table": {
+      "label": "Configured connectors",
+      "name": "Name",
+      "checkTypes": "Check types",
+      "mode": "Mode",
+      "routes": "Routes",
+      "circuit": "Circuit",
+      "credentials": "Credentials"
+    },
+    "empty": "No connectors are configured.",
+    "mode": {
+      "SANDBOX": "Sandbox",
+      "LIVE": "Live"
+    },
+    "circuit": {
+      "CLOSED": "Closed",
+      "HALF_OPEN": "Half open",
+      "OPEN": "Open"
+    },
+    "route": {
+      "PRIMARY": "Primary",
+      "FALLBACK": "Fallback",
+      "MOCK": "Mock"
+    },
+    "checkType": {
+      "UNIT_VALUE": "UNIT_VALUE",
+      "RFC_VALIDATION": "RFC_VALIDATION",
+      "CURP_VALIDATION": "CURP_VALIDATION"
+    },
+    "credentials": {
+      "none": "No credentials",
+      "modes": "Set for: {{modes}}"
+    },
+    "usage": {
+      "title": "Usage",
+      "description": "Calls and cost per connector and day (UTC).",
+      "label": "Usage per day",
+      "range7": "Last 7 days",
+      "range30": "Last 30 days",
+      "day": "Day",
+      "connector": "Connector",
+      "calls": "Calls",
+      "failed": "Failed",
+      "cost": "Cost",
+      "empty": "No calls in the period."
+    }
+  },
   "forbidden": {
     "title": "No access",
     "body": "Your role does not allow viewing this section."
@@ -409,6 +460,7 @@
     "IDEMPOTENCY_IN_PROGRESS": "The previous request is still being processed. Wait a moment and try again.",
     "VALIDATION_FAILED": "Check the data you entered: some values are not valid.",
     "INTERNAL": "An internal error occurred. Try again in a few minutes.",
-    "NETWORK_ERROR": "Could not reach the server. Check your connection and try again."
+    "NETWORK_ERROR": "Could not reach the server. Check your connection and try again.",
+    "CONNECTOR_NO_ROUTE": "No connector serves this check in this country."
   }
 }

@@ -9,7 +9,7 @@ import { ACCESS } from './access'
 import { RequireRole } from './guards'
 import { AuthContext } from './use-auth'
 
-/** The two admin pages behind the guards the console's routes use. */
+/** The three admin pages behind the guards the console's routes use. */
 function visit(path: string, roles: Role[]) {
   render(
     <AuthContext value={makeAuth(makeUser({ roles }))}>
@@ -21,16 +21,20 @@ function visit(path: string, roles: Role[]) {
           <Route element={<RequireRole roles={ACCESS.staff} />}>
             <Route path="/staff" element={<p>page of staff</p>} />
           </Route>
+          <Route element={<RequireRole roles={ACCESS.connectors} />}>
+            <Route path="/connectors" element={<p>page of connectors</p>} />
+          </Route>
         </Routes>
       </MemoryRouter>
     </AuthContext>,
   )
 }
 
-describe('the API keys and staff routes are for ADMIN only', () => {
+describe('the API keys, staff and connectors routes are for ADMIN only', () => {
   it.each([
     ['/api-keys', 'page of api keys'],
     ['/staff', 'page of staff'],
+    ['/connectors', 'page of connectors'],
   ])('lets an administrator open %s', (path, page) => {
     visit(path, ['ADMIN'])
 
@@ -47,6 +51,10 @@ describe('the API keys and staff routes are for ADMIN only', () => {
     ['/staff', 'page of staff', 'SENIOR_ANALYST'],
     ['/staff', 'page of staff', 'MLRO'],
     ['/staff', 'page of staff', 'AUDITOR_RO'],
+    ['/connectors', 'page of connectors', 'ANALYST'],
+    ['/connectors', 'page of connectors', 'SENIOR_ANALYST'],
+    ['/connectors', 'page of connectors', 'MLRO'],
+    ['/connectors', 'page of connectors', 'AUDITOR_RO'],
   ] as const)('shows "no access" instead of %s to a user who is only %s', (path, page, role) => {
     visit(path, [role])
 
