@@ -2,6 +2,9 @@
 # 2026-10-19 de banxico.org.mx/tipcamb (columna FIX, serie SF43718 de la SIE). Una fila por
 # día hábil bancario, cuatro decimales; sin fila en fines de semana, el 2025-12-12, el
 # 2025-12-25 ni el 2026-01-01.
+# Cotejados el 2026-10-19 fila por fila con la serie SF43718 de la gráfica pública de la
+# SIE (banxico.org.mx/SieInternet/consultaSerieGrafica.do, sin token) y con el indicador
+# DOLAR del DOF, publicado el día hábil siguiente a la determinación: los 42 coinciden.
 unit_code: USD_MXN_FIX
 quote_ccy: MXN
 source: "BANXICO_SIE:SF43718"

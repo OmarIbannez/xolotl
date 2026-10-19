@@ -1008,12 +1008,28 @@ def _with_settings(monkeypatch: pytest.MonkeyPatch, **changes: object) -> None:
 
 
 def test_units_seed_refuses_unverified_values_without_the_flag(
-    engine: Engine, admin_engine: Engine
+    engine: Engine, admin_engine: Engine, tmp_path: Path
 ):
-    result = runner.invoke(app, ["units", "seed"])
+    for seed in Path("policy-packs/_units").glob("*.yaml"):
+        text_ = seed.read_text(encoding="utf-8")
+        if seed.name == "UMA.yaml":
+            row = next(line for line in text_.splitlines() if "2026-02-01" in line)
+            text_ = text_.replace(
+                row, row.replace("confidence: VERIFIED", "confidence: UNVERIFIED")
+            )
+        _ = (tmp_path / seed.name).write_text(text_, encoding="utf-8")
+    result = runner.invoke(app, ["units", "seed", str(tmp_path)])
     assert (result.exit_code, result.stdout) == (1, "")
     assert result.stderr == "error: UNVERIFIED_VALUE: UMA 2026-02-01\n"
     assert _unit_values(admin_engine) == 0
+
+
+def test_units_seed_loads_the_committed_seeds_without_the_flag(
+    engine: Engine, admin_engine: Engine
+):
+    result = runner.invoke(app, ["units", "seed"])
+    assert (result.exit_code, result.stdout) == (0, UNITS_SEEDED), result.output
+    assert _unit_values(admin_engine) == 107
 
 
 def test_units_seed_with_the_flag_loads_every_unit_once(
