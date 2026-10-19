@@ -364,6 +364,197 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/policy/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policy Packs */
+        get: operations["list_policy_packs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/policy/effective": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Effective Policy */
+        get: operations["get_effective_policy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/policy/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Pack Assignments */
+        get: operations["list_pack_assignments"];
+        put?: never;
+        /** Create Pack Assignment */
+        post: operations["create_pack_assignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/policy/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Policy Overrides */
+        get: operations["list_policy_overrides"];
+        put?: never;
+        /** Create Policy Override */
+        post: operations["create_policy_override"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/me/regulatory-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Regulatory Profile */
+        get: operations["get_regulatory_profile"];
+        /** Set Regulatory Profile */
+        put: operations["set_regulatory_profile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/me/branches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Branches */
+        get: operations["list_branches"];
+        put?: never;
+        /** Create Branch */
+        post: operations["create_branch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Units */
+        get: operations["list_units"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/units/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lookup Unit */
+        get: operations["lookup_unit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/units/{code}/values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Unit Values */
+        get: operations["list_unit_values"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calendar/holidays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Holidays */
+        get: operations["list_holidays"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/calendar/due": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Evaluate Deadline */
+        get: operations["evaluate_deadline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/connectors": {
         parameters: {
             query?: never;
@@ -676,6 +867,57 @@ export interface components {
          * @enum {string}
          */
         ApiKeyStatus: "ACTIVE" | "REVOKED";
+        /** AssignmentCreateRequest */
+        AssignmentCreateRequest: {
+            /**
+             * Pack Version Id
+             * Format: uuid
+             */
+            pack_version_id: string;
+            /** Product */
+            product?: string | null;
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+        };
+        /** AssignmentResponse */
+        AssignmentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Pack Version Id
+             * Format: uuid
+             */
+            pack_version_id: string;
+            /** Pack */
+            pack: string;
+            /** Version */
+            version: number;
+            /** Product */
+            product: string | null;
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Effective To */
+            effective_to: string | null;
+            /**
+             * Approved By
+             * Format: uuid
+             */
+            approved_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** AuditEventResponse */
         AuditEventResponse: {
             /**
@@ -709,6 +951,84 @@ export interface components {
             /** Hash */
             hash: string;
         };
+        /** BandsOverride */
+        "BandsOverride-Input": {
+            sanctions_alert?: components["schemas"]["PlainDecimal-Input"] | null;
+            sanctions_review?: components["schemas"]["PlainDecimal-Input"] | null;
+            pep_alert?: components["schemas"]["PlainDecimal-Input"] | null;
+            id_match_floor?: components["schemas"]["PlainDecimal-Input"] | null;
+            id_conflict_cap?: components["schemas"]["PlainDecimal-Input"] | null;
+        };
+        /** BandsOverride */
+        "BandsOverride-Output": {
+            sanctions_alert?: components["schemas"]["PlainDecimal-Output"] | null;
+            sanctions_review?: components["schemas"]["PlainDecimal-Output"] | null;
+            pep_alert?: components["schemas"]["PlainDecimal-Output"] | null;
+            id_match_floor?: components["schemas"]["PlainDecimal-Output"] | null;
+            id_conflict_cap?: components["schemas"]["PlainDecimal-Output"] | null;
+        };
+        /** BranchCreateRequest */
+        BranchCreateRequest: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Address */
+            address: string;
+            /** State Code */
+            state_code: string;
+            /** Municipality Code */
+            municipality_code: string;
+        };
+        /** BranchResponse */
+        BranchResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** State Code */
+            state_code: string;
+            /** Municipality Code */
+            municipality_code: string;
+            status: components["schemas"]["BranchStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * BranchStatus
+         * @enum {string}
+         */
+        BranchStatus: "ACTIVE" | "CLOSED";
+        /** Capture */
+        Capture: {
+            /** Code */
+            code: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "THRESHOLD" | "ACCUMULATION" | "FEE_THRESHOLD";
+            threshold: components["schemas"]["Provenanced_Quantity_"];
+            conversion_rule: components["schemas"]["ConversionRule"];
+            window?: components["schemas"]["Provenanced_IsoDuration_"] | null;
+            period: components["schemas"]["Provenanced_Literal__MONTH____QUARTER___"];
+            /** Report */
+            report: string;
+            /**
+             * Filing
+             * @enum {string}
+             */
+            filing: "SERIALIZED" | "MANUAL_UPLOAD";
+            merge_into?: components["schemas"]["Provenanced_str_"] | null;
+        };
         /** ChainVerification */
         ChainVerification: {
             /**
@@ -735,6 +1055,11 @@ export interface components {
          * @enum {string}
          */
         CircuitState: "CLOSED" | "OPEN" | "HALF_OPEN";
+        /**
+         * Confidence
+         * @enum {string}
+         */
+        Confidence: "VERIFIED" | "UNVERIFIED";
         /** ConnectorCredentialRequest */
         ConnectorCredentialRequest: {
             /** Fields */
@@ -841,6 +1166,30 @@ export interface components {
          * @enum {string}
          */
         ContactKind: "EMAIL" | "PHONE";
+        /** ConversionResponse */
+        ConversionResponse: {
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /** Unit */
+            unit: string;
+            /** Rate */
+            rate: string;
+            /** Unit Value Id */
+            unit_value_id: number | null;
+            rule: components["schemas"]["ConversionRule"];
+            /**
+             * Resolved Date
+             * Format: date
+             */
+            resolved_date: string;
+        };
+        /**
+         * ConversionRule
+         * @enum {string}
+         */
+        ConversionRule: "SAME_DAY" | "PRIOR_BANKING_DAY" | "LAST_DAY_PREV_MONTH" | "PREV_MONTH_AVG" | "SEMIANNUAL_SNAPSHOT";
         /** CustomerRelationshipResponse */
         CustomerRelationshipResponse: {
             /**
@@ -878,6 +1227,27 @@ export interface components {
          */
         CustomerRelationshipStatus: "PENDING" | "ACTIVE" | "RESTRICTED" | "BLOCKED" | "EXITED";
         /**
+         * DeadlineKind
+         * @enum {string}
+         */
+        DeadlineKind: "BUSINESS_DAYS_AFTER" | "NTH_BUSINESS_DAY_OF" | "DAY_OF_NEXT_MONTH" | "CALENDAR_DAYS_AFTER" | "HOURS_AFTER" | "DATE_RANGE" | "FIXED";
+        /**
+         * DeadlineRule
+         * @description When something is due, relative to an anchor; ``params`` depend on ``kind``.
+         */
+        DeadlineRule: {
+            kind: components["schemas"]["DeadlineKind"];
+            /** Params */
+            params: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /**
+             * Tz
+             * @default America/Mexico_City
+             */
+            tz?: string;
+        };
+        /**
          * DeliveryStatus
          * @enum {string}
          */
@@ -914,15 +1284,114 @@ export interface components {
          * @enum {string}
          */
         DocumentType: "IDENTITY" | "PROOF_OF_ADDRESS" | "CONSTITUTIVE_ACT" | "POWER_OF_ATTORNEY" | "TAX_CERTIFICATE" | "OTHER";
+        /** DueResponse */
+        DueResponse: {
+            /**
+             * Due At
+             * Format: date-time
+             */
+            due_at: string;
+            rule: components["schemas"]["DeadlineRule"];
+            /**
+             * Anchor
+             * Format: date-time
+             */
+            anchor: string;
+            scope: components["schemas"]["HolidayScope"];
+        };
+        /**
+         * EffectivePolicy
+         * @description A merged, overridden body and what it was resolved from.
+         */
+        EffectivePolicy: {
+            units: components["schemas"]["UnitsPolicy"];
+            kyc: components["schemas"]["KycPolicy"];
+            ubo: components["schemas"]["UboPolicy"];
+            screening: components["schemas"]["ScreeningPolicy"];
+            /** Captures */
+            captures: components["schemas"]["Capture"][];
+            /** Reports */
+            reports: components["schemas"]["ReportRef"][];
+            retention: components["schemas"]["RetentionPolicy"];
+            governance: components["schemas"]["GovernancePolicy"];
+            /**
+             * On
+             * Format: date
+             */
+            on: string;
+            /** Product */
+            product: string | null;
+            /** Country */
+            country: string;
+            /** Pack Codes */
+            pack_codes: string[];
+            /** Pack Version Ids */
+            pack_version_ids: string[];
+            /** Override Version */
+            override_version: number | null;
+        };
+        /** EffectivePolicyResponse */
+        EffectivePolicyResponse: {
+            policy: components["schemas"]["EffectivePolicy"];
+            /**
+             * Snapshot Id
+             * Format: uuid
+             */
+            snapshot_id: string;
+            /** Content Hash */
+            content_hash: string;
+            /** Converted */
+            converted: {
+                [key: string]: components["schemas"]["ConversionResponse"] | null;
+            };
+            /** Missing Units */
+            missing_units: string[];
+        };
         /**
          * EndpointStatus
          * @enum {string}
          */
         EndpointStatus: "ACTIVE" | "DISABLED";
+        /** GovernancePolicy */
+        GovernancePolicy: {
+            committee_required: components["schemas"]["Provenanced_bool_"];
+            /**
+             * Four Eyes On Reports
+             * @default true
+             */
+            four_eyes_on_reports?: boolean;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HolidayResponse */
+        HolidayResponse: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+        };
+        /**
+         * HolidayScope
+         * @enum {string}
+         */
+        HolidayScope: "NATIONAL" | "CNBV" | "SAT" | "BANXICO";
+        /** HolidaysResponse */
+        HolidaysResponse: {
+            /** Country */
+            country: string;
+            scope: components["schemas"]["HolidayScope"];
+            /** Year */
+            year: number;
+            /** Items */
+            items: components["schemas"]["HolidayResponse"][];
         };
         /** IdentifierInput */
         IdentifierInput: {
@@ -944,7 +1413,30 @@ export interface components {
          * @enum {string}
          */
         IdentifierType: "CURP" | "RFC" | "CLABE" | "INE" | "CPF" | "CNPJ" | "CUIT" | "RUT" | "NIT" | "CEDULA_CO" | "DNI_PE" | "PASSPORT";
+        IsoDuration: string;
         JsonValue: unknown;
+        /** KycPolicy */
+        KycPolicy: {
+            /** Tiers */
+            tiers: components["schemas"]["KycTier"][];
+            /** Review Frequency */
+            review_frequency: {
+                [key: string]: components["schemas"]["Provenanced_IsoDuration_"];
+            };
+            geolocation_required: components["schemas"]["Provenanced_bool_"];
+        };
+        /** KycTier */
+        KycTier: {
+            /** Code */
+            code: string;
+            limits: components["schemas"]["TierLimits"];
+            /** Required Fields */
+            required_fields: string[];
+            /** Required Checks */
+            required_checks: string[];
+            /** Assurance */
+            assurance: string;
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Tenant Slug */
@@ -1081,10 +1573,71 @@ export interface components {
             /** Country Of Incorporation */
             country_of_incorporation?: string | null;
         };
+        /** OverrideResponse */
+        OverrideResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Version */
+            version: number;
+            overrides: components["schemas"]["TenantOverride-Output"];
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /**
+             * Approved By
+             * Format: uuid
+             */
+            approved_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** PackVersionResponse */
+        PackVersionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Code */
+            code: string;
+            /** Version */
+            version: number;
+            /** Title */
+            title: string;
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Effective To */
+            effective_to: string | null;
+            /** Content Hash */
+            content_hash: string;
+            /**
+             * Loaded At
+             * Format: date-time
+             */
+            loaded_at: string;
+        };
         /** Page[ApiKeyResponse] */
         Page_ApiKeyResponse_: {
             /** Items */
             items: components["schemas"]["ApiKeyResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[AssignmentResponse] */
+        Page_AssignmentResponse_: {
+            /** Items */
+            items: components["schemas"]["AssignmentResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -1095,10 +1648,31 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[BranchResponse] */
+        Page_BranchResponse_: {
+            /** Items */
+            items: components["schemas"]["BranchResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[NotificationResponse] */
         Page_NotificationResponse_: {
             /** Items */
             items: components["schemas"]["NotificationResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[OverrideResponse] */
+        Page_OverrideResponse_: {
+            /** Items */
+            items: components["schemas"]["OverrideResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[PackVersionResponse] */
+        Page_PackVersionResponse_: {
+            /** Items */
+            items: components["schemas"]["PackVersionResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -1290,6 +1864,13 @@ export interface components {
             /** New Password */
             new_password: string;
         };
+        /** PepPolicy */
+        PepPolicy: {
+            /** Cooling Off */
+            cooling_off: {
+                [key: string]: components["schemas"]["Provenanced_Union_IsoDuration__NoneType__"];
+            };
+        };
         /**
          * PepStatus
          * @enum {string}
@@ -1370,11 +1951,242 @@ export interface components {
              */
             at: string;
         };
+        "PlainDecimal-Input": number | string;
+        "PlainDecimal-Output": string;
+        /** Provenanced[ConversionRule] */
+        Provenanced_ConversionRule_: {
+            value: components["schemas"]["ConversionRule"];
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[DeadlineRule] */
+        Provenanced_DeadlineRule_: {
+            value: components["schemas"]["DeadlineRule"];
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[IsoDuration] */
+        Provenanced_IsoDuration_: {
+            value: components["schemas"]["IsoDuration"];
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[Literal['MONTH', 'QUARTER']] */
+        Provenanced_Literal__MONTH____QUARTER___: {
+            /**
+             * Value
+             * @enum {string}
+             */
+            value: "MONTH" | "QUARTER";
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[PlainDecimal] */
+        Provenanced_PlainDecimal_: {
+            value: components["schemas"]["PlainDecimal-Output"];
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[Quantity] */
+        Provenanced_Quantity_: {
+            value: components["schemas"]["Quantity-Output"];
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[Union[IsoDuration, NoneType]] */
+        Provenanced_Union_IsoDuration__NoneType__: {
+            value: components["schemas"]["IsoDuration"] | null;
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[bool] */
+        Provenanced_bool_: {
+            /** Value */
+            value: boolean;
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Provenanced[str] */
+        Provenanced_str_: {
+            /** Value */
+            value: string;
+            /** Unit */
+            unit?: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            confidence: components["schemas"]["Confidence"];
+            /**
+             * Verified As Of
+             * Format: date
+             */
+            verified_as_of: string;
+        };
+        /** Quantity */
+        "Quantity-Input": {
+            amount: components["schemas"]["PlainDecimal-Input"];
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "UDI" | "UMA" | "USD" | "MXN";
+        };
+        /** Quantity */
+        "Quantity-Output": {
+            amount: components["schemas"]["PlainDecimal-Output"];
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "UDI" | "UMA" | "USD" | "MXN";
+        };
+        /** RegulatoryProfileRequest */
+        RegulatoryProfileRequest: {
+            /** Rfc */
+            rfc: string;
+            /** Legal Name */
+            legal_name: string;
+            /** Casfim Supervisor */
+            casfim_supervisor?: string | null;
+            /** Casfim Entity Key */
+            casfim_entity_key?: string | null;
+            /** Spplld Activity Key */
+            spplld_activity_key?: string | null;
+            /** Platform Domain */
+            platform_domain?: string | null;
+            /**
+             * Entidad Colegiada
+             * @default false
+             */
+            entidad_colegiada?: boolean;
+            /** Compliance Officer User Id */
+            compliance_officer_user_id?: string | null;
+        };
+        /** RegulatoryProfileResponse */
+        RegulatoryProfileResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Rfc Masked */
+            rfc_masked: string;
+            /** Legal Name */
+            legal_name: string;
+            /** Casfim Supervisor */
+            casfim_supervisor: string | null;
+            /** Casfim Entity Key */
+            casfim_entity_key: string | null;
+            /** Spplld Activity Key */
+            spplld_activity_key: string | null;
+            /** Platform Domain */
+            platform_domain: string | null;
+            /** Entidad Colegiada */
+            entidad_colegiada: boolean;
+            /** Compliance Officer User Id */
+            compliance_officer_user_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /**
          * RelationshipType
          * @enum {string}
          */
         RelationshipType: "SHAREHOLDER" | "DIRECTOR" | "LEGAL_REP" | "ATTORNEY" | "CONTROLLER";
+        /** ReportRef */
+        ReportRef: {
+            /** Code */
+            code: string;
+            /**
+             * Anchor
+             * @enum {string}
+             */
+            anchor: "period_end" | "committee_decision" | "detection";
+            deadline: components["schemas"]["Provenanced_DeadlineRule_"];
+            /** Zero Report */
+            zero_report: boolean;
+        };
+        /** RetentionOverride */
+        RetentionOverride: {
+            kyc_after_relationship?: components["schemas"]["IsoDuration"] | null;
+            transactions?: components["schemas"]["IsoDuration"] | null;
+        };
+        /** RetentionPolicy */
+        RetentionPolicy: {
+            kyc_after_relationship: components["schemas"]["Provenanced_IsoDuration_"];
+            transactions: components["schemas"]["Provenanced_IsoDuration_"];
+        };
         /** RevealedAddress */
         RevealedAddress: {
             /**
@@ -1412,6 +2224,41 @@ export interface components {
          * @enum {string}
          */
         Role: "ANALYST" | "SENIOR_ANALYST" | "MLRO" | "AUDITOR_RO" | "ADMIN";
+        /** ScreeningBands */
+        ScreeningBands: {
+            /** @default 0.70 */
+            sanctions_alert?: components["schemas"]["PlainDecimal-Output"];
+            /** @default 0.55 */
+            sanctions_review?: components["schemas"]["PlainDecimal-Output"];
+            /** @default 0.80 */
+            pep_alert?: components["schemas"]["PlainDecimal-Output"];
+            /** @default 0.95 */
+            id_match_floor?: components["schemas"]["PlainDecimal-Output"];
+            /** @default 0.30 */
+            id_conflict_cap?: components["schemas"]["PlainDecimal-Output"];
+        };
+        /** ScreeningPolicy */
+        ScreeningPolicy: {
+            /** Mandatory Lists */
+            mandatory_lists: components["schemas"]["Provenanced_str_"][];
+            /** Recommended Lists */
+            recommended_lists: string[];
+            /**
+             * @default {
+             *       "sanctions_alert": "0.7",
+             *       "sanctions_review": "0.55",
+             *       "pep_alert": "0.8",
+             *       "id_match_floor": "0.95",
+             *       "id_conflict_cap": "0.3"
+             *     }
+             */
+            bands?: components["schemas"]["ScreeningBands"];
+            pep: components["schemas"]["PepPolicy"];
+            /** On True Match */
+            on_true_match: {
+                [key: string]: components["schemas"]["TrueMatchAction"];
+            };
+        };
         /** StaffCreateRequest */
         StaffCreateRequest: {
             /** Email */
@@ -1469,6 +2316,94 @@ export interface components {
          * @enum {string}
          */
         TenantEnv: "SANDBOX" | "PROD";
+        /**
+         * TenantOverride
+         * @description What a tenant tightens; every field optional, keyed by code or level.
+         */
+        "TenantOverride-Input": {
+            /**
+             * Tier Limits
+             * @default {}
+             */
+            tier_limits?: {
+                [key: string]: components["schemas"]["TierLimitsOverride-Input"];
+            };
+            /**
+             * Capture Thresholds
+             * @default {}
+             */
+            capture_thresholds?: {
+                [key: string]: components["schemas"]["Quantity-Input"];
+            };
+            /**
+             * Review Frequency
+             * @default {}
+             */
+            review_frequency?: {
+                [key: string]: components["schemas"]["IsoDuration"];
+            };
+            retention?: components["schemas"]["RetentionOverride"] | null;
+            /**
+             * Mandatory Lists Add
+             * @default []
+             */
+            mandatory_lists_add?: string[];
+            /**
+             * Recommended Lists Add
+             * @default []
+             */
+            recommended_lists_add?: string[];
+            bands?: components["schemas"]["BandsOverride-Input"] | null;
+            ubo_ownership_threshold_pct?: components["schemas"]["PlainDecimal-Input"] | null;
+            /** Committee Required */
+            committee_required?: boolean | null;
+            /** Geolocation Required */
+            geolocation_required?: boolean | null;
+        };
+        /**
+         * TenantOverride
+         * @description What a tenant tightens; every field optional, keyed by code or level.
+         */
+        "TenantOverride-Output": {
+            /**
+             * Tier Limits
+             * @default {}
+             */
+            tier_limits?: {
+                [key: string]: components["schemas"]["TierLimitsOverride-Output"];
+            };
+            /**
+             * Capture Thresholds
+             * @default {}
+             */
+            capture_thresholds?: {
+                [key: string]: components["schemas"]["Quantity-Output"];
+            };
+            /**
+             * Review Frequency
+             * @default {}
+             */
+            review_frequency?: {
+                [key: string]: components["schemas"]["IsoDuration"];
+            };
+            retention?: components["schemas"]["RetentionOverride"] | null;
+            /**
+             * Mandatory Lists Add
+             * @default []
+             */
+            mandatory_lists_add?: string[];
+            /**
+             * Recommended Lists Add
+             * @default []
+             */
+            recommended_lists_add?: string[];
+            bands?: components["schemas"]["BandsOverride-Output"] | null;
+            ubo_ownership_threshold_pct?: components["schemas"]["PlainDecimal-Output"] | null;
+            /** Committee Required */
+            committee_required?: boolean | null;
+            /** Geolocation Required */
+            geolocation_required?: boolean | null;
+        };
         /** TenantResponse */
         TenantResponse: {
             /**
@@ -1497,6 +2432,21 @@ export interface components {
          * @enum {string}
          */
         TenantStatus: "ONBOARDING" | "ACTIVE" | "SUSPENDED" | "OFFBOARDED";
+        /** TierLimits */
+        TierLimits: {
+            monthly_ops?: components["schemas"]["Provenanced_Quantity_"] | null;
+            max_balance?: components["schemas"]["Provenanced_Quantity_"] | null;
+        };
+        /** TierLimitsOverride */
+        "TierLimitsOverride-Input": {
+            monthly_ops?: components["schemas"]["Quantity-Input"] | null;
+            max_balance?: components["schemas"]["Quantity-Input"] | null;
+        };
+        /** TierLimitsOverride */
+        "TierLimitsOverride-Output": {
+            monthly_ops?: components["schemas"]["Quantity-Output"] | null;
+            max_balance?: components["schemas"]["Quantity-Output"] | null;
+        };
         /** TokenResponse */
         TokenResponse: {
             /** Access Token */
@@ -1530,6 +2480,132 @@ export interface components {
             mfa_token: string;
             /** Code */
             code: string;
+        };
+        /** TrueMatchAction */
+        TrueMatchAction: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "SUSPEND_IMMEDIATELY" | "REVIEW";
+            /** Report */
+            report?: string | null;
+            /**
+             * Notify Client
+             * @default false
+             */
+            notify_client?: boolean;
+        };
+        /** UboPolicy */
+        UboPolicy: {
+            ownership_threshold_pct: components["schemas"]["Provenanced_PlainDecimal_"];
+            /** Control Tests */
+            control_tests: string[];
+            /**
+             * Fallback
+             * @constant
+             */
+            fallback: "SENIOR_MANAGING_OFFICIAL";
+            /**
+             * Legal Person Can Be Ubo
+             * @default false
+             */
+            legal_person_can_be_ubo?: boolean;
+        };
+        /** UnitLookupResponse */
+        UnitLookupResponse: {
+            /** Unit Code */
+            unit_code: string;
+            /**
+             * On
+             * Format: date
+             */
+            on: string;
+            rule: components["schemas"]["ConversionRule"];
+            /**
+             * Resolved Date
+             * Format: date
+             */
+            resolved_date: string;
+            /** Value */
+            value: string;
+            /** Quote Ccy */
+            quote_ccy: string;
+            /** Unit Value Id */
+            unit_value_id: number;
+            /** Source */
+            source: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+        };
+        /** UnitSummaryResponse */
+        UnitSummaryResponse: {
+            /** Unit Code */
+            unit_code: string;
+            /** Quote Ccy */
+            quote_ccy: string;
+            /** Daily */
+            daily: boolean;
+            /** Series Id */
+            series_id: string | null;
+            /** Latest Valid From */
+            latest_valid_from: string | null;
+            /** Latest Fetched At */
+            latest_fetched_at: string | null;
+            /** Latest Source */
+            latest_source: string | null;
+        };
+        /** UnitValueResponse */
+        UnitValueResponse: {
+            /** Id */
+            id: number;
+            /** Unit Code */
+            unit_code: string;
+            /**
+             * Valid From
+             * Format: date
+             */
+            valid_from: string;
+            /** Valid To */
+            valid_to: string | null;
+            /** Value */
+            value: string;
+            /** Quote Ccy */
+            quote_ccy: string;
+            /** Source */
+            source: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /** Superseded By */
+            superseded_by: number | null;
+        };
+        /** UnitValuesResponse */
+        UnitValuesResponse: {
+            /** Unit Code */
+            unit_code: string;
+            /** Items */
+            items: components["schemas"]["UnitValueResponse"][];
+        };
+        /** UnitsPolicy */
+        UnitsPolicy: {
+            /**
+             * Quote Ccy
+             * @default MXN
+             * @constant
+             */
+            quote_ccy?: "MXN";
+            tier_limit_rule?: components["schemas"]["Provenanced_ConversionRule_"] | null;
+        };
+        /** UnitsResponse */
+        UnitsResponse: {
+            /** Items */
+            items: components["schemas"]["UnitSummaryResponse"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -2339,6 +3415,471 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookDeliveryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policy_packs: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PackVersionResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_effective_policy: {
+        parameters: {
+            query?: {
+                on?: string | null;
+                product?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EffectivePolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pack_assignments: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_AssignmentResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_pack_assignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignmentCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_policy_overrides: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_OverrideResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_policy_override: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantOverride-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverrideResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_regulatory_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegulatoryProfileResponse"];
+                };
+            };
+        };
+    };
+    set_regulatory_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegulatoryProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegulatoryProfileResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_branches: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_BranchResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_branch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BranchCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_units: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitsResponse"];
+                };
+            };
+        };
+    };
+    lookup_unit: {
+        parameters: {
+            query?: {
+                on?: string | null;
+                rule?: components["schemas"]["ConversionRule"];
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitLookupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_unit_values: {
+        parameters: {
+            query?: {
+                from?: string | null;
+                to?: string | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnitValuesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_holidays: {
+        parameters: {
+            query?: {
+                scope?: components["schemas"]["HolidayScope"];
+                year?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolidaysResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evaluate_deadline: {
+        parameters: {
+            query: {
+                rule: string;
+                anchor: string;
+                scope?: components["schemas"]["HolidayScope"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DueResponse"];
                 };
             };
             /** @description Validation Error */

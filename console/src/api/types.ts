@@ -44,6 +44,25 @@ export type CheckType = Schemas['CheckType']
 export type ConnectorRoute = Schemas['ConnectorRoute']
 export type CircuitState = Schemas['CircuitState']
 
+export type EffectivePolicyResponse = Schemas['EffectivePolicyResponse']
+export type EffectivePolicy = Schemas['EffectivePolicy']
+export type ConversionResponse = Schemas['ConversionResponse']
+export type PackVersionPage = Schemas['Page_PackVersionResponse_']
+export type AssignmentPage = Schemas['Page_AssignmentResponse_']
+export type OverridePage = Schemas['Page_OverrideResponse_']
+export type UnitsResponse = Schemas['UnitsResponse']
+export type UnitLookupResponse = Schemas['UnitLookupResponse']
+export type UnitValuesResponse = Schemas['UnitValuesResponse']
+export type HolidaysResponse = Schemas['HolidaysResponse']
+export type DueResponse = Schemas['DueResponse']
+export type DeadlineRule = Schemas['DeadlineRule']
+export type DeadlineKind = Schemas['DeadlineKind']
+export type ConversionRule = Schemas['ConversionRule']
+export type HolidayScope = Schemas['HolidayScope']
+/** An amount in a unit as the API answers it: `amount` is a decimal string, never a float. */
+export type Quantity = Schemas['Quantity-Output']
+export type Confidence = Schemas['Confidence']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

@@ -143,8 +143,8 @@ browser would send and receive: it renders a page inside the real `AuthProvider`
 
 `npm run test:e2e` drives a real Chromium through the console against a running deployment:
 sign in, the forced password change, turning TOTP on and signing in with a code, creating an API
-key (shown once, listed masked), verifying the audit chain, and what happens when the server ends
-the session. It also checks that the API and the console come from one origin and that a deep link
+key (shown once, listed masked), verifying the audit chain, assigning the ITF policy pack and reading
+its tier limits in the pack viewer, and what happens when the server ends the session. It also checks that the API and the console come from one origin and that a deep link
 such as `/audit` loads. The deployment is the one that ships: Postgres plus the application image,
 which serves the console and the API.
 
@@ -152,6 +152,9 @@ which serves the console and the API.
 npx playwright install chromium          # once
 docker compose up -d --build --wait      # from the repository root; the console is built into the image
 docker compose run --rm -T api xolotl tenant create --slug acme --legal-name "Acme SA de CV" --admin-email admin@acme.mx
+docker compose run --rm -T api xolotl packs load --allow-unverified   # the pack viewer step needs MX/ITF-IFPE v1
+docker compose run --rm -T api xolotl holidays seed
+docker compose run --rm -T api xolotl units seed --allow-unverified
 E2E_ADMIN_PASSWORD='<the one-time password it printed>' npm run test:e2e
 ```
 
@@ -165,7 +168,7 @@ E2E_ADMIN_PASSWORD='<the one-time password it printed>' npm run test:e2e
 
 The flow consumes the one-time password and changes the administrator's password, so every run
 needs a new tenant; there are no retries for the same reason. The CI job `console` creates a tenant
-the same way and passes its password through `E2E_ADMIN_PASSWORD`. If the default ports are taken,
+the same way, runs the same three seed commands, and passes its password through `E2E_ADMIN_PASSWORD`. If the default ports are taken,
 publish the API elsewhere (a compose override with `ports: !override ["127.0.0.1:8010:8000"]`) and
 set `E2E_BASE_URL`. Every run, local or CI, writes the HTML report to `playwright-report/` (open it
 with `npx playwright show-report playwright-report`; it is never opened for you), and a failed run
