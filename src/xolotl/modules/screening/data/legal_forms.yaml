@@ -1,0 +1,25 @@
+# Company legal forms, as folded token sequences, each mapped to its canonical code
+# (SP-03 spec section 4.2). Matched at the end of an organization name, longest
+# sequence first, after dots are removed and runs of single letters are joined
+# ("S. A. de C. V." -> "sa de cv"). Changing this file bumps MATCHER_VERSION.
+SAPI_DE_CV: ["sapi de cv"]
+SAB_DE_CV: ["sab de cv"]
+SA_DE_CV: ["sa de cv", "sociedad anonima de capital variable"]
+S_DE_RL_DE_CV: ["s de rl de cv", "srl de cv"]
+S_DE_RL: ["s de rl", "sociedad de responsabilidad limitada"]
+SC: ["sc", "sociedad civil"]
+SAS: ["sas"]
+SA: ["sa", "sociedad anonima"]
+LLC: ["llc"]
+LLP: ["llp"]
+LTD: ["ltd", "limited", "co ltd", "company limited"]
+INC: ["inc", "incorporated"]
+CORP: ["corp"]
+PLC: ["plc"]
+GMBH: ["gmbh"]
+AG: ["ag"]
+BV: ["bv"]
+NV: ["nv"]
+SRL: ["srl"]
+SPA: ["spa"]
+LTDA: ["ltda"]
