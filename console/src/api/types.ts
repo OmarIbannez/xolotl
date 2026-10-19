@@ -35,6 +35,15 @@ export type AuditEventResponse = Schemas['AuditEventResponse']
 export type AuditPage = Schemas['Page_AuditEventResponse_']
 export type ChainVerification = Schemas['ChainVerification']
 
+export type ConnectorResponse = Schemas['ConnectorResponse']
+export type ConnectorList = Schemas['ConnectorListResponse']
+export type ConnectorUsage = Schemas['ConnectorUsageResponse']
+export type ConnectorUsageRow = Schemas['ConnectorUsageRow']
+export type ConnectorMode = Schemas['ConnectorMode']
+export type CheckType = Schemas['CheckType']
+export type ConnectorRoute = Schemas['ConnectorRoute']
+export type CircuitState = Schemas['CircuitState']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

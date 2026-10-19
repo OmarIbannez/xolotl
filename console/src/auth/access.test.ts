@@ -15,18 +15,19 @@ describe('hasAnyRole', () => {
     expect(hasAnyRole([], ACCESS.staff)).toBe(false)
   })
 
-  it('follows the access table: ADMIN manages keys and staff; MLRO, ADMIN and AUDITOR_RO read audit', () => {
+  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit', () => {
     const allowed = (role: Role) => ({
       apiKeys: hasAnyRole([role], ACCESS.apiKeys),
       staff: hasAnyRole([role], ACCESS.staff),
       audit: hasAnyRole([role], ACCESS.audit),
+      connectors: hasAnyRole([role], ACCESS.connectors),
     })
 
-    expect(allowed('ADMIN')).toEqual({ apiKeys: true, staff: true, audit: true })
-    expect(allowed('MLRO')).toEqual({ apiKeys: false, staff: false, audit: true })
-    expect(allowed('AUDITOR_RO')).toEqual({ apiKeys: false, staff: false, audit: true })
-    expect(allowed('ANALYST')).toEqual({ apiKeys: false, staff: false, audit: false })
-    expect(allowed('SENIOR_ANALYST')).toEqual({ apiKeys: false, staff: false, audit: false })
+    expect(allowed('ADMIN')).toEqual({ apiKeys: true, staff: true, audit: true, connectors: true })
+    expect(allowed('MLRO')).toEqual({ apiKeys: false, staff: false, audit: true, connectors: false })
+    expect(allowed('AUDITOR_RO')).toEqual({ apiKeys: false, staff: false, audit: true, connectors: false })
+    expect(allowed('ANALYST')).toEqual({ apiKeys: false, staff: false, audit: false, connectors: false })
+    expect(allowed('SENIOR_ANALYST')).toEqual({ apiKeys: false, staff: false, audit: false, connectors: false })
   })
 })
 

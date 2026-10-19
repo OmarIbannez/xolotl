@@ -4,6 +4,7 @@ Connectors look up tenant-encrypted credentials, retry behind a circuit breaker,
 store the raw answer as evidence and meter every call in ``connector_call``.
 """
 
+from xolotl.platform.connectors.banxico import BanxicoSieConnector
 from xolotl.platform.connectors.base import Connector, ConnectorDeps, redact
 from xolotl.platform.connectors.breaker import CircuitBreaker
 from xolotl.platform.connectors.defaults import DEFAULT_ROUTES, default_router
@@ -33,6 +34,7 @@ from xolotl.platform.enums import (
 
 __all__ = [
     "DEFAULT_ROUTES",
+    "BanxicoSieConnector",
     "CallOutcome",
     "CheckResult",
     "CheckType",

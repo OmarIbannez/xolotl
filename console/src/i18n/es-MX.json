@@ -36,6 +36,7 @@
     "apiKeys": "Llaves API",
     "staff": "Personal",
     "audit": "Auditoría",
+    "connectors": "Conectores",
     "security": "Seguridad",
     "openMenu": "Abrir menú",
     "apiDocs": "Documentación de la API"
@@ -381,6 +382,56 @@
       "description": "Elige una contraseña nueva de al menos 12 caracteres. Tu sesión actual sigue abierta."
     }
   },
+  "connectors": {
+    "title": "Conectores",
+    "description": "Servicios externos de verificación: modo, ruta, estado del circuito y uso.",
+    "table": {
+      "label": "Conectores configurados",
+      "name": "Nombre",
+      "checkTypes": "Verificaciones",
+      "mode": "Modo",
+      "routes": "Rutas",
+      "circuit": "Circuito",
+      "credentials": "Credenciales"
+    },
+    "empty": "No hay conectores configurados.",
+    "mode": {
+      "SANDBOX": "Sandbox",
+      "LIVE": "En vivo"
+    },
+    "circuit": {
+      "CLOSED": "Cerrado",
+      "HALF_OPEN": "Semiabierto",
+      "OPEN": "Abierto"
+    },
+    "route": {
+      "PRIMARY": "Primaria",
+      "FALLBACK": "Respaldo",
+      "MOCK": "Simulada"
+    },
+    "checkType": {
+      "UNIT_VALUE": "UNIT_VALUE",
+      "RFC_VALIDATION": "RFC_VALIDATION",
+      "CURP_VALIDATION": "CURP_VALIDATION"
+    },
+    "credentials": {
+      "none": "Sin credenciales",
+      "modes": "Configuradas: {{modes}}"
+    },
+    "usage": {
+      "title": "Uso",
+      "description": "Llamadas y costo por conector y día (UTC).",
+      "label": "Uso por día",
+      "range7": "Últimos 7 días",
+      "range30": "Últimos 30 días",
+      "day": "Día",
+      "connector": "Conector",
+      "calls": "Llamadas",
+      "failed": "Fallidas",
+      "cost": "Costo",
+      "empty": "Sin llamadas en el periodo."
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -409,6 +460,7 @@
     "IDEMPOTENCY_IN_PROGRESS": "La solicitud anterior sigue en proceso. Espera un momento y vuelve a intentarlo.",
     "VALIDATION_FAILED": "Revisa los datos capturados: hay valores no válidos.",
     "INTERNAL": "Ocurrió un error interno. Inténtalo de nuevo en unos minutos.",
-    "NETWORK_ERROR": "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo."
+    "NETWORK_ERROR": "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
+    "CONNECTOR_NO_ROUTE": "Ningún conector atiende esta verificación en este país."
   }
 }

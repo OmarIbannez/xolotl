@@ -67,6 +67,18 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.connectors} />,
+                children: [
+                  {
+                    path: '/connectors',
+                    lazy: () =>
+                      import('@/features/connectors/ConnectorsPage').then((m) => ({
+                        Component: m.ConnectorsPage,
+                      })),
+                  },
+                ],
+              },
+              {
                 path: '/security',
                 lazy: () =>
                   import('@/features/security/SecurityPage').then((m) => ({
