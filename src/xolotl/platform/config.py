@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     banxico_token: SecretStr | None = None
     # Daily units fetch, five-field cron, evaluated in America/Mexico_City.
     units_fetch_cron: str = "0 18 * * 1-5"
+    # Daily party retention sweep (five-field cron, evaluated in UTC).
+    retention_purge_cron: str = "0 3 * * *"
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -138,7 +140,7 @@ class Settings(BaseSettings):
         _ = _decode_master_key(value.get_secret_value())
         return value
 
-    @field_validator("units_fetch_cron")
+    @field_validator("units_fetch_cron", "retention_purge_cron")
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:
         if not croniter.is_valid(value):

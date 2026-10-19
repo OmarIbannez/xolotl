@@ -6,10 +6,33 @@ here when they add tables, and list them in ``register_all``.
 """
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from xolotl.modules.party.enums import (
+    AddressType,
+    ContactKind,
+    CustomerRelationshipStatus,
+    DocumentType,
+    IdentifierType,
+    PartyType,
+    RelationshipType,
+    VerificationResult,
+)
+from xolotl.modules.party.models import (
+    CustomerRelationship,
+    Document,
+    Organization,
+    Party,
+    PartyAddress,
+    PartyContact,
+    PartyIdentifier,
+    PartyRelationship,
+    Person,
+    VerificationCheck,
+)
 from xolotl.modules.tenants.models import (
     ApiKey,
     StaffCredential,
@@ -21,6 +44,7 @@ from xolotl.platform import clock
 from xolotl.platform.api.models import IdempotencyKey
 from xolotl.platform.audit.models import AuditEventRow
 from xolotl.platform.connectors.models import ConnectorCall, ConnectorCredential
+from xolotl.platform.crypto.blind_index import blind_index
 from xolotl.platform.crypto.encrypted import encrypt, encrypt_json
 from xolotl.platform.crypto.models import TenantKey
 from xolotl.platform.crypto.provider import get_key_provider
@@ -428,6 +452,152 @@ def connector_call(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def _party(session: Session, tenant_id: UUID) -> Party:
+    # The party tables hold real ciphertext, so the bare tenant gets its keys here.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
+    row = Party(tenant_id=tenant_id, party_type=PartyType.PERSON, country_code="MX")
+    session.add(row)
+    session.flush()
+    return row
+
+
+def party(session: Session, tenant_id: UUID) -> None:
+    _ = _party(session, tenant_id)
+
+
+def person(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    session.add(
+        Person(
+            tenant_id=tenant_id,
+            id=row.id,
+            given_names=encrypt("Ana", tenant_id=tenant_id, session=session),
+            first_surname=encrypt("Pérez", tenant_id=tenant_id, session=session),
+        )
+    )
+    session.flush()
+
+
+def organization(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    session.add(
+        Organization(
+            tenant_id=tenant_id,
+            id=row.id,
+            legal_name=encrypt("Acme SA de CV", tenant_id=tenant_id, session=session),
+        )
+    )
+    session.flush()
+
+
+def verification_check(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        VerificationCheck(
+            tenant_id=tenant_id,
+            check_type=CheckType.RFC_VALIDATION,
+            provider="sat_rfc",
+            mode=ConnectorMode.SANDBOX,
+            result=VerificationResult.PASS,
+        )
+    )
+    session.flush()
+
+
+def party_identifier(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    rfc = "CACX7605101P8"
+    session.add(
+        PartyIdentifier(
+            tenant_id=tenant_id,
+            party_id=row.id,
+            id_type=IdentifierType.RFC,
+            country_code="MX",
+            value=encrypt(rfc, tenant_id=tenant_id, session=session),
+            value_hash=blind_index("rfc", rfc, tenant_id=tenant_id, session=session),
+        )
+    )
+    session.flush()
+
+
+def party_contact(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    email = "ana@acme.mx"
+    session.add(
+        PartyContact(
+            tenant_id=tenant_id,
+            party_id=row.id,
+            kind=ContactKind.EMAIL,
+            value=encrypt(email, tenant_id=tenant_id, session=session),
+            value_hash=blind_index(
+                "email", email, tenant_id=tenant_id, session=session
+            ),
+        )
+    )
+    session.flush()
+
+
+def party_address(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    session.add(
+        PartyAddress(
+            tenant_id=tenant_id,
+            party_id=row.id,
+            address_type=AddressType.RESIDENTIAL,
+            address=encrypt_json(
+                {"street": "Reforma 1"}, tenant_id=tenant_id, session=session
+            ),
+            country_code="MX",
+            valid_from=date(2026, 1, 1),
+        )
+    )
+    session.flush()
+
+
+def party_relationship(session: Session, tenant_id: UUID) -> None:
+    owner, company = _party(session, tenant_id), _party(session, tenant_id)
+    session.add(
+        PartyRelationship(
+            tenant_id=tenant_id,
+            from_party_id=owner.id,
+            to_party_id=company.id,
+            rel_type=RelationshipType.SHAREHOLDER,
+            ownership_pct=Decimal("51.0000"),
+            valid_from=date(2026, 1, 1),
+        )
+    )
+    session.flush()
+
+
+def document(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    session.add(
+        Document(
+            tenant_id=tenant_id,
+            party_id=row.id,
+            doc_type=DocumentType.IDENTITY,
+            storage_key=f"documents/{row.id}/{uuid7()}",
+            sha256=bytes(32),
+            size=1,
+            content_type="application/pdf",
+            uploaded_by="staff:test",
+        )
+    )
+    session.flush()
+
+
+def customer_relationship(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    session.add(
+        CustomerRelationship(
+            tenant_id=tenant_id,
+            party_id=row.id,
+            external_ref=f"ref-{uuid7().hex[:8]}",
+            status=CustomerRelationshipStatus.ACTIVE,
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -453,3 +623,13 @@ def register_all() -> None:
     register_isolation_factory("tenant_branch", tenant_branch)
     register_isolation_factory("connector_credential", connector_credential)
     register_isolation_factory("connector_call", connector_call)
+    register_isolation_factory("party", party)
+    register_isolation_factory("person", person)
+    register_isolation_factory("organization", organization)
+    register_isolation_factory("verification_check", verification_check)
+    register_isolation_factory("party_identifier", party_identifier)
+    register_isolation_factory("party_contact", party_contact)
+    register_isolation_factory("party_address", party_address)
+    register_isolation_factory("party_relationship", party_relationship)
+    register_isolation_factory("document", document)
+    register_isolation_factory("customer_relationship", customer_relationship)
