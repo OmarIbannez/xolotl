@@ -1,0 +1,33 @@
+{
+  "id_type": "INE",
+  "valid": [
+    {
+      "input": "123456789",
+      "canonical": "123456789",
+      "attributes": {
+        "format": "CIC"
+      }
+    },
+    {
+      "input": "1234 5678 90123",
+      "canonical": "1234567890123",
+      "attributes": {
+        "format": "OCR"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "input": "12345678",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "12345678901234",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "ABCDEFGHI",
+      "reason": "FORMAT"
+    }
+  ]
+}

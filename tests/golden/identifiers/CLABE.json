@@ -1,0 +1,62 @@
+{
+  "id_type": "CLABE",
+  "valid": [
+    {
+      "input": "002010077777777771",
+      "canonical": "002010077777777771",
+      "attributes": {
+        "bank_code": "002",
+        "bank": "BANAMEX"
+      }
+    },
+    {
+      "input": "646180157000000004",
+      "canonical": "646180157000000004",
+      "attributes": {
+        "bank_code": "646",
+        "bank": "STP"
+      }
+    },
+    {
+      "input": "032 180 00011835971 9",
+      "canonical": "032180000118359719",
+      "attributes": {
+        "bank_code": "032"
+      }
+    },
+    {
+      "input": "012180001234567899",
+      "canonical": "012180001234567899",
+      "attributes": {
+        "bank_code": "012",
+        "bank": "BBVA MEXICO"
+      }
+    },
+    {
+      "input": "072180009876543213",
+      "canonical": "072180009876543213",
+      "attributes": {
+        "bank_code": "072",
+        "bank": "BANORTE"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "input": "002010077777777772",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "12345",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "00201007777777777A",
+      "reason": "FORMAT"
+    }
+  ]
+}

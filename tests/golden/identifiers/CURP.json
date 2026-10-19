@@ -1,0 +1,123 @@
+{
+  "id_type": "CURP",
+  "valid": [
+    {
+      "input": "CAQR521024HSLRNF06",
+      "canonical": "CAQR521024HSLRNF06",
+      "attributes": {
+        "birth_date": "1952-10-24",
+        "sex": "H",
+        "state": "SL"
+      }
+    },
+    {
+      "input": "CAQR521024HSLRNF06",
+      "canonical": "CAQR521024HSLRNF06",
+      "attributes": {
+        "birth_date": "1952-10-24",
+        "sex": "H",
+        "state": "SL"
+      },
+      "birth_date": "1952-10-24"
+    },
+    {
+      "input": "TOFJ601019HSLRLV08",
+      "canonical": "TOFJ601019HSLRLV08",
+      "attributes": {
+        "birth_date": "1960-10-19",
+        "sex": "H",
+        "state": "SL"
+      }
+    },
+    {
+      "input": " caqr521024hslrnf06 ",
+      "canonical": "CAQR521024HSLRNF06",
+      "attributes": {
+        "birth_date": "1952-10-24",
+        "sex": "H",
+        "state": "SL"
+      }
+    },
+    {
+      "input": "PEGA050101HDFRRNA5",
+      "canonical": "PEGA050101HDFRRNA5",
+      "attributes": {
+        "birth_date": "2005-01-01",
+        "sex": "H",
+        "state": "DF"
+      }
+    },
+    {
+      "input": "PEGA760510MDFRMN03",
+      "canonical": "PEGA760510MDFRMN03",
+      "attributes": {
+        "birth_date": "1976-05-10",
+        "sex": "M",
+        "state": "DF"
+      }
+    },
+    {
+      "input": "GOMA900101MDFRRR06",
+      "canonical": "GOMA900101MDFRRR06",
+      "attributes": {
+        "birth_date": "1990-01-01",
+        "sex": "M",
+        "state": "DF"
+      }
+    },
+    {
+      "input": "LOPJ850315HJCPRN09",
+      "canonical": "LOPJ850315HJCPRN09",
+      "attributes": {
+        "birth_date": "1985-03-15",
+        "sex": "H",
+        "state": "JC"
+      }
+    },
+    {
+      "input": "MAGE001231MNLRRSA3",
+      "canonical": "MAGE001231MNLRRSA3",
+      "attributes": {
+        "birth_date": "2000-12-31",
+        "sex": "M",
+        "state": "NL"
+      }
+    },
+    {
+      "input": "SAGC800101HJCNMR02",
+      "canonical": "SAGC800101HJCNMR02",
+      "attributes": {
+        "birth_date": "1980-01-01",
+        "sex": "H",
+        "state": "JC"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "input": "XYZ",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "CAQR521024HZZRNF06",
+      "reason": "STATE_CODE"
+    },
+    {
+      "input": "CAQR521324HSLRNF06",
+      "reason": "DATE"
+    },
+    {
+      "input": "CAQR521024HSLRNF07",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "CAQR521024HSLRNF06",
+      "reason": "BIRTH_DATE_MISMATCH",
+      "birth_date": "1952-10-25"
+    }
+  ]
+}

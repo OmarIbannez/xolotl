@@ -1,0 +1,31 @@
+{
+  "id_type": "CEDULA_CO",
+  "valid": [
+    {
+      "input": "52.741.963",
+      "canonical": "52741963"
+    },
+    {
+      "input": "1020304050",
+      "canonical": "1020304050"
+    },
+    {
+      "input": "123456",
+      "canonical": "123456"
+    }
+  ],
+  "invalid": [
+    {
+      "input": "0123",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "12345",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "01234567",
+      "reason": "FORMAT"
+    }
+  ]
+}

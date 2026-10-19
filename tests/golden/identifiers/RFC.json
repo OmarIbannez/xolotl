@@ -1,0 +1,127 @@
+{
+  "id_type": "RFC",
+  "valid": [
+    {
+      "input": " eku-900317-3c9 ",
+      "canonical": "EKU9003173C9",
+      "attributes": {
+        "person_type": "MORAL",
+        "registered_on": "1990-03-17"
+      }
+    },
+    {
+      "input": "CACX7605101P8",
+      "canonical": "CACX7605101P8",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "1976-05-10"
+      }
+    },
+    {
+      "input": "CACX7605101P8",
+      "canonical": "CACX7605101P8",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "1976-05-10"
+      },
+      "birth_date": "1976-05-10"
+    },
+    {
+      "input": "IIA040805DZ4",
+      "canonical": "IIA040805DZ4",
+      "attributes": {
+        "person_type": "MORAL",
+        "registered_on": "2004-08-05"
+      }
+    },
+    {
+      "input": "MOFY900516NL1",
+      "canonical": "MOFY900516NL1",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "1990-05-16"
+      }
+    },
+    {
+      "input": "XAXX010101000",
+      "canonical": "XAXX010101000",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "2001-01-01",
+        "generic": "PUBLICO_EN_GENERAL"
+      }
+    },
+    {
+      "input": "XEXX010101000",
+      "canonical": "XEXX010101000",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "2001-01-01",
+        "generic": "EXTRANJERO"
+      }
+    },
+    {
+      "input": "ñ&a900101ab8",
+      "canonical": "Ñ&A900101AB8",
+      "attributes": {
+        "person_type": "MORAL",
+        "registered_on": "1990-01-01"
+      }
+    },
+    {
+      "input": "PEGA760510XY0",
+      "canonical": "PEGA760510XY0",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "1976-05-10"
+      }
+    },
+    {
+      "input": "ACM0101017A0",
+      "canonical": "ACM0101017A0",
+      "attributes": {
+        "person_type": "MORAL",
+        "registered_on": "2001-01-01"
+      }
+    },
+    {
+      "input": "SAGC800101AB8",
+      "canonical": "SAGC800101AB8",
+      "attributes": {
+        "person_type": "FISICA",
+        "registered_on": "1980-01-01"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "input": "EKU9003173C1",
+      "reason": "CHECK_DIGIT"
+    },
+    {
+      "input": "EKU9013173C9",
+      "reason": "DATE"
+    },
+    {
+      "input": "",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "ABC",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "1234567890123",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "EKU9003173C9X",
+      "reason": "FORMAT"
+    },
+    {
+      "input": "CACX7605101P8",
+      "reason": "BIRTH_DATE_MISMATCH",
+      "birth_date": "1976-05-11"
+    }
+  ]
+}
