@@ -292,6 +292,54 @@ mounts no volume for it yet; nothing writes objects until a feature does.
   ciphertext is the plaintext's UTF-8 length plus 30 bytes: pad at the application layer
   where length matters, for example identifiers of fixed length.
 
+## Policy packs, units and calendar
+
+Regulatory reference data lives in `policy-packs/` (`XOLOTL_PACKS_DIR`) and is loaded
+into four shared tables by the owner role:
+
+```bash
+uv run xolotl packs validate policy-packs/MX/ITF-IFPE/v1.yaml   # schema and provenance check
+uv run xolotl packs load --allow-unverified    # install every pack; a rerun changes nothing
+uv run xolotl packs show MX/ITF-IFPE --version 1
+uv run xolotl holidays seed                    # policy-packs/_holidays/MX.yaml, four scopes
+uv run xolotl units seed --allow-unverified    # UMA, UDI and FIX from policy-packs/_units
+uv run xolotl units fetch --unit UDI --from 2026-01-01 --to 2026-01-31
+```
+
+A pack version is immutable: loading a changed file at the same version is refused
+(`PACK_VERSION_IMMUTABLE`). Without `--allow-unverified` (refused in prod) `packs load`
+and `units seed` refuse values still marked `UNVERIFIED` and name them.
+
+A tenant's ADMIN assigns a pack version, optionally per product, and may tighten it
+with an override; staff of any role read:
+
+- `GET /v1/policy/packs` lists the installed pack versions with their content hash.
+- `POST /v1/policy/assignments` (`Idempotency-Key`) assigns `pack_version_id` from
+  `effective_from`, tenant-wide or for one `product`; `GET` lists the assignments.
+- `POST /v1/policy/overrides` (`Idempotency-Key`) records a new override version; a
+  value that loosens the packs is 409 `POLICY_LOOSENING`; `GET` lists the versions.
+- `GET /v1/policy/effective?on=YYYY-MM-DD&product=...` resolves the effective policy,
+  freezes it in a snapshot (stable `snapshot_id` and `content_hash`) and converts tier
+  limits and capture thresholds to MXN; a missing unit value leaves that entry `null`
+  and lists the unit in `missing_units`. No pack in force is 404 `POLICY_NOT_ASSIGNED`.
+- `PUT /v1/tenants/me/regulatory-profile` sets the tenant's RFC (stored encrypted,
+  answered as `rfc_masked`), legal name and supervisor keys; `GET` reads it.
+- `POST /v1/tenants/me/branches` adds a branch (its address stored encrypted and never
+  returned); `GET` lists them.
+- `GET /v1/units`, `GET /v1/units/{code}?on=&rule=` and
+  `GET /v1/units/{code}/values?from=&to=` show the units, the row a conversion would use
+  (503 `UNIT_VALUE_MISSING` when none) and the dated values with their corrections (at
+  most 366 days).
+- `GET /v1/calendar/holidays?scope=&year=` lists a scope's holidays, and
+  `GET /v1/calendar/due?rule=<json>&anchor=<datetime with offset>&scope=` evaluates a
+  deadline rule in America/Mexico_City.
+
+The `units.fetch` job runs per tenant on `XOLOTL_UNITS_FETCH_CRON` (weekdays at 18:00
+America/Mexico_City): it fetches the UDI and FIX values missing since the latest stored
+day from Banxico SIE (`XOLOTL_BANXICO_TOKEN`, or the seed files in demo mode), inserts
+nothing for an unchanged value, supersedes a corrected one and notifies ADMIN and MLRO
+when the source fails.
+
 ## Connectors
 
 A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a
