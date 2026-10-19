@@ -1,0 +1,6 @@
+# sha256 over the canonical JSON of each pack version (hex); `xolotl packs validate`
+# prints the first 12 digits. A change here means the pack content changed.
+"MX/ITF-IFPE":
+  1: "c216b50896d55fd73d2e50d3374540e046539cf0b2f38f99a93975ac55b64517"
+"MX/LFPIORPI-AVI":
+  1: "8cd127c8bfebb7afe51b0fdef6b9fdd3ade3911d9e7e59d31d2d011061e45242"

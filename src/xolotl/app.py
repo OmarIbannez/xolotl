@@ -31,6 +31,7 @@ from xolotl.platform.api.idempotency import PURGE_KIND, purge_expired_keys
 from xolotl.platform.api.static import mount_console
 from xolotl.platform.audit import routes as audit_routes
 from xolotl.platform.config import Settings, get_settings
+from xolotl.platform.connectors import default_router
 from xolotl.platform.crypto.provider import (
     KeyProvider,
     LocalKeyProvider,
@@ -118,6 +119,8 @@ def wire_platform(
     # webhook.deliver job, so whichever process dispatches an event or runs a job
     # (the API's embedded worker, or `xolotl worker`) reaches the tenants' endpoints.
     register_webhooks(bus, queue, settings=settings)
+    # One store for the routes and the connectors' evidence alike.
+    store = build_object_store(settings)
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
@@ -126,7 +129,8 @@ def wire_platform(
         scheduler=Scheduler(queue, session_factory),
         workflows=workflows,
         notifier=InAppNotifier(),
-        object_store=build_object_store(settings),
+        object_store=store,
+        connectors=default_router(settings, store=store),
     )
 
 

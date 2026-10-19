@@ -15,6 +15,11 @@ from xolotl.platform.errors import (
     ValidationFailedError,
     XolotlError,
 )
+from xolotl.platform.policy.errors import (
+    PackImmutableError,
+    PackValidationError,
+    PolicyLooseningError,
+)
 from xolotl.platform.units.errors import (
     UnitSourceError,
     UnitValueMissingError,
@@ -39,6 +44,9 @@ from xolotl.platform.units.errors import (
         (UnitSourceError, 503, "UNIT_SOURCE_UNAVAILABLE"),
         (UnverifiedValueError, 422, "UNVERIFIED_VALUE"),
         (NoRouteError, 409, "CONNECTOR_NO_ROUTE"),
+        (PackValidationError, 422, "PACK_INVALID"),
+        (PackImmutableError, 409, "PACK_VERSION_IMMUTABLE"),
+        (PolicyLooseningError, 409, "POLICY_LOOSENING"),
         (IdentifierExistsError, 409, "IDENTIFIER_EXISTS"),
         (IdentifierInvalidError, 422, "IDENTIFIER_INVALID"),
     ],
