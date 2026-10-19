@@ -242,6 +242,36 @@ test('a new tenant administrator signs in, secures the account and works in the 
     await page.setViewportSize({ width: 1280, height: 720 })
   })
 
+  await test.step('the pack viewer shows the ITF tier limits', async () => {
+    // The API assigns the pack (the console has no assignment form in SP-02a), on this
+    // session's bearer: no second sign in and no second TOTP code.
+    const token = await page.evaluate(() => window.sessionStorage.getItem('xolotl.token'))
+    expect(token).toBeTruthy()
+    const headers = { Authorization: `Bearer ${token}` }
+    const packs = await request.get('/v1/policy/packs', { headers })
+    expect(packs.ok()).toBe(true)
+    const { items } = (await packs.json()) as { items: { id: string; code: string; version: number }[] }
+    const itf = items.find((item) => item.code === 'MX/ITF-IFPE' && item.version === 1)
+    expect(itf, 'the CI seeding loads MX/ITF-IFPE v1').toBeTruthy()
+    const assigned = await request.post('/v1/policy/assignments', {
+      headers: { ...headers, 'Idempotency-Key': 'e2e-assign-itf' },
+      data: { pack_version_id: itf?.id, product: null, effective_from: '2026-01-01' },
+    })
+    expect(assigned.status()).toBe(201)
+
+    await page.getByRole('link', { name: es.nav.policy, exact: true }).click()
+    await expect(page).toHaveURL(/\/policy$/)
+    // Today has no UDI row in the seeds: the missing-units notice shows and the limits still do.
+    await expect(page.getByRole('cell', { name: '750 UDI', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: '1000 UDI', exact: true })).toBeVisible()
+    // The header card and the assignments table both name the pack.
+    await expect(page.getByText('MX/ITF-IFPE', { exact: true }).first()).toBeVisible()
+
+    // Back to the audit page, where the next step refreshes.
+    await page.getByRole('link', { name: es.nav.audit, exact: true }).click()
+    await expect(page.getByRole('heading', { name: es.audit.title, level: 1 })).toBeVisible()
+  })
+
   await test.step('a session the server has ended sends the user back to the login page', async () => {
     // Another device changes the password with this session's token: from that moment the
     // token the console holds is refused, whatever the console does next.

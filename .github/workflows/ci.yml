@@ -79,6 +79,12 @@ jobs:
           test -n "$password"
           echo "::add-mask::$password"
           echo "E2E_ADMIN_PASSWORD=$password" >> "$GITHUB_ENV"
+      - name: Seed the policy packs, holidays and unit values
+        # The compose api service runs with XOLOTL_ENV=dev, so the unverified values load.
+        run: |
+          docker compose run --rm -T api xolotl packs load --allow-unverified
+          docker compose run --rm -T api xolotl holidays seed
+          docker compose run --rm -T api xolotl units seed --allow-unverified
       - name: Smoke test
         working-directory: console
         run: npm run test:e2e

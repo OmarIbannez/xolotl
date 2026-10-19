@@ -36,6 +36,7 @@
     "apiKeys": "Llaves API",
     "staff": "Personal",
     "audit": "Auditoría",
+    "policy": "Políticas",
     "connectors": "Conectores",
     "security": "Seguridad",
     "openMenu": "Abrir menú",
@@ -432,6 +433,78 @@
       "empty": "Sin llamadas en el periodo."
     }
   },
+  "policy": {
+    "title": "Políticas",
+    "description": "La política vigente del espacio de trabajo para una fecha y un producto, con el fundamento legal de cada valor, sus asignaciones de paquetes y sus ajustes.",
+    "filters": {
+      "on": "Fecha",
+      "product": "Producto",
+      "apply": "Consultar"
+    },
+    "packs": "Paquetes vigentes",
+    "overrideVersion": "Versión de ajustes",
+    "snapshot": "Huella de la instantánea",
+    "tiers": {
+      "title": "Niveles de cuenta",
+      "code": "Nivel",
+      "monthlyOps": "Abonos mensuales",
+      "maxBalance": "Saldo máximo",
+      "converted": "En MXN",
+      "assurance": "Garantía de identidad"
+    },
+    "captures": {
+      "title": "Capturas para reportes",
+      "code": "Captura",
+      "kind": "Tipo",
+      "threshold": "Umbral",
+      "rule": "Regla de conversión",
+      "period": "Periodo",
+      "report": "Reporte",
+      "filing": "Presentación"
+    },
+    "lists": {
+      "mandatory": "Listas obligatorias",
+      "recommended": "Listas recomendadas"
+    },
+    "retention": {
+      "title": "Conservación",
+      "kyc": "Expediente tras la relación",
+      "transactions": "Operaciones"
+    },
+    "governance": {
+      "title": "Gobierno",
+      "committee": "Comité requerido",
+      "fourEyes": "Doble revisión de reportes"
+    },
+    "provenance": {
+      "VERIFIED": "Verificado",
+      "UNVERIFIED": "Sin verificar",
+      "basis": "Fundamento"
+    },
+    "missingUnits": "Faltan valores de {{units}} para la fecha consultada: esos montos se muestran sin convertir.",
+    "notAssigned": "No hay ningún paquete de política asignado para esta fecha y producto.",
+    "assignments": {
+      "title": "Asignaciones",
+      "pack": "Paquete",
+      "version": "Versión",
+      "product": "Producto",
+      "allProducts": "Todos los productos",
+      "from": "Vigente desde",
+      "to": "Vigente hasta",
+      "approvedBy": "Aprobó",
+      "createdAt": "Creada",
+      "empty": "Todavía no hay asignaciones de paquetes."
+    },
+    "overrides": {
+      "title": "Ajustes",
+      "version": "Versión",
+      "from": "Vigente desde",
+      "approvedBy": "Aprobó",
+      "keys": "Valores ajustados",
+      "empty": "Todavía no hay ajustes a la política."
+    },
+    "noConversion": "Sin conversión: falta el valor de la unidad para esa fecha."
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -461,6 +534,9 @@
     "VALIDATION_FAILED": "Revisa los datos capturados: hay valores no válidos.",
     "INTERNAL": "Ocurrió un error interno. Inténtalo de nuevo en unos minutos.",
     "NETWORK_ERROR": "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
-    "CONNECTOR_NO_ROUTE": "Ningún conector atiende esta verificación en este país."
+    "CONNECTOR_NO_ROUTE": "Ningún conector atiende esta verificación en este país.",
+    "UNIT_VALUE_MISSING": "Falta el valor de la unidad para esa fecha; nadie lo completa en silencio. Inténtalo cuando se haya publicado.",
+    "POLICY_NOT_ASSIGNED": "No hay ningún paquete de política asignado para esa fecha y producto.",
+    "POLICY_LOOSENING": "El ajuste relajaría la política: solo se permiten ajustes más estrictos que el paquete."
   }
 }

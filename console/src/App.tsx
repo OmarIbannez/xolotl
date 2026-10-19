@@ -67,6 +67,12 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                // Every signed-in role reads the policy, as the API allows.
+                path: '/policy',
+                lazy: () =>
+                  import('@/features/policy/PolicyPage').then((m) => ({ Component: m.PolicyPage })),
+              },
+              {
                 element: <RequireRole roles={ACCESS.connectors} />,
                 children: [
                   {

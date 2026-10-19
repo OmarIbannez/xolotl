@@ -1,4 +1,4 @@
-import { House, KeyRound, Plug, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
+import { BookOpen, House, KeyRound, Plug, ScrollText, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/api/types'
 import { ACCESS } from '@/auth/access'
 
@@ -9,6 +9,7 @@ export interface NavItem {
     | 'nav.apiKeys'
     | 'nav.staff'
     | 'nav.audit'
+    | 'nav.policy'
     | 'nav.connectors'
     | 'nav.security'
   icon: LucideIcon
@@ -23,6 +24,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound, roles: ACCESS.apiKeys },
   { to: '/staff', labelKey: 'nav.staff', icon: Users, roles: ACCESS.staff },
   { to: '/audit', labelKey: 'nav.audit', icon: ScrollText, roles: ACCESS.audit },
+  { to: '/policy', labelKey: 'nav.policy', icon: BookOpen },
   { to: '/connectors', labelKey: 'nav.connectors', icon: Plug, roles: ACCESS.connectors },
   { to: '/security', labelKey: 'nav.security', icon: ShieldCheck },
 ]
