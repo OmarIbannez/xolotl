@@ -232,11 +232,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             routes_staff.router,
             routes_notifications.router,
             routes_webhooks.router,
-<<<<<<< HEAD
             routes_connectors.router,
-=======
             party_routes.router,
->>>>>>> origin/main
             audit_routes.router,
         ],
     )
