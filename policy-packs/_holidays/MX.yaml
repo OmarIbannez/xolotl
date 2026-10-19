@@ -1,0 +1,133 @@
+# Mexico's regulatory calendar, 2025-2027, in four scopes (spec §7; plan 2a, Task A3).
+# `xolotl holidays seed` loads it into the shared `holiday` table. `verify: true` marks
+# a row for the product owner's compliance review; the loader keeps the flag out of the
+# table and the seed command reports how many flagged rows the file holds. CNBV, the SAT
+# RMF rows and BANXICO list weekday dates only; the CFF art. 12 rows are statutory and
+# keep weekend dates.
+country: MX
+years: [2025, 2026, 2027]
+scopes:
+  NATIONAL:
+    source: "LFT art. 74"
+    days:
+      - {day: 2025-01-01, name: "Año Nuevo", basis: "LFT 74 fr. I"}
+      - {day: 2025-02-03, name: "Día de la Constitución (primer lunes de febrero)", basis: "LFT 74 fr. II"}
+      - {day: 2025-03-17, name: "Natalicio de Benito Juárez (tercer lunes de marzo)", basis: "LFT 74 fr. III"}
+      - {day: 2025-05-01, name: "Día del Trabajo", basis: "LFT 74 fr. IV"}
+      - {day: 2025-09-16, name: "Independencia", basis: "LFT 74 fr. V"}
+      - {day: 2025-11-17, name: "Revolución (tercer lunes de noviembre)", basis: "LFT 74 fr. VI"}
+      - {day: 2025-12-25, name: "Navidad", basis: "LFT 74 fr. IX"}
+      - {day: 2026-01-01, name: "Año Nuevo", basis: "LFT 74 fr. I"}
+      - {day: 2026-02-02, name: "Día de la Constitución", basis: "LFT 74 fr. II"}
+      - {day: 2026-03-16, name: "Natalicio de Benito Juárez", basis: "LFT 74 fr. III"}
+      - {day: 2026-05-01, name: "Día del Trabajo", basis: "LFT 74 fr. IV"}
+      - {day: 2026-09-16, name: "Independencia", basis: "LFT 74 fr. V"}
+      - {day: 2026-11-16, name: "Revolución", basis: "LFT 74 fr. VI"}
+      - {day: 2026-12-25, name: "Navidad", basis: "LFT 74 fr. IX"}
+      - {day: 2027-01-01, name: "Año Nuevo", basis: "LFT 74 fr. I"}
+      - {day: 2027-02-01, name: "Día de la Constitución", basis: "LFT 74 fr. II"}
+      - {day: 2027-03-15, name: "Natalicio de Benito Juárez", basis: "LFT 74 fr. III"}
+      - {day: 2027-05-01, name: "Día del Trabajo", basis: "LFT 74 fr. IV"}
+      - {day: 2027-06-06, name: "Jornada electoral federal", basis: "LFT 74 fr. VIII; LGIPE art. 22 (primer domingo de junio)", verify: true}
+      - {day: 2027-09-16, name: "Independencia", basis: "LFT 74 fr. V"}
+      - {day: 2027-11-15, name: "Revolución", basis: "LFT 74 fr. VI"}
+      - {day: 2027-12-25, name: "Navidad", basis: "LFT 74 fr. IX"}
+  CNBV:
+    source: "CNBV, disposiciones anuales de días de cierre (DOF)"
+    days:
+      - {day: 2025-01-01, name: "Año Nuevo", basis: "CNBV 2025"}
+      - {day: 2025-02-03, name: "Día de la Constitución", basis: "CNBV 2025"}
+      - {day: 2025-03-17, name: "Natalicio de Benito Juárez", basis: "CNBV 2025"}
+      - {day: 2025-04-17, name: "Jueves Santo", basis: "CNBV 2025", verify: true}
+      - {day: 2025-04-18, name: "Viernes Santo", basis: "CNBV 2025", verify: true}
+      - {day: 2025-05-01, name: "Día del Trabajo", basis: "CNBV 2025"}
+      - {day: 2025-09-16, name: "Independencia", basis: "CNBV 2025"}
+      - {day: 2025-11-17, name: "Revolución", basis: "CNBV 2025"}
+      - {day: 2025-12-12, name: "Día del empleado bancario", basis: "CNBV 2025", verify: true}
+      - {day: 2025-12-25, name: "Navidad", basis: "CNBV 2025"}
+      - {day: 2026-01-01, name: "Año Nuevo", basis: "CNBV 2026"}
+      - {day: 2026-02-02, name: "Día de la Constitución", basis: "CNBV 2026"}
+      - {day: 2026-03-16, name: "Natalicio de Benito Juárez", basis: "CNBV 2026"}
+      - {day: 2026-04-02, name: "Jueves Santo", basis: "CNBV 2026", verify: true}
+      - {day: 2026-04-03, name: "Viernes Santo", basis: "CNBV 2026", verify: true}
+      - {day: 2026-05-01, name: "Día del Trabajo", basis: "CNBV 2026"}
+      - {day: 2026-09-16, name: "Independencia", basis: "CNBV 2026"}
+      - {day: 2026-11-02, name: "Día de Muertos", basis: "CNBV 2026", verify: true}
+      - {day: 2026-11-16, name: "Revolución", basis: "CNBV 2026"}
+      - {day: 2026-12-25, name: "Navidad", basis: "CNBV 2026"}
+      # 2027: projected from the pattern; the CNBV publishes the list in December 2026.
+      - {day: 2027-01-01, name: "Año Nuevo", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-02-01, name: "Día de la Constitución", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-03-15, name: "Natalicio de Benito Juárez", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-03-25, name: "Jueves Santo", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-03-26, name: "Viernes Santo", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-09-16, name: "Independencia", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-11-02, name: "Día de Muertos", basis: "CNBV 2027 (proyección)", verify: true}
+      - {day: 2027-11-15, name: "Revolución", basis: "CNBV 2027 (proyección)", verify: true}
+  SAT:
+    source: "CFF art. 12; RMF regla 2.1.6"
+    days:
+      # CFF art. 12 (every year): 1 Jan, first Monday of Feb, third Monday of Mar, 1 and 5 May, 16 Sep,
+      # third Monday of Nov, 25 Dec; the general vacation periods of regla 2.1.6 are not loaded (open question 1).
+      - {day: 2025-01-01, name: "Año Nuevo", basis: "CFF 12"}
+      - {day: 2025-02-03, name: "Día de la Constitución", basis: "CFF 12"}
+      - {day: 2025-03-17, name: "Natalicio de Benito Juárez", basis: "CFF 12"}
+      - {day: 2025-04-17, name: "Jueves Santo", basis: "RMF 2025 regla 2.1.6", verify: true}
+      - {day: 2025-04-18, name: "Viernes Santo", basis: "RMF 2025 regla 2.1.6", verify: true}
+      - {day: 2025-05-01, name: "Día del Trabajo", basis: "CFF 12"}
+      - {day: 2025-05-05, name: "Batalla de Puebla", basis: "CFF 12"}
+      - {day: 2025-09-16, name: "Independencia", basis: "CFF 12"}
+      - {day: 2025-11-17, name: "Revolución", basis: "CFF 12"}
+      - {day: 2025-12-25, name: "Navidad", basis: "CFF 12"}
+      - {day: 2026-01-01, name: "Año Nuevo", basis: "CFF 12"}
+      - {day: 2026-02-02, name: "Día de la Constitución", basis: "CFF 12"}
+      - {day: 2026-03-16, name: "Natalicio de Benito Juárez", basis: "CFF 12"}
+      - {day: 2026-04-02, name: "Jueves Santo", basis: "RMF 2026 regla 2.1.6", verify: true}
+      - {day: 2026-04-03, name: "Viernes Santo", basis: "RMF 2026 regla 2.1.6", verify: true}
+      - {day: 2026-05-01, name: "Día del Trabajo", basis: "CFF 12"}
+      - {day: 2026-05-05, name: "Batalla de Puebla", basis: "CFF 12"}
+      - {day: 2026-09-16, name: "Independencia", basis: "CFF 12"}
+      - {day: 2026-11-16, name: "Revolución", basis: "CFF 12"}
+      - {day: 2026-12-25, name: "Navidad", basis: "CFF 12"}
+      - {day: 2027-01-01, name: "Año Nuevo", basis: "CFF 12"}
+      - {day: 2027-02-01, name: "Día de la Constitución", basis: "CFF 12"}
+      - {day: 2027-03-15, name: "Natalicio de Benito Juárez", basis: "CFF 12"}
+      - {day: 2027-03-25, name: "Jueves Santo", basis: "RMF 2027 regla 2.1.6 (proyección)", verify: true}
+      - {day: 2027-03-26, name: "Viernes Santo", basis: "RMF 2027 regla 2.1.6 (proyección)", verify: true}
+      - {day: 2027-05-01, name: "Día del Trabajo", basis: "CFF 12"}
+      - {day: 2027-05-05, name: "Batalla de Puebla", basis: "CFF 12"}
+      - {day: 2027-09-16, name: "Independencia", basis: "CFF 12"}
+      - {day: 2027-11-15, name: "Revolución", basis: "CFF 12"}
+      - {day: 2027-12-25, name: "Navidad", basis: "CFF 12"}
+  BANXICO:
+    source: "Banxico, días inhábiles bancarios (Circular 3/2012 art. 1; calendario en banxico.org.mx)"
+    days:   # the CNBV dates, Banxico's own publication as the basis
+      - {day: 2025-01-01, name: "Año Nuevo", basis: "Banxico 2025"}
+      - {day: 2025-02-03, name: "Día de la Constitución", basis: "Banxico 2025"}
+      - {day: 2025-03-17, name: "Natalicio de Benito Juárez", basis: "Banxico 2025"}
+      - {day: 2025-04-17, name: "Jueves Santo", basis: "Banxico 2025", verify: true}
+      - {day: 2025-04-18, name: "Viernes Santo", basis: "Banxico 2025", verify: true}
+      - {day: 2025-05-01, name: "Día del Trabajo", basis: "Banxico 2025"}
+      - {day: 2025-09-16, name: "Independencia", basis: "Banxico 2025"}
+      - {day: 2025-11-17, name: "Revolución", basis: "Banxico 2025"}
+      - {day: 2025-12-12, name: "Día del empleado bancario", basis: "Banxico 2025", verify: true}
+      - {day: 2025-12-25, name: "Navidad", basis: "Banxico 2025"}
+      - {day: 2026-01-01, name: "Año Nuevo", basis: "Banxico 2026"}
+      - {day: 2026-02-02, name: "Día de la Constitución", basis: "Banxico 2026"}
+      - {day: 2026-03-16, name: "Natalicio de Benito Juárez", basis: "Banxico 2026"}
+      - {day: 2026-04-02, name: "Jueves Santo", basis: "Banxico 2026", verify: true}
+      - {day: 2026-04-03, name: "Viernes Santo", basis: "Banxico 2026", verify: true}
+      - {day: 2026-05-01, name: "Día del Trabajo", basis: "Banxico 2026"}
+      - {day: 2026-09-16, name: "Independencia", basis: "Banxico 2026"}
+      - {day: 2026-11-02, name: "Día de Muertos", basis: "Banxico 2026", verify: true}
+      - {day: 2026-11-16, name: "Revolución", basis: "Banxico 2026"}
+      - {day: 2026-12-25, name: "Navidad", basis: "Banxico 2026"}
+      # 2027: projected; Banxico publishes its calendar in December 2026.
+      - {day: 2027-01-01, name: "Año Nuevo", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-02-01, name: "Día de la Constitución", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-03-15, name: "Natalicio de Benito Juárez", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-03-25, name: "Jueves Santo", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-03-26, name: "Viernes Santo", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-09-16, name: "Independencia", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-11-02, name: "Día de Muertos", basis: "Banxico 2027 (proyección)", verify: true}
+      - {day: 2027-11-15, name: "Revolución", basis: "Banxico 2027 (proyección)", verify: true}
