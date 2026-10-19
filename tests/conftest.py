@@ -52,11 +52,17 @@ def _reset_caches() -> None:
 
 
 @pytest.fixture(scope="session")
-def engines(admin_url: str) -> Iterator[tuple[Engine, Engine]]:
+def engines(
+    admin_url: str, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[tuple[Engine, Engine]]:
     app_url = make_url(admin_url).set(username=db.APP_ROLE, password=APP_PASSWORD)
     os.environ["XOLOTL_DATABASE_ADMIN_URL"] = admin_url
     os.environ["XOLOTL_DATABASE_URL"] = app_url.render_as_string(hide_password=False)
     os.environ["XOLOTL_ENV"] = "test"
+    # Every build_app() of the suite serves no console, whatever the checkout holds: a
+    # build copied to src/xolotl/static (the documented place) would otherwise be
+    # mounted in every API test. tests/platform/test_static.py points this at its own.
+    os.environ["XOLOTL_STATIC_DIR"] = str(tmp_path_factory.mktemp("no-console"))
     _reset_caches()
     migrate.bootstrap()
     migrate.upgrade()

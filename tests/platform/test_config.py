@@ -52,6 +52,7 @@ def test_defaults_match_the_spec():
     assert s.mfa_token_ttl_minutes == 5
     assert s.port == 8000
     assert s.log_level == "INFO"
+    assert s.static_dir.name == "static"
 
 
 def test_env_prefix_and_bare_port(monkeypatch):

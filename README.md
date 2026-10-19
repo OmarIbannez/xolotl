@@ -54,6 +54,17 @@ and password set. On PostgreSQL 16 and later the owner also needs `ADMIN OPTION`
 `xolotl_app`. It has that when bootstrap created the role; if someone else created
 it, they (or a superuser) first run `GRANT xolotl_app TO <owner> WITH ADMIN OPTION`.
 
+That image is the whole deployment: it also carries the staff console (`console/`,
+built in a Node stage and served by the API at `/`, after the API's own routes).
+With the stack up, create a tenant inside the container and sign in at
+`http://127.0.0.1:8000/`:
+
+```bash
+docker compose exec api xolotl tenant create --slug acme --legal-name "Acme SA de CV" --admin-email admin@acme.mx
+```
+
+`console/README.md` covers developing the console and its Playwright smoke test.
+
 ## Configuration
 
 Environment variables are prefixed `XOLOTL_`; see `.env.example`. `XOLOTL_ENV=prod`
@@ -64,6 +75,7 @@ refuses the default `XOLOTL_JWT_SECRET` and the default `XOLOTL_MASTER_KEY`.
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
+| `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
 
 ## Data protection
 
@@ -223,3 +235,5 @@ password), migrates, and truncates every table before each test.
 `src/xolotl/modules/<name>/` are feature modules that own their tables, routers
 and events; `src/xolotl/app.py` is the composition root; migrations are one
 Alembic tree under `src/xolotl/migrations/`.
+`console/` is the staff console (React, Vite); the Dockerfile builds it and copies
+`console/dist` to `src/xolotl/static`, the directory the API serves at `/`.
