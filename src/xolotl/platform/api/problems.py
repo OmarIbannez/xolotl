@@ -100,8 +100,26 @@ def _expect[E: Exception](exc: Exception, cls: type[E]) -> E:
     return exc
 
 
+def _log_server_error(request: Request, error: XolotlError) -> None:
+    # The request line carries only the status, so the code is what tells an operator
+    # why a replica answers 503 (KEK_MISMATCH) or 500 (DECRYPTION_FAILED). Fixed fields
+    # only: no traceback, and not the error's text, which stays in the response.
+    extra: dict[str, object] = {
+        "status": error.status,
+        "code": error.code,
+        "method": request.method,
+        "path": request.url.path,
+    }
+    request_id = _request_id(request)
+    if request_id is not None:
+        extra["request_id"] = request_id
+    logger.error("server error", extra=extra)
+
+
 def _xolotl_error(request: Request, exc: Exception) -> Response:
     error = _expect(exc, XolotlError)
+    if error.status >= HTTPStatus.INTERNAL_SERVER_ERROR:
+        _log_server_error(request, error)
     headers = (
         {"WWW-Authenticate": "Bearer"}
         if error.status == HTTPStatus.UNAUTHORIZED

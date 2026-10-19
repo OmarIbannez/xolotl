@@ -8,7 +8,7 @@ touches the database.
 """
 
 import os
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from typing import cast
 
 import pytest
@@ -18,7 +18,7 @@ from psycopg import sql
 from sqlalchemy import Engine, create_engine, make_url, text
 from testcontainers.community.postgres import PostgresContainer
 
-from tests.helpers import first_login, new_tenant
+from tests.helpers import first_login, new_tenant, require_server_admin
 from xolotl.app import build_app, build_key_provider
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import db, migrate
@@ -33,6 +33,8 @@ APP_PASSWORD = "xolotl"
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 MANAGED_OWNER = "xolotl_managed_owner"
 MANAGED_DATABASE = "xolotl_managed"
+BOUND_OWNER = "xolotl_bound_owner"
+BOUND_DATABASE = "xolotl_bound_scratch"
 
 
 @pytest.fixture(scope="session")
@@ -199,6 +201,69 @@ def managed_owner(admin_engine: Engine, monkeypatch) -> Iterator[tuple[Engine, s
         with autocommit.connect() as conn:
             _ = conn.execute(text(f"DROP DATABASE {MANAGED_DATABASE} WITH (FORCE)"))
             _ = conn.execute(text(f"DROP ROLE {MANAGED_OWNER}"))
+
+
+def _drop_bound_owner(admin_engine: Engine) -> None:
+    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        _ = conn.execute(text(f"DROP DATABASE IF EXISTS {BOUND_DATABASE} WITH (FORCE)"))
+        _ = conn.execute(text(f"DROP ROLE IF EXISTS {BOUND_OWNER}"))
+
+
+def _server_admin_may_create(admin_engine: Engine) -> bool:
+    with admin_engine.connect() as conn:
+        return bool(
+            conn.scalar(
+                text(
+                    """
+                    SELECT rolsuper OR (rolcreaterole AND rolcreatedb)
+                    FROM pg_roles WHERE rolname = current_user
+                    """
+                )
+            )
+        )
+
+
+@pytest.fixture
+def bound_owner_database(
+    admin_engine: Engine, admin_url: str, monkeypatch: pytest.MonkeyPatch
+) -> Generator[tuple[Engine, Engine]]:
+    """Create a database owned by a role that row-level security binds.
+
+    The session database belongs to a superuser, whom row-level security never binds,
+    so a migration that forgets to scope its statements to a tenant (or deletes rows
+    without naming one) passes there and finds no row on a managed server: an owner with
+    neither SUPERUSER nor BYPASSRLS, which is what ``bootstrap`` is documented to need.
+    The migrations run against this database as that owner: the alembic environment
+    takes its engine from ``db``. A server whose admin role cannot create the role and
+    the database fails the run (``require_server_admin``) instead of skipping the test.
+
+    Yields:
+        The owner's engine and a superuser's engine on the same database.
+
+    """
+    require_server_admin(allowed=_server_admin_may_create(admin_engine))
+    _drop_bound_owner(admin_engine)  # whatever an interrupted run left behind
+    with admin_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        _ = conn.execute(
+            text(
+                f"""
+                CREATE ROLE {BOUND_OWNER} LOGIN PASSWORD 'owner-password'
+                NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE
+                """
+            )
+        )
+        _ = conn.execute(text(f"CREATE DATABASE {BOUND_DATABASE} OWNER {BOUND_OWNER}"))
+    root_url = make_url(admin_url).set(database=BOUND_DATABASE)
+    owner_url = root_url.set(username=BOUND_OWNER, password="owner-password")
+    owner = create_engine(owner_url, hide_parameters=True)
+    root = create_engine(root_url, hide_parameters=True)
+    monkeypatch.setattr(db, "get_admin_engine", lambda: owner)
+    try:
+        yield owner, root
+    finally:
+        owner.dispose()
+        root.dispose()
+        _drop_bound_owner(admin_engine)
 
 
 @pytest.fixture

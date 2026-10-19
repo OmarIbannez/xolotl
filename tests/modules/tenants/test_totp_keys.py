@@ -275,7 +275,7 @@ def test_a_server_with_another_master_key_signs_nobody_in_and_counts_no_attempt(
         refused = _totp_step(client, pending.json()["mfa_token"], current_code(secret))
     finally:
         set_key_provider(server)
-    assert refused.status_code == 500
+    assert refused.status_code == 503
     assert refused.json()["code"] == "KEK_MISMATCH"
     assert "access_token" not in refused.json()
     assert _failed_attempts(admin_engine, tenant.admin_user_id) == 0

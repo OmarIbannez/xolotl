@@ -10,7 +10,6 @@ from sqlalchemy import (
     Identity,
     Index,
     Integer,
-    LargeBinary,
     Text,
     UniqueConstraint,
     Uuid,
@@ -20,6 +19,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.schema import SchemaItem
 
+from xolotl.platform.crypto.encrypted import Encrypted, EncryptedStr
 from xolotl.platform.db import Base
 from xolotl.platform.enums import DeliveryStatus, EndpointStatus, OutboxStatus
 from xolotl.platform.sqltypes import enum_column
@@ -87,8 +87,9 @@ class WebhookEndpoint(TenantTableMixin, Base):
     __table_args__: tuple[SchemaItem, ...] = tenant_table_args("webhook_endpoint")
 
     url: Mapped[str] = mapped_column(Text)
-    # bytea: plan 1b task B3 (EncryptedStr) flips this type; no schema change.
-    secret: Mapped[bytes] = mapped_column(LargeBinary)
+    # The signing secret, encrypted under the tenant's DATA key. It is shown once, when
+    # the endpoint is created or its secret rotated, and read back only to sign.
+    secret: Mapped[Encrypted[str]] = mapped_column(EncryptedStr)
     event_types: Mapped[list[str]] = mapped_column(ARRAY(Text))
     status: Mapped[EndpointStatus] = mapped_column(enum_column(EndpointStatus))
     created_by: Mapped[UUID] = mapped_column(Uuid)

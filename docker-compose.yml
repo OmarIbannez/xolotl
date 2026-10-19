@@ -27,7 +27,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    command: ["sh", "-c", "xolotl db bootstrap && xolotl serve"]
+    # exec: serve replaces the shell as PID 1, so `docker stop` (SIGTERM) reaches it
+    # and the API and its embedded worker shut down cleanly instead of being killed.
+    command: ["sh", "-c", "xolotl db bootstrap && exec xolotl serve"]
 
 volumes:
   pgdata:

@@ -1,8 +1,11 @@
 """The ``xolotl`` command line (spec §10)."""
 
 import getpass
+import logging
+import os
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -15,7 +18,7 @@ from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import migrate
 from xolotl.platform.audit import verify_chain
-from xolotl.platform.config import get_settings
+from xolotl.platform.config import DEV_MASTER_KEY_BYTES, Settings, get_settings
 from xolotl.platform.crypto import get_key_provider, set_key_provider
 from xolotl.platform.crypto.provider import DEFAULT_CACHE_TTL
 from xolotl.platform.db import (
@@ -48,9 +51,53 @@ _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _cli_actor() -> str:
     return f"cli:{getpass.getuser()}"
+
+
+def _report_object_store(root: Path) -> None:
+    """Log whether this process can create files under the object store's root.
+
+    A host's persistent disk may mount for another user than the image's (Render
+    documents nothing about disks and non-root images), and nothing writes an object
+    at start, so the log says it before the first upload finds out. The nearest
+    directory that exists decides; nothing is created.
+    """
+    existing = root.absolute()
+    while not existing.exists():
+        existing = existing.parent
+    where = {"object_store_root": str(root)}
+    if os.access(existing, os.W_OK | os.X_OK):
+        logger.info("object store root is writable", extra=where)
+        return
+    logger.warning(
+        "object store root is not writable by this process",
+        extra={**where, "uid": os.getuid(), "gids": os.getgroups()},
+    )
+
+
+def _warn_about_the_dev_master_key(settings: Settings) -> None:
+    """Log one warning when the public development master key wraps the tenant keys.
+
+    ``XOLOTL_ENV=prod`` refuses that key when the settings load, but the environment
+    defaults to ``dev``: a deployment that forgets ``XOLOTL_ENV`` and
+    ``XOLOTL_MASTER_KEY`` would otherwise start without a word and create every
+    tenant's keys under a key that anyone with the repository has. Nothing re-wraps
+    keys afterwards, so the time to hear about it is before the first real tenant.
+    The key itself is never logged.
+    """
+    # Compared as bytes, as the production refusal does: one key has more than one
+    # base64 spelling.
+    if settings.env != "prod" and settings.master_key_bytes == DEV_MASTER_KEY_BYTES:
+        msg = (
+            "the public development master key is in use; every tenant's keys are "
+            "readable to anyone with the repository; set XOLOTL_MASTER_KEY before "
+            "creating real tenants"
+        )
+        logger.warning(msg)
 
 
 def _ensure_key_provider() -> None:
@@ -109,20 +156,29 @@ def serve(
         int | None, typer.Option(help="Port (defaults to XOLOTL_PORT)")
     ] = None,
 ) -> None:
-    """Run pending migrations, check the app role, then serve the API.
+    """Bootstrap the app role if needed, run pending migrations, check it, serve.
 
-    Unless XOLOTL_EMBEDDED_WORKER=false, the API also runs the worker loop (events,
-    jobs, schedules) on a thread of its own, from the application's startup, which
-    comes after the migrations and the role check, to its shutdown. Exits 1 without
-    serving when the app role can bypass row-level security. uvicorn runs with
+    When XOLOTL_DATABASE_ADMIN_URL is set and the app role cannot sign in (missing on
+    a new database, or its password changed), ``db bootstrap`` runs first, so a host
+    can deploy the image with no step of its own. Unless XOLOTL_EMBEDDED_WORKER=false,
+    the API also runs the worker loop (events, jobs, schedules) on a thread of its
+    own, from the application's startup, which comes after the migrations and the
+    role check, to its shutdown. It logs whether it can write the object store's root
+    (a persistent disk may not let it), and warns when the public development master
+    key is in use (XOLOTL_ENV=prod refuses it). Exits 1 without serving when the app
+    role can bypass row-level security or bootstrap fails. uvicorn runs with
     ``log_config=None``, so its loggers propagate to the JSON root handler that
     ``configure_logging`` installs, redaction filter included.
     """
     settings = get_settings()
     configure_logging(settings.log_level)
+    _warn_about_the_dev_master_key(settings)
+    with _cli_errors():
+        _ = migrate.ensure_app_role()
     migrate.upgrade()
     with _cli_errors():
         assert_app_role_safe(get_engine())
+    _report_object_store(settings.object_store_root)
     uvicorn.run(
         "xolotl.app:build_app",
         factory=True,

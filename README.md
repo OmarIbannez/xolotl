@@ -65,13 +65,34 @@ docker compose exec api xolotl tenant create --slug acme --legal-name "Acme SA d
 
 `console/README.md` covers developing the console and its Playwright smoke test.
 
+`xolotl serve` also runs the bootstrap itself, before the migrations, whenever
+`XOLOTL_DATABASE_ADMIN_URL` is set and the app role cannot sign in (it does not exist
+yet, or its password changed), so a host can run the image with no step of its own. The
+role is cluster-wide, so give each deployment its own Postgres cluster, as Render does.
+
+## Deploy to Render
+
+`render.yaml` is a Render Blueprint: the image as one web service (API, console and
+worker, with a persistent disk for the object store) plus Render Postgres 17, on the
+smallest paid plans (about $15 a month). With CI green on `main`, make a master key
+with `openssl rand -base64 32` and keep a copy, create the Blueprint in Render
+(*New > Blueprint*) from `main` and paste the key when asked: it is the only value to
+enter.
+The first start creates the app role and migrates; then create a tenant from the
+service's Shell (`xolotl tenant create ...`) and sign in at the service URL.
+[docs/deploy-render.md](docs/deploy-render.md) has the steps, what each deploy does,
+the single-instance and disk caveats, and the costs.
+
 ## Configuration
 
 Environment variables are prefixed `XOLOTL_`; see `.env.example`. `XOLOTL_ENV=prod`
-refuses the default `XOLOTL_JWT_SECRET` and the default `XOLOTL_MASTER_KEY`.
+refuses the default `XOLOTL_JWT_SECRET` and the default `XOLOTL_MASTER_KEY`. Database
+URLs may be spelled `postgres://` or `postgresql://`, as hosts hand them out; the
+psycopg driver is added.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `XOLOTL_APP_DB_PASSWORD` | unset | For a host that provides only the owner's URL (Render): with `XOLOTL_DATABASE_URL` unset and `XOLOTL_DATABASE_ADMIN_URL` set, the app URL is the admin URL signing in as `xolotl_app` with this password. An explicit `XOLOTL_DATABASE_URL` wins. |
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
@@ -82,10 +103,11 @@ refuses the default `XOLOTL_JWT_SECRET` and the default `XOLOTL_MASTER_KEY`.
 Every tenant has keys of its own. A value encrypted for one tenant opens with nothing of
 another's, and destroying a tenant's keys makes what was encrypted for it unreadable for
 good (crypto-shredding). Today that covers the TOTP secrets
-(`staff_credential.totp_secret`); webhook signing secrets follow with plan 1c's webhook
-task. The idempotency store keeps the one-time secrets it returned (a new API key, an
-initial password) for 24 hours so a lost response can be replayed; encrypting them is
-the deployment gate before any production tenant, closed by migration 0005.
+(`staff_credential.totp_secret`) and the responses the idempotency store keeps for 24
+hours so a lost response can be replayed (`idempotency_key.response_body`, which can
+hold a new API key or an initial password): encrypting those was the deployment gate
+before any production tenant, closed by migration 0005. Webhook signing secrets follow
+with plan 1c's webhook task, and nothing stores one before that.
 
 **Keys.** `xolotl tenant create` gives the tenant three keys in the creation transaction
 (audited as `tenant.keys_created`): `DATA` encrypts values, `INDEX` computes blind
@@ -96,28 +118,53 @@ is `version (2 bytes) || nonce (12) || ciphertext and tag (16)`,
 authenticated with the tenant id and the purpose. The version names the key that sealed
 the value, which is why old values stay readable after a rotation.
 
-**Master key.** `XOLOTL_MASTER_KEY` wraps every tenant key, and the application,
-`xolotl tenant create`, `xolotl keys` and the migrations that touch encrypted data (both
-directions) all need the same one. Make it with `openssl rand -base64 32`, keep it out of
-the database and its backups, and keep it stable: there is no master-key rotation yet,
-and changing the key makes every tenant key unreadable. `XOLOTL_ENV=prod` refuses the
-public development key (the one `docker-compose.yml` runs with).
+**Master key.** `XOLOTL_MASTER_KEY` wraps every tenant key, and every process that
+creates or opens encrypted data needs the same one: the application (`xolotl serve`,
+whose embedded worker shares its process), the standalone `xolotl worker`,
+`xolotl tenant create`, `xolotl keys` and the migrations that touch encrypted data (in
+both directions). Make it with `openssl rand -base64 32`, keep it out of the database and
+its backups, and keep it stable: there is no master-key rotation yet, and changing the
+key makes every tenant key unreadable. `XOLOTL_ENV=prod` refuses the public development
+key (the one `docker-compose.yml` runs with); under any other `XOLOTL_ENV` an unset key
+means that public key, and it is accepted.
 
 Each wrapped key records the master key that wrapped it in `tenant_key.kek_ref`:
 `local:v1:` and the first 8 bytes, in hex, of `HMAC-SHA256(master key,
 "xolotl:kek-ref:v1")`. It is not secret and does not reveal the key (the development
 key's is `local:v1:ccda9faa1d7fd54d`). A process started with another master key answers
-`500 KEK_MISMATCH` when it reads a key, and `xolotl keys rotate` under the wrong one
-refuses before it writes, so a stray environment variable cannot leave a key version the
-servers cannot read. Keys written before references had a fingerprint hold the bare
-`local:v1`; the unwrap is their check. `xolotl keys destroy` needs no master key. To
-compare, `SELECT DISTINCT kek_ref FROM tenant_key` lists what the database holds, and
-this prints what the current environment writes (in the container, run the same program
-with `docker compose exec api python -c ...`, without `uv run`):
+`503 KEK_MISMATCH` when it reads a key (and logs the code at ERROR with the request id).
+Because the idempotency store is sealed, every `POST` under `/v1` except `/v1/auth/*`
+reads a key, and so does every TOTP step: they all answer 503 while `/readyz` stays 200,
+so a health check does not catch it.
+`xolotl keys rotate` under the wrong one refuses before it writes, so a stray
+environment variable cannot add a key version the servers cannot read to a tenant that
+has keys. Keys written before references had a fingerprint hold the bare `local:v1`; the
+unwrap is their check. `xolotl keys destroy` works under any valid master key, a wrong
+one included: with the master key lost, run it with any other valid one (under
+`XOLOTL_ENV=prod` the process refuses to start with the public development key or with
+none).
+
+A tenant's first keys are the exception, since there is nothing to compare them with:
+they take the reference of whoever creates them. Run `xolotl tenant create` only in the
+production environment, never from a shell with a stray `XOLOTL_MASTER_KEY` or none
+(outside `XOLOTL_ENV=prod` that means the public development key, and it is accepted).
+Keys made under the wrong master key can be neither mended nor re-wrapped with these
+commands, and destroying them is final, so that slug is lost. Right after creating a
+tenant, check that the reference stored for it is the one this environment writes.
+`SELECT DISTINCT kek_ref FROM tenant_key` lists what the database holds (add
+`WHERE tenant_id = '<tenant uuid>'` for one tenant; `xolotl tenant list` prints the ids),
+and this prints what the current environment writes (in the container, run the same
+program with `docker compose exec api python -c ...`, without `uv run`):
 
 ```bash
 uv run python -c "from xolotl.platform.config import get_settings; from xolotl.platform.crypto.provider import kek_ref_for; print(kek_ref_for(get_settings().master_key_bytes))"
 ```
+
+`tenant_key` is under forced row-level security, so run the query as a Postgres
+superuser (the `xolotl` role of `docker-compose.yml` is one). Any other role, the
+application's and a managed server's owner included, sees no row until its session names
+a tenant with `SELECT set_config('app.tenant_id', '<tenant uuid>', false)`, and then sees
+that tenant's rows only.
 
 **Encrypted values and `VIEW_PII`.** An encrypted column holds an opaque `Encrypted`
 value: it prints as `Encrypted(***)`, never becomes JSON by accident and is masked if it
@@ -140,21 +187,34 @@ keys are never rotated, because every stored tag would have to be recomputed.
 is refused) adds the next key version and retires the current one. Values written before
 keep their version and stay readable; nothing is re-encrypted. The `tenant.key_rotated`
 event holds the purpose and the version and nothing else. A server that cached the
-previous key may keep sealing under it for up to 5 minutes, which is harmless. In the
-container, run the commands with `docker compose exec api xolotl keys ...`.
+previous key may keep sealing under it for up to 5 minutes, which is harmless. Both
+`keys` commands wait at most 5 seconds for a lock that another transaction holds on the
+tenant's keys or audit trail, then stop with `CONFLICT ... try again shortly`, having
+changed nothing. In the container, run them with `docker compose exec api xolotl keys ...`.
 
 **Destruction.** `xolotl keys destroy --tenant acme --yes` is irreversible. It audits
 `tenant.keys_destroyed`, then removes every wrapped key of the tenant in the same
 transaction, and no key can be created for that tenant again. Everything that needs a key
-then answers `410 KEY_DESTROYED`, including the second sign-in step of every user with
-TOTP (it reads the database each time, so it refuses at once); the tenant's status does
-not change, users without TOTP still sign in with a password and existing sessions carry
-on. The process that ran the command forgets its cached keys at once, other server
-processes within 5 minutes. It does not reach copies: backups, archived WAL, replicas and
-pages VACUUM has not cleaned, all taken before the command, still hold the wrapped keys,
-and while `XOLOTL_MASTER_KEY` is unchanged a restore from them brings the keys back.
-Shredding is complete once every such copy has expired. Destroying a tenant that has no
-keys is refused (and not audited); destroying twice is harmless and audited each time.
+then answers `410 KEY_DESTROYED`: the second sign-in step of every user with TOTP (it
+reads the database each time, so it refuses at once), TOTP enrolment, and every `POST`
+under `/v1` except `/v1/auth/*`, because the idempotency store is sealed with the
+tenant's key and is read before the endpoint runs (revoking an API key and disabling a
+user are `POST`s too). What still works is reading, with the tokens and API keys that
+exist, and a password sign-in for users without TOTP; the tenant's status does not
+change. So destruction is the last step of an offboarding: export what the tenant needs,
+revoke its API keys, disable its staff and set its status first. The process that ran the
+command forgets its cached keys at once, other server processes within 5 minutes.
+
+Destruction does not reach copies. Backups, archived WAL and replicas taken before the
+command still hold the wrapped keys, and so do the old row versions that its update
+leaves in the live table until the table is vacuumed (autovacuum does it in time;
+`VACUUM FULL tenant_key` rewrites the table and drops them at once). While
+`XOLOTL_MASTER_KEY` is unchanged, a restore from any of them brings the keys back, so
+shredding is complete once those copies have expired and the table has been vacuumed.
+Nor does it reach the object store: its files are plaintext, so `keys destroy` leaves a
+tenant's documents readable until you delete `<XOLOTL_OBJECT_STORE_ROOT>/<tenant_id>/`.
+Destroying a tenant that has no keys is refused (and not audited); destroying twice is
+harmless and audited each time.
 
 **Object store.** `XOLOTL_OBJECT_STORE=local` is the only adapter today; the
 `ObjectStore` port is ready for later ones, such as S3. An object is the file
@@ -176,7 +236,10 @@ mounts no volume for it yet; nothing writes objects until a feature does.
   log their progress), then start the new one. It needs `XOLOTL_MASTER_KEY`, and a
   downgrade needs the same key. It creates the keys a tenant lacks and logs that instead
   of auditing it; a tenant whose keys were destroyed is skipped and its old plaintext
-  TOTP secrets are dropped.
+  TOTP secrets are dropped. Migration 0005 (the sealed idempotency store) is no safer:
+  neither direction works with the application running, and it empties the 24-hour
+  replay cache, so a client that retries across the upgrade runs its request again
+  instead of receiving the stored response.
 - Migration 0004 is the template for every later conversion of a plaintext column to
   an encrypted one (the CURP and RFC columns, for one). It holds an ACCESS EXCLUSIVE
   lock on the table for its whole transaction (`ADD COLUMN` takes it, and the final
@@ -202,7 +265,8 @@ mounts no volume for it yet; nothing writes objects until a feature does.
   `bind_context` set it, `apply_context` alone does not. Code that moves a session
   between tenants, or runs outside a request, binds it per tenant (the login steps do),
   and every process that creates or opens encrypted data installs the key provider first
-  (`build_app`, `tenant create` and `keys` do).
+  (`build_app`, `build_worker` for the standalone `xolotl worker`, `tenant create` and
+  `keys` do).
 - Assign `encrypt(value, tenant_id=..., session=s)` results. Plain text assigned to an
   attribute is sealed when the row is flushed, under the row's own tenant, so set
   `tenant_id` first; text bound in a Core statement is sealed under the current

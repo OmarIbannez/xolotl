@@ -1,0 +1,74 @@
+# Render Blueprint: one Docker web service (API, staff console and the embedded worker
+# in one container) with a persistent disk for the object store, and Render Postgres.
+# Create it once with New > Blueprint in the Render dashboard; docs/deploy-render.md
+# walks through it. The one value to paste is XOLOTL_MASTER_KEY: keep a copy offline.
+# After that, every push to main that touches the image redeploys, but only once the
+# GitHub Actions checks pass. tests/test_render_blueprint.py keeps this file honest.
+databases:
+  - name: xolotl-db
+    # Basic, 0.1 CPU / 256 MB: the smallest paid plan. A free database expires after
+    # 30 days and has no backups.
+    plan: 0.1c-256mb
+    # What CI and docker-compose run. Fixed at creation, like the names and region.
+    postgresMajorVersion: "17"
+    region: oregon
+    databaseName: xolotl
+    user: xolotl
+    diskSizeGB: 5
+    # Private network only: the web service reaches it over Render's internal URL.
+    ipAllowList: []
+
+services:
+  - type: web
+    name: xolotl
+    runtime: docker
+    # Starter, 0.5 CPU / 512 MB: the smallest paid plan. A free web service has no
+    # persistent disk and no shell, and sleeps after 15 idle minutes (the worker too).
+    plan: 0.5c-512mb
+    region: oregon
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # No dockerCommand and no preDeployCommand: the image's exec-form CMD runs serve,
+    # which bootstraps the app role, migrates and checks it before it listens. With a
+    # disk Render stops the old instance first, so migrations never run beside it.
+    # One instance only: the disk attaches to one, and each would run the worker.
+    numInstances: 1
+    autoDeployTrigger: checksPass
+    # Changes elsewhere (docs, render.yaml itself) do not rebuild the image.
+    buildFilter:
+      paths:
+        - src/**
+        - console/**
+        - Dockerfile
+        - .dockerignore
+        - pyproject.toml
+        - uv.lock
+        - alembic.ini
+    healthCheckPath: /readyz
+    disk:
+      name: objects
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: XOLOTL_ENV
+        value: prod
+      # The owner's internal URL. serve signs in as xolotl_app with the password below
+      # and creates that role on first start (see docs/deploy-render.md).
+      - key: XOLOTL_DATABASE_ADMIN_URL
+        fromDatabase:
+          name: xolotl-db
+          property: connectionString
+      - key: XOLOTL_APP_DB_PASSWORD
+        generateValue: true
+      - key: XOLOTL_JWT_SECRET
+        generateValue: true
+      # Prompted for once, at Blueprint creation: `openssl rand -base64 32`.
+      - key: XOLOTL_MASTER_KEY
+        sync: false
+      - key: XOLOTL_OBJECT_STORE_ROOT
+        value: /var/data/objects
+      - key: XOLOTL_EMBEDDED_WORKER
+        value: "true"
+      - key: XOLOTL_LOG_LEVEL
+        value: INFO

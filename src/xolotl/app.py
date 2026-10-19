@@ -22,6 +22,7 @@ from xolotl.modules.tenants import (
     routes_notifications,
     routes_staff,
     routes_tenants,
+    routes_webhooks,
 )
 from xolotl.modules.tenants.service import ensure_platform_schedules, resolve_bearer
 from xolotl.platform.api.app import AppState, create_app
@@ -36,6 +37,7 @@ from xolotl.platform.crypto.provider import (
 )
 from xolotl.platform.db import SessionFactory, get_sessionmaker
 from xolotl.platform.events import InAppNotifier, OutboxEventBus
+from xolotl.platform.events.webhooks import register_webhooks
 from xolotl.platform.jobs import (
     JobRunner,
     PostgresJobQueue,
@@ -106,15 +108,18 @@ def wire_platform(
 
     """
     queue = PostgresJobQueue(session_factory)
+    bus = OutboxEventBus(session_factory)
     workflows = PostgresWorkflowRunner(session_factory, queue)
     # workflow.advance, workflow.timer and the hourly workflow.sweep.
     workflows.register_job_handlers()
     register_job_handler(PURGE_KIND, purge_expired_keys)
-    # Event subscribers are registered here too; the first, the webhook fan-out
-    # (consumer "webhooks"), arrives with plan 1c's webhooks task.
+    # The webhook fan-out (consumer "webhooks", for every event type) and the
+    # webhook.deliver job, so whichever process dispatches an event or runs a job
+    # (the API's embedded worker, or `xolotl worker`) reaches the tenants' endpoints.
+    register_webhooks(bus, queue, settings=settings)
     return PlatformServices(
         session_factory=session_factory,
-        bus=OutboxEventBus(session_factory),
+        bus=bus,
         queue=queue,
         job_runner=JobRunner(queue, session_factory, worker_id=settings.worker_id),
         scheduler=Scheduler(queue, session_factory),
@@ -209,6 +214,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             routes_api_keys.router,
             routes_staff.router,
             routes_notifications.router,
+            routes_webhooks.router,
             audit_routes.router,
         ],
     )

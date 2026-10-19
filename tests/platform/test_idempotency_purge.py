@@ -26,6 +26,8 @@ from xolotl.platform.api.idempotency import (
     purge_expired_keys,
 )
 from xolotl.platform.api.models import IdempotencyKey
+from xolotl.platform.crypto import get_key_provider
+from xolotl.platform.crypto.primitives import parse_header
 from xolotl.platform.db import get_sessionmaker, tenant_session
 from xolotl.platform.errors import ContextMissingError
 from xolotl.platform.ids import uuid7
@@ -235,3 +237,39 @@ def test_a_request_never_waits_for_a_purge_in_progress(
         # The request's own purge passes the held key by instead of queueing.
         assert ping.result(timeout=10).status_code == 200
     assert "expired" in stored_keys(tenant.tenant_id)
+
+
+def destroyed_tenant_with_expired_keys(frozen: datetime) -> UUID:
+    tenant_id = make_tenant_with_keys("alpha")
+    add_key(tenant_id, "expired", expires_at=frozen - timedelta(minutes=5))
+    add_key(tenant_id, "also", expires_at=frozen - timedelta(minutes=1), actor="b")
+    add_key(tenant_id, "live", expires_at=frozen + timedelta(minutes=5))
+    get_key_provider().destroy(tenant_id)
+    return tenant_id
+
+
+def test_a_destroyed_tenants_expired_keys_are_purged_without_reading_a_body(
+    engine: Engine, frozen: datetime, monkeypatch: pytest.MonkeyPatch
+):
+    tenant_id = destroyed_tenant_with_expired_keys(frozen)
+    read: list[int] = []
+
+    def counting(data: bytes) -> int:
+        read.append(len(data))
+        return parse_header(data)
+
+    # Opening a sealed body starts with reading its header: none may be read.
+    monkeypatch.setattr("xolotl.platform.crypto.encrypted.parse_header", counting)
+    with tenant_session(system_ctx(tenant_id)) as s:
+        assert purge_expired(s) == 2
+    assert stored_keys(tenant_id) == {"live"}
+    assert read == []
+
+
+def test_the_purge_job_runs_for_a_tenant_whose_keys_are_destroyed(
+    engine: Engine, frozen: datetime
+):
+    tenant_id = destroyed_tenant_with_expired_keys(frozen)
+    with tenant_session(system_ctx(tenant_id)) as s:
+        purge_expired_keys(s, a_purge_job(tenant_id))
+    assert stored_keys(tenant_id) == {"live"}

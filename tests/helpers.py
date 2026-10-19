@@ -88,6 +88,18 @@ def make_tenant_with_keys(
     return tenant_id
 
 
+# The restricted-owner tests (a migration run as an owner that row-level security
+# binds) are the only guard that a migration scopes its statements to a tenant, so a
+# server they cannot run on is a failure of the run and not a skipped test: point
+# XOLOTL_TEST_DATABASE_ADMIN_URL at a role that can create roles and databases, or
+# leave it unset for the container.
+def require_server_admin(*, allowed: bool) -> None:
+    if not allowed:
+        pytest.fail(
+            "admin role cannot create roles or databases: the scoping test needs both"
+        )
+
+
 @contextmanager
 def auth_session() -> Generator[Session]:
     with tenant_session(service.auth_context()) as s:

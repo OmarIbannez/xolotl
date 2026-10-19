@@ -15,6 +15,7 @@ from typing import ClassVar, cast
 from sqlalchemy import Connection, Engine, MetaData, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, Session, SessionTransaction, sessionmaker
 
+from xolotl.platform import config
 from xolotl.platform.config import get_settings
 from xolotl.platform.errors import ContextMissingError
 from xolotl.platform.tenancy.context import (
@@ -25,7 +26,8 @@ from xolotl.platform.tenancy.context import (
     tenant_guc,
 )
 
-APP_ROLE = "xolotl_app"
+# Named in config, which derives the app URL from the admin URL with it.
+APP_ROLE = config.APP_ROLE
 CONTEXT_KEY = "tenant_context"
 SessionFactory = Callable[[], Session]
 

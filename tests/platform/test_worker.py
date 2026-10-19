@@ -487,6 +487,18 @@ def test_with_the_embedded_worker_off_no_thread_starts(
         assert embedded_threads() == []
 
 
+def test_the_suite_builds_its_apps_without_the_worker_thread(engine: Engine):
+    # tests/conftest.py turns XOLOTL_EMBEDDED_WORKER off for the whole suite, so the
+    # shared `app` and `client` fixtures run no thread beside the tests that drive the
+    # queue by hand (the webhook route tests among them). Tests of the embedded worker
+    # turn it on for themselves, with the `embedded_on` fixture.
+    assert get_settings().embedded_worker is False
+    app = build_app()
+    with TestClient(app):
+        assert embedded_threads() == []
+        assert cast("AppState", app.state.xolotl).embedded_worker_alive is None
+
+
 def test_the_embedded_worker_works_through_the_apps_session_factory(
     engine: Engine, embedded_on: None
 ):

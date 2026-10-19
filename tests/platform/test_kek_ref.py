@@ -8,6 +8,7 @@ gets a clear error instead of a version nobody else can read.
 
 import hashlib
 import hmac
+import logging
 import re
 from datetime import datetime
 from itertools import starmap
@@ -16,7 +17,7 @@ from typing import NamedTuple
 from uuid import UUID
 
 import pytest
-from fastapi import APIRouter
+from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 
@@ -30,7 +31,6 @@ from tests.helpers import (
     system_ctx,
     wrapped_keys,
 )
-from xolotl.app import build_app
 from xolotl.platform.auth.principal import StaffDep
 from xolotl.platform.config import DEV_MASTER_KEY_BYTES, get_settings
 from xolotl.platform.crypto import (
@@ -132,6 +132,10 @@ def test_the_readme_documents_the_reference_it_derives():
     assert kek_ref_for(DEV_MASTER_KEY_BYTES) in readme  # the dev key's, quoted
     assert 'HMAC-SHA256(master key, "xolotl:kek-ref:v1")' in readme
     assert "SELECT DISTINCT kek_ref FROM tenant_key" in readme
+    # How a mismatch shows to a client, and how to look when row-level security hides
+    # the rows from every role that is not a superuser.
+    assert f"{KekMismatchError.status} {KekMismatchError.default_code}" in readme
+    assert "set_config('app.tenant_id'" in readme
 
 
 def test_a_provider_knows_its_reference(
@@ -183,7 +187,7 @@ def test_keys_wrapped_under_another_master_key_are_refused_with_a_clear_error(
         with pytest.raises(KekMismatchError) as caught:
             _ = read()
         error = caught.value
-        assert (error.status, error.code) == (500, "KEK_MISMATCH")
+        assert (error.status, error.code) == (503, "KEK_MISMATCH")
         assert isinstance(error, DecryptionError)  # still a failure to decrypt
     assert provider.data_key(tenant, DATA)[0] == 2  # the right master key is unharmed
 
@@ -406,6 +410,34 @@ def test_a_chain_broken_by_another_master_key_is_mended_by_rotating_under_the_ri
     assert cold.data_key(tenant, DATA)[0] == 3
 
 
+def test_a_retired_key_of_another_master_key_does_not_admit_that_key_again(
+    provider: LocalKeyProvider, stranger: LocalKeyProvider, admin_engine: Engine
+):
+    # A chain that was broken once and mended since: version 1 under the owner's key,
+    # version 2 under the stranger's (retired by the mending rotation), version 3 under
+    # the owner's. A retired row says nothing about whose tenant this is today.
+    tenant = make_tenant_with_keys("alpha", provider=provider)
+    _add_version_wrapped_under(admin_engine, tenant, OTHER_KEK, DATA, 2)
+    cold = LocalKeyProvider(KEK, get_sessionmaker())
+    assert cold.rotate(tenant, DATA) == 3
+    states = [
+        s for purpose, _, s in key_states(admin_engine, tenant) if purpose == "DATA"
+    ]
+    assert states == ["retired", "retired", "current"]
+    assert stranger.kek_ref in {row.kek_ref for row in rows_of(admin_engine, tenant)}
+    before = rows_of(admin_engine, tenant)
+    with pytest.raises(KekMismatchError):
+        _ = stranger.rotate(tenant, DATA)  # the stranger's old row does not let it in
+    assert rows_of(admin_engine, tenant) == before
+    with admin_engine.begin() as conn:
+        _ = conn.execute(text("DELETE FROM tenant_key WHERE purpose = 'BIOMETRIC'"))
+    before = rows_of(admin_engine, tenant)
+    with pytest.raises(KekMismatchError):
+        stranger.create_tenant_keys(tenant)  # nor does it let it add a missing purpose
+    assert rows_of(admin_engine, tenant) == before
+    assert cold.rotate(tenant, DATA) == 4  # the owner carries on
+
+
 def test_unlabelled_keys_are_proven_by_unwrapping_one_before_a_write(
     provider: LocalKeyProvider, stranger: LocalKeyProvider, admin_engine: Engine
 ):
@@ -473,10 +505,12 @@ def _probe_router() -> APIRouter:
     return router
 
 
-def test_a_mismatch_is_a_500_problem_with_a_stable_code_and_no_reference(
-    engine: Engine, stranger: LocalKeyProvider, no_key_provider: None
+def test_a_mismatch_is_a_503_problem_with_a_stable_code_and_no_reference(
+    no_key_provider: None,
+    app: FastAPI,  # built in a fixture: building an app resets the root log handlers
+    stranger: LocalKeyProvider,
+    caplog: pytest.LogCaptureFixture,
 ):
-    app = build_app()  # installs the provider the configuration names
     app.include_router(_probe_router(), prefix="/v1")
     created = new_tenant()
     with TestClient(app) as client:
@@ -489,10 +523,24 @@ def test_a_mismatch_is_a_500_problem_with_a_stable_code_and_no_reference(
         )
         assert client.get("/v1/probe/key", headers=headers).json() == {"version": 1}
         set_key_provider(stranger)  # a replica that was started with another key
-        refused = client.get("/v1/probe/key", headers=headers)
-    assert refused.status_code == 500
+        with caplog.at_level(logging.INFO):
+            refused = client.get(
+                "/v1/probe/key", headers={**headers, "X-Request-Id": "kek-1"}
+            )
+    assert refused.status_code == 503
     assert refused.headers["content-type"] == "application/problem+json"
+    assert "retry-after" not in refused.headers  # it does not heal by itself
     body = refused.json()
-    assert (body["code"], body["title"]) == ("KEK_MISMATCH", "Internal Server Error")
+    assert (body["code"], body["title"]) == ("KEK_MISMATCH", "Service Unavailable")
     assert body["detail"] == KekMismatchError.default_detail
     assert "local:v1" not in refused.text
+    # The operator sees why in the logs: the code, at ERROR, with the request's id.
+    (logged,) = [r for r in caplog.records if r.getMessage() == "server error"]
+    assert logged.levelno == logging.ERROR
+    fields = vars(logged)
+    assert (fields["status"], fields["code"], fields["request_id"]) == (
+        503,
+        "KEK_MISMATCH",
+        "kek-1",
+    )
+    assert "local:v1" not in caplog.text
