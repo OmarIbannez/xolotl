@@ -137,6 +137,10 @@ export type HitBand = Schemas['HitBand']
 export type Decision = Schemas['Decision']
 export type BlockedReason = Schemas['BlockedReason']
 export type Page_MatchSummary_ = Schemas['Page_MatchSummary_']
+/** The matcher's evaluation report shipped with the build: figures per list kind and floors. */
+export type EvaluationReport = Schemas['EvaluationReportResponse']
+export type EvaluationKind = Schemas['ListKindMetrics']
+export type EvaluationFloor = Schemas['Floor']
 
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).

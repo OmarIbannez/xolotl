@@ -1,4 +1,4 @@
-import { BookOpen, CalendarDays, Coins, Contact, House, KeyRound, ListChecks, Lock, Plug, ScrollText, ShieldAlert, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
+import { BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, House, KeyRound, ListChecks, Lock, Plug, ScrollText, ShieldAlert, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/api/types'
 import { ACCESS } from '@/auth/access'
 
@@ -14,6 +14,7 @@ export interface NavItem {
     | 'nav.policy'
     | 'nav.lists'
     | 'nav.privateLists'
+    | 'nav.screeningEvaluation'
     | 'nav.units'
     | 'nav.calendar'
     | 'nav.connectors'
@@ -35,6 +36,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/policy', labelKey: 'nav.policy', icon: BookOpen },
   { to: '/lists', labelKey: 'nav.lists', icon: ListChecks, roles: ACCESS.lists },
   { to: '/private-lists', labelKey: 'nav.privateLists', icon: Lock, roles: ACCESS.privateLists },
+  { to: '/screening/evaluation', labelKey: 'nav.screeningEvaluation', icon: ChartNoAxesColumn, roles: ACCESS.screening },
   { to: '/units', labelKey: 'nav.units', icon: Coins },
   { to: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
   { to: '/connectors', labelKey: 'nav.connectors', icon: Plug, roles: ACCESS.connectors },

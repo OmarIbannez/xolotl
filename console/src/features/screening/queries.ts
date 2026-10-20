@@ -98,3 +98,14 @@ export function useRevokeWhitelist() {
     },
   })
 }
+
+/** The matcher's evaluation report shipped with the build; a 404 means the build ships none. */
+export function useEvaluation() {
+  const { tenant, enabled } = useSignedIn()
+  return useQuery({
+    queryKey: [SCREENING, tenant, 'evaluation'],
+    queryFn: () => unwrap(api.GET('/screening/evaluation')),
+    enabled,
+    staleTime: Infinity,
+  })
+}
