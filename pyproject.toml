@@ -24,6 +24,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10",
     "pyotp>=2.9",
     "pyyaml>=6.0.3",
+    "rapidfuzz>=3.14",
     "sqlalchemy>=2.1",
     "typer>=0.19",
     "tzdata>=2026.5",

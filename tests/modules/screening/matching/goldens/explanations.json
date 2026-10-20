@@ -1,0 +1,709 @@
+{
+  "exact": {
+    "score": "1.0000",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin archivaldo guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 1.0,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "archivaldo",
+          "entry": "archivaldo",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "dropped_maternal_and_middle": {
+    "score": "0.7003",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin guzman",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.7003,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "archivaldo",
+        "loera"
+      ],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "order_swapped": {
+    "score": "1.0000",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin archivaldo guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 1.0,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "archivaldo",
+          "entry": "archivaldo",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "nickname_and_accents": {
+    "score": "0.9913",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin archibaldo guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.9913,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "archibaldo",
+          "entry": "archivaldo",
+          "kind": "PHONETIC",
+          "similarity": 0.96,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "initial": {
+    "score": "0.8292",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "j guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.8292,
+      "alignment": [
+        {
+          "query": "j",
+          "entry": "joaquin",
+          "kind": "INITIAL",
+          "similarity": 0.8,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "archivaldo"
+      ],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "typo": {
+    "score": "0.8612",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin guzmam loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.8612,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzmam",
+          "entry": "guzman",
+          "kind": "FUZZY",
+          "similarity": 0.9333,
+          "weight": 0.9095,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "archivaldo"
+      ],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "birth_date_conflict": {
+    "score": "0.7280",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.878,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "archivaldo"
+      ],
+      "qualifiers": [
+        {
+          "attribute": "BIRTH_DATE",
+          "outcome": "CONFLICT",
+          "adjustment": -0.15,
+          "detail": "year 1990 vs listed 1957"
+        }
+      ],
+      "rules": []
+    }
+  },
+  "qualifiers_agree": {
+    "score": "0.9980",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "joaquin guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.878,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "archivaldo"
+      ],
+      "qualifiers": [
+        {
+          "attribute": "BIRTH_DATE",
+          "outcome": "MATCH",
+          "adjustment": 0.08,
+          "detail": "exact date matches"
+        },
+        {
+          "attribute": "NATIONALITY",
+          "outcome": "MATCH",
+          "adjustment": 0.03,
+          "detail": "MX"
+        },
+        {
+          "attribute": "COUNTRY",
+          "outcome": "MATCH",
+          "adjustment": 0.02,
+          "detail": "MX"
+        },
+        {
+          "attribute": "GENDER",
+          "outcome": "MATCH",
+          "adjustment": 0.02,
+          "detail": "MALE"
+        }
+      ],
+      "rules": []
+    }
+  },
+  "identifier_floor": {
+    "score": "0.9500",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "j loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.6795,
+      "alignment": [
+        {
+          "query": "j",
+          "entry": "joaquin",
+          "kind": "INITIAL",
+          "similarity": 0.8,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "archivaldo",
+        "guzman"
+      ],
+      "qualifiers": [
+        {
+          "attribute": "IDENTIFIER",
+          "outcome": "MATCH",
+          "adjustment": 0.2705,
+          "detail": "CURP ****RQ02 is listed"
+        }
+      ],
+      "rules": [
+        {
+          "code": "ID_MATCH_FLOOR",
+          "detail": "CURP ****RQ02 is listed"
+        }
+      ]
+    }
+  },
+  "identifier_conflict": {
+    "score": "0.3000",
+    "band": "AUTO_DISCARDED",
+    "explanation": {
+      "query_name": "joaquin archivaldo guzman loera",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 1.0,
+      "alignment": [
+        {
+          "query": "joaquin",
+          "entry": "joaquin",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "archivaldo",
+          "entry": "archivaldo",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7,
+          "role": "GIVEN"
+        },
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.819,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 1.0,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [
+        {
+          "attribute": "IDENTIFIER",
+          "outcome": "CONFLICT",
+          "adjustment": -0.7,
+          "detail": "CURP ****XX00 differs from the listed one"
+        }
+      ],
+      "rules": [
+        {
+          "code": "ID_CONFLICT_CAP",
+          "detail": "CURP ****XX00 differs from the listed one"
+        }
+      ]
+    }
+  },
+  "unrelated": {
+    "score": "0.0000",
+    "band": "BELOW_CUTOFF",
+    "explanation": {
+      "query_name": "maria fernanda lopez",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.0,
+      "alignment": [],
+      "unmatched_query": [
+        "maria",
+        "fernanda",
+        "lopez"
+      ],
+      "unmatched_entry": [
+        "joaquin",
+        "archivaldo",
+        "guzman",
+        "loera"
+      ],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "entity_mismatch": {
+    "score": "0.0000",
+    "band": "BELOW_CUTOFF",
+    "explanation": {
+      "query_name": "guzman loera sa de cv",
+      "entry_name": "joaquin archivaldo guzman loera",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.7062,
+      "alignment": [
+        {
+          "query": "guzman",
+          "entry": "guzman",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.7576,
+          "role": "SURNAME"
+        },
+        {
+          "query": "loera",
+          "entry": "loera",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.925,
+          "role": "SURNAME"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [
+        "joaquin",
+        "archivaldo"
+      ],
+      "qualifiers": [
+        {
+          "attribute": "ENTITY_TYPE",
+          "outcome": "CONFLICT",
+          "adjustment": -0.7062,
+          "detail": "ORGANIZATION against PERSON"
+        }
+      ],
+      "rules": [
+        {
+          "code": "ENTITY_TYPE_MISMATCH",
+          "detail": "ORGANIZATION against PERSON"
+        }
+      ]
+    }
+  },
+  "organization_legal_form": {
+    "score": "1.0000",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "acme sol sapi de cv",
+      "entry_name": "comercializadora acme sol sa de cv",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 1.0,
+      "alignment": [
+        {
+          "query": "acme",
+          "entry": "acme",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.85,
+          "role": "UNKNOWN"
+        },
+        {
+          "query": "sol",
+          "entry": "sol",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.85,
+          "role": "UNKNOWN"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [],
+      "rules": []
+    }
+  },
+  "sat_rfc_equal": {
+    "score": "1.0000",
+    "band": "ALERT",
+    "explanation": {
+      "query_name": "otra razon",
+      "entry_name": "acme sol",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 0.0,
+      "alignment": [],
+      "unmatched_query": [
+        "otra",
+        "razon"
+      ],
+      "unmatched_entry": [
+        "acme",
+        "sol"
+      ],
+      "qualifiers": [
+        {
+          "attribute": "IDENTIFIER",
+          "outcome": "MATCH",
+          "adjustment": 0.95,
+          "detail": "RFC ****1AAA is listed"
+        }
+      ],
+      "rules": [
+        {
+          "code": "ID_MATCH_FLOOR",
+          "detail": "RFC ****1AAA is listed"
+        },
+        {
+          "code": "IDENTIFIER_ONLY_LIST",
+          "detail": "RFC matches"
+        }
+      ]
+    }
+  },
+  "sat_rfc_differs": {
+    "score": "0.3000",
+    "band": "AUTO_DISCARDED",
+    "explanation": {
+      "query_name": "acme sol",
+      "entry_name": "acme sol",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 1.0,
+      "alignment": [
+        {
+          "query": "acme",
+          "entry": "acme",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.85,
+          "role": "UNKNOWN"
+        },
+        {
+          "query": "sol",
+          "entry": "sol",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.85,
+          "role": "UNKNOWN"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [
+        {
+          "attribute": "IDENTIFIER",
+          "outcome": "CONFLICT",
+          "adjustment": -0.7,
+          "detail": "RFC ****1BBB differs from the listed one"
+        }
+      ],
+      "rules": [
+        {
+          "code": "ID_CONFLICT_CAP",
+          "detail": "RFC ****1BBB differs from the listed one"
+        }
+      ]
+    }
+  },
+  "sat_without_rfc": {
+    "score": "1.0000",
+    "band": "LOW_CONFIDENCE",
+    "explanation": {
+      "query_name": "acme sol",
+      "entry_name": "acme sol",
+      "entry_name_quality": "PRIMARY",
+      "name_score": 1.0,
+      "alignment": [
+        {
+          "query": "acme",
+          "entry": "acme",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.85,
+          "role": "UNKNOWN"
+        },
+        {
+          "query": "sol",
+          "entry": "sol",
+          "kind": "EXACT",
+          "similarity": 1.0,
+          "weight": 0.85,
+          "role": "UNKNOWN"
+        }
+      ],
+      "unmatched_query": [],
+      "unmatched_entry": [],
+      "qualifiers": [],
+      "rules": [
+        {
+          "code": "IDENTIFIER_ONLY_LIST",
+          "detail": "no RFC on the subject; LOW_CONFIDENCE at most"
+        }
+      ]
+    }
+  }
+}
