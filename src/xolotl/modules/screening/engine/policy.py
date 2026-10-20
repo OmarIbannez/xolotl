@@ -61,13 +61,24 @@ def policy_for_run(s: Session) -> ScreeningPolicyView:
 
     """
     effective = effective_policy(s, on=today_mx(), product=None)
-    bands = effective.screening.bands
     return ScreeningPolicyView(
         snapshot_id=snapshot_policy(s, effective),
         effective=effective,
-        config=ScoringConfig(
-            id_match_floor=bands.id_match_floor, id_conflict_cap=bands.id_conflict_cap
-        ),
+        config=scoring_config(effective.screening.bands),
+    )
+
+
+def scoring_config(bands: ScreeningBands) -> ScoringConfig:
+    """Derive the matcher configuration of a policy's bands.
+
+    A run and a replay of it both derive the configuration, and so its hash, here.
+
+    Returns:
+        The scoring configuration with the bands' ID floor and conflict cap.
+
+    """
+    return ScoringConfig(
+        id_match_floor=bands.id_match_floor, id_conflict_cap=bands.id_conflict_cap
     )
 
 

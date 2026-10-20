@@ -5,6 +5,7 @@ Whenever a test expects an exception from inside a session, ``pytest.raises`` is
 outermost context manager, so the error rolls the session back.
 """
 
+import dataclasses
 import threading
 from collections.abc import Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -467,11 +468,20 @@ def test_concurrent_runs_create_one_finding(
         counts = sorted(f.result(timeout=60) for f in futures)
 
     assert counts == [0, 1]
-    assert len(_matches(tenant)) == 1
+    (finding,) = _matches(tenant)
     with _staff(tenant) as s:
-        assert s.scalar(select(func.count()).select_from(ScreeningRun)) == 2
-        news = sorted(s.scalars(select(ScreeningRun.new_match_count)))
-    assert news == [0, 1]
+        runs = list(s.scalars(select(ScreeningRun)))
+        linked = set(
+            s.scalars(
+                select(ScreeningHit.match_id).where(
+                    ScreeningHit.source_entry_key == "7001"
+                )
+            )
+        )
+    assert sorted(r.new_match_count for r in runs) == [0, 1]
+    # The run that came second saw the first run's finding.
+    assert [r.outcome for r in runs] == [SubjectStatus.PENDING_REVIEW] * 2
+    assert linked == {finding.id}
 
 
 def test_a_whitelisted_entry_is_suppressed_and_logged_as_a_hit(
@@ -565,6 +575,130 @@ def test_a_revoked_whitelist_reopens_the_false_positive_finding(
     assert reopened.closed_at is None
     assert result.subject.status is SubjectStatus.PENDING_REVIEW
     assert _outbox_types(tenant).count(MATCH_CREATED) == 2
+
+
+def test_a_relisted_entry_reopens_its_delisted_finding_and_alerts_again(
+    tenant: CreatedTenant, itf_pack, lists, holder
+):
+    # Product owner decision (2026-10-20): Deviation 8 extends to DELISTED.
+    party_id = _party(tenant)
+    finding = _check(tenant, party_id).new_matches[0]
+    with _staff(tenant) as s:
+        # What a delisting leaves behind; the entry's content is unchanged.
+        delisted = s.get_one(ScreeningMatch, (tenant.tenant_id, finding.id))
+        delisted.status = MatchStatus.DELISTED
+        delisted.closed_at = clock.now()
+
+    result = _check(tenant, party_id)
+
+    assert _ofac_hit(result).match_id == finding.id
+    assert [m.id for m in result.new_matches] == [finding.id]
+    assert result.run.new_match_count == 1
+    (reopened,) = _matches(tenant)
+    assert reopened.status is MatchStatus.OPEN
+    assert reopened.closed_at is None
+    assert result.subject.status is SubjectStatus.PENDING_REVIEW
+    assert _outbox_types(tenant).count(MATCH_CREATED) == 2
+
+
+def test_content_returning_to_an_earlier_version_reopens_its_finding(
+    tenant: CreatedTenant,
+    itf_pack,
+    lists,
+    holder,
+    store: LocalFsObjectStore,
+    fake_monotonic: FakeMonotonic,
+):
+    party_id = _party(tenant)
+    first = _check(tenant, party_id).new_matches[0]
+    changed = dataclasses.replace(JUAN, nationalities=("MX",))
+    _ = load_shared(OFAC, (changed, *NEAR_MISSES), store=store)
+    fake_monotonic.advance(60)
+    second = _check(tenant, party_id).new_matches[0]
+    _ = load_shared(OFAC, (JUAN, *NEAR_MISSES), store=store)
+    fake_monotonic.advance(60)
+
+    result = _check(tenant, party_id)
+
+    assert [m.id for m in result.new_matches] == [first.id]
+    assert _ofac_hit(result).match_id == first.id
+    with _staff(tenant) as s:
+        a = s.get_one(ScreeningMatch, (tenant.tenant_id, first.id))
+        b = s.get_one(ScreeningMatch, (tenant.tenant_id, second.id))
+        decisions = list(
+            s.scalars(
+                select(MatchDisposition.decision).where(
+                    MatchDisposition.match_id == second.id
+                )
+            )
+        )
+    assert (a.status, a.superseded_by_match_id, a.closed_at) == (
+        MatchStatus.OPEN,
+        None,
+        None,
+    )
+    assert b.status is MatchStatus.SUPERSEDED
+    assert b.superseded_by_match_id == first.id
+    assert b.closed_at is not None
+    assert decisions == [Decision.SUPERSEDED]
+    assert result.subject.status is SubjectStatus.PENDING_REVIEW
+    assert _outbox_types(tenant).count(MATCH_CREATED) == 3
+
+
+def test_a_stronger_band_raises_the_finding_and_never_lowers_it(
+    tenant: CreatedTenant,
+    itf_pack,
+    lists,
+    holder,
+    store: LocalFsObjectStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _ = load_shared(
+        EU,
+        [
+            ListEntry(
+                list_code=EU,
+                entry_key="eu-1",
+                entity_type=EntityType.PERSON,
+                primary_name=EntryName("JUAN PEREZ", NameQuality.PRIMARY),
+                source_ref="eu 1",
+            )
+        ],
+        store=store,
+    )
+    monkeypatch.setattr(clock, "now", lambda: datetime(2026, 10, 19, 18, tzinfo=UTC))
+    party_id = _party(tenant)
+    (low,) = [h for h in _check(tenant, party_id).hits if h.list_code == EU]
+    assert low.band is HitBand.LOW_CONFIDENCE
+    with _staff(tenant) as s:
+        _ = create_override(
+            s,
+            TenantOverride.model_validate({
+                "bands": {"sanctions_alert": str(low.score)}
+            }),
+            approved_by=tenant.admin_user_id,
+        )
+
+    (high,) = [h for h in _check(tenant, party_id).hits if h.list_code == EU]
+
+    assert high.band is HitBand.ALERT
+    assert high.match_id == low.match_id
+
+    def finding() -> ScreeningMatch:
+        (match,) = [m for m in _matches(tenant) if m.id == low.match_id]
+        return match
+
+    raised = finding()
+    assert (raised.band, raised.score) == (HitBand.ALERT, low.score)
+    with _staff(tenant) as s:
+        # A lower stored score is raised to the hit's; a higher one is kept.
+        s.get_one(ScreeningMatch, (tenant.tenant_id, raised.id)).score = Decimal("0.10")
+    _ = _check(tenant, party_id)
+    assert finding().score == low.score
+    with _staff(tenant) as s:
+        s.get_one(ScreeningMatch, (tenant.tenant_id, raised.id)).score = Decimal("0.99")
+    _ = _check(tenant, party_id)
+    assert (finding().band, finding().score) == (HitBand.ALERT, Decimal("0.99"))
 
 
 def test_an_id_conflict_is_stored_as_auto_discarded_without_a_finding(

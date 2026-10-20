@@ -1,8 +1,8 @@
 """Private lists stay with their tenant through ``screen()`` (PRV-302, Review Focus 5).
 
-Tenant A's ``MX_LPB`` lives in A's private shard only: tenant B's run over the same
-person holds no private member and no hit, and B's session cannot read A's runs, hits
-or findings.
+Tenant A's ``MX_LPB`` lives in A's private shard only: tenant B's runs over the same
+person, before and after A's run warms that shard, hold no private member and no hit,
+and B's session cannot read A's runs, hits or findings.
 """
 
 from datetime import date
@@ -106,17 +106,20 @@ def test_tenant_b_never_hits_tenant_a_private_list(
     with _mlro(tenant) as s:
         _ = load_private(s, store, LPB, [BLOCKED])
 
-    theirs = _check(other_tenant)
+    # B screens before A's private shard is warm and again after A's run warmed it.
+    before = _check(other_tenant)
     ours = _check(tenant)
+    after = _check(other_tenant)
 
-    assert theirs.hits == ()
-    assert theirs.new_matches == ()
+    for theirs in (before, after):
+        assert theirs.hits == ()
+        assert theirs.new_matches == ()
     assert [(h.list_code, h.band) for h in ours.hits] == [(LPB, HitBand.ALERT)]
     assert ours.hits[0].private_list_entry_id is not None
     assert ours.hits[0].features["list_kind"] == "BLOCKED"
     with _mlro(other_tenant) as s:
-        assert _codes(s, theirs.run) == {UN}
-        assert _ids(s, ScreeningRun) == {theirs.run.id}
+        assert _codes(s, before.run) == _codes(s, after.run) == {UN}
+        assert _ids(s, ScreeningRun) == {before.run.id, after.run.id}
         assert _ids(s, ScreeningHit) == set()
         assert _ids(s, ScreeningMatch) == set()
     with _mlro(tenant) as s:

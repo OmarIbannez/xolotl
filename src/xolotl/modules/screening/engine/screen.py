@@ -93,6 +93,12 @@ if TYPE_CHECKING:
 
 SUPERSEDED_RATIONALE = "SUPERSEDED_BY_CHANGED_ENTRY"
 _FINDING_BANDS = frozenset({Band.ALERT, Band.LOW_CONFIDENCE})
+# A hit on the content of a finding closed in one of these states reopens it.
+_REOPENED_STATUSES = frozenset({
+    MatchStatus.FALSE_POSITIVE,
+    MatchStatus.DELISTED,
+    MatchStatus.SUPERSEDED,
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,12 +430,24 @@ class _Run:
                 ScreeningMatch.entry_content_hash == hit.entry_content_hash,
             )
         ).one()
-        if existing.status is MatchStatus.FALSE_POSITIVE:
-            # Its whitelist row was revoked: the content alerts again (Deviation 8).
+        # A later run may band the same content higher; a finding never weakens.
+        if existing.band is HitBand.LOW_CONFIDENCE and hit.band is HitBand.ALERT:
+            existing.band = HitBand.ALERT
+        existing.score = max(existing.score, value)
+        if existing.status in _REOPENED_STATUSES:
+            # The content alerts again: its whitelist row was revoked, the entry was
+            # re-listed, or the entry's content returned to this version (Deviation 8,
+            # extended by the product owner on 2026-10-20).
             existing.status = MatchStatus.OPEN
+            existing.superseded_by_match_id = None
+            # The entry is listed again, so a delisting suggestion no longer holds.
+            existing.suggested_disposition = None
             existing.closed_at = None
             self.s.flush()
+            self._supersede(existing)
             self._raised(existing)
+        else:
+            self.s.flush()
         return existing
 
     def _supersede(self, new: ScreeningMatch) -> None:
