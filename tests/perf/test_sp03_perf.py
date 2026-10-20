@@ -426,7 +426,17 @@ def _runs_per_party(tenant: CreatedTenant, mode: RunMode) -> dict[UUID, int]:
 # ---- delta and periodic re-screens ---------------------------------------------------
 
 
-def test_delta_rescreen_of_a_10k_party_base(wired: Wired, perf_base: PerfBase):
+def _overflowed(caplog: pytest.LogCaptureFixture) -> set[str]:
+    return {
+        str(vars(r)["entry_key"])  # the fields the job attached to the record
+        for r in caplog.records
+        if r.getMessage() == "screening.delta_entry_overflow"
+    }
+
+
+def test_delta_rescreen_of_a_10k_party_base(
+    wired: Wired, perf_base: PerfBase, caplog: pytest.LogCaptureFixture
+):
     _ = _hand_over(wired, perf_base.v1)
     # Only the delta pages run: v1's initial walk stays queued.
     runner = JobRunner(
@@ -438,13 +448,8 @@ def test_delta_rescreen_of_a_10k_party_base(wired: Wired, perf_base: PerfBase):
     elapsed = time.perf_counter() - started
 
     batch = _batch(wired.tenant, BatchKind.LIST_DELTA)
-    assert batch.status is BatchStatus.COMPLETED
-    assert batch.done == DELTA_ADDED + DELTA_CHANGED
-    found = _findings(wired.tenant)
-    # Every near party is found on its own entry, and only near parties are found.
-    assert set(perf_base.near.items()) <= set(found)
-    assert {party_id for party_id, _ in found} == set(perf_base.near)
-    assert {key for _, key in found} <= set(perf_base.near.values())
+    found = set(_findings(wired.tenant))
+    overflowed = _overflowed(caplog)
     record(
         "delta_rescreen_of_a_10k_party_base",
         parties=BASE_PARTIES,
@@ -452,11 +457,22 @@ def test_delta_rescreen_of_a_10k_party_base(wired: Wired, perf_base: PerfBase):
         base_build_s=round(perf_base.build_seconds, 2),
         elapsed_s=round(elapsed, 2),
         pages=pages,
-        runs=batch.runs,
+        screened_parties=batch.runs,
+        overflowed_entries=len(overflowed),
         findings=len(found),
-        blocked_parties_per_entry=round(batch.runs / batch.done, 2),
+        findings_off_the_near_set=len({p for p, _ in found} - set(perf_base.near)),
         last_error=batch.last_error or "",
     )
+    assert batch.status is BatchStatus.COMPLETED
+    assert batch.done == DELTA_ADDED + DELTA_CHANGED
+    # An entry whose blocking union passes BLOCKING_CAP leaves its name candidates
+    # to the periodic run (plan 3c, Deviations: Overflow). Every other near party
+    # is found on its own entry. The background shares no token with the lists, but
+    # fuzzy scoring may still band a few of its names, and only on delta entries.
+    expected = {(p, k) for p, k in perf_base.near.items() if k not in overflowed}
+    assert batch.last_error == (f"OVERFLOW:{len(overflowed)}" if overflowed else None)
+    assert expected <= found
+    assert {key for _, key in found} <= set(perf_base.near.values())
     assert elapsed < DELTA_BUDGET_SECONDS, f"{elapsed:.1f} s"
 
 
