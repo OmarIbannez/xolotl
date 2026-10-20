@@ -28,6 +28,7 @@ from tests.platform.jobs_support import enqueue
 from xolotl.modules.party import service
 from xolotl.modules.party.enums import PartyType
 from xolotl.modules.party.schemas import PartyCreateRequest, PersonInput
+from xolotl.modules.screening.catalog.models import ListVersion
 from xolotl.modules.screening.catalog.subscriptions import (
     catch_up,
     reconcile_subscriptions,
@@ -57,6 +58,11 @@ from xolotl.modules.screening.lists import (
     ListEntry,
     NameQuality,
 )
+from xolotl.modules.screening.matching import (
+    IdfTable,
+    blocking_plan,
+    normalize_name,
+)
 from xolotl.modules.screening.matching.evaluation import (
     PERTURBATIONS,
     Draw,
@@ -64,6 +70,11 @@ from xolotl.modules.screening.matching.evaluation import (
     perturb,
 )
 from xolotl.modules.screening.rescreen import register_rescreen
+from xolotl.modules.screening.rescreen.blocking import (
+    BLOCKING_CAP,
+    TRIGRAM_THRESHOLD,
+    blocking_query,
+)
 from xolotl.modules.screening.rescreen.list_delta import LIST_DELTA_KIND
 from xolotl.modules.screening.rescreen.walkers import PERIODIC_RESCREEN_KIND
 from xolotl.modules.tenants.service import CreatedTenant
@@ -91,6 +102,8 @@ DELTA_CHANGED = 50
 NEAR_PER_ENTRY = 5  # 100 delta entries x 5 = 500 parties, 5 % of the base
 FILLER_ENTRIES = 1_000
 DELTA_BUDGET_SECONDS = 120.0
+# Background parties share no token with the lists; fuzzy scoring may band a few.
+BACKGROUND_SHARE = 0.01
 PERIODIC_FLOOR_PER_SECOND = 20.0
 CREATE_CHUNK = 500
 # Makes the list events due at once; the parties' events are left pending.
@@ -235,7 +248,6 @@ def test_forward_screen_p95_at_50k_entries(wired: Wired):
 
     with _job(wired.tenant) as s:
         runs = s.scalar(select(func.count()).select_from(ScreeningRun))
-    assert runs == WARM_UP + MEASURED
     p95 = _p(timings, 20, 19)
     record(
         "forward_screen_p95_at_50k_entries",
@@ -248,6 +260,7 @@ def test_forward_screen_p95_at_50k_entries(wired: Wired):
         p99_ms=round(_p(timings, 100, 99), 2),
         transaction_p95_ms=round(_p(totals, 20, 19), 2),
     )
+    assert runs == WARM_UP + MEASURED
     assert p95 < P95_BUDGET_SECONDS * 1000, f"p95 {p95:.1f} ms"
 
 
@@ -434,6 +447,66 @@ def _overflowed(caplog: pytest.LogCaptureFixture) -> set[str]:
     }
 
 
+@dataclass(frozen=True, slots=True)
+class Blocked:
+    """Each delta entry's blocked parties, without ``BLOCKING_CAP``."""
+
+    per_entry: dict[str, set[UUID]]
+
+    def counts(self) -> list[int]:
+        return sorted(len(ids) for ids in self.per_entry.values())
+
+    def union(self, *, capped: bool) -> int:
+        kept = (
+            ids
+            for ids in self.per_entry.values()
+            if not capped or len(ids) <= BLOCKING_CAP
+        )
+        return len(set[UUID]().union(*kept))
+
+
+def _blocked_entry(s: Session, entry: ListEntry, idf: IdfTable) -> set[UUID]:
+    found: set[UUID] = set()
+    for name in (entry.primary_name, *entry.aliases):
+        normalized = normalize_name(
+            name.full,
+            entity_type=entry.entity_type,
+            given=name.given,
+            surname=name.surname,
+        )
+        if normalized.tokens:
+            query = blocking_query(
+                blocking_plan(normalized, idf),
+                normalized.folded,
+                limit=BASE_PARTIES + 1,
+            )
+            found.update(s.scalars(query))
+    return found
+
+
+def _blocked(tenant: CreatedTenant, entries: list[ListEntry], version: UUID) -> Blocked:
+    """Block each entry as ``reverse_candidates`` does, but with no cap.
+
+    The same ``blocking_query`` over the version's shard IDF, under a tenant session,
+    limited only by the base's size, so an overflowing entry is counted too.
+
+    Returns:
+        The parties each entry's names block, by entry key.
+
+    """
+    per_entry: dict[str, set[UUID]] = {}
+    with _job(tenant) as s:
+        seq = s.get_one(ListVersion, version).seq
+        idf = get_index_holder().shared(s, require={OFAC: seq}).blocking_idf
+        _ = s.execute(
+            text("SELECT set_config('pg_trgm.similarity_threshold', :t, true)"),
+            {"t": str(TRIGRAM_THRESHOLD)},
+        )
+        for entry in entries:
+            per_entry[entry.entry_key] = _blocked_entry(s, entry, idf)
+    return Blocked(per_entry)
+
+
 def test_delta_rescreen_of_a_10k_party_base(
     wired: Wired, perf_base: PerfBase, caplog: pytest.LogCaptureFixture
 ):
@@ -442,25 +515,44 @@ def test_delta_rescreen_of_a_10k_party_base(
     runner = JobRunner(
         wired.queue, get_sessionmaker(), worker_id="w-perf", kinds=[LIST_DELTA_KIND]
     )
+    delta_keys = set(perf_base.near.values())
     started = time.perf_counter()
-    _ = _hand_over(wired, perf_base.v2)
+    v2 = _hand_over(wired, perf_base.v2)
+    handed_over = time.perf_counter() - started
+    # Measured off the clock, before the pages run: the parties each entry blocks.
+    blocked = _blocked(
+        wired.tenant, [e for e in perf_base.v2 if e.entry_key in delta_keys], v2
+    )
+    started = time.perf_counter()
     pages = _drain(runner)
-    elapsed = time.perf_counter() - started
+    elapsed = handed_over + time.perf_counter() - started
 
     batch = _batch(wired.tenant, BatchKind.LIST_DELTA)
     found = set(_findings(wired.tenant))
     overflowed = _overflowed(caplog)
+    background = {(p, k) for p, k in found if p not in perf_base.near}
+    counts = blocked.counts()
     record(
         "delta_rescreen_of_a_10k_party_base",
         parties=BASE_PARTIES,
         delta_entries=DELTA_ADDED + DELTA_CHANGED,
         base_build_s=round(perf_base.build_seconds, 2),
         elapsed_s=round(elapsed, 2),
+        elapsed_covers="loading and handing over v2, then draining the delta pages",
         pages=pages,
         screened_parties=batch.runs,
+        blocked_per_entry_min=counts[0],
+        blocked_per_entry_median=statistics.median(counts),
+        blocked_per_entry_p90=round(statistics.quantiles(counts, n=10)[8], 1),
+        blocked_per_entry_max=counts[-1],
+        blocked_union=blocked.union(capped=False),
+        blocked_union_under_cap=blocked.union(capped=True),
         overflowed_entries=len(overflowed),
+        near_parties_of_overflowed_entries=sum(
+            k in overflowed for k in perf_base.near.values()
+        ),
         findings=len(found),
-        findings_off_the_near_set=len({p for p, _ in found} - set(perf_base.near)),
+        background_findings=len(background),
         last_error=batch.last_error or "",
     )
     assert batch.status is BatchStatus.COMPLETED
@@ -472,7 +564,8 @@ def test_delta_rescreen_of_a_10k_party_base(
     expected = {(p, k) for p, k in perf_base.near.items() if k not in overflowed}
     assert batch.last_error == (f"OVERFLOW:{len(overflowed)}" if overflowed else None)
     assert expected <= found
-    assert {key for _, key in found} <= set(perf_base.near.values())
+    assert {key for _, key in found} <= delta_keys
+    assert len(background) <= BACKGROUND_SHARE * len(found), background
     assert elapsed < DELTA_BUDGET_SECONDS, f"{elapsed:.1f} s"
 
 
@@ -491,11 +584,7 @@ def test_periodic_rescreen_throughput(wired: Wired, perf_base: PerfBase):
     elapsed = time.perf_counter() - started
 
     batch = _batch(wired.tenant, BatchKind.PERIODIC)
-    assert batch.status is BatchStatus.COMPLETED
-    assert (batch.total, batch.done) == (BASE_PARTIES, BASE_PARTIES)
     runs = _runs_per_party(wired.tenant, RunMode.PERIODIC)
-    assert set(runs) == set(perf_base.party_ids)
-    assert set(runs.values()) == {1}
     rate = BASE_PARTIES / elapsed
     record(
         "periodic_rescreen_throughput",
@@ -506,4 +595,8 @@ def test_periodic_rescreen_throughput(wired: Wired, perf_base: PerfBase):
         parties_per_s=round(rate, 1),
         findings=len(_findings(wired.tenant)),
     )
+    assert batch.status is BatchStatus.COMPLETED
+    assert (batch.total, batch.done) == (BASE_PARTIES, BASE_PARTIES)
+    assert set(runs) == set(perf_base.party_ids)
+    assert set(runs.values()) == {1}
     assert rate >= PERIODIC_FLOOR_PER_SECOND, f"{rate:.1f} parties/s"
