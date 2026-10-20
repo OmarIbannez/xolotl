@@ -16,6 +16,7 @@ from xolotl.modules.screening.catalog.template import (
     CSV_TYPE,
     MAX_REPORTED_ERRORS,
     TEMPLATE_COLUMNS,
+    XLSX_MAX_EXPANSION,
     XLSX_TYPE,
     TemplateError,
     TemplateRow,
@@ -31,6 +32,7 @@ from xolotl.modules.screening.lists import (
     NameQuality,
     PartialDate,
 )
+from xolotl.platform.config import get_settings
 
 PRIVATE = Path(__file__).parent / "fixtures" / "private"
 LPB = "MX_LPB"
@@ -356,6 +358,35 @@ def test_a_forged_xlsx_width_is_capped_and_extra_rows_stop_the_read():
     assert peak < 5 * 1024 * 1024
     assert len(rows) == 200
     assert rows[0].cells == {"clave": "K0", "tipo": "PF", "nombre_completo": "Nombre 0"}
+
+
+def test_an_xlsx_unpacking_past_the_ceiling_is_refused_before_it_is_parsed(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # A small upload whose shared strings unpack past the ceiling (10 MiB here):
+    # read-only openpyxl would load them whole before the first row.
+    monkeypatch.setattr(get_settings(), "private_list_max_mb", 1)
+    padding = "<si><t>" + "A" * 100_000 + "</t></si>"
+    namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    strings = f'<sst xmlns="{namespace}">{padding * 110}</sst>'.encode()
+    out = io.BytesIO()
+    source = zipfile.ZipFile(io.BytesIO(_xlsx(["clave", "tipo"], ["K1", "PM"])))
+    with source, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for name in source.namelist():
+            z.writestr(name, source.read(name))
+        z.writestr("xl/sharedStrings.xml", strings)
+    data = out.getvalue()
+    assert len(data) < 1024 * 1024 < len(strings) // XLSX_MAX_EXPANSION
+    tracemalloc.start()
+    try:
+        error = _file_error(data, XLSX_TYPE, max_rows=MAX_ROWS)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 5 * 1024 * 1024
+    assert [(e.loc, e.type) for e in error.errors] == [
+        (("file",), TemplateError.UNREADABLE_FILE.value)
+    ]
 
 
 def test_reading_stops_at_the_first_row_past_the_limit():

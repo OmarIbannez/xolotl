@@ -115,7 +115,10 @@ def create_private_list(
         created_by=ctx.actor_id,
     )
     # The unique (tenant_id, list_code) decides between concurrent creations; the
-    # savepoint keeps the caller's transaction usable when it refuses this one.
+    # savepoint keeps the caller's transaction usable when it refuses this one. The
+    # caller's pending changes are flushed first, so the savepoint's flush holds
+    # this list alone and its unique violation can only be the list code's.
+    s.flush()
     try:
         with s.begin_nested():
             s.add(private_list)

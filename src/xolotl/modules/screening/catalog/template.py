@@ -39,6 +39,7 @@ from xolotl.modules.screening.lists import (
     NameQuality,
     PartialDate,
 )
+from xolotl.platform.config import get_settings
 from xolotl.platform.errors import ErrorItem
 
 TEMPLATE_COLUMNS: tuple[str, ...] = (
@@ -64,6 +65,10 @@ XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_REPORTED_ERRORS = 200
 # The widest XLSX row read: the template, with room for blank and stray columns.
 MAX_XLSX_COLUMNS = 2 * len(TEMPLATE_COLUMNS)
+# How many times ``private_list_max_mb`` an XLSX may unpack to: spreadsheets
+# usually compress 5 to 10 times, and the row limit bounds an honest file anyway.
+XLSX_MAX_EXPANSION = 10
+_MIB = 1024 * 1024
 
 
 class TemplateError(StrEnum):
@@ -187,7 +192,17 @@ def _xlsx_cell(value: object) -> str:
 def _xlsx_records(data: bytes) -> Generator[list[str]]:
     # A read-only workbook parses its sheet lazily, so a corrupt sheet fails while
     # rows are read; and it pads each row to the sheet's declared width, which the
-    # file controls, so the width read is capped.
+    # file controls, so the width read is capped. It still loads the shared strings
+    # whole before the first row, so a file whose parts unpack past the ceiling is
+    # refused unparsed: zipfile never inflates a part past its declared size.
+    ceiling = get_settings().private_list_max_mb * _MIB * XLSX_MAX_EXPANSION
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            unpacked = sum(info.file_size for info in archive.infolist())
+    except _XLSX_ERRORS:
+        raise _file_error(TemplateError.UNREADABLE_FILE) from None
+    if unpacked > ceiling:
+        raise _file_error(TemplateError.UNREADABLE_FILE)
     try:
         book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
     except _XLSX_ERRORS:
@@ -227,7 +242,8 @@ def read_template(
     Header names are trimmed and lower-cased; blank header cells and blank rows are
     skipped, and cells are trimmed. Rows are read one at a time and reading stops
     at the first data row past ``max_rows``; an XLSX row is read up to
-    ``MAX_XLSX_COLUMNS`` cells.
+    ``MAX_XLSX_COLUMNS`` cells, and an XLSX whose parts unpack to more than
+    ``XLSX_MAX_EXPANSION`` times ``private_list_max_mb`` MiB is unreadable.
 
     Returns:
         The data rows in file order.
