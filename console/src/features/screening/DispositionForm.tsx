@@ -14,9 +14,23 @@ import { useDisposition } from './queries'
 
 type StaffDecision = DispositionRequest['decision']
 
+/** Exhaustive over the schema, so a regenerated schema with a new value fails the typecheck here. */
+const STAFF_DECISION_SET: Record<StaffDecision, true> = {
+  FALSE_POSITIVE: true,
+  POSSIBLE_TRUE_MATCH: true,
+  TRUE_MATCH: true,
+  DELISTED: true,
+}
+const BLOCKED_REASON_SET: Record<BlockedReason, true> = {
+  STATE: true,
+  ROLE_REQUIRED: true,
+  SAME_REVIEWER: true,
+  NOT_DELISTED: true,
+}
+
 /** The decisions a person can take, in the API's order (spec section 9). */
-const STAFF_DECISIONS: readonly StaffDecision[] = ['FALSE_POSITIVE', 'POSSIBLE_TRUE_MATCH', 'TRUE_MATCH', 'DELISTED']
-const BLOCKED_REASONS: readonly BlockedReason[] = ['STATE', 'ROLE_REQUIRED', 'SAME_REVIEWER', 'NOT_DELISTED']
+const STAFF_DECISIONS = Object.keys(STAFF_DECISION_SET) as StaffDecision[]
+const BLOCKED_REASONS = Object.keys(BLOCKED_REASON_SET) as BlockedReason[]
 const RATIONALE_MIN = 10
 const RATIONALE_MAX = 2000
 
