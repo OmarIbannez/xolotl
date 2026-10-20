@@ -9,6 +9,7 @@ from tests.helpers import staff_session
 from xolotl.modules.party import service
 from xolotl.modules.party.enums import IdentifierType, PartyType
 from xolotl.modules.party.errors import IdentifierInvalidError
+from xolotl.modules.party.retention import purge_party
 from xolotl.modules.party.schemas import (
     IdentifierInput,
     OrganizationInput,
@@ -109,6 +110,19 @@ def test_an_organization_query_carries_legal_and_trade_names(
         countries=("US", "MX"),
         identifiers=(QueryIdentifier(IdType.RFC, "ACM0101017A0", "MX"),),
     )
+
+
+def test_a_purged_organization_query_has_no_names_even_with_a_trade_name(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party = service.create_party(s, ACME)
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        _ = purge_party(s, service.get_party(s, party.id))
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        assert service.screening_profile(s, party.id).trade_name == "Acme"
+        query = query_for_party(s, party.id)
+    assert query == NameQuery(entity_type=EntityType.ORGANIZATION, names=())
 
 
 def test_an_ad_hoc_identifier_is_validated_like_a_party_identifier():

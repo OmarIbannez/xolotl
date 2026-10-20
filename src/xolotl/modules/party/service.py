@@ -924,8 +924,9 @@ def screening_profile(s: Session, party_id: UUID) -> PartyScreeningProfile:
     """Read a party's names, birth date and identifiers for screening (D6).
 
     The values are decrypted for processing only and never shown to a person, so
-    nothing is audited. A purged party comes back with its names empty and no
-    identifiers.
+    nothing is audited. A purged party comes back with its encrypted names empty
+    and no identifiers; an organization keeps its plaintext trade name, so a caller
+    that must not use a purged party's names checks ``status``.
 
     Returns:
         The party's screening profile.

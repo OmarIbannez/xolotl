@@ -16,6 +16,7 @@ from xolotl.modules.party.enums import PartyStatus, PartyType
 from xolotl.modules.party.service import PartyScreeningProfile, screening_profile
 from xolotl.modules.screening.engine.enums import NameKind
 from xolotl.modules.screening.engine.models import PartyNameIndex
+from xolotl.modules.screening.engine.queries import full_name
 from xolotl.modules.screening.lists import EntityType
 from xolotl.modules.screening.matching import (
     MATCHER_VERSION,
@@ -36,15 +37,7 @@ def _names(profile: PartyScreeningProfile) -> dict[NameKind, NormalizedName]:
     if profile.status is PartyStatus.PURGED:
         return names
     if profile.party_type is PartyType.PERSON:
-        full = " ".join(
-            p
-            for p in (
-                profile.given_names,
-                profile.first_surname,
-                profile.second_surname,
-            )
-            if p
-        )
+        full = full_name(profile)
         surname = " ".join(
             p for p in (profile.first_surname, profile.second_surname) if p
         )

@@ -13,6 +13,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from tests.helpers import everything_stored, leaked, staff_session, system_ctx
+from tests.platform.policy_support import install_both_packs
 from xolotl.modules.party import service
 from xolotl.modules.party.enums import IdentifierType, PartyType
 from xolotl.modules.party.schemas import PartyCreateRequest, PersonInput
@@ -47,7 +48,11 @@ from xolotl.platform.errors import NotFoundError
 from xolotl.platform.events.event import Event, event_from_row
 from xolotl.platform.events.models import OutboxRow
 from xolotl.platform.ids import uuid7
-from xolotl.platform.policy import PolicyNotAssignedError, PolicySnapshot
+from xolotl.platform.policy import (
+    PolicyNotAssignedError,
+    PolicySnapshot,
+    assign_pack,
+)
 
 ANA = PartyCreateRequest(
     party_type=PartyType.PERSON,
@@ -64,6 +69,25 @@ AD_HOC = AdHocSubjectInput(
         AdHocIdentifier(id_type=IdentifierType.CURP, value="PEGA760510MDFRMN03")
     ],
 )
+
+
+@pytest.fixture
+def itf_pack(tenant: CreatedTenant, admin_engine: Engine) -> UUID:
+    """Assign the ITF pack to every product of the tenant from 2026-01-01.
+
+    Returns:
+        The assignment's id.
+
+    """
+    version_id = install_both_packs(admin_engine)["MX/ITF-IFPE"]
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        return assign_pack(
+            s,
+            pack_version_id=version_id,
+            product=None,
+            effective_from=date(2026, 1, 1),
+            approved_by=tenant.admin_user_id,
+        )
 
 
 def _status_events(tenant_id: UUID) -> list[Event]:

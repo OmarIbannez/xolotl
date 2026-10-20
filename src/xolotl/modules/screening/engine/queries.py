@@ -14,7 +14,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 from sqlalchemy.orm import Session
 
-from xolotl.modules.party.enums import IdentifierType, PartyType
+from xolotl.modules.party.enums import IdentifierType, PartyStatus, PartyType
 from xolotl.modules.party.errors import IdentifierInvalidError
 from xolotl.modules.party.identifiers import IdentifierError, validate
 from xolotl.modules.party.service import PartyScreeningProfile, screening_profile
@@ -47,28 +47,42 @@ def _screened(
     )
 
 
+def full_name(profile: PartyScreeningProfile) -> str:
+    """Join a person's given names and surnames, the one name a person goes by.
+
+    The name index and the query both use it, so they never disagree on a name.
+
+    Returns:
+        The full name, empty when the person has no name parts.
+
+    """
+    parts = (profile.given_names, profile.first_surname, profile.second_surname)
+    return " ".join(p for p in parts if p)
+
+
 def query_for_profile(profile: PartyScreeningProfile) -> NameQuery:
     """Build the query of a party's screening profile.
 
     A person is screened by the full name, birth date, gender, nationalities and
     countries; an organization by its legal name and trade name. Both carry their
-    RFC, CURP and passport numbers.
+    RFC, CURP and passport numbers. A purged party is screened by nothing: purging
+    keeps an organization's trade name, but the query drops it with every other
+    name and identifier.
 
     Returns:
-        The query; a purged party's carries no name.
+        The query; a purged party's carries no name and no identifier.
 
     """
+    entity_type = (
+        EntityType.PERSON
+        if profile.party_type is PartyType.PERSON
+        else EntityType.ORGANIZATION
+    )
+    if profile.status is PartyStatus.PURGED:
+        return NameQuery(entity_type=entity_type, names=())
     identifiers = _screened(profile.identifiers)
     if profile.party_type is PartyType.PERSON:
-        full = " ".join(
-            p
-            for p in (
-                profile.given_names,
-                profile.first_surname,
-                profile.second_surname,
-            )
-            if p
-        )
+        full = full_name(profile)
         return NameQuery(
             entity_type=EntityType.PERSON,
             names=(full,) if full else (),
