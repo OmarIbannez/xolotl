@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     # The API and worker load the shared screening index on a background thread at
     # start-up; false loads it on the first screen instead (the test suite).
     screening_index_warm: bool = True
+    # Delta entries per screening.list_delta job.
+    screening_delta_batch: int = Field(default=200, ge=1)
+    # Parties per periodic, private-list or re-index re-screen job.
+    screening_rescreen_batch: int = Field(default=500, ge=1)
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")

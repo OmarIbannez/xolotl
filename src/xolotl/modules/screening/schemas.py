@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field, JsonValue
 
 from xolotl.modules.screening.engine.enums import (
     AutoReason,
+    BatchKind,
+    BatchStatus,
     BlockedReason,
     DecidedByType,
     Decision,
@@ -285,3 +287,19 @@ class DispositionResponse(BaseModel):
     decision: Decision
     match_status: MatchStatus
     decided_at: datetime
+
+
+class BatchResponse(BaseModel):
+    """A re-screen batch and its progress; ``last_error`` holds a code only."""
+
+    id: UUID
+    kind: BatchKind
+    ref: str
+    status: BatchStatus
+    total: int | None
+    done: int
+    runs: int
+    new_matches: int
+    started_at: datetime
+    finished_at: datetime | None
+    last_error: str | None

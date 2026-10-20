@@ -3,7 +3,8 @@
 Checks, runs and party views are shared: API keys with ``screening:read`` /
 ``screening:write`` get status fields only (FR-SC-013), staff the full typed
 explanation. The match queue, its detail, the reveal and dispositions are staff only;
-revoking a whitelist row is the MLRO's. Another tenant's rows are ``NOT_FOUND``
+revoking a whitelist row is the MLRO's. Re-screen batch progress is staff only (spec
+§12). Another tenant's rows are ``NOT_FOUND``
 (row-level security). Routes hold no business rule.
 """
 
@@ -16,12 +17,19 @@ from sqlalchemy import select
 
 from xolotl.modules.screening import api
 from xolotl.modules.screening.api import CheckRequest
-from xolotl.modules.screening.engine.enums import Decision, HitBand, MatchStatus
-from xolotl.modules.screening.engine.models import ScreeningMatch
+from xolotl.modules.screening.engine.enums import (
+    BatchKind,
+    BatchStatus,
+    Decision,
+    HitBand,
+    MatchStatus,
+)
+from xolotl.modules.screening.engine.models import ScreeningBatch, ScreeningMatch
 from xolotl.modules.screening.enums import ListKind
 from xolotl.modules.screening.review.dispositions import disposition_match
 from xolotl.modules.screening.review.whitelist import revoke_whitelist
 from xolotl.modules.screening.schemas import (
+    BatchResponse,
     CheckResponse,
     CheckStaffResponse,
     DispositionRequest,
@@ -147,3 +155,24 @@ def revoke_whitelist_entry(
 ) -> Response:
     _ = revoke_whitelist(session, whitelist_id)
     return Response(status_code=204)
+
+
+@router.get("/batches")
+def list_screening_batches(
+    _staff: ScreeningStaff,
+    session: SessionDep,
+    page: PageDep,
+    kind: BatchKind | None = None,
+    status: BatchStatus | None = None,
+) -> Page[BatchResponse]:
+    rows, next_cursor = paginate(
+        session,
+        api.batches_query(kind=kind, status=status),
+        ts_col=ScreeningBatch.started_at,
+        id_col=ScreeningBatch.id,
+        key=lambda row: (row.started_at, row.id),
+        page=page,
+    )
+    return Page(
+        items=[api.batch_response(row) for row in rows], next_cursor=next_cursor
+    )

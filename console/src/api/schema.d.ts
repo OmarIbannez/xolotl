@@ -1086,6 +1086,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/screening/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Screening Batches */
+        get: operations["list_screening_batches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -1386,6 +1403,48 @@ export interface components {
             id_match_floor?: components["schemas"]["PlainDecimal-Output"] | null;
             id_conflict_cap?: components["schemas"]["PlainDecimal-Output"] | null;
         };
+        /**
+         * BatchKind
+         * @enum {string}
+         */
+        BatchKind: "LIST_DELTA" | "PRIVATE_LIST" | "PERIODIC" | "REINDEX";
+        /**
+         * BatchResponse
+         * @description A re-screen batch and its progress; ``last_error`` holds a code only.
+         */
+        BatchResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["BatchKind"];
+            /** Ref */
+            ref: string;
+            status: components["schemas"]["BatchStatus"];
+            /** Total */
+            total: number | null;
+            /** Done */
+            done: number;
+            /** Runs */
+            runs: number;
+            /** New Matches */
+            new_matches: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+        };
+        /**
+         * BatchStatus
+         * @enum {string}
+         */
+        BatchStatus: "RUNNING" | "COMPLETED" | "FAILED";
         /**
          * BlockedReason
          * @enum {string}
@@ -2506,6 +2565,13 @@ export interface components {
         Page_AuditEventResponse_: {
             /** Items */
             items: components["schemas"]["AuditEventResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[BatchResponse] */
+        Page_BatchResponse_: {
+            /** Items */
+            items: components["schemas"]["BatchResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -6219,6 +6285,40 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_screening_batches: {
+        parameters: {
+            query?: {
+                kind?: components["schemas"]["BatchKind"] | null;
+                status?: components["schemas"]["BatchStatus"] | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_BatchResponse_"];
+                };
             };
             /** @description Validation Error */
             422: {
