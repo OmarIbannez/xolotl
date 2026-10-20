@@ -58,11 +58,7 @@ from xolotl.modules.screening.lists import (
     ListEntry,
     NameQuality,
 )
-from xolotl.modules.screening.matching import (
-    IdfTable,
-    blocking_plan,
-    normalize_name,
-)
+from xolotl.modules.screening.matching import BlockingPlan
 from xolotl.modules.screening.matching.evaluation import (
     PERTURBATIONS,
     Draw,
@@ -74,6 +70,8 @@ from xolotl.modules.screening.rescreen.blocking import (
     BLOCKING_CAP,
     TRIGRAM_THRESHOLD,
     blocking_query,
+    name_plans,
+    stop_keys,
 )
 from xolotl.modules.screening.rescreen.list_delta import LIST_DELTA_KIND
 from xolotl.modules.screening.rescreen.walkers import PERIODIC_RESCREEN_KIND
@@ -452,6 +450,7 @@ class Blocked:
     """Each delta entry's blocked parties, without ``BLOCKING_CAP``."""
 
     per_entry: dict[str, set[UUID]]
+    stop_keys: int
 
     def counts(self) -> list[int]:
         return sorted(len(ids) for ids in self.per_entry.values())
@@ -465,22 +464,13 @@ class Blocked:
         return len(set[UUID]().union(*kept))
 
 
-def _blocked_entry(s: Session, entry: ListEntry, idf: IdfTable) -> set[UUID]:
+def _blocked_entry(
+    s: Session, plans: list[tuple[BlockingPlan, str]], stop: frozenset[str]
+) -> set[UUID]:
     found: set[UUID] = set()
-    for name in (entry.primary_name, *entry.aliases):
-        normalized = normalize_name(
-            name.full,
-            entity_type=entry.entity_type,
-            given=name.given,
-            surname=name.surname,
-        )
-        if normalized.tokens:
-            query = blocking_query(
-                blocking_plan(normalized, idf),
-                normalized.folded,
-                limit=BASE_PARTIES + 1,
-            )
-            found.update(s.scalars(query))
+    for plan, folded in plans:
+        query = blocking_query(plan, folded, limit=BASE_PARTIES + 1, stop=stop)
+        found.update(s.scalars(query))
     return found
 
 
@@ -488,10 +478,12 @@ def _blocked(tenant: CreatedTenant, entries: list[ListEntry], version: UUID) -> 
     """Block each entry as ``reverse_candidates`` does, but with no cap.
 
     The same ``blocking_query`` over the version's shard IDF, under a tenant session,
-    limited only by the base's size, so an overflowing entry is counted too.
+    with the stop keys of the whole delta (one page here), limited only by the
+    base's size, so an overflowing entry is counted too.
 
     Returns:
-        The parties each entry's names block, by entry key.
+        The parties each entry's names block, by entry key, and how many stop keys
+        the delta had.
 
     """
     per_entry: dict[str, set[UUID]] = {}
@@ -502,9 +494,13 @@ def _blocked(tenant: CreatedTenant, entries: list[ListEntry], version: UUID) -> 
             text("SELECT set_config('pg_trgm.similarity_threshold', :t, true)"),
             {"t": str(TRIGRAM_THRESHOLD)},
         )
-        for entry in entries:
-            per_entry[entry.entry_key] = _blocked_entry(s, entry, idf)
-    return Blocked(per_entry)
+        plans = {e.entry_key: name_plans(e, idf) for e in entries}
+        stop = stop_keys(
+            s, (plan for entry_plans in plans.values() for plan, _ in entry_plans)
+        )
+        for key, entry_plans in plans.items():
+            per_entry[key] = _blocked_entry(s, entry_plans, stop)
+    return Blocked(per_entry, len(stop))
 
 
 def test_delta_rescreen_of_a_10k_party_base(
@@ -547,6 +543,7 @@ def test_delta_rescreen_of_a_10k_party_base(
         blocked_per_entry_max=counts[-1],
         blocked_union=blocked.union(capped=False),
         blocked_union_under_cap=blocked.union(capped=True),
+        stop_keys=blocked.stop_keys,
         overflowed_entries=len(overflowed),
         near_parties_of_overflowed_entries=sum(
             k in overflowed for k in perf_base.near.values()
