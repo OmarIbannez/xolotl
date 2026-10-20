@@ -6,6 +6,8 @@ go through it.
 """
 
 import base64
+import threading
+from collections.abc import Callable, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,7 +17,11 @@ from sqlalchemy.orm import Session
 
 from tests.helpers import data_key_of, make_tenant
 from xolotl.app import build_app, build_key_provider, build_worker
-from xolotl.platform.config import Settings
+from xolotl.modules.screening.engine.holder import (
+    ScreeningIndexHolder,
+    get_index_holder,
+)
+from xolotl.platform.config import Settings, get_settings
 from xolotl.platform.crypto.provider import LocalKeyProvider, get_key_provider
 from xolotl.platform.db import get_sessionmaker
 from xolotl.platform.enums import KeyPurpose
@@ -94,3 +100,41 @@ def test_the_provider_reads_keys_through_the_session_factory_the_app_serves_with
     tenant_id = make_tenant("alpha")
     get_key_provider().create_tenant_keys(tenant_id)
     assert len(opened) == 1  # the provider's own short session came from the factory
+
+
+@pytest.fixture
+def warming(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[ScreeningIndexHolder]]:
+    """Record the holders whose warm-up starts, without starting a thread.
+
+    Yields:
+        The holders, in the order their warm-up started.
+
+    """
+    started: list[ScreeningIndexHolder] = []
+
+    def start_warming(holder: ScreeningIndexHolder) -> threading.Thread:
+        started.append(holder)
+        return threading.Thread(target=lambda: None)
+
+    monkeypatch.setattr(ScreeningIndexHolder, "start_warming", start_warming)
+    yield started
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(("flag", "warmed"), [("true", 1), ("false", 0)])
+@pytest.mark.parametrize("build", [build_app, build_worker])
+def test_the_screening_index_warms_at_start_up_when_the_setting_says_so(
+    engine: Engine,
+    no_key_provider: None,
+    monkeypatch: pytest.MonkeyPatch,
+    warming: list[ScreeningIndexHolder],
+    build: Callable[[], object],
+    flag: str,
+    warmed: int,
+):
+    # The suite turns XOLOTL_SCREENING_INDEX_WARM off (tests/conftest.py); a deployed
+    # process leaves it on, and its holder loads on a thread of its own.
+    monkeypatch.setenv("XOLOTL_SCREENING_INDEX_WARM", flag)
+    get_settings.cache_clear()
+    _ = build()
+    assert warming == [get_index_holder()] * warmed

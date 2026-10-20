@@ -114,6 +114,9 @@ driver is added.
 | `XOLOTL_PRIVATE_LIST_MAX_MB` | `20` | Largest private-list upload, in MB (1 to 200). |
 | `XOLOTL_PRIVATE_LIST_MAX_ROWS` | `100000` | Most rows in one private-list upload. |
 | `XOLOTL_RETENTION_PURGE_CRON` | `0 3 * * *` | When the daily party retention sweep runs (UTC). |
+| `XOLOTL_SCREENING_INDEX_REFRESH_SECONDS` | `30` | How often each process checks for newer active list versions and reloads its in-memory screening index, in seconds (1 or more). |
+| `XOLOTL_SCREENING_INDEX_WARM` | `true` | Load the screening index on a background thread when the API or `xolotl worker` starts; `false` loads it synchronously on the first screen instead (the test suite does). |
+| `XOLOTL_SCREENING_PRIVATE_SHARDS` | `64` | How many tenants' private-list indexes each process keeps in memory; the least recently used is dropped beyond it (1 or more). |
 | `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
 | `XOLOTL_UNITS_FETCH_CRON` | `0 18 * * 1-5` | Daily UDI and FIX fetch, America/Mexico_City. |
 
@@ -377,6 +380,10 @@ uv run xolotl lists fetch UN_CONSOLIDATED --force-network                # one f
 - **Staleness:** a list whose last success is older than twice its interval is stale;
   the poll notifies ADMIN and MLRO once per stale episode. Each new version reaches
   every subscribed tenant as one `lists.version_published.v1` event.
+- **Screening index:** each process (the API and `xolotl worker`) holds the screening
+  index of the active list versions in memory, warmed in the background at start-up
+  (a screen answers 503 `SCREENING_INDEX_UNAVAILABLE` until it is loaded) and
+  reloaded when `XOLOTL_SCREENING_INDEX_REFRESH_SECONDS` finds a newer version.
 
 ## Connectors
 

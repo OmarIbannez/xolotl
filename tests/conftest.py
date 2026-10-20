@@ -342,5 +342,10 @@ def pytest_configure() -> None:
     and a thread handing out events and running jobs behind every API test would race
     the tests' own assertions and the truncation between tests. The tests of the
     embedded worker turn it on for themselves.
+
+    For the same reason no app or worker warms the screening index on a thread
+    (``XOLOTL_SCREENING_INDEX_WARM``): a test's holder loads it synchronously on the
+    first screen.
     """
     os.environ["XOLOTL_EMBEDDED_WORKER"] = "false"
+    os.environ["XOLOTL_SCREENING_INDEX_WARM"] = "false"
