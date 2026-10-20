@@ -9,7 +9,7 @@ whitelist revoke the MLRO's, and the reveal is the one read that records
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
@@ -28,6 +28,7 @@ from tests.modules.screening.route_support import (
     MATCHES,
     NOBODY,
     OFAC,
+    PERSON,
     RFC,
     SCREENING,
     api_client,
@@ -39,6 +40,8 @@ from tests.modules.screening.route_support import (
     staff_client,
     stored_beyond_name_index,
 )
+from xolotl.modules.party.retention import purge_party
+from xolotl.modules.party.service import get_party
 from xolotl.modules.screening.engine.holder import get_index_holder
 from xolotl.modules.screening.engine.models import ScreeningRun
 from xolotl.modules.screening.errors import ScreeningIndexUnavailableError
@@ -314,6 +317,53 @@ def test_the_match_queue_filters_and_paginates(
     past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
     assert ids(f"created_before={future.replace('+', '%2B')}") == [second, first]
     assert ids(f"created_before={past.replace('+', '%2B')}") == []
+
+
+def test_the_match_queue_shows_each_subject_masked(
+    client, tenant, admin_headers, screening
+):
+    party_id, party_match = seed_match(client, admin_headers)
+    ad_hoc = post(client, admin_headers, CHECKS, {"subject": AD_HOC}, "k1").json()
+    [ad_hoc_match] = [h["match_id"] for h in ad_hoc["hits"]]
+    purged_id = create_party(
+        client, admin_headers, PERSON.model_copy(update={"identifiers": []})
+    )
+    purged = check_party(client, admin_headers, purged_id)
+    [purged_match] = [h["match_id"] for h in purged["hits"] if h["match_id"]]
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        _ = purge_party(s, get_party(s, UUID(purged_id)))
+    before = len(audit_events(tenant.tenant_id))
+
+    listed = client.get(MATCHES, headers=admin_headers)
+
+    assert listed.status_code == 200, listed.text
+    subjects = {m["id"]: m["subject"] for m in listed.json()["items"]}
+    assert subjects[party_match] == {
+        "kind": "PARTY",
+        "party_id": party_id,
+        "entity_type": "PERSON",
+        "initials": "J.C.P.G.",
+        "identifiers": ["RFC ****0XY2"],
+    }
+    assert subjects[ad_hoc_match] == {
+        "kind": "AD_HOC",
+        "party_id": None,
+        "entity_type": "PERSON",
+        "initials": "J.C.P.G.",
+        "identifiers": [],
+    }
+    assert subjects[purged_match] == {
+        "kind": "PARTY",
+        "party_id": purged_id,
+        "entity_type": "PERSON",
+        "initials": "",
+        "identifiers": [],
+    }
+    assert RFC not in listed.text
+    assert "Pérez" not in listed.text
+    assert len(audit_events(tenant.tenant_id)) == before
+    view = client.get(f"{SCREENING}/parties/{party_id}", headers=admin_headers)
+    assert view.json()["findings"][0]["subject"] == subjects[party_match]
 
 
 def test_the_match_detail_is_masked_and_lists_the_allowed_actions(

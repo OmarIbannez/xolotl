@@ -205,10 +205,21 @@ class PartyScreeningResponse(BaseModel):
     lists_covered: list[str]
 
 
+class MaskedSubject(BaseModel):
+    kind: SubjectKind
+    party_id: UUID | None
+    entity_type: str
+    initials: str
+    # "<ID_TYPE> <masked value>" for each screened identifier.
+    identifiers: list[str]
+
+
 class MatchSummary(BaseModel):
     id: UUID
     subject_id: UUID
     party_id: UUID | None
+    # Initials and masked identifiers: no plaintext, nothing audited.
+    subject: MaskedSubject
     list_code: str
     list_kind: ListKind
     band: HitBand
@@ -222,15 +233,6 @@ class MatchSummary(BaseModel):
 class PartyScreeningStaffResponse(PartyScreeningResponse):
     open_finding_count: int
     findings: list[MatchSummary]
-
-
-class MaskedSubject(BaseModel):
-    kind: SubjectKind
-    party_id: UUID | None
-    entity_type: str
-    initials: str
-    # "<ID_TYPE> <masked value>" for each screened identifier.
-    identifiers: list[str]
 
 
 class DispositionView(BaseModel):
@@ -250,7 +252,6 @@ class HitHistoryItem(BaseModel):
 
 
 class MatchDetail(MatchSummary):
-    subject: MaskedSubject
     # The shared entry's ListEntry JSON (public data); None for a private list.
     entry: dict[str, JsonValue] | None
     origin_hit: HitView

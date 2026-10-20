@@ -264,28 +264,31 @@ def run_view(
 def match_summaries(
     s: Session, matches: Sequence[ScreeningMatch]
 ) -> list[MatchSummary]:
-    """Build the queue rows of some findings, with their subjects' parties.
+    """Build the queue rows of some findings, with their subjects masked.
+
+    Each subject is decrypted once, however many findings it has, and shown by
+    initials and masked identifiers only, so nothing is audited.
 
     Returns:
         One summary per finding, in the given order.
 
     """
     subject_ids = {m.subject_id for m in matches}
-    parties: dict[UUID, UUID | None] = dict(
-        s.execute(
-            select(ScreeningSubject.id, ScreeningSubject.party_id).where(
-                ScreeningSubject.id.in_(subject_ids)
-            )
-        ).all()
-    )
-    return [_summary(m, parties.get(m.subject_id)) for m in matches]
+    subjects = {
+        subject.id: _masked(s, subject)
+        for subject in s.scalars(
+            select(ScreeningSubject).where(ScreeningSubject.id.in_(subject_ids))
+        )
+    }
+    return [_summary(m, subjects[m.subject_id]) for m in matches]
 
 
-def _summary(match: ScreeningMatch, party_id: UUID | None) -> MatchSummary:
+def _summary(match: ScreeningMatch, subject: MaskedSubject) -> MatchSummary:
     return MatchSummary(
         id=match.id,
         subject_id=match.subject_id,
-        party_id=party_id,
+        party_id=subject.party_id,
+        subject=subject,
         list_code=match.list_code,
         list_kind=match.list_kind,
         band=match.band,
@@ -337,7 +340,7 @@ def party_view(
     return PartyScreeningStaffResponse.model_validate({
         **base.model_dump(),
         "open_finding_count": sum(f.status in OPEN_MATCH_STATUSES for f in findings),
-        "findings": [_summary(f, party.id) for f in findings],
+        "findings": match_summaries(s, findings),
     })
 
 
@@ -509,10 +512,9 @@ def match_detail(s: Session, match_id: UUID) -> MatchDetail:
     actions = evaluate_actions(
         match, escalated_by=escalator, roles=ctx.roles, user_id=UUID(ctx.actor_id)
     )
-    summary = _summary(match, subject.party_id)
+    summary = _summary(match, _masked(s, subject))
     return MatchDetail.model_validate({
         **summary.model_dump(),
-        "subject": _masked(s, subject),
         "entry": _shared_entry(s, match),
         "origin_hit": hit_view(history[0][0]),
         "latest_hit": hit_view(history[-1][0]),

@@ -5,7 +5,7 @@ import esMX from '@/i18n/es-MX.json'
 import { json, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { chooseOption, stubPointerCapture } from '@/test/select'
-import { matchSummary } from './fixtures'
+import { maskedSubject, matchSummary } from './fixtures'
 import { MatchesPage } from './MatchesPage'
 
 const text = esMX.screening
@@ -47,7 +47,10 @@ describe('MatchesPage', () => {
     expect(query?.get('status')).toBe('OPEN')
     expect(query?.get('limit')).toBe('20')
     const [, row] = within(table).getAllByRole('row')
-    expect(within(row as HTMLElement).getByRole('link').getAttribute('href')).toBe('/screening/matches/m1')
+    expect(within(row as HTMLElement).getByRole('link', { name: 'J. P. L.' }).getAttribute('href')).toBe('/screening/matches/m1')
+    expect(within(row as HTMLElement).getByText(text.matches.table.party)).toBeTruthy()
+    expect(within(row as HTMLElement).getByText('RFC ********P8')).toBeTruthy()
+    expect(within(row as HTMLElement).queryByText('s1')).toBeNull()
     expect(within(row as HTMLElement).getByText('OFAC_SDN')).toBeTruthy()
     expect(within(row as HTMLElement).getByText(text.band.ALERT)).toBeTruthy()
     expect(within(row as HTMLElement).getByText(text.status.OPEN)).toBeTruthy()
@@ -72,6 +75,33 @@ describe('MatchesPage', () => {
     const table = await loadedTable()
 
     expect(within(table).getByText(text.suggested.DELISTED)).toBeTruthy()
+  })
+
+  it('shows an ad hoc subject by its initials and a purged party by its origin', async () => {
+    setup({
+      [MATCHES]: () =>
+        json({
+          items: [
+            matchSummary({
+              id: 'm3',
+              party_id: null,
+              subject: maskedSubject({ kind: 'AD_HOC', party_id: null, identifiers: [] }),
+            }),
+            matchSummary({ id: 'm4', party_id: 'p2', subject: maskedSubject({ party_id: 'p2', initials: '', identifiers: [] }) }),
+          ],
+          next_cursor: null,
+        }),
+    })
+
+    const table = await loadedTable()
+
+    const [, adHoc, purged] = within(table).getAllByRole('row')
+    expect(within(adHoc as HTMLElement).getByRole('link', { name: 'J. P. L.' }).getAttribute('href')).toBe('/screening/matches/m3')
+    expect(within(adHoc as HTMLElement).getByText(text.matches.table.adHoc)).toBeTruthy()
+    expect(within(adHoc as HTMLElement).queryByText(/RFC/)).toBeNull()
+    expect(within(purged as HTMLElement).getByRole('link', { name: text.matches.table.party }).getAttribute('href')).toBe(
+      '/screening/matches/m4',
+    )
   })
 
   it('sends the status, list kind, list code and age filters', async () => {

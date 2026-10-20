@@ -1,6 +1,7 @@
 import type {
   CheckStaffResponse,
   HitView,
+  MaskedSubject,
   MatchDetail,
   MatchReveal,
   MatchSummary,
@@ -13,6 +14,7 @@ export function matchSummary(overrides: Partial<MatchSummary> = {}): MatchSummar
     id: 'm1',
     subject_id: 's1',
     party_id: 'p1',
+    subject: maskedSubject(),
     list_code: 'OFAC_SDN',
     list_kind: 'SANCTION',
     band: 'ALERT',
@@ -21,6 +23,18 @@ export function matchSummary(overrides: Partial<MatchSummary> = {}): MatchSummar
     suggested_disposition: null,
     created_at: '2026-10-19T10:00:00Z',
     updated_at: '2026-10-19T10:00:00Z',
+    ...overrides,
+  }
+}
+
+/** The subject of `matchSummary()` as every staff view shows it: initials and masked identifiers only. */
+export function maskedSubject(overrides: Partial<MaskedSubject> = {}): MaskedSubject {
+  return {
+    kind: 'PARTY',
+    party_id: 'p1',
+    entity_type: 'PERSON',
+    initials: 'J. P. L.',
+    identifiers: ['RFC ********P8'],
     ...overrides,
   }
 }
@@ -71,13 +85,6 @@ export function hit(overrides: Partial<HitView> = {}): HitView {
 export function matchDetail(overrides: Partial<MatchDetail> = {}): MatchDetail {
   return {
     ...matchSummary(),
-    subject: {
-      kind: 'PARTY',
-      party_id: 'p1',
-      entity_type: 'PERSON',
-      initials: 'J. P. L.',
-      identifiers: ['RFC ********P8'],
-    },
     entry: {
       list_code: 'OFAC_SDN',
       entry_key: 'SDN-1',
