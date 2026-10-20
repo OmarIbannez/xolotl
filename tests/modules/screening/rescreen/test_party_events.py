@@ -38,6 +38,7 @@ from xolotl.modules.screening.lists import (
     NameQuality,
     PartialDate,
 )
+from xolotl.modules.screening.matching import IndexedEntry
 from xolotl.modules.screening.rescreen.party_events import (
     PARTY_EVENT_MODES,
     SCREEN_PARTY_KIND,
@@ -243,6 +244,27 @@ def test_redelivery_enqueues_no_second_job(tenant: CreatedTenant, wired: Wired):
     assert len(_jobs(tenant)) == 1
 
 
+def test_a_replay_after_the_job_ran_screens_the_party_no_second_time(
+    tenant: CreatedTenant, wired: Wired
+):
+    _ = _create(tenant, wired)
+    assert wired.runner.run_once() == 1
+
+    replayed = wired.bus.replay(
+        since=clock.now() - timedelta(hours=1),
+        types=[PARTY_CREATED],
+        consumer=SCREENING_CONSUMER,
+        tenant_id=tenant.tenant_id,
+    )
+    _ = wired.runner.run_once()
+
+    assert replayed == 1
+    assert len(_runs(tenant)) == 1
+    first, second = _jobs(tenant)
+    assert second.key == first.key
+    assert [first.status, second.status] == [JobStatus.DONE, JobStatus.DONE]
+
+
 def test_a_job_skips_when_a_later_run_already_covered_the_event(
     tenant: CreatedTenant, wired: Wired
 ):
@@ -256,6 +278,40 @@ def test_a_job_skips_when_a_later_run_already_covered_the_event(
     assert wired.runner.run_once() == 1
 
     assert [r.id for r in _runs(tenant)] == [checked.id]
+    assert [j.status for j in _jobs(tenant)] == [JobStatus.DONE]
+
+
+@pytest.mark.parametrize(
+    ("mode", "only_entries"),
+    [
+        (RunMode.LIST_DELTA, None),
+        (RunMode.PRIVATE_LIST, None),
+        (RunMode.AD_HOC, []),
+    ],
+    ids=["list-delta", "private-list", "restricted-to-delta"],
+)
+def test_a_later_partial_run_does_not_suppress_the_job(
+    tenant: CreatedTenant,
+    wired: Wired,
+    mode: RunMode,
+    only_entries: list[IndexedEntry] | None,
+):
+    party_id = _create(tenant, wired)
+    with _staff(tenant) as s:
+        subject = subject_for_party(s, party_id, for_update=True)
+        _ = screen(
+            s,
+            subject,
+            mode=mode,
+            trigger=Trigger(TriggerType.JOB),
+            only_entries=only_entries,
+        )
+
+    assert wired.runner.run_once() == 1
+
+    runs = _runs(tenant)
+    assert [r.mode for r in runs] == [mode, RunMode.NEW_SUBJECT]
+    assert runs[1].trigger_ref == _event_id(tenant, PARTY_CREATED)
     assert [j.status for j in _jobs(tenant)] == [JobStatus.DONE]
 
 

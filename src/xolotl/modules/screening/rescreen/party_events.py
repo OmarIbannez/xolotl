@@ -5,8 +5,10 @@ Consumer ``screening`` subscribes to ``party.created.v1``, ``party.updated.v1`` 
 party's names and enqueues one ``screening.screen_party`` job per event (key
 ``screen_party:<party_id>:<event_id>``, so a redelivery enqueues nothing new). The
 job screens the party with mode ``NEW_SUBJECT`` for a creation and ``DATA_CHANGE``
-otherwise, unless a run of the subject started after the event: a synchronous check
-already covered it.
+otherwise, unless a full run of the subject started after the event: a synchronous
+check already covered it. A run that scored only part of the lists (a ``LIST_DELTA``
+or ``PRIVATE_LIST`` run, or any run ``restricted_to_delta``) covers nothing of the
+party's change, so it never suppresses the job.
 """
 
 from collections.abc import Mapping
@@ -35,6 +37,8 @@ PARTY_EVENT_MODES: Mapping[str, RunMode] = MappingProxyType({
     PARTY_UPDATED: RunMode.DATA_CHANGE,
     IDENTIFIER_ADDED: RunMode.DATA_CHANGE,
 })
+# Runs that score only a batch's entries, never the party against every list.
+PARTIAL_RUN_MODES = (RunMode.LIST_DELTA, RunMode.PRIVATE_LIST)
 
 
 def make_party_event_handler(queue: PostgresJobQueue) -> Handler:
@@ -66,8 +70,15 @@ def make_party_event_handler(queue: PostgresJobQueue) -> Handler:
 def screen_party_job(s: Session, job: Job) -> None:
     """Screen the party of a ``screening.screen_party`` job, once per event.
 
-    A purged party is not screened, and neither is one a run started after the
-    event already covered. A tenant without a policy fails the job, which retries.
+    A purged party is not screened, and neither is one a full run started after
+    the event already covered. A tenant without a policy fails the job, which
+    retries.
+
+    The guard compares the event's time, taken from the application clock, with the
+    run's ``created_at``, which the database clock stamps. The MVP runs one
+    application container next to its Postgres and assumes the two clocks agree; a
+    skew only re-screens a party once more or, at worst, skips a re-screen that a
+    run within the skew already covered.
     """
     payload = job.payload
     party_id = UUID(str(payload["party_id"]))
@@ -80,6 +91,8 @@ def screen_party_job(s: Session, job: Job) -> None:
         .where(
             ScreeningRun.subject_id == subject.id,
             ScreeningRun.created_at > event_time,
+            ScreeningRun.mode.not_in(PARTIAL_RUN_MODES),
+            ScreeningRun.restricted_to_delta.is_(False),
         )
         .limit(1)
     )
