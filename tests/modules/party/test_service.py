@@ -34,6 +34,7 @@ from xolotl.modules.party.enums import (
     AddressType,
     ContactKind,
     IdentifierType,
+    PartyStatus,
     PartyType,
     PepStatus,
     RelationshipType,
@@ -578,3 +579,56 @@ def test_an_organisation_update_applies_its_own_attributes(
     assert audit_events(tenant.tenant_id)[-1].detail == {"fields": ["trade_name"]}
     with pytest.raises(PydanticValidationError, match="pep_status cannot be null"):
         _ = PersonUpdate(pep_status=None)
+
+
+def test_the_screening_profile_decrypts_without_auditing(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        ana = service.create_party(s, ANA)
+        acme = service.create_party(s, ACME)
+    before = len(audit_events(tenant.tenant_id))
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        person = service.screening_profile(s, ana.id)
+        organization = service.screening_profile(s, acme.id)
+    assert len(audit_events(tenant.tenant_id)) == before
+    assert person == service.PartyScreeningProfile(
+        party_id=ana.id,
+        party_type=PartyType.PERSON,
+        status=PartyStatus.ACTIVE,
+        country_code="MX",
+        given_names="Ana María",
+        first_surname="Pérez",
+        second_surname="Gómez",
+        birth_date=date(1976, 5, 10),
+        gender=None,
+        nationalities=(),
+        birth_country=None,
+        legal_name=None,
+        trade_name=None,
+        country_of_incorporation=None,
+        identifiers=(
+            (IdentifierType.RFC, "PEGA760510XY0", "MX"),
+            (IdentifierType.CURP, "PEGA760510MDFRMN03", "MX"),
+        ),
+    )
+    assert (
+        organization.party_type,
+        organization.legal_name,
+        organization.trade_name,
+        organization.given_names,
+        organization.birth_date,
+        organization.identifiers,
+    ) == (
+        PartyType.ORGANIZATION,
+        "Acme Servicios SA de CV",
+        "Acme",
+        None,
+        None,
+        ((IdentifierType.RFC, "ACM0101017A0", "MX"),),
+    )
+    with (
+        pytest.raises(NotFoundError),
+        staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
+    ):
+        _ = service.screening_profile(s, uuid7())
