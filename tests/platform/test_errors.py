@@ -2,6 +2,7 @@ import pytest
 
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.screening.errors import (
+    DispositionNotAllowedError,
     ListMandatoryError,
     ListMassRemovalError,
     PrivateListExistsError,
@@ -64,6 +65,7 @@ from xolotl.platform.units.errors import (
         (ListMandatoryError, 409, "LIST_MANDATORY"),
         (PrivateListInvalidError, 422, "PRIVATE_LIST_INVALID"),
         (PrivateListExistsError, 409, "PRIVATE_LIST_EXISTS"),
+        (DispositionNotAllowedError, 409, "DISPOSITION_NOT_ALLOWED"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):

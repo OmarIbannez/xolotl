@@ -52,6 +52,7 @@ class Problem(BaseModel):
     instance: str
     code: str
     errors: list[ProblemError] | None = None
+    blocked_reasons: list[str] | None = None
 
 
 def _request_id(request: Request) -> str | None:
@@ -70,6 +71,7 @@ def problem(
     code: str,
     detail: str,
     errors: list[ProblemError] | None = None,
+    blocked_reasons: list[str] | None = None,
     headers: Mapping[str, str] | None = None,
 ) -> JSONResponse:
     body = Problem(
@@ -80,6 +82,7 @@ def problem(
         instance=request.url.path,
         code=code,
         errors=errors,
+        blocked_reasons=blocked_reasons,
     )
     response_headers = dict(headers) if headers else {}
     request_id = _request_id(request)
@@ -135,6 +138,7 @@ def _xolotl_error(request: Request, exc: Exception) -> Response:
         code=error.code,
         detail=error.detail,
         errors=errors or None,
+        blocked_reasons=list(error.blocked_reasons) or None,
         headers=headers,
     )
 

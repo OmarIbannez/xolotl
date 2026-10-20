@@ -22,6 +22,9 @@ class XolotlError(Exception):
     status: ClassVar[int] = 500
     default_code: ClassVar[str] = "INTERNAL"
     default_detail: ClassVar[str] = "internal error"
+    # Machine-readable reasons a refused action was blocked, carried on the problem
+    # body only when non-empty (SP-03b Deviation 10).
+    blocked_reasons: tuple[str, ...] = ()
 
     def __init__(
         self,

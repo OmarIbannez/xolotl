@@ -598,9 +598,10 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     assert isinstance(
         getattr(job_handler(UNITS_FETCH_KIND), "__self__", None), UnitsFetchJob
     )
-    assert isinstance(
-        getattr(job_handler(LISTS_POLL_KIND), "__self__", None), ListsPollJob
-    )
+    lists_poll = getattr(job_handler(LISTS_POLL_KIND), "__self__", None)
+    assert isinstance(lists_poll, ListsPollJob)
+    # XOLOTL_ENV=test leaves XOLOTL_LISTS_FETCH_ENABLED unset: no network fetching.
+    assert lists_poll.fetching is False
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):
