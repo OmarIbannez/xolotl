@@ -385,6 +385,22 @@ uv run xolotl lists fetch UN_CONSOLIDATED --force-network                # one f
   (a screen answers 503 `SCREENING_INDEX_UNAVAILABLE` until it is loaded) and
   reloaded when `XOLOTL_SCREENING_INDEX_REFRESH_SECONDS` finds a newer version.
 
+### Screening API
+
+Staff and API clients share the check, run and party routes but get different
+responses: an API client sees the subject's status only (`CLEAR`, `PENDING_REVIEW`,
+`TRUE_MATCH`), never a list code, score, entry or finding.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /v1/screening/checks` | staff; scope `screening:write` | screen `{party_id}` or an inline `{subject}` now; staff may narrow `lists` and get the hits with their explanations |
+| `GET /v1/screening/runs/{id}` | staff; scope `screening:read` | the run's outcome; staff also get its list versions, matcher, policy snapshot and hits |
+| `GET /v1/screening/parties/{party_id}` | staff; scope `screening:read` | status, last screening, lists covered; staff also get the findings |
+| `GET /v1/screening/matches` · `GET /v1/screening/matches/{id}` | staff | the review queue (filters `status`, `band`, `list_code`, `list_kind`, `created_before`) and a masked finding with its explanations, dispositions and allowed actions |
+| `GET /v1/screening/matches/{id}/reveal` | staff | the subject's names and identifiers, a private entry and the rationales; one `VIEW_PII` per group |
+| `POST /v1/screening/matches/{id}/dispositions` | staff, not `AUDITOR_RO` | a decision under the four-eyes rules; a refusal is 409 `DISPOSITION_NOT_ALLOWED` with `blocked_reasons` |
+| `DELETE /v1/screening/whitelist/{id}` | MLRO | revoke a false-positive whitelist row |
+
 ## Screening
 
 Creating a party, changing it or adding an identifier re-indexes its names and

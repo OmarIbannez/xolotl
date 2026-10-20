@@ -21,9 +21,11 @@ name query therefore scans the tenant's rows, which the product owner accepted f
 the MVP. A SECURITY DEFINER blocking function or LEAKPROOF operators would let the
 indexes serve the query if tenant volume grows.
 
-An entry whose candidates exceed ``BLOCKING_CAP`` parties is not screened in the
-delta: it names no one in particular, and screening thousands of parties for one
-entry would stall the batch. The caller logs it and the next periodic run covers it.
+An entry whose candidates exceed ``BLOCKING_CAP`` parties overflows: its name
+candidates are not screened in the delta, since a name that common names no one in
+particular and screening thousands of parties for one entry would stall the batch.
+The caller logs it and the next periodic run covers those names. Its identifier
+matches are kept: an exact RFC, CURP or passport match is never deferred.
 
 Everything runs under the caller's tenant session, so row-level security keeps the
 search inside the tenant.
@@ -64,7 +66,11 @@ _ID_TYPES = {
 
 @dataclass(frozen=True, slots=True)
 class BlockedEntry:
-    """The parties one entry was blocked on; ``overflow`` leaves them empty."""
+    """The parties one entry was blocked on.
+
+    On ``overflow`` the name candidates are dropped and ``party_ids`` holds only the
+    entry's identifier matches.
+    """
 
     entry_key: str
     party_ids: frozenset[UUID]
@@ -143,7 +149,8 @@ def reverse_candidates(
 
     Returns:
         One ``BlockedEntry`` per entry, in the order given. An entry with more than
-        ``BLOCKING_CAP`` candidates is marked ``overflow`` with no party ids.
+        ``BLOCKING_CAP`` candidates is marked ``overflow`` and keeps only its
+        identifier matches.
 
     """
     _ = s.execute(
@@ -152,11 +159,11 @@ def reverse_candidates(
     )
     blocked: list[BlockedEntry] = []
     for entry in entries:
-        party_ids = _name_matches(s, entry, idf) | _identifier_matches(s, entry)
-        if len(party_ids) > BLOCKING_CAP:
-            blocked.append(BlockedEntry(entry.entry_key, frozenset(), overflow=True))
-        else:
-            blocked.append(
-                BlockedEntry(entry.entry_key, frozenset(party_ids), overflow=False)
-            )
+        by_id = _identifier_matches(s, entry)
+        party_ids = _name_matches(s, entry, idf) | by_id
+        overflow = len(party_ids) > BLOCKING_CAP
+        kept = by_id if overflow else party_ids
+        blocked.append(
+            BlockedEntry(entry.entry_key, frozenset(kept), overflow=overflow)
+        )
     return blocked
