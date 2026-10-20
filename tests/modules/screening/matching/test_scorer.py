@@ -297,3 +297,35 @@ def test_nicknames_and_repeated_tokens_align_once():
         ("hernandez", "hernandez", MatchKind.EXACT),
     ]
     assert result.explanation.unmatched_entry == ("hernandez",)
+
+
+def test_misspelt_weightless_words_are_absorbed_at_no_weight():
+    item = entry("9", "Armament Industries Group", entity_type=ORG)
+    query = NameQuery(ORG, ("Armament Industryes Grup",))
+    result = score(query, item, idf=IDF, config=CONFIG)
+    absorbed = [a for a in result.explanation.alignment if not a.weight]
+    assert {(a.query, a.entry) for a in absorbed} == {
+        ("industryes", "industries"),
+        ("grup", "group"),
+    }
+    clean = NameQuery(ORG, ("Armament Industries Group",))
+    assert result.score == score(clean, item, idf=IDF, config=CONFIG).score
+    reverse = score(
+        NameQuery(ORG, ("Armament Industries Group",)),
+        entry("8", "Armament Industryes Grup", entity_type=ORG),
+        idf=IDF,
+        config=CONFIG,
+    )
+    assert reverse.score == result.score
+
+
+@pytest.mark.parametrize(
+    ("first", "second"), [("Su", "Zu"), ("Ho", "O"), ("The", "Te")]
+)
+def test_one_sound_tokens_match_when_lengths_are_close(first, second):
+    item = entry("9", f"Jang Bom {first}")
+    result = score(
+        NameQuery(PERSON, (f"Jang Bom {second}",)), item, idf=IDF, config=CONFIG
+    )
+    kinds = {a.entry: a.kind for a in result.explanation.alignment}
+    assert kinds[first.lower()] is MatchKind.PHONETIC

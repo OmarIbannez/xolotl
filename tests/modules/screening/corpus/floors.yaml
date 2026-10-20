@@ -1,0 +1,18 @@
+# Corpus floors (SP-03 spec section 4.3, FR-SC-014). test_corpus.py fails CI below any
+# of them. A floor may only be raised in a library PR; lowering one needs the product
+# owner's written approval in that PR.
+#
+# First honest measurement, 2026-10-19, MATCHER_VERSION 2.1.0, 20,294 pairs and 520
+# hard negatives: SANCTION recall 0.9862, retrieval recall 0.9978, precision at ALERT
+# 0.9855; FISCAL recall 0.9839, retrieval recall 1.0; no hard-negative alert. The
+# precision floor is that measurement rounded down to two places.
+seed: 20261019
+per_entry: 175
+min_pairs: 20000
+min_hard_negatives: 500
+top_k: 50
+thresholds: {alert: "0.70", review: "0.55"}
+floors:
+  SANCTION: {recall: 0.98, retrieval_recall: 0.995, precision_at_alert: 0.98}
+  FISCAL: {recall: 0.98, retrieval_recall: 0.995}
+max_alerts_per_1000_negatives: 2.0

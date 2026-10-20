@@ -1,0 +1,525 @@
+# Synthetic hard negatives: very common Mexican personal and company names that must
+# not alert (SP-03 spec section 4.3). Built from the most frequent given names and the
+# surnames in data/surnames_mx.csv; no real person or customer. A test checks none is a
+# fixture name.
+entity_type,name
+PERSON,Adriana Castro Romero
+PERSON,Adriana Estrada Ramos
+PERSON,Adriana Guerrero Romero
+PERSON,Alberto Alvarado Contreras
+PERSON,Alberto Castillo González
+PERSON,Alberto Fernández Cruz
+PERSON,Alberto González Martínez
+PERSON,Alberto Gómez Guzmán
+PERSON,Alberto López García
+PERSON,Alberto Rodríguez Juárez
+PERSON,Alberto Romero Castillo
+PERSON,Alberto Soto Gómez
+PERSON,Alberto Vásquez López
+PERSON,Alejandro Avila Carrillo
+PERSON,Alejandro Mendoza Romero
+PERSON,Alejandro Morales Velasquez
+PERSON,Alejandro Ruiz Martínez
+PERSON,Alejandro Sandoval Gutiérrez
+PERSON,Alejandro Silva Vargas
+PERSON,Alejandro Vega Torres
+PERSON,Alejandro Vásquez Jiménez
+PERSON,Alicia Muñoz Juárez
+PERSON,Alicia Silva Luna
+PERSON,Alicia Silva Pérez
+PERSON,Alicia Silva Rivera
+PERSON,Alicia Velasquez Reyes
+PERSON,Ana Domínguez Guzmán
+PERSON,Ana Fernández Castro
+PERSON,Ana García Avila
+PERSON,Ana Lara Sandoval
+PERSON,Ana Laura Avila Estrada
+PERSON,Ana Laura Hernández Rivera
+PERSON,Ana Laura Moreno Juárez
+PERSON,Ana Laura Pérez Cortez
+PERSON,Ana María Chávez Pérez
+PERSON,Ana María Cruz Álvarez
+PERSON,Ana María Hernández Guerrero
+PERSON,Ana María Mendoza Silva
+PERSON,Ana María Muñoz Salazar
+PERSON,Ana María Ramírez Estrada
+PERSON,Ana María Romero Cortez
+PERSON,Ana Reyes Velasquez
+PERSON,Andrea Carrillo Martínez
+PERSON,Andrea Castro Gutiérrez
+PERSON,Andrea Chávez Mendoza
+PERSON,Andrea Ortega Garza
+PERSON,Andrea Ruiz Reyes
+PERSON,Antonio Alvarado Aguilar
+PERSON,Antonio Díaz Vega
+PERSON,Antonio González Cervantes
+PERSON,Antonio Gutiérrez Castro
+PERSON,Antonio Jiménez Silva
+PERSON,Antonio López González
+PERSON,Antonio Morales Díaz
+PERSON,Antonio Ramírez Díaz
+PERSON,Antonio Romero Medina
+PERSON,Araceli Lara Vargas
+PERSON,Araceli Soto Juárez
+PERSON,Araceli Soto Sandoval
+PERSON,Araceli Vega Vásquez
+PERSON,Arturo Garza Torres
+PERSON,Carlos Contreras Castillo
+PERSON,Carlos Contreras Sánchez
+PERSON,Carlos Cruz Muñoz
+PERSON,Carmen Aguilar Moreno
+PERSON,Carmen Carrillo Silva
+PERSON,Carmen Gutiérrez Carrillo
+PERSON,Carmen Méndez Mendoza
+PERSON,Carmen Méndez Sandoval
+PERSON,Carmen Sandoval Pérez
+PERSON,Carmen Sánchez Soto
+PERSON,Claudia Castro Alvarado
+PERSON,Claudia Cervantes Gómez
+PERSON,Claudia Cortez Vásquez
+PERSON,Claudia Fernández Méndez
+PERSON,Claudia García Contreras
+PERSON,Daniel Gutiérrez Muñoz
+PERSON,Daniel Ortiz Luna
+PERSON,Daniel Pérez Rivera
+PERSON,Daniel Romero Contreras
+PERSON,Daniela Espinoza Ramírez
+PERSON,Daniela Rodríguez Mendoza
+PERSON,Eduardo Medina Herrera
+PERSON,Eduardo Rodríguez Ortiz
+PERSON,Eduardo Salazar Espinoza
+PERSON,Elizabeth Luna Domínguez
+PERSON,Elizabeth Méndez Castro
+PERSON,Elizabeth Salazar Álvarez
+PERSON,Elizabeth Silva Garza
+PERSON,Enrique Díaz Gómez
+PERSON,Enrique Guzmán Ortiz
+PERSON,Enrique Ortega Rojas
+PERSON,Enrique Ortega Sánchez
+PERSON,Fernanda Espinoza Aguilar
+PERSON,Fernanda Guzmán Rivera
+PERSON,Fernanda Luna García
+PERSON,Fernanda López Herrera
+PERSON,Fernanda Vargas Ruiz
+PERSON,Fernanda Vásquez Méndez
+PERSON,Fernando Guerrero Luna
+PERSON,Fernando Romero Reyes
+PERSON,Francisco Castro Romero
+PERSON,Francisco Díaz Domínguez
+PERSON,Francisco Espinoza Herrera
+PERSON,Francisco Javier Contreras Avila
+PERSON,Francisco Javier Rivera Rojas
+PERSON,Francisco Javier Rojas Ortega
+PERSON,Francisco Javier Sánchez Ortega
+PERSON,Gabriela Avila González
+PERSON,Gabriela Gutiérrez Álvarez
+PERSON,Gabriela Ruiz Martínez
+PERSON,Gerardo Aguilar Guerrero
+PERSON,Gerardo Juárez Díaz
+PERSON,Gerardo Ortiz Cervantes
+PERSON,Gerardo Soto Castillo
+PERSON,Guadalupe Gutiérrez Muñoz
+PERSON,Guadalupe Medina Juárez
+PERSON,Guadalupe Ortiz Gutiérrez
+PERSON,Héctor Castro Silva
+PERSON,Héctor Garza Medina
+PERSON,Héctor Ortiz Luna
+PERSON,Héctor Rivera Aguilar
+PERSON,Héctor Sánchez Espinoza
+PERSON,Héctor Vega Ruiz
+PERSON,Javier Carrillo Jiménez
+PERSON,Javier Contreras García
+PERSON,Javier Espinoza Mendoza
+PERSON,Javier Flores Vargas
+PERSON,Javier García Vásquez
+PERSON,Javier Méndez Romero
+PERSON,Javier Vásquez Herrera
+PERSON,Javier Vásquez Salazar
+PERSON,Jesús Alberto Alvarado Muñoz
+PERSON,Jesús Alberto Chávez Medina
+PERSON,Jesús Alberto Cortez Contreras
+PERSON,Jesús Alberto Cruz López
+PERSON,Jesús Alberto Cruz Ramírez
+PERSON,Jesús Alberto López Contreras
+PERSON,Jesús Gutiérrez Guerrero
+PERSON,Jesús Soto Vásquez
+PERSON,Jesús Vargas Jiménez
+PERSON,Jorge Domínguez Medina
+PERSON,Jorge Gómez Salazar
+PERSON,Jorge Muñoz Medina
+PERSON,Jorge Romero González
+PERSON,Jorge Sánchez Castro
+PERSON,Josefina Espinoza Ortiz
+PERSON,Josefina Estrada Medina
+PERSON,Josefina Rivera Rojas
+PERSON,Josefina Silva Estrada
+PERSON,José Antonio Carrillo Sandoval
+PERSON,José Antonio Cruz Flores
+PERSON,José Antonio Cruz Rivera
+PERSON,José Antonio Gómez Guzmán
+PERSON,José Antonio Pérez Mendoza
+PERSON,José Antonio Ramírez Cortez
+PERSON,José Cervantes Jiménez
+PERSON,José Garza Méndez
+PERSON,José González Sánchez
+PERSON,José Guadalupe Cervantes Castro
+PERSON,José Guadalupe Contreras Sánchez
+PERSON,José Guadalupe Domínguez Vega
+PERSON,José Guadalupe Díaz Aguilar
+PERSON,José Guadalupe Estrada Gutiérrez
+PERSON,José Guadalupe Gutiérrez Garza
+PERSON,José Guadalupe Silva Díaz
+PERSON,José Guadalupe Vásquez Avila
+PERSON,José Herrera Guzmán
+PERSON,José Lara Garza
+PERSON,José Luis Castillo Avila
+PERSON,José Luis Díaz Aguilar
+PERSON,José Luis Estrada Flores
+PERSON,José Luis Guerrero Alvarado
+PERSON,José Luis Luna Lara
+PERSON,José Luis Martínez Castro
+PERSON,José Luis Méndez Fernández
+PERSON,José Luis Ortega Rojas
+PERSON,José Luis Salazar Espinoza
+PERSON,José Soto Rodríguez
+PERSON,Juan Carlos García Vega
+PERSON,Juan Carlos Martínez Juárez
+PERSON,Juan Carlos Reyes Flores
+PERSON,Juan Carlos Ruiz García
+PERSON,Juan Manuel Alvarado Vega
+PERSON,Juan Manuel Castro Sandoval
+PERSON,Juan Manuel Cortez Díaz
+PERSON,Juan Manuel Espinoza Jiménez
+PERSON,Juan Manuel Guzmán Mendoza
+PERSON,Juan Manuel Medina Silva
+PERSON,Juan Manuel Mendoza Espinoza
+PERSON,Juan Manuel Méndez Jiménez
+PERSON,Juan Manuel Álvarez Herrera
+PERSON,Juan Moreno Muñoz
+PERSON,Juan Pablo Ramos Cortez
+PERSON,Juana Guerrero González
+PERSON,Juana Martínez Castillo
+PERSON,Juana María Espinoza Fernández
+PERSON,Juana María Estrada Aguilar
+PERSON,Juana María Jiménez Gómez
+PERSON,Juana Muñoz Torres
+PERSON,Juana Pérez Chávez
+PERSON,Juana Ruiz Medina
+PERSON,Juana Sandoval Vargas
+PERSON,Laura Avila Lara
+PERSON,Laura Cortez Domínguez
+PERSON,Laura Ortega Martínez
+PERSON,Laura Rivera Méndez
+PERSON,Leticia Chávez García
+PERSON,Leticia González Reyes
+PERSON,Leticia Gutiérrez Avila
+PERSON,Leticia López Estrada
+PERSON,Leticia Pérez Domínguez
+PERSON,Lucía Cervantes Romero
+PERSON,Lucía Díaz Estrada
+PERSON,Lucía Díaz Guzmán
+PERSON,Lucía Flores Reyes
+PERSON,Lucía Gutiérrez Vargas
+PERSON,Lucía Rivera Muñoz
+PERSON,Luis Aguilar Contreras
+PERSON,Luis Avila Pérez
+PERSON,Luis Castro Velasquez
+PERSON,Luis Fernando Aguilar Sánchez
+PERSON,Luis Fernando Cruz Martínez
+PERSON,Luis Fernando Díaz Espinoza
+PERSON,Luis Gómez Reyes
+PERSON,Luis Jiménez Pérez
+PERSON,Luis Moreno Cervantes
+PERSON,Luis Muñoz Castro
+PERSON,Luis Ortiz Ramírez
+PERSON,Luis Ramírez Flores
+PERSON,Luis Sandoval Ruiz
+PERSON,Luis Sánchez Chávez
+PERSON,Luis Torres Ortega
+PERSON,Manuel Guzmán Ramírez
+PERSON,Manuel Ortega Sánchez
+PERSON,Manuel Reyes Luna
+PERSON,Manuel Rodríguez Castillo
+PERSON,Manuel Soto Gómez
+PERSON,Margarita Lara Flores
+PERSON,Margarita Martínez Juárez
+PERSON,Margarita Muñoz Luna
+PERSON,Margarita Ruiz Sandoval
+PERSON,Margarita Álvarez Lara
+PERSON,Mario Aguilar Guzmán
+PERSON,Mario Alvarado Domínguez
+PERSON,Mario Fernández Pérez
+PERSON,Mario González Chávez
+PERSON,Mario Herrera Domínguez
+PERSON,Mario Jiménez Guerrero
+PERSON,Mario Martínez Morales
+PERSON,Mario Velasquez Vásquez
+PERSON,Martha Cervantes Silva
+PERSON,Martha Flores Sánchez
+PERSON,Martha Gutiérrez Pérez
+PERSON,Martha Hernández Soto
+PERSON,Martha Moreno Alvarado
+PERSON,Martha Patricia Carrillo Guzmán
+PERSON,Martha Patricia Guerrero Chávez
+PERSON,Martha Patricia Juárez Castro
+PERSON,Martha Ramos Cortez
+PERSON,Martha Sánchez Romero
+PERSON,Martín Flores Alvarado
+PERSON,Martín Medina García
+PERSON,Martín Ortiz Domínguez
+PERSON,Martín Ruiz Carrillo
+PERSON,Martín Silva Hernández
+PERSON,María Cervantes Contreras
+PERSON,María Elena Aguilar Díaz
+PERSON,María Elena Alvarado Pérez
+PERSON,María Elena Chávez Guzmán
+PERSON,María Elena Cruz Ortega
+PERSON,María Elena Moreno Díaz
+PERSON,María Elena Ramos Alvarado
+PERSON,María Elena Silva Ortiz
+PERSON,María Elena Sánchez Guerrero
+PERSON,María Fernanda Alvarado Salazar
+PERSON,María Fernanda Flores Soto
+PERSON,María Fernanda Medina Salazar
+PERSON,María Fernanda Moreno Cortez
+PERSON,María Fernanda Moreno Muñoz
+PERSON,María Fernanda Ortiz Guzmán
+PERSON,María Fernanda Romero González
+PERSON,María Fernanda Vargas Espinoza
+PERSON,María Fernanda Vásquez Cortez
+PERSON,María Guadalupe Cervantes Guerrero
+PERSON,María Guadalupe Juárez Lara
+PERSON,María Guadalupe Martínez Espinoza
+PERSON,María Guzmán Luna
+PERSON,María Salazar Gómez
+PERSON,María de Jesús Estrada Gómez
+PERSON,María de Jesús Fernández Sandoval
+PERSON,María de Jesús Flores Estrada
+PERSON,María de Jesús Luna Rodríguez
+PERSON,María de Jesús Mendoza Garza
+PERSON,María de Jesús Moreno Reyes
+PERSON,María del Carmen Contreras Carrillo
+PERSON,María del Carmen Ruiz Cruz
+PERSON,María del Carmen Salazar Avila
+PERSON,María del Carmen Álvarez Torres
+PERSON,Miguel Cervantes Velasquez
+PERSON,Miguel García Ortiz
+PERSON,Miguel Mendoza García
+PERSON,Miguel Mendoza Martínez
+PERSON,Miguel Rodríguez Ortiz
+PERSON,Miguel Ángel Morales Ortiz
+PERSON,Miguel Ángel Velasquez Ortega
+PERSON,Miguel Ángel Velasquez Ramírez
+PERSON,Mónica Jiménez Ortega
+PERSON,Mónica Medina Mendoza
+PERSON,Mónica Soto Aguilar
+PERSON,Norma García Vásquez
+PERSON,Norma Jiménez Ramos
+PERSON,Norma Ramos Chávez
+PERSON,Norma Rodríguez Herrera
+PERSON,Norma Torres Juárez
+PERSON,Patricia Contreras Herrera
+PERSON,Patricia Jiménez Juárez
+PERSON,Patricia López Avila
+PERSON,Patricia Ramos Aguilar
+PERSON,Patricia Reyes López
+PERSON,Pedro González Vargas
+PERSON,Pedro Hernández Martínez
+PERSON,Pedro Morales Moreno
+PERSON,Pedro Ortega Morales
+PERSON,Pedro Torres Romero
+PERSON,Pedro Vega Guzmán
+PERSON,Rafael Morales Chávez
+PERSON,Rafael Ortiz Garza
+PERSON,Rafael Rivera Contreras
+PERSON,Rafael Sánchez Gutiérrez
+PERSON,Raúl Díaz Castillo
+PERSON,Raúl Espinoza López
+PERSON,Raúl González Guzmán
+PERSON,Raúl Gómez Vega
+PERSON,Raúl Herrera Cruz
+PERSON,Raúl Moreno Rivera
+PERSON,Raúl Rivera Vásquez
+PERSON,Ricardo Cortez Luna
+PERSON,Ricardo Garza Gómez
+PERSON,Ricardo Gutiérrez Alvarado
+PERSON,Ricardo Jiménez Espinoza
+PERSON,Ricardo Pérez Torres
+PERSON,Ricardo Salazar Lara
+PERSON,Ricardo Silva Ortega
+PERSON,Roberto Domínguez Castro
+PERSON,Roberto Espinoza Romero
+PERSON,Roberto Gutiérrez Contreras
+PERSON,Roberto Guzmán Moreno
+PERSON,Roberto Jiménez Medina
+PERSON,Roberto Juárez Morales
+PERSON,Roberto López Méndez
+PERSON,Roberto Romero Cortez
+PERSON,Roberto Romero Estrada
+PERSON,Roberto Vásquez Contreras
+PERSON,Rosa Espinoza Silva
+PERSON,Rosa María Castillo Hernández
+PERSON,Rosa María Rojas Romero
+PERSON,Rosa María Romero Ortega
+PERSON,Rosa María Silva Cortez
+PERSON,Rosa María Soto Luna
+PERSON,Rosa Morales Ramírez
+PERSON,Rosa Ramírez Chávez
+PERSON,Rosa Reyes Espinoza
+PERSON,Sandra Alvarado Jiménez
+PERSON,Sandra Guerrero Domínguez
+PERSON,Sandra Luna Flores
+PERSON,Sandra Méndez Moreno
+PERSON,Sandra Ramos González
+PERSON,Sandra Rodríguez Avila
+PERSON,Sandra Ruiz Rojas
+PERSON,Sergio Carrillo Cervantes
+PERSON,Sergio Domínguez Sánchez
+PERSON,Sergio Guerrero Romero
+PERSON,Sergio Lara Espinoza
+PERSON,Sergio Medina Guerrero
+PERSON,Sergio Morales Chávez
+PERSON,Sergio Ramos Jiménez
+PERSON,Sergio Rivera Vásquez
+PERSON,Sergio Sánchez Hernández
+PERSON,Sergio Vargas Ortega
+PERSON,Silvia Díaz Morales
+PERSON,Silvia Luna Gómez
+PERSON,Silvia Medina Domínguez
+PERSON,Silvia Moreno Vargas
+PERSON,Silvia Álvarez Castro
+PERSON,Sofía Domínguez Sandoval
+PERSON,Sofía García Sandoval
+PERSON,Sofía Mendoza Carrillo
+PERSON,Sofía Rodríguez Chávez
+PERSON,Sofía Rojas Vega
+PERSON,Sofía Silva Mendoza
+PERSON,Sofía Vásquez Díaz
+PERSON,Teresa Aguilar Jiménez
+PERSON,Teresa Alvarado Garza
+PERSON,Teresa Cervantes Alvarado
+PERSON,Teresa Guzmán Flores
+PERSON,Teresa Moreno Díaz
+PERSON,Teresa Moreno Reyes
+PERSON,Teresa Rojas Ortiz
+PERSON,Verónica Morales Contreras
+PERSON,Verónica Ruiz Estrada
+PERSON,Verónica Torres Ramos
+PERSON,Víctor Castillo Sandoval
+PERSON,Víctor Espinoza Ortega
+PERSON,Víctor Fernández Alvarado
+PERSON,Víctor Jiménez Ortega
+PERSON,Víctor Lara Fernández
+PERSON,Víctor Moreno Vásquez
+PERSON,Yolanda Aguilar Guerrero
+PERSON,Yolanda Contreras Luna
+PERSON,Yolanda Fernández Ortega
+PERSON,Yolanda Flores Domínguez
+PERSON,Yolanda Sandoval Torres
+PERSON,Yolanda Vargas Cortez
+PERSON,Óscar Carrillo Avila
+PERSON,Óscar Díaz Gutiérrez
+PERSON,Óscar Flores Ortiz
+PERSON,Óscar Martínez Contreras
+PERSON,Óscar Salazar Ramos
+PERSON,Óscar Vargas Aguilar
+ORGANIZATION,Abarrotes Castro S.C.
+ORGANIZATION,Abarrotes García
+ORGANIZATION,Abarrotes García S. de R.L. de C.V.
+ORGANIZATION,Abarrotes García S.C.
+ORGANIZATION,Abarrotes González
+ORGANIZATION,Abarrotes Herrera S.A. de C.V.
+ORGANIZATION,Abarrotes López S.A. de C.V.
+ORGANIZATION,Abarrotes Morales S.A.P.I. de C.V.
+ORGANIZATION,Abarrotes Morales S.C.
+ORGANIZATION,Abarrotes Moreno S.A. de C.V.
+ORGANIZATION,Abarrotes Méndez S.C.
+ORGANIZATION,Abarrotes Rivera
+ORGANIZATION,Abarrotes Romero
+ORGANIZATION,Abarrotes Ruiz S.A. de C.V.
+ORGANIZATION,Abarrotes Vargas
+ORGANIZATION,Comercializadora Díaz S. de R.L. de C.V.
+ORGANIZATION,Comercializadora García S. de R.L. de C.V.
+ORGANIZATION,Comercializadora Hernández
+ORGANIZATION,Comercializadora Herrera S.A. de C.V.
+ORGANIZATION,Comercializadora Jiménez S.A.P.I. de C.V.
+ORGANIZATION,Comercializadora Juárez S.A.P.I. de C.V.
+ORGANIZATION,Comercializadora Martínez S.A. de C.V.
+ORGANIZATION,Comercializadora Méndez
+ORGANIZATION,Comercializadora Ortega
+ORGANIZATION,Comercializadora Pérez S.A.P.I. de C.V.
+ORGANIZATION,Comercializadora Rodríguez S. de R.L. de C.V.
+ORGANIZATION,Comercializadora Torres S.A. de C.V.
+ORGANIZATION,Comercializadora Vásquez
+ORGANIZATION,Comercializadora Álvarez S.A. de C.V.
+ORGANIZATION,Constructora Castillo S.A.P.I. de C.V.
+ORGANIZATION,Constructora Díaz S.A.P.I. de C.V.
+ORGANIZATION,Constructora Martínez
+ORGANIZATION,Constructora Medina S.C.
+ORGANIZATION,Constructora Romero S.A. de C.V.
+ORGANIZATION,Constructora Álvarez S.C.
+ORGANIZATION,Consultores Flores
+ORGANIZATION,Consultores Jiménez S.A. de C.V.
+ORGANIZATION,Consultores Jiménez S.C.
+ORGANIZATION,Consultores Medina S. de R.L. de C.V.
+ORGANIZATION,Consultores Ortiz S. de R.L. de C.V.
+ORGANIZATION,Consultores Pérez
+ORGANIZATION,Consultores Ramírez
+ORGANIZATION,Consultores Romero
+ORGANIZATION,Consultores Vargas S.A.P.I. de C.V.
+ORGANIZATION,Distribuidora Castillo
+ORGANIZATION,Distribuidora Cruz
+ORGANIZATION,Distribuidora González S. de R.L. de C.V.
+ORGANIZATION,Distribuidora Gómez S.A. de C.V.
+ORGANIZATION,Distribuidora Jiménez
+ORGANIZATION,Distribuidora Juárez S.A. de C.V.
+ORGANIZATION,Distribuidora Medina S. de R.L. de C.V.
+ORGANIZATION,Distribuidora Morales S. de R.L. de C.V.
+ORGANIZATION,Distribuidora Ortega S.C.
+ORGANIZATION,Distribuidora Ramos S.A. de C.V.
+ORGANIZATION,Distribuidora Ramírez S. de R.L. de C.V.
+ORGANIZATION,Distribuidora Ramírez S.C.
+ORGANIZATION,Distribuidora Reyes S.C.
+ORGANIZATION,Distribuidora Torres S. de R.L. de C.V.
+ORGANIZATION,Farmacia Díaz S.C.
+ORGANIZATION,Farmacia García S.A. de C.V.
+ORGANIZATION,Farmacia Herrera S. de R.L. de C.V.
+ORGANIZATION,Farmacia Jiménez S.A.P.I. de C.V.
+ORGANIZATION,Farmacia Martínez S.A. de C.V.
+ORGANIZATION,Farmacia Medina S.C.
+ORGANIZATION,Farmacia Ortega S. de R.L. de C.V.
+ORGANIZATION,Farmacia Ortiz S.C.
+ORGANIZATION,Farmacia Rivera
+ORGANIZATION,Farmacia Rivera S. de R.L. de C.V.
+ORGANIZATION,Farmacia Sánchez S. de R.L. de C.V.
+ORGANIZATION,Farmacia Torres S.C.
+ORGANIZATION,Farmacia Vargas S. de R.L. de C.V.
+ORGANIZATION,Farmacia Álvarez S.C.
+ORGANIZATION,Grupo Guzmán S.A.P.I. de C.V.
+ORGANIZATION,Grupo Gómez S.C.
+ORGANIZATION,Grupo Ortiz S.A. de C.V.
+ORGANIZATION,Grupo Ramos
+ORGANIZATION,Grupo Sánchez S.A.P.I. de C.V.
+ORGANIZATION,Inmobiliaria Aguilar S.A.P.I. de C.V.
+ORGANIZATION,Inmobiliaria García
+ORGANIZATION,Inmobiliaria Jiménez S.A.P.I. de C.V.
+ORGANIZATION,Inmobiliaria Méndez S.A. de C.V.
+ORGANIZATION,Inmobiliaria Reyes S.A. de C.V.
+ORGANIZATION,Inmobiliaria Rodríguez S.C.
+ORGANIZATION,Servicios Integrales Aguilar
+ORGANIZATION,Servicios Integrales Chávez S.C.
+ORGANIZATION,Servicios Integrales Cruz S. de R.L. de C.V.
+ORGANIZATION,Servicios Integrales Mendoza S. de R.L. de C.V.
+ORGANIZATION,Servicios Integrales Ortega
+ORGANIZATION,Servicios Integrales Torres S.C.
+ORGANIZATION,Transportes Chávez
+ORGANIZATION,Transportes Fernández S.C.
+ORGANIZATION,Transportes Flores
+ORGANIZATION,Transportes García S. de R.L. de C.V.
+ORGANIZATION,Transportes García S.A.P.I. de C.V.
+ORGANIZATION,Transportes González
+ORGANIZATION,Transportes Herrera
+ORGANIZATION,Transportes Medina
+ORGANIZATION,Transportes Medina S.C.
+ORGANIZATION,Transportes Moreno S. de R.L. de C.V.
+ORGANIZATION,Transportes Moreno S.C.
