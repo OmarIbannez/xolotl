@@ -6,7 +6,7 @@ This directory is for the agent that executes the three SP-04 plans, one pull re
 
 - **`main`** holds SP-01, SP-02, SP-03 (plans 3a, 3b and 3c, the screening library T1 to T6, the SP-03 exit test), the SP-04 spec (`docs/superpowers/specs/2026-10-20-sp04-monitoring-captures-design.md`, a draft dated 2026-10-20 that the product owner has not yet formally accepted; the plans build its Decisions and §21 defaults under the blanket approval of 2026-10-19 and list their departures as Deviations), the three SP-04 plans, the reconciliation record and this kit. The migration chain ends at `0011_screening_hit_run_index`; SP-04's migrations are `0012_transactions` (A2), `0013_rules_captures` (B4) and `0014_decide_profiles` (C4), merged in that order.
 - **The screening library** is complete and merged. Our tasks never implement or edit it (see `agreement.md`); the spec's §11.4 library change is withdrawn, so there is no `external` row.
-- **No SP-04 code exists yet.** The Tasks board has one row per plan task, all To Do; each page names its plan section, branch and dependencies. The `xol`, `notion` and `notion_url` columns of `tasks.json` are filled from the board.
+- **No SP-04 code exists yet.** The Tasks board has one row per plan task, XOL-112 (A1) to XOL-149 (C11), all To Do; each page names its plan section, branch and dependencies. The `xol`, `notion` and `notion_url` columns of `tasks.json` are filled from the board.
 - **The kit's home path** is `/Users/omaribannez`; on the other machine it is `/Users/oibanez` and the worktrees live under `/Users/oibanez/code/xolotl-worktrees`. Pass `kit` and `worktrees` to the workflow there.
 
 ## Files
