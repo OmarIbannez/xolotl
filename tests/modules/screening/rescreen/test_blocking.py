@@ -7,12 +7,12 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, delete
+from sqlalchemy import Engine, delete, text
 from sqlalchemy.orm import Session
 
 from tests.helpers import new_tenant, staff_session
 from xolotl.modules.party import service
-from xolotl.modules.party.enums import IdentifierType, PartyType
+from xolotl.modules.party.enums import IdentifierType, PartyStatus, PartyType
 from xolotl.modules.party.retention import purge_party
 from xolotl.modules.party.schemas import (
     IdentifierInput,
@@ -31,10 +31,14 @@ from xolotl.modules.screening.lists import (
     NameQuality,
 )
 from xolotl.modules.screening.matching import (
+    BlockingPlan,
     IdfTable,
+    NameQuery,
+    NormalizedName,
     blocking_plan,
     name_keys,
     normalize_name,
+    phonetic_key,
 )
 from xolotl.modules.screening.matching.evaluation import (
     Corpus,
@@ -84,6 +88,24 @@ def _person(name: str, *, rfc: str | None = None) -> PartyCreateRequest:
         identifiers=[IdentifierInput(id_type=IdentifierType.RFC, value=rfc)]
         if rfc
         else [],
+    )
+
+
+def _party_for(query: NameQuery) -> PartyCreateRequest:
+    name = query.names[0]
+    if query.entity_type is not EntityType.PERSON:
+        return _organization(name)
+    if not (query.given_names and query.first_surname):
+        # No structure on the query: split the name. PersonInput requires a given
+        # name and a first surname, so a lone token fills both.
+        return _person(name)
+    return PartyCreateRequest(
+        party_type=PartyType.PERSON,
+        person=PersonInput(
+            given_names=query.given_names,
+            first_surname=query.first_surname,
+            second_surname=query.second_surname,
+        ),
     )
 
 
@@ -156,17 +178,20 @@ def test_a_nickname_variant_is_blocked_through_the_phonetic_keys(
         normalize_name(entry.primary_name.full, entity_type=EntityType.PERSON),
         _idf(),
     )
-    paco = normalize_name("Paco Zamudio Quiroga", entity_type=EntityType.PERSON)
-    # The library's key sets cover the nickname: one of them is in Paco's name_keys,
-    # which index_party_names stores as the row's phonetic_keys.
-    assert any(set(keys) <= name_keys(paco) for keys in plan.key_sets)
+    # The surnames alone would block any Zamudio Quiroga, so keep only the key sets
+    # that carry the nickname's phonetic key: the plan's nickname variants.
+    nickname = BlockingPlan(
+        tuple(keys for keys in plan.key_sets if phonetic_key("paco") in keys)
+    )
+    assert nickname.key_sets
     with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
         party_id = _add(s, _person("Paco Zamudio Quiroga"))
-        query = blocking_query(plan, "", limit=10)
-        by_keys = set(s.scalars(query))
+        control = _add(s, _person("Ramón Zamudio Quiroga"))
+        by_nickname = set(s.scalars(blocking_query(nickname, "", limit=10)))
         found = _blocked(s, entry)
-    assert by_keys == {party_id}
-    assert found.party_ids == {party_id}
+    assert by_nickname == {party_id}
+    assert party_id in found.party_ids
+    assert control in found.party_ids  # by the shared surnames, as designed
 
 
 def test_an_rfc_on_the_entry_finds_the_party_without_a_name_match(
@@ -199,36 +224,64 @@ def test_an_invalid_list_rfc_falls_back_to_names(
     assert "Rogelio" not in json.dumps(record.__dict__, default=str)
 
 
-def _shares_a_key_set(entry: ListEntry, keys: frozenset[str]) -> bool:
-    for name in (entry.primary_name, *entry.aliases):
-        normalized = normalize_name(
+def _entry_names(entry: ListEntry) -> list[NormalizedName]:
+    names = [
+        normalize_name(
             name.full,
             entity_type=entry.entity_type,
             given=name.given,
             surname=name.surname,
         )
-        if normalized.tokens and any(
-            set(key_set) <= keys
-            for key_set in blocking_plan(normalized, _idf()).key_sets
-        ):
-            return True
-    return False
+        for name in (entry.primary_name, *entry.aliases)
+    ]
+    return [name for name in names if name.tokens]
 
 
-def test_a_common_unrelated_name_is_not_blocked(engine: Engine, tenant: CreatedTenant):
+def _covering_key_sets(entry: ListEntry, keys: frozenset[str]) -> list[tuple[str, ...]]:
+    return [
+        key_set
+        for name in _entry_names(entry)
+        for key_set in blocking_plan(name, _idf()).key_sets
+        if set(key_set) <= keys
+    ]
+
+
+def test_a_common_unrelated_name_is_blocked_only_through_single_keys_never_by_name(
+    engine: Engine, tenant: CreatedTenant
+):
     negative = _corpus().hard_negatives[0]
     keys = name_keys(
         normalize_name(negative.names[0], entity_type=negative.entity_type)
     )
-    # The library's single-key sets (one-letter deletions, prefix and suffix keys)
-    # meet some unrelated entries by design; no other entry may block the party.
-    related = {e.entry_key for e in _corpus().entries if _shares_a_key_set(e, keys)}
+    covering = {e.entry_key: _covering_key_sets(e, keys) for e in _corpus().entries}
+    related = {key for key, sets in covering.items() if sets}
+    # The library's single-key sets (one-letter deletions, prefix and suffix keys of
+    # rare entry tokens) meet some unrelated entries by design; no key set of two or
+    # more tokens, which is what blocks a name as a name, covers the party.
+    assert all(len(key_set) == 1 for sets in covering.values() for key_set in sets)
     with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
-        party_id = _add(s, _person(negative.names[0]))
+        party_id = _add(s, _party_for(negative))
         found = reverse_candidates(s, _corpus().entries, idf=_idf())
+        # Still inside the transaction that set the trigram threshold.
+        by_trigram = [
+            name.folded
+            for entry in _corpus().entries
+            for name in _entry_names(entry)
+            if party_id
+            in s.scalars(blocking_query(BlockingPlan(()), name.folded, limit=1))
+        ]
     blocked_on = {b.entry_key for b in found if party_id in b.party_ids}
-    assert blocked_on <= related
-    assert len(blocked_on) < len(_corpus().entries) // 5
+    assert blocked_on == related
+    assert by_trigram == []
+
+
+def test_the_trigram_threshold_is_set_for_the_transaction(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        _ = _blocked(s, _entry("Ulises Quintanilla"))
+        threshold = s.scalar(text("SHOW pg_trgm.similarity_threshold"))
+    assert threshold == "0.4"
 
 
 def test_more_than_the_cap_marks_the_entry_overflow(
@@ -263,6 +316,26 @@ def test_purged_parties_are_not_returned(engine: Engine, tenant: CreatedTenant):
     assert found.party_ids == frozenset()
 
 
+def test_an_rfc_on_a_party_that_is_not_active_is_not_returned(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party_id = _add(s, _person("Carlos Sánchez Gil", rfc="SAGC800101AB8"))
+        # No party operation merges yet; set the status the way a merge would,
+        # leaving the identifier row in place.
+        service.get_party(s, party_id).status = PartyStatus.MERGED
+        s.flush()
+        found = _blocked(
+            s,
+            _entry(
+                "Comercializadora Tlaloc",
+                entity_type=EntityType.ORGANIZATION,
+                rfc="SAGC800101AB8",
+            ),
+        )
+    assert found.party_ids == frozenset()
+
+
 def _sample() -> list[CorpusPair]:
     pairs = list(_corpus().pairs)
     return Draw(_floors().seed).sample(pairs, min(RECALL_SAMPLE, len(pairs)))
@@ -277,13 +350,7 @@ def test_postgres_blocking_retrieval_recall_meets_the_floor(
     party_of: dict[int, UUID] = {}
     with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
         for i, pair in enumerate(sample):
-            name = pair.query.names[0]
-            body = (
-                _person(name)
-                if pair.query.entity_type is EntityType.PERSON
-                else _organization(name)
-            )
-            party_of[i] = _add(s, body)
+            party_of[i] = _add(s, _party_for(pair.query))
         entries = list(
             {
                 (e.list_code, e.entry_key): e for e in map(corpus.entry_for, sample)
