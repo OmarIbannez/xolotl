@@ -43,12 +43,38 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListVersion,
     TenantListSubscription,
 )
+from xolotl.modules.screening.engine.enums import (
+    BatchKind,
+    BatchStatus,
+    DecidedByType,
+    Decision,
+    HitBand,
+    NameKind,
+    RunMode,
+    SubjectKind,
+    SubjectStatus,
+    TriggerType,
+)
+from xolotl.modules.screening.engine.models import (
+    PartyNameIndex,
+    ScreeningBatch,
+    ScreeningHit,
+    ScreeningListSet,
+    ScreeningListSetMember,
+    ScreeningMatch,
+    ScreeningRun,
+    ScreeningSubject,
+)
 from xolotl.modules.screening.enums import (
     DeltaChange,
     ListKind,
     ListRequirement,
     SourceFormat,
     VersionStatus,
+)
+from xolotl.modules.screening.review.models import (
+    MatchDisposition,
+    ScreeningWhitelist,
 )
 from xolotl.modules.tenants.models import (
     ApiKey,
@@ -400,15 +426,26 @@ def tenant_override_version(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
-def policy_snapshot(session: Session, tenant_id: UUID) -> None:
-    session.add(
-        PolicySnapshot(
-            tenant_id=tenant_id,
-            content_hash=b"\x01" * 32,
-            content={"on": "2026-01-01"},
-        )
+def _policy_snapshot(session: Session, tenant_id: UUID) -> PolicySnapshot:
+    # One per tenant: the content hash is unique, and a disposition's snapshot may be
+    # the one its match's run already created.
+    existing = session.scalar(
+        select(PolicySnapshot).where(PolicySnapshot.tenant_id == tenant_id)
     )
+    if existing is not None:
+        return existing
+    row = PolicySnapshot(
+        tenant_id=tenant_id,
+        content_hash=b"\x01" * 32,
+        content={"on": "2026-01-01"},
+    )
+    session.add(row)
     session.flush()
+    return row
+
+
+def policy_snapshot(session: Session, tenant_id: UUID) -> None:
+    _ = _policy_snapshot(session, tenant_id)
 
 
 def tenant_regulatory_profile(session: Session, tenant_id: UUID) -> None:
@@ -750,6 +787,183 @@ def private_list_entry_delta(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def party_name_index(session: Session, tenant_id: UUID) -> None:
+    row = _party(session, tenant_id)
+    session.add(
+        PartyNameIndex(
+            tenant_id=tenant_id,
+            party_id=row.id,
+            name_kind=NameKind.LEGAL,
+            norm_name="ana perez",
+            tokens=["ana", "perez"],
+            phonetic_keys=["AN", "PRS"],
+            matcher_version="test/1",
+        )
+    )
+    session.flush()
+
+
+def _screening_subject(session: Session, tenant_id: UUID) -> ScreeningSubject:
+    row = ScreeningSubject(
+        tenant_id=tenant_id,
+        kind=SubjectKind.PARTY,
+        party_id=_party(session, tenant_id).id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def screening_subject(session: Session, tenant_id: UUID) -> None:
+    _ = _screening_subject(session, tenant_id)
+
+
+def _screening_list_set(session: Session, tenant_id: UUID) -> ScreeningListSet:
+    row = ScreeningListSet(tenant_id=tenant_id, content_hash=uuid7().bytes * 2)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def screening_list_set(session: Session, tenant_id: UUID) -> None:
+    _ = _screening_list_set(session, tenant_id)
+
+
+def screening_list_set_member(session: Session, tenant_id: UUID) -> None:
+    list_set = _screening_list_set(session, tenant_id)
+    version = _private_list_version(session, tenant_id)
+    session.add(
+        ScreeningListSetMember(
+            tenant_id=tenant_id,
+            list_set_id=list_set.id,
+            list_code="MX_LPB",
+            private_list_version_id=version.id,
+        )
+    )
+    session.flush()
+
+
+def _screening_run(session: Session, tenant_id: UUID) -> ScreeningRun:
+    row = ScreeningRun(
+        tenant_id=tenant_id,
+        subject_id=_screening_subject(session, tenant_id).id,
+        mode=RunMode.AD_HOC,
+        trigger_type=TriggerType.CONSOLE,
+        list_set_id=_screening_list_set(session, tenant_id).id,
+        policy_snapshot_id=_policy_snapshot(session, tenant_id).id,
+        matcher_version="test/1",
+        scoring_config_hash=b"\x00" * 32,
+        query_fingerprint=b"\x00" * 32,
+        candidate_count=1,
+        hit_count=1,
+        new_match_count=1,
+        outcome=SubjectStatus.PENDING_REVIEW,
+        latency_ms=1,
+        created_by="staff:test",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def screening_run(session: Session, tenant_id: UUID) -> None:
+    _ = _screening_run(session, tenant_id)
+
+
+def _screening_match(session: Session, tenant_id: UUID) -> ScreeningMatch:
+    # A private entry: the app role cannot insert the list_source a shared one needs.
+    run = _screening_run(session, tenant_id)
+    entry = _private_list_entry(session, tenant_id)
+    row = ScreeningMatch(
+        tenant_id=tenant_id,
+        subject_id=run.subject_id,
+        list_code="MX_LPB",
+        list_kind=ListKind.BLOCKED,
+        private_list_entry_id=entry.id,
+        source_entry_key=entry.source_entry_key,
+        entry_content_hash=entry.content_tag,
+        band=HitBand.ALERT,
+        score=Decimal("0.9500"),
+        origin_run_id=run.id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def screening_match(session: Session, tenant_id: UUID) -> None:
+    _ = _screening_match(session, tenant_id)
+
+
+def screening_hit(session: Session, tenant_id: UUID) -> None:
+    run = _screening_run(session, tenant_id)
+    entry = _private_list_entry(session, tenant_id)
+    session.add(
+        ScreeningHit(
+            tenant_id=tenant_id,
+            run_id=run.id,
+            list_code="MX_LPB",
+            private_list_entry_id=entry.id,
+            source_entry_key=entry.source_entry_key,
+            entry_content_hash=entry.content_tag,
+            score=Decimal("0.9500"),
+            band=HitBand.ALERT,
+            features={"score": 0.95},
+        )
+    )
+    session.flush()
+
+
+def _match_disposition(session: Session, tenant_id: UUID) -> MatchDisposition:
+    match = _screening_match(session, tenant_id)
+    row = MatchDisposition(
+        tenant_id=tenant_id,
+        match_id=match.id,
+        decision=Decision.POSSIBLE_TRUE_MATCH,
+        rationale=encrypt(
+            "same birth date as the entry", tenant_id=tenant_id, session=session
+        ),
+        decided_by_type=DecidedByType.STAFF,
+        decided_by=_staff_user(session, tenant_id).id,
+        policy_snapshot_id=_policy_snapshot(session, tenant_id).id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def match_disposition(session: Session, tenant_id: UUID) -> None:
+    _ = _match_disposition(session, tenant_id)
+
+
+def screening_whitelist(session: Session, tenant_id: UUID) -> None:
+    disposition = _match_disposition(session, tenant_id)
+    match = session.get_one(ScreeningMatch, (tenant_id, disposition.match_id))
+    session.add(
+        ScreeningWhitelist(
+            tenant_id=tenant_id,
+            subject_id=match.subject_id,
+            list_code=match.list_code,
+            source_entry_key=match.source_entry_key,
+            entry_content_hash=match.entry_content_hash,
+            disposition_id=disposition.id,
+        )
+    )
+    session.flush()
+
+
+def screening_batch(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        ScreeningBatch(
+            tenant_id=tenant_id,
+            kind=BatchKind.PERIODIC,
+            ref="2026-10",
+            status=BatchStatus.RUNNING,
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -790,3 +1004,13 @@ def register_all() -> None:
     register_isolation_factory("private_list_version", private_list_version)
     register_isolation_factory("private_list_entry", private_list_entry)
     register_isolation_factory("private_list_entry_delta", private_list_entry_delta)
+    register_isolation_factory("party_name_index", party_name_index)
+    register_isolation_factory("screening_subject", screening_subject)
+    register_isolation_factory("screening_list_set", screening_list_set)
+    register_isolation_factory("screening_list_set_member", screening_list_set_member)
+    register_isolation_factory("screening_run", screening_run)
+    register_isolation_factory("screening_match", screening_match)
+    register_isolation_factory("screening_hit", screening_hit)
+    register_isolation_factory("match_disposition", match_disposition)
+    register_isolation_factory("screening_whitelist", screening_whitelist)
+    register_isolation_factory("screening_batch", screening_batch)

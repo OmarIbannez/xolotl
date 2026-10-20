@@ -30,4 +30,4 @@ SHARED_WRITABLE: frozenset[str] = frozenset({"api_key_lookup"})
 # Tenant tables the application role may read and insert into but never update or
 # delete; their migrations pass ``grant=APPEND_ONLY_PRIVILEGES`` to ``enable_rls``,
 # and the isolation harness holds the database's grants to this list.
-APPEND_ONLY_TABLES: frozenset[str] = frozenset({"audit_event"})
+APPEND_ONLY_TABLES: frozenset[str] = frozenset({"audit_event", "match_disposition"})
