@@ -5,11 +5,14 @@ under the tenant's DATA key, records its audit event last and then publishes its
 ids-only event. Reads decrypt for processing only (masks and initials, no audit);
 ``reveal_pii`` is the one read that shows plaintext to a person, and it records one
 ``VIEW_PII`` event per non-empty field group before it decrypts anything.
+``screening_profile`` decrypts names, birth date and identifiers for the screening
+engine only: no person sees them, so it records nothing.
 """
 
 import re
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
@@ -886,4 +889,74 @@ def reveal_pii(s: Session, party_id: UUID) -> PartyPiiResponse:
             )
             for row in addresses
         ],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PartyScreeningProfile:
+    """What the screening engine needs of a party, decrypted for processing only.
+
+    ``identifiers`` holds ``(id_type, canonical value, country_code)`` triples.
+    """
+
+    party_id: UUID
+    party_type: PartyType
+    status: PartyStatus
+    country_code: str
+    given_names: str | None
+    first_surname: str | None
+    second_surname: str | None
+    birth_date: date | None
+    gender: str | None
+    nationalities: tuple[str, ...]
+    birth_country: str | None
+    legal_name: str | None
+    trade_name: str | None
+    country_of_incorporation: str | None
+    identifiers: tuple[tuple[IdentifierType, str, str], ...]
+
+
+def _opened(s: Session, value: Encrypted[str] | None) -> str | None:
+    return None if value is None else value.reveal(session=s)
+
+
+def screening_profile(s: Session, party_id: UUID) -> PartyScreeningProfile:
+    """Read a party's names, birth date and identifiers for screening (D6).
+
+    The values are decrypted for processing only and never shown to a person, so
+    nothing is audited. A purged party comes back with its encrypted names empty
+    and no identifiers; an organization keeps its plaintext trade name, so a caller
+    that must not use a purged party's names checks ``status``.
+
+    Returns:
+        The party's screening profile.
+
+    """
+    party = get_party(s, party_id)
+    person = s.get(Person, (party.tenant_id, party.id))
+    organization = s.get(Organization, (party.tenant_id, party.id))
+    birth = None if person is None else _opened(s, person.birth_date)
+    return PartyScreeningProfile(
+        party_id=party.id,
+        party_type=party.party_type,
+        status=party.status,
+        country_code=party.country_code,
+        given_names=None if person is None else _opened(s, person.given_names),
+        first_surname=None if person is None else _opened(s, person.first_surname),
+        second_surname=None if person is None else _opened(s, person.second_surname),
+        birth_date=None if birth is None else date.fromisoformat(birth),
+        gender=None if person is None else person.gender,
+        nationalities=() if person is None else tuple(person.nationalities),
+        birth_country=None if person is None else person.birth_country,
+        legal_name=(
+            None if organization is None else _opened(s, organization.legal_name)
+        ),
+        trade_name=None if organization is None else organization.trade_name,
+        country_of_incorporation=(
+            None if organization is None else organization.country_of_incorporation
+        ),
+        identifiers=tuple(
+            (row.id_type, row.value.reveal(session=s), row.country_code)
+            for row in _identifiers(s, party.id)
+        ),
     )

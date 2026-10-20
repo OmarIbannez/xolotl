@@ -30,6 +30,7 @@ from tests.platform.jobs_support import eventually, unique_kind
 from xolotl import worker as worker_module
 from xolotl.app import build_app, build_worker, wire_platform
 from xolotl.cli import app as cli
+from xolotl.modules.screening.catalog.poll import LISTS_POLL_KIND, ListsPollJob
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.api.idempotency import PURGE_KIND, purge_expired_keys
@@ -597,6 +598,9 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     assert isinstance(
         getattr(job_handler(UNITS_FETCH_KIND), "__self__", None), UnitsFetchJob
     )
+    assert isinstance(
+        getattr(job_handler(LISTS_POLL_KIND), "__self__", None), ListsPollJob
+    )
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):
@@ -640,6 +644,7 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
     assert keys == {"live"}
     assert jobs == {
         PURGE_KIND: JobStatus.DONE,
+        LISTS_POLL_KIND: JobStatus.DONE,
         "party.retention_sweep": JobStatus.DONE,
         UNITS_FETCH_KIND: JobStatus.DONE,
         SWEEP_KIND: JobStatus.DONE,
@@ -705,6 +710,7 @@ def test_the_worker_command_refuses_a_role_that_can_bypass_rls(
 
 PLATFORM_SCHEDULES = [
     ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", True),
+    ("lists.poll", "* * * * *", "UTC", "lists.poll", True),
     ("party.retention_sweep", "0 3 * * *", "UTC", "party.retention_sweep", True),
     ("units.fetch", "0 18 * * 1-5", "America/Mexico_City", "units.fetch", True),
     ("workflow.sweep", "0 * * * *", "UTC", "workflow.sweep", True),
