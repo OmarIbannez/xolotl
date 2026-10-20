@@ -39,11 +39,12 @@ from xolotl.modules.screening.catalog.subscriptions import (
     remind_lpb_missing,
 )
 from xolotl.modules.screening.errors import ListMassRemovalError
+from xolotl.modules.screening.events import PRIVATE_LIST_VERSION_ACTIVATED
 from xolotl.modules.screening.lists import ListFormatError
 from xolotl.platform import clock
 from xolotl.platform.calendar import MEXICO_CITY
 from xolotl.platform.db import SessionFactory, bound_context, tenant_session
-from xolotl.platform.events import Notifier
+from xolotl.platform.events import Notifier, register_staff_only
 from xolotl.platform.jobs import Job, register_job_handler
 from xolotl.platform.storage import ObjectStore
 from xolotl.platform.tenancy.context import TenantContext
@@ -306,6 +307,9 @@ def register_lists(
 ) -> ListsPollJob:
     """Build the ``lists.poll`` job and register it as that kind's handler.
 
+    Also marks ``private_list.version_activated.v1`` staff-only, so no webhook ever
+    carries a private-list version (marking it again is harmless).
+
     Returns:
         The job, whose ``run`` is now the handler.
 
@@ -318,4 +322,5 @@ def register_lists(
         fetching=fetching,
     )
     register_job_handler(LISTS_POLL_KIND, job.run)
+    register_staff_only(PRIVATE_LIST_VERSION_ACTIVATED)
     return job

@@ -41,6 +41,11 @@ source_modules =
     xolotl.modules.screening.catalog
 forbidden_modules =
     xolotl.modules.party
+# The private-list template normalizes RFC and CURP with the party validators' rules
+# (SP-03a Deviation 7); both modules are pure and touch no party table or service.
+ignore_imports =
+    xolotl.modules.screening.catalog.template -> xolotl.modules.party.identifiers
+    xolotl.modules.screening.catalog.template -> xolotl.modules.party.enums
 
 [importlinter:contract:screening-lists-never-imports-matching]
 name = screening.lists never imports screening.matching
