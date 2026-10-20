@@ -79,6 +79,10 @@ def screen_party_job(s: Session, job: Job) -> None:
     application container next to its Postgres and assumes the two clocks agree; a
     skew only re-screens a party once more or, at worst, skips a re-screen that a
     run within the skew already covered.
+
+    A run narrowed with ``lists`` still counts as a full run here, because the run
+    row does not record the narrowing; whoever adds lists-narrowed party runs must
+    mark them restricted or extend this guard.
     """
     payload = job.payload
     party_id = UUID(str(payload["party_id"]))
