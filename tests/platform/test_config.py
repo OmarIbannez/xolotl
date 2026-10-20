@@ -261,6 +261,7 @@ def test_env_example_is_a_valid_configuration():
         "private_list_max_rows",
         "screening_index_refresh_seconds",
         "screening_private_shards",
+        "screening_index_warm",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -605,6 +606,7 @@ def test_list_settings_default_to_the_spec_values():
     assert s.lists_fetch_enabled is None
     assert s.screening_index_refresh_seconds == 30
     assert s.screening_private_shards == 64
+    assert s.screening_index_warm is True
 
 
 @pytest.mark.parametrize(

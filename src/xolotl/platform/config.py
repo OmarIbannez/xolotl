@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     screening_index_refresh_seconds: int = Field(default=30, ge=1)
     # Per-process LRU of tenants' private-list shards.
     screening_private_shards: int = Field(default=64, ge=1)
+    # The API and worker load the shared screening index on a background thread at
+    # start-up; false loads it on the first screen instead (the test suite).
+    screening_index_warm: bool = True
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")

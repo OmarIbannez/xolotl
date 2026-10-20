@@ -184,9 +184,11 @@ class ScreeningIndexHolder:
         self, s: Session, seen: SharedShard | None, *, wait: bool
     ) -> SharedShard:
         # Without wait, a screen that finds another one rebuilding keeps using the
-        # shard it has until the swap.
-        if not self._lock.acquire(blocking=wait):
-            return seen if seen is not None else self._refresh(s, seen, wait=True)
+        # shard it has until the swap; with no shard yet there is nothing to keep.
+        if seen is None or wait:
+            _ = self._lock.acquire()
+        elif not self._lock.acquire(blocking=False):
+            return seen
         try:
             current = self._shared
             if current is not None and current is not seen:
@@ -287,6 +289,8 @@ class ScreeningIndexHolder:
             if (cached := self._private.get(key)) is not None:
                 self._private.move_to_end(key)
                 return cached
+        # A cached shard keeps the blocking IDF of the shared shard it was built with
+        # after the shared one is swapped; that changes only blocking, not scoring.
         blocking_idf = self.shared(s).blocking_idf
         indexed: list[IndexedEntry] = []
         versions: dict[str, HeldVersion] = {}

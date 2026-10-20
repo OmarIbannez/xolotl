@@ -6,7 +6,8 @@ outermost context manager, so the error rolls the session back.
 
 import logging
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import override
 
 import pytest
 from sqlalchemy import Engine, select
@@ -29,6 +30,7 @@ from xolotl.modules.screening.engine.entries import (
 from xolotl.modules.screening.engine.holder import (
     PrivateShard,
     ScreeningIndexHolder,
+    SharedShard,
     get_index_holder,
     set_index_holder,
 )
@@ -163,6 +165,124 @@ def test_a_required_version_that_does_not_exist_is_unavailable(
         _ = holder.shared(s, require={"EU_FSF": 1})
 
 
+WAIT = 30
+
+
+class _GatedFactory:
+    """A session factory that, once armed, holds its caller until released."""
+
+    def __init__(self) -> None:
+        self.armed: bool = False
+        self.entered: threading.Event = threading.Event()
+        self.release: threading.Event = threading.Event()
+
+    def __call__(self) -> Session:
+        if self.armed:
+            self.entered.set()
+            if not self.release.wait(timeout=WAIT):
+                msg = "the test never released the factory"
+                raise TimeoutError(msg)
+        return get_sessionmaker()()
+
+
+class _WatchedClock(FakeMonotonic):
+    """A fake clock that says when a named thread first reads it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.read_by: dict[str, threading.Event] = {}
+
+    @override
+    def __call__(self) -> float:
+        if (read := self.read_by.get(threading.current_thread().name)) is not None:
+            read.set()
+        return super().__call__()
+
+
+def _screen_in_thread(
+    holder: ScreeningIndexHolder,
+    name: str,
+    *,
+    require: Mapping[str, int] | None = None,
+) -> tuple[threading.Thread, list[SharedShard]]:
+    got: list[SharedShard] = []
+
+    def screen() -> None:
+        with _platform() as s:
+            got.append(holder.shared(s, require=require))
+
+    thread = threading.Thread(target=screen, name=name, daemon=True)
+    thread.start()
+    return thread, got
+
+
+@pytest.fixture
+def gated(engine: Engine) -> tuple[ScreeningIndexHolder, _GatedFactory, _WatchedClock]:
+    factory = _GatedFactory()
+    clock = _WatchedClock()
+    held = ScreeningIndexHolder(
+        factory, refresh_seconds=30, private_shards=4, monotonic=clock
+    )
+    return held, factory, clock
+
+
+def test_a_screen_keeps_the_previous_shard_while_another_rebuilds(
+    gated, admin_engine: Engine, un_entries, store
+):
+    holder, factory, clock = gated
+    seed_sources(admin_engine)
+    _ = load_shared(UN, un_entries, store=store)
+    with _platform() as s:
+        first = holder.shared(s)
+    _ = load_shared(UN, (*un_entries, un_entry("1004", "Nuevo Listado")), store=store)
+    clock.advance(31)
+    factory.armed = True
+    rebuild, rebuilt = _screen_in_thread(holder, "screen-a")
+    try:
+        assert factory.entered.wait(timeout=WAIT)
+        # Due again while the rebuild is held: this screen does not wait for it.
+        clock.advance(31)
+        with _platform() as s:
+            assert holder.shared(s) is first
+    finally:
+        factory.release.set()
+        rebuild.join(timeout=WAIT)
+    assert not rebuild.is_alive()
+    assert [shard.versions[UN].seq for shard in rebuilt] == [2]
+    with _platform() as s:
+        assert holder.shared(s) is rebuilt[0]
+
+
+def test_a_screen_requiring_the_new_version_waits_for_the_rebuild(
+    gated, admin_engine: Engine, un_entries, store
+):
+    holder, factory, clock = gated
+    seed_sources(admin_engine)
+    _ = load_shared(UN, un_entries, store=store)
+    with _platform() as s:
+        _ = holder.shared(s)
+    _ = load_shared(UN, (*un_entries, un_entry("1004", "Nuevo Listado")), store=store)
+    clock.advance(31)
+    factory.armed = True
+    rebuild, rebuilt = _screen_in_thread(holder, "screen-a")
+    waiter_read = clock.read_by["screen-b"] = threading.Event()
+    try:
+        assert factory.entered.wait(timeout=WAIT)
+        # The waiter has taken the old shard and found it lacking before the swap,
+        # so it waits for the rebuild rather than starting its own.
+        waiter, waited = _screen_in_thread(holder, "screen-b", require={UN: 2})
+        assert waiter_read.wait(timeout=WAIT)
+    finally:
+        factory.release.set()
+        rebuild.join(timeout=WAIT)
+    waiter.join(timeout=WAIT)
+    assert not rebuild.is_alive()
+    assert not waiter.is_alive()
+    assert len(rebuilt) == 1
+    assert waited == rebuilt
+    assert rebuilt[0].versions[UN].seq == 2
+
+
 def test_a_holder_still_warming_answers_unavailable(holder, monkeypatch):
     monkeypatch.setattr(holder, "warm", lambda: None)
     holder.start_warming().join()
@@ -274,7 +394,8 @@ def test_scoring_idf_is_cached_per_list_set_key(
         shard = holder.shared(s)
     first = holder.scoring_idf(shard, [UN], key=b"set-a")
     assert holder.scoring_idf(shard, [UN], key=b"set-a") is first
-    other = holder.scoring_idf(shard, [], key=b"set-b")
+    # The same list set under another key is another table: the cache goes by key.
+    other = holder.scoring_idf(shard, [UN], key=b"set-b")
     assert other is not first
 
 

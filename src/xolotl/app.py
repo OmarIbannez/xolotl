@@ -212,7 +212,8 @@ def build_worker(session_factory: SessionFactory | None = None) -> Worker:
     factory = session_factory or get_sessionmaker()
     set_key_provider(build_key_provider(settings, factory))
     services = wire_platform(factory, settings)
-    _ = get_index_holder().start_warming()
+    if settings.screening_index_warm:
+        _ = get_index_holder().start_warming()
     return worker_loop(services, settings)
 
 
@@ -251,7 +252,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
     # before the platform is wired and anything is served.
     services = wire_platform(factory, settings)
     # The screening index loads in the background; screens answer 503 until then.
-    _ = get_index_holder().start_warming()
+    if settings.screening_index_warm:
+        _ = get_index_holder().start_warming()
     app = create_app(
         session_factory=factory,
         actor_resolver=resolve_bearer,
