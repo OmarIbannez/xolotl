@@ -347,6 +347,37 @@ day from Banxico SIE (`XOLOTL_BANXICO_TOKEN`, or the seed files in demo mode), i
 nothing for an unchanged value, supersedes a corrected one and notifies ADMIN and MLRO
 when the source fails.
 
+## Lists
+
+The shared sanctions lists (UN, OFAC SDN, EU, UK, SAT 69-B) are catalogued in
+`src/xolotl/modules/screening/sources.yaml` and versioned in four shared tables. Each
+ingested file becomes a new version with a delta against the previous one; its raw
+bytes go to the object store under the shared namespace.
+
+```bash
+uv run xolotl lists seed                       # upsert the catalog (db upgrade and serve run it too)
+uv run xolotl lists status                     # version, last success, next poll, freshness per list
+uv run xolotl lists load-file UN_CONSOLIDATED path/to/consolidated.xml   # offline ingestion
+uv run xolotl lists show UN_CONSOLIDATED --version 2
+uv run xolotl lists fetch UN_CONSOLIDATED --force-network                # one fetch now
+```
+
+- **Development and CI** load files with `lists load-file`: network fetching is off
+  unless `XOLOTL_ENV=prod` or `XOLOTL_LISTS_FETCH_ENABLED=true`, and `lists fetch`
+  needs `--force-network` there. A file removing more than
+  `XOLOTL_LISTS_MAX_REMOVAL_RATIO` of the entries is refused (`LIST_MASS_REMOVAL`)
+  unless `--accept-drop`, which is logged with the operator.
+- **In prod** every tenant's `lists.poll` job (`XOLOTL_LISTS_POLL_CRON`, every minute)
+  claims at most one due source under a ten-minute lease, so each source is fetched
+  once per interval across all tenants (UN 15 min, OFAC 30 min, EU and UK 60 min, SAT
+  24 h). The request is conditional (`ETag`, `Last-Modified`); a 304 or an unchanged
+  file counts as a success. A failed download, a malformed file or a mass removal
+  keeps the previous version active, records `last_error` (a code and a short reason)
+  and backs off to `min(interval * 2^failures, 6 h)`.
+- **Staleness:** a list whose last success is older than twice its interval is stale;
+  the poll notifies ADMIN and MLRO once per stale episode. Each new version reaches
+  every subscribed tenant as one `lists.version_published.v1` event.
+
 ## Connectors
 
 A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a
