@@ -43,5 +43,8 @@ src/xolotl/static/
 .claude/settings.local.json
 .playwright-mcp/
 
+# Perf measurements (make perf)
+.perf/
+
 # Hypothesis example database
 .hypothesis/
