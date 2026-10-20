@@ -266,13 +266,18 @@ def match_summaries(
 ) -> list[MatchSummary]:
     """Build the queue rows of some findings, with their subjects masked.
 
-    Each subject is decrypted once, however many findings it has, and shown by
-    initials and masked identifiers only, so nothing is audited.
+    The page's subjects are loaded in one query; each party subject then loads
+    its profile (four queries: party, person, organization and identifiers, with
+    one decrypt per encrypted field), however many findings it has. Pages are at
+    most 200 rows. Subjects are shown by initials and masked identifiers only,
+    so nothing is audited. No query is issued for an empty page.
 
     Returns:
         One summary per finding, in the given order.
 
     """
+    if not matches:
+        return []
     subject_ids = {m.subject_id for m in matches}
     subjects = {
         subject.id: _masked(s, subject)

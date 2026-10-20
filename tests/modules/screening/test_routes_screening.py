@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, event, func, select
 
 from tests.helpers import audit_events, leaked, new_tenant, staff_session
 from tests.modules.party.conftest import payloads_of
@@ -42,6 +42,7 @@ from tests.modules.screening.route_support import (
 )
 from xolotl.modules.party.retention import purge_party
 from xolotl.modules.party.service import get_party
+from xolotl.modules.screening.api import match_summaries
 from xolotl.modules.screening.engine.holder import get_index_holder
 from xolotl.modules.screening.engine.models import ScreeningRun
 from xolotl.modules.screening.errors import ScreeningIndexUnavailableError
@@ -364,6 +365,22 @@ def test_the_match_queue_shows_each_subject_masked(
     assert len(audit_events(tenant.tenant_id)) == before
     view = client.get(f"{SCREENING}/parties/{party_id}", headers=admin_headers)
     assert view.json()["findings"][0]["subject"] == subjects[party_match]
+
+
+def test_an_empty_page_of_findings_issues_no_query(tenant, engine):
+    # The party view of a never-screened party builds its rows from no findings.
+    statements: list[str] = []
+
+    def keep(conn, cursor, statement, parameters, context, executemany) -> None:
+        statements.append(statement)
+
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        event.listen(engine, "before_cursor_execute", keep)
+        try:
+            assert match_summaries(s, []) == []
+        finally:
+            event.remove(engine, "before_cursor_execute", keep)
+    assert statements == []
 
 
 def test_the_match_detail_is_masked_and_lists_the_allowed_actions(
