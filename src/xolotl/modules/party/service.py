@@ -565,6 +565,19 @@ def parties_query(
     return query
 
 
+def party_ids_after(s: Session, *, after: UUID | None, limit: int) -> list[UUID]:
+    """Page through the tenant's ``ACTIVE`` party ids in id order (re-screen walks).
+
+    Returns:
+        Up to ``limit`` ids greater than ``after`` (every id when it is None).
+
+    """
+    query = select(Party.id).where(Party.status == PartyStatus.ACTIVE)
+    if after is not None:
+        query = query.where(Party.id > after)
+    return list(s.scalars(query.order_by(Party.id).limit(limit)))
+
+
 def masked_identifier(s: Session, row: PartyIdentifier) -> MaskedIdentifier:
     """Mask an identifier for a list, a detail or a machine (no audit).
 

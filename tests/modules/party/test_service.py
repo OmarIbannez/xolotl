@@ -632,3 +632,21 @@ def test_the_screening_profile_decrypts_without_auditing(
         staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
     ):
         _ = service.screening_profile(s, uuid7())
+
+
+def test_party_ids_after_pages_active_parties_in_id_order(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        bare = ACME.model_copy(update={"identifiers": []})
+        ids = sorted(service.create_party(s, bare).id for _ in range(4))
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        s.get_one(Party, (tenant.tenant_id, ids[1])).status = PartyStatus.PURGED
+    active = [ids[0], ids[2], ids[3]]
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        assert service.party_ids_after(s, after=None, limit=10) == active
+        assert service.party_ids_after(s, after=None, limit=2) == active[:2]
+        # The bound is exclusive, and a purged id still bounds the page.
+        assert service.party_ids_after(s, after=ids[0], limit=10) == active[1:]
+        assert service.party_ids_after(s, after=ids[1], limit=10) == active[1:]
+        assert service.party_ids_after(s, after=ids[3], limit=10) == []

@@ -148,6 +148,8 @@ class Settings(BaseSettings):
     screening_delta_batch: int = Field(default=200, ge=1)
     # Parties per periodic, private-list or re-index re-screen job.
     screening_rescreen_batch: int = Field(default=500, ge=1)
+    # Per-tenant monthly full re-screen, five-field cron, in America/Mexico_City.
+    screening_periodic_cron: str = "0 2 1 * *"
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -167,7 +169,12 @@ class Settings(BaseSettings):
         _ = _decode_master_key(value.get_secret_value())
         return value
 
-    @field_validator("units_fetch_cron", "retention_purge_cron", "lists_poll_cron")
+    @field_validator(
+        "units_fetch_cron",
+        "retention_purge_cron",
+        "lists_poll_cron",
+        "screening_periodic_cron",
+    )
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:
         if not croniter.is_valid(value):
