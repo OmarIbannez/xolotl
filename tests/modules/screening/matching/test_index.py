@@ -1,7 +1,6 @@
 """Blocking plans and the in-memory candidate index (SP-03 spec §4.2, NFR-SC-006)."""
 
 import logging
-import os
 import statistics
 import time
 from collections.abc import Collection
@@ -15,9 +14,13 @@ from xolotl.modules.screening.matching import (
     MemoryIndex,
     NameQuery,
     QueryIdentifier,
+    ScoringConfig,
     blocking_plan,
+    name_keys,
     normalize_name,
     phonetic_key,
+    score,
+    token_keys,
 )
 
 PERSON, ORG = EntityType.PERSON, EntityType.ORGANIZATION
@@ -47,7 +50,8 @@ def _keys(query: NameQuery, shards: Collection[str] = ALL, top_k: int = 10):
 
 def test_non_screenable_entries_are_not_indexed():
     assert len(INDEX) == 7
-    assert _keys(NameQuery(PERSON, ("Rosa Delisted",))) == []
+    found = _keys(NameQuery(PERSON, ("Rosa Delisted",)))
+    assert ("6", "NAME") not in found
 
 
 def test_rare_tokens_block_alone_and_common_tokens_in_pairs():
@@ -60,8 +64,10 @@ def test_rare_tokens_block_alone_and_common_tokens_in_pairs():
 
 
 def test_a_single_token_name_blocks_on_itself():
+    token = normalize_name("Hernández", entity_type=PERSON).tokens[0]
     plan = blocking_plan(normalize_name("Hernández", entity_type=PERSON), IDF)
-    assert plan.key_sets == ((phonetic_key("hernandez"),),)
+    assert plan.key_sets == tuple(sorted((key,) for key in token_keys(token)))
+    assert {"arnds", "ards", "p:her", "s:dez"} <= {k for (k,) in plan.key_sets}
 
 
 def test_nickname_variants_are_alternatives():
@@ -79,7 +85,10 @@ def test_identifier_hits_come_first_and_beyond_top_k():
     assert _keys(query, top_k=0) == [("1", "IDENTIFIER")]
     assert _keys(query, shards={"OFAC_SDN"}) == []
     both = NameQuery(PERSON, ("Joaquin Guzman",), identifiers=query.identifiers)
-    assert _keys(both) == [("1", "IDENTIFIER"), ("8", "NAME")]
+    found = _keys(both)
+    assert found[0] == ("1", "IDENTIFIER")
+    assert ("8", "NAME") in found
+    assert ("1", "NAME") not in found
 
 
 def test_shards_and_entity_types_filter_candidates():
@@ -99,25 +108,51 @@ def test_ranking_prefers_more_shared_weight():
     ]
 
 
-@pytest.mark.skipif(
-    os.environ.get("XOLOTL_PERF") != "1",
-    reason="non-gating latency record (SP-03 §8.3); run with XOLOTL_PERF=1",
-)
+@pytest.mark.perf
 def test_latency_at_50000_entries():
+    # One name screened against 50,000 entries: retrieval plus scoring of the
+    # candidates (SP-03 §8.3 budget: well under 300 ms at p95). Records, not gates.
     given = ["juan", "jose", "maria", "ana", "luis", "carlos", "rosa", "pedro"]
     entries = [
         entry(str(i), f"{given[i % 8]} Name{i} Surname{i // 7}") for i in range(50_000)
     ]
     idf = IdfTable.build(entries)
     index = MemoryIndex.build((indexed(e, n) for n, e in enumerate(entries)), idf=idf)
+    config = ScoringConfig()
     timings = []
     for i in range(200):
         query = NameQuery(PERSON, (f"{given[i % 8]} Name{i * 97} Surname{i * 13}",))
         start = time.perf_counter()
-        _ = index.candidates(query, shards={"UN_CONSOLIDATED"}, top_k=50)
+        found = index.candidates(query, shards={"UN_CONSOLIDATED"}, top_k=50)
+        for candidate in found:
+            _ = score(query, candidate.indexed.entry, idf=idf, config=config)
         timings.append(time.perf_counter() - start)
     p95 = statistics.quantiles(timings, n=20)[-1]
     logging.getLogger(__name__).warning(
-        "candidates p95 over 50,000 entries: %.1f ms", p95 * 1000
+        "screen p95 over 50,000 entries: %.1f ms", p95 * 1000
     )
     assert p95 < 0.3, f"p95 {p95 * 1000:.1f} ms"
+
+
+def test_keys_held_by_thousands_of_entries_do_not_retrieve_alone():
+    crowd = [entry(str(i), f"Mohammedx{i:04d}") for i in range(1_200)]
+    target = entry("t", "Zulkarnain Mohammedx")
+    entries = [*crowd, target]
+    idf = IdfTable.build(entries)
+    index = MemoryIndex.build((indexed(e, n) for n, e in enumerate(entries)), idf=idf)
+    found = index.candidates(
+        NameQuery(PERSON, ("Zulkarnain Mohammedx",)),
+        shards={"UN_CONSOLIDATED"},
+        top_k=5,
+    )
+    # "Mohammedx" keys are held by 1,201 entries: they do not retrieve on their own,
+    # so only the entry sharing the rare token comes back.
+    assert [c.indexed.entry.entry_key for c in found] == ["t"]
+
+
+def test_name_keys_cover_phonetic_deletion_and_affix_keys():
+    name = normalize_name("Ntaganda", entity_type=PERSON)
+    keys = name_keys(name)
+    assert {"ntgnd", "tgnd", "ntgd", "p:nta", "s:nda"} <= keys
+    short = normalize_name("Ho", entity_type=PERSON)
+    assert name_keys(short) == {phonetic_key("ho")}

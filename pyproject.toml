@@ -176,6 +176,7 @@ sort_by_size = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
+    "-m", "not perf",
     "--strict-markers",
     "--strict-config",
     "--tb=short",
@@ -184,6 +185,9 @@ addopts = [
     "--cov-fail-under=90",
 ]
 filterwarnings = ["error"]
+markers = [
+    "perf: non-gating latency records; run with `uv run pytest -m perf --no-cov`",
+]
 
 [tool.coverage.run]
 source = ["src"]

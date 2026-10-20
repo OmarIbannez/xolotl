@@ -10,14 +10,25 @@ are registered at composition time and run in the worker, one transaction each.
 from xolotl.platform.events.bus import OutboxEventBus, publish
 from xolotl.platform.events.event import Event
 from xolotl.platform.events.notifier import InAppNotifier, Notifier
-from xolotl.platform.events.registry import Handler, register_subscriber
+from xolotl.platform.events.registry import (
+    EventTypeNotDeliverableError,
+    Handler,
+    is_staff_only,
+    register_staff_only,
+    register_subscriber,
+    require_deliverable,
+)
 
 __all__ = [
     "Event",
+    "EventTypeNotDeliverableError",
     "Handler",
     "InAppNotifier",
     "Notifier",
     "OutboxEventBus",
+    "is_staff_only",
     "publish",
+    "register_staff_only",
     "register_subscriber",
+    "require_deliverable",
 ]

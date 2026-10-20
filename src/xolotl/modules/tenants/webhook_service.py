@@ -25,6 +25,7 @@ from xolotl.platform.db import bound_context
 from xolotl.platform.enums import EndpointStatus
 from xolotl.platform.errors import DomainError, NotFoundError
 from xolotl.platform.events.models import WebhookEndpoint
+from xolotl.platform.events.registry import require_deliverable
 from xolotl.platform.events.url_policy import UrlPolicy
 from xolotl.platform.events.webhooks import generate_webhook_secret, retry_delivery
 from xolotl.platform.jobs.queue import PostgresJobQueue
@@ -56,8 +57,9 @@ def create_webhook_endpoint(
     """Create an endpoint and its secret.
 
     ``policy`` checks the URL the way delivery will (in production that resolves the
-    host) and refuses one that breaks a rule with ``WebhookUrlError`` (422); the event
-    types are kept once each, in order.
+    host) and refuses one that breaks a rule with ``WebhookUrlError`` (422). An event
+    type that is staff-only is refused first, with ``EventTypeNotDeliverableError``
+    (422). The event types are kept once each, in order.
 
     Returns:
         The endpoint, with the secret it is signed by. This is the only time it is
@@ -66,6 +68,7 @@ def create_webhook_endpoint(
     """
     ctx = bound_context(s)
     tenant_id = ctx.require_tenant_id()
+    require_deliverable(event_types)
     cleaned = url.strip()
     _ = policy.destination(cleaned)
     secret = generate_webhook_secret()
