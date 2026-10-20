@@ -488,7 +488,13 @@ make format    # ruff --fix and ruff format
 ```
 
 Tests run against a real Postgres 17 container with real commits; set
-`XOLOTL_TEST_DATABASE_ADMIN_URL` to reuse an existing server instead. Point it at
+`XOLOTL_TEST_DATABASE_ADMIN_URL` to reuse an existing server instead.
+`uv run pytest tests/e2e/test_sp03_exit.py --no-cov` runs the SP-03 exit demo on its
+own (it is part of `make ci`): two tenants, the five shared lists loaded from the
+library's samples and tenant A's LPB, an explained `ALERT` for staff and status only
+for an API client, a UN delta that alerts only on its added and changed entries and
+suggests delisting the removed one, tenant B seeing nothing of tenant A, the
+four-eyes review, no screening finding on any webhook, and both audit chains intact. Point it at
 a scratch database only: the suite bootstraps the app role (resetting its
 password), migrates, and truncates every table before each test.
 

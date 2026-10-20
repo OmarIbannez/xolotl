@@ -1,0 +1,5 @@
+clave,tipo,nombre_completo,nombres,primer_apellido,segundo_apellido,razon_social,alias,fecha_nacimiento,rfc,curp,nacionalidad,otro_identificador,fecha_alta,observaciones
+LPB-A-001,PF,,Ángela Beatriz,Verástegui,Ocaranza,,Angie Verástegui|,1982-04-17,VEOA820417K10,VEOA820417MDFRCN07,MX,,2025-02-10,Observación confidencial del oficial
+LPB-A-002,PM,,,,,Comercializadora Tlacuache del Norte SA de CV,Tlacuache del Norte,,CTN150301AB1,,MX,,2025-02-10,
+LPB-A-003,PF,Bartolomé Ixtlilxóchitl Nezahualpilli,,,,,,1975-09-22,BINI750922C41,BINI750922HPLXZR06,MX,,2025-03-01,
+LPB-A-004,PF,,Rutilio,Cuauhtémoc,Zempoalteca,,,1968-11-02,CUZR681102N74,CUZR681102HTLHMT07,MX,,2025-03-15,
