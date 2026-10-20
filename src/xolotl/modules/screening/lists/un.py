@@ -18,6 +18,7 @@ from datetime import date, datetime
 from typing import BinaryIO
 
 from xolotl.modules.screening.lists.countries import country_code
+from xolotl.modules.screening.lists.dates import year_span
 from xolotl.modules.screening.lists.errors import ListFormatError
 from xolotl.modules.screening.lists.text import normalize_identifier, script_of
 from xolotl.modules.screening.lists.types import (
@@ -39,8 +40,6 @@ _WHERE = f"{ListCode.UN_CONSOLIDATED} ({PARSER_VERSION})"
 _ROOT = "CONSOLIDATED_LIST"
 _RECORDS = frozenset({"INDIVIDUAL", "ENTITY"})
 _NAME_PARTS = ("FIRST_NAME", "SECOND_NAME", "THIRD_NAME", "FOURTH_NAME")
-# A BETWEEN range wider than this keeps only its two ends.
-_MAX_RANGE_YEARS = 20
 _ISO_DATE_LEN = 10
 
 _ALIAS_QUALITY = {"low": NameQuality.WEAK}
@@ -205,12 +204,7 @@ def _dob(dob: Node) -> list[PartialDate]:
 
 
 def _year_range(start: str | None, end: str | None) -> list[PartialDate]:
-    if not (start and end):
-        return []
-    first, last = sorted((int(start), int(end)))
-    if last - first > _MAX_RANGE_YEARS:
-        return [PartialDate(first), PartialDate(last)]
-    return [PartialDate(y) for y in range(first, last + 1)]
+    return year_span(int(start), int(end)) if start and end else []
 
 
 def _note_date(note: str | None) -> list[PartialDate]:

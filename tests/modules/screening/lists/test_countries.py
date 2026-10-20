@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from xolotl.modules.screening.lists.countries import country_code
+from xolotl.modules.screening.lists.countries import alpha2, country_code
 
 
 @pytest.mark.parametrize(
@@ -35,3 +35,32 @@ def test_unknown_spellings_are_logged_not_refused(caplog):
     with caplog.at_level(logging.WARNING):
         assert country_code("Atlantis") is None
     assert "Atlantis" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("mx", "MX"),
+        (" XK ", "XK"),
+        (None, None),
+        ("", None),
+        ("00", None),
+        ("CS", None),
+    ],
+)
+def test_alpha2_codes(code, expected, caplog):
+    with caplog.at_level(logging.WARNING):
+        assert alpha2(code) == expected
+    assert not caplog.records
+
+
+def test_unknown_alpha2_codes_are_logged(caplog):
+    with caplog.at_level(logging.WARNING):
+        assert alpha2("QQ") is None
+    assert "QQ" in caplog.text
+
+
+def test_quiet_lookups_do_not_log(caplog):
+    with caplog.at_level(logging.WARNING):
+        assert country_code("Stuttgart", quiet=True) is None
+    assert not caplog.records
