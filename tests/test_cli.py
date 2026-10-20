@@ -1883,8 +1883,10 @@ def test_screening_eval_below_a_floor_exits_1_and_refuses_to_write(
         app, ["screening", "eval", "--corpus", str(corpus), "--write"]
     )
     assert written.exit_code == 1
-    assert written.stderr == (
-        "error: FLOOR_BELOW: refusing to write a report below a floor\n"
+    # The last line: the library's parsers log INFO lines, and a handler an earlier
+    # test configured may still write to stderr.
+    assert written.stderr.splitlines()[-1] == (
+        "error: FLOOR_BELOW: refusing to write a report below a floor"
     )
     assert not target.exists()
 
