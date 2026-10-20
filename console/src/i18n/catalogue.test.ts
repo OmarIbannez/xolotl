@@ -96,6 +96,8 @@ describe('translation catalogues', () => {
       'LIST_MASS_REMOVAL',
       'LIST_FORMAT_INVALID',
       'LIST_CODE_UNSUPPORTED',
+      'PRIVATE_LIST_INVALID',
+      'PRIVATE_LIST_EXISTS',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

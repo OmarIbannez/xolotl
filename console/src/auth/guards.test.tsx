@@ -9,7 +9,7 @@ import { ACCESS } from './access'
 import { RequireRole } from './guards'
 import { AuthContext } from './use-auth'
 
-/** The admin pages, the parties area and the lists behind the guards the console's routes use. */
+/** The admin pages, the parties area, the lists and the private lists behind the guards the console's routes use. */
 function visit(path: string, roles: Role[]) {
   render(
     <AuthContext value={makeAuth(makeUser({ roles }))}>
@@ -30,6 +30,10 @@ function visit(path: string, roles: Role[]) {
           <Route element={<RequireRole roles={ACCESS.lists} />}>
             <Route path="/lists" element={<p>page of lists</p>} />
             <Route path="/lists/:code" element={<p>page of a list</p>} />
+          </Route>
+          <Route element={<RequireRole roles={ACCESS.privateLists} />}>
+            <Route path="/private-lists" element={<p>page of private lists</p>} />
+            <Route path="/private-lists/:listId" element={<p>page of a private list</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -112,5 +116,32 @@ describe('the lists are open to every staff role', () => {
     visit(path, [])
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+  })
+})
+
+describe('the private lists are for MLRO and ADMIN only', () => {
+  it.each([
+    ['/private-lists', 'page of private lists', 'MLRO'],
+    ['/private-lists', 'page of private lists', 'ADMIN'],
+    ['/private-lists/l1', 'page of a private list', 'MLRO'],
+    ['/private-lists/l1', 'page of a private list', 'ADMIN'],
+  ] as const)('lets a user open %s as %s', (path, page, role) => {
+    visit(path, [role])
+
+    expect(screen.getByText(page)).toBeTruthy()
+    expect(screen.queryByText(esMX.forbidden.title)).toBeNull()
+  })
+
+  it.each([
+    ['/private-lists', 'ANALYST'],
+    ['/private-lists', 'SENIOR_ANALYST'],
+    ['/private-lists', 'AUDITOR_RO'],
+    ['/private-lists/l1', 'ANALYST'],
+    ['/private-lists/l1', 'AUDITOR_RO'],
+  ] as const)('shows "no access" at %s to %s', (path, role) => {
+    visit(path, [role])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+    expect(screen.queryByText(/page of/)).toBeNull()
   })
 })

@@ -112,6 +112,13 @@ export type ListKind = Schemas['ListKind']
 export type ListRequirement = Schemas['ListRequirement']
 export type DeltaChange = Schemas['DeltaChange']
 export type VersionStatus = Schemas['VersionStatus']
+export type EntityType = Schemas['EntityType']
+
+export type PrivateListCreate = Schemas['PrivateListCreate']
+export type PrivateListResponse = Schemas['PrivateListResponse']
+export type PrivateListVersionResponse = Schemas['PrivateListVersionResponse']
+/** One private-list entry, decrypted: personal data, shown only behind an audited reveal. */
+export type PrivateListEntryResponse = Schemas['PrivateListEntryResponse']
 
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
