@@ -23,8 +23,9 @@ from xolotl.modules.screening.lists import EntityType
 from xolotl.modules.screening.matching import (
     MATCHER_VERSION,
     NormalizedName,
-    TokenRole,
+    name_keys,
     normalize_name,
+    token_keys,
 )
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
@@ -50,11 +51,7 @@ def _expected(name: NormalizedName) -> tuple[str, list[str], list[str], str]:
     return (
         name.folded,
         [t.folded for t in name.tokens],
-        sorted({
-            t.phonetic
-            for t in name.tokens
-            if t.role not in {TokenRole.PARTICLE, TokenRole.LEGAL_FORM}
-        }),
+        sorted(name_keys(name)),
         MATCHER_VERSION,
     )
 
@@ -79,9 +76,29 @@ def test_a_person_is_indexed_with_the_librarys_normalization(
     assert row.name_kind is NameKind.LEGAL
     assert _shape(row) == _expected(expected)
     assert row.norm_name == "juan de la cruz perez"
-    # The particles are kept in the tokens but give no phonetic key.
     assert "de" in row.tokens
-    assert len(row.phonetic_keys) == len({"juan", "cruz", "perez"})
+
+
+def test_the_stored_keys_are_the_librarys_full_blocking_keys(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party = service.create_party(s, JUAN)
+        (row,) = index_party_names(s, party.id)
+    expected = normalize_name(
+        "Juan de la Cruz Pérez",
+        entity_type=EntityType.PERSON,
+        given="Juan",
+        surname="de la Cruz Pérez",
+    )
+    assert row.phonetic_keys == sorted(name_keys(expected))
+    perez = next(t for t in expected.tokens if t.folded == "perez")
+    assert token_keys(perez) <= set(row.phonetic_keys)
+    # A one-letter deletion of the phonetic key, and the prefix and suffix keys, so
+    # the library's deletion and affix query keys meet the party row.
+    deletion = perez.phonetic[1:]
+    assert deletion != perez.phonetic
+    assert {deletion, "p:per", "s:rez"} <= set(row.phonetic_keys)
 
 
 def test_an_organization_gets_a_legal_and_a_trade_row(
