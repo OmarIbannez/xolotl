@@ -26,6 +26,9 @@ MAX_METADATA_BYTES = 8 * 1024
 # No key segment may end with it for any adapter, so keys stay portable.
 RECORD_SUFFIX = ".meta.json"
 NO_METADATA: Mapping[str, str] = MappingProxyType({})
+# The namespace of objects no tenant owns, such as the raw files of the shared
+# sanctions lists (SP-03 spec Decision 4). No tenant has the nil UUID as its id.
+SHARED_NAMESPACE: UUID = UUID(int=0)
 
 _DIGEST_HEX = re.compile(r"[0-9a-f]{64}")
 _CONTENT_TYPE = re.compile(r"^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(;.*)?$")

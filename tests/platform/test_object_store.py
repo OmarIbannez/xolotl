@@ -24,6 +24,7 @@ from xolotl.platform.db import get_sessionmaker
 from xolotl.platform.errors import NotFoundError, ValidationFailedError, XolotlError
 from xolotl.platform.storage import (
     NO_METADATA,
+    SHARED_NAMESPACE,
     InvalidObjectKeyError,
     InvalidObjectMetadataError,
     ObjectIntegrityError,
@@ -381,6 +382,22 @@ def backend(request, tmp_path) -> Backend:
 
 def put_text(store, tenant_id, key, text, **kwargs) -> ObjectRef:
     return store.put(tenant_id, key, text.encode(), content_type="text/plain", **kwargs)
+
+
+def test_the_shared_namespace_round_trips_on_the_local_store(tmp_path):
+    assert UUID(int=0) == SHARED_NAMESPACE
+    store = LocalFsObjectStore(tmp_path / "objects")
+    ref = store.put(
+        SHARED_NAMESPACE,
+        "lists/UN_CONSOLIDATED/v.xml",
+        PAYLOAD,
+        content_type="application/xml",
+    )
+    assert ref.tenant_id == SHARED_NAMESPACE
+    assert store.get(ref) == PAYLOAD
+    assert list(store.list(SHARED_NAMESPACE, "lists/")) == [ref]
+    assert list(store.list(TENANT_A, "lists/")) == []
+    assert (tmp_path / "objects" / str(UUID(int=0)) / ref.key).is_file()
 
 
 def test_put_then_get_returns_the_bytes_and_a_ref_that_describes_them(backend):

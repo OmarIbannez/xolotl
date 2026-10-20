@@ -1,7 +1,11 @@
 import pytest
 
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
-from xolotl.modules.screening.errors import DispositionNotAllowedError
+from xolotl.modules.screening.errors import (
+    DispositionNotAllowedError,
+    ListMandatoryError,
+    ListMassRemovalError,
+)
 from xolotl.platform.connectors import NoRouteError
 from xolotl.platform.enums import ActorType, Role
 from xolotl.platform.errors import (
@@ -54,6 +58,8 @@ from xolotl.platform.units.errors import (
         (PolicyNotAssignedError, 404, "POLICY_NOT_ASSIGNED"),
         (IdentifierExistsError, 409, "IDENTIFIER_EXISTS"),
         (IdentifierInvalidError, 422, "IDENTIFIER_INVALID"),
+        (ListMassRemovalError, 409, "LIST_MASS_REMOVAL"),
+        (ListMandatoryError, 409, "LIST_MANDATORY"),
         (DispositionNotAllowedError, 409, "DISPOSITION_NOT_ALLOWED"),
     ],
 )

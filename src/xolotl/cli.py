@@ -7,6 +7,7 @@ import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -22,13 +23,18 @@ from xolotl.app import build_key_provider, build_object_store, build_worker
 from xolotl.modules.party.retention import RetentionSweeper
 from xolotl.modules.screening.catalog import (
     SOURCES_FILE,
+    IngestReport,
     ListSource,
     ListVersion,
     SeedReport,
+    active_versions,
+    ingest_file,
     read_sources,
     seed_list_sources,
 )
 from xolotl.modules.screening.enums import VersionStatus
+from xolotl.modules.screening.errors import ListMassRemovalError
+from xolotl.modules.screening.lists import ListFormatError
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import clock, migrate
@@ -878,5 +884,148 @@ def lists_status() -> None:
     if not lines:
         typer.echo("no list sources; run xolotl lists seed")
         return
+    for line in lines:
+        typer.echo(line)
+
+
+def _load_line(report: IngestReport, active: ListVersion | None) -> str:
+    if report.same_file:
+        seq = "?" if active is None else active.seq
+        return f"{report.list_code}: unchanged (same file as v{seq})"
+    return (
+        f"{report.list_code} v{report.seq}: {report.entry_count} entries "
+        f"({report.added} added, {report.changed} changed, {report.removed} removed, "
+        f"{report.unchanged} unchanged) [{report.parser_version}]"
+    )
+
+
+# The refusals ingest_file raises before it stores the raw file.
+_REFUSED_BEFORE_PUT = (NotFoundError, ListFormatError, ListMassRemovalError)
+
+
+@lists_app.command("load-file")
+def lists_load_file(
+    code: Annotated[str, typer.Argument(help="List code, such as UN_CONSOLIDATED")],
+    path: Annotated[
+        Path,
+        typer.Argument(
+            exists=True, dir_okay=False, readable=True, help="The published file"
+        ),
+    ],
+    *,
+    accept_drop: Annotated[
+        bool,
+        typer.Option(
+            "--accept-drop",
+            help="Accept a version that removes more entries than the guard allows",
+        ),
+    ] = False,
+) -> None:
+    """Ingest a list file from disk as the list's next version (offline path).
+
+    The raw file goes to the object store under the shared namespace. A file equal
+    to the active version's makes no version. A malformed file, or one that removes
+    more than ``XOLOTL_LISTS_MAX_REMOVAL_RATIO`` of the entries without
+    ``--accept-drop``, exits 1 with one line on stderr and changes nothing; an
+    accepted mass removal is logged as a WARNING naming the operator.
+    """
+    actor = _cli_actor()
+    data = path.read_bytes()
+    settings = get_settings()
+    with _cli_errors():
+        store = build_object_store(settings)
+        try:
+            with tenant_session(TenantContext.platform(actor)) as s:
+                report = ingest_file(
+                    s,
+                    code,
+                    data,
+                    store=store,
+                    loaded_by=actor,
+                    fetched_at=clock.now(),
+                    accept_drop=accept_drop,
+                )
+                line = _load_line(report, active_versions(s).get(code))
+        except Exception as exc:
+            if not isinstance(exc, _REFUSED_BEFORE_PUT):
+                logger.exception(
+                    "loading %s failed; a raw file under lists/%s/ %s may be orphaned",
+                    code,
+                    code,
+                    "in the shared namespace",
+                )
+            raise
+    before = report.removed + report.changed + report.unchanged
+    mass_removal = (
+        before > 0
+        and Decimal(report.removed) / before > settings.lists_max_removal_ratio
+    )
+    if accept_drop and not report.same_file and mass_removal:
+        logger.warning(
+            "%s accepted a mass removal on %s v%s: removed %s of %s",
+            actor,
+            code,
+            report.seq,
+            report.removed,
+            before,
+        )
+    typer.echo(line)
+
+
+def _when(at: datetime | None) -> str:
+    return "-" if at is None else at.astimezone(UTC).strftime("%Y-%m-%dT%H:%MZ")
+
+
+def _shown_version(session: Session, code: str, seq: int | None) -> ListVersion:
+    """Find the active version of a list, or the numbered one.
+
+    Returns:
+        The version row.
+
+    Raises:
+        NotFoundError: When there is no such version.
+
+    """
+    if seq is None:
+        active = active_versions(session).get(code)
+        if active is None:
+            msg = f"no active {code} version"
+            raise NotFoundError(msg)
+        return active
+    row = session.scalar(
+        select(ListVersion).where(ListVersion.list_code == code, ListVersion.seq == seq)
+    )
+    if row is None:
+        msg = f"no {code} version {seq}"
+        raise NotFoundError(msg)
+    return row
+
+
+@lists_app.command("show")
+def lists_show(
+    code: Annotated[str, typer.Argument(help="List code, such as UN_CONSOLIDATED")],
+    *,
+    version: Annotated[
+        int | None, typer.Option("--version", help="The version number; default active")
+    ] = None,
+) -> None:
+    """Print one version of a shared list: provenance, parser, hash and counts."""
+    with (
+        _cli_errors(),
+        tenant_session(TenantContext.platform(_cli_actor())) as s,
+    ):
+        row = _shown_version(s, code, version)
+        lines = [
+            f"{code} v{row.seq}  {row.status}",
+            f"published  {_when(row.published_at)}",
+            f"fetched    {_when(row.fetched_at)}",
+            f"loaded by  {row.loaded_by}",
+            f"parser     {row.parser_version}",
+            f"sha256     {row.file_sha256.hex()[:12]}",
+            (
+                f"entries    {row.entry_count} ({row.added} added, "
+                f"{row.changed} changed, {row.removed} removed)"
+            ),
+        ]
     for line in lines:
         typer.echo(line)
