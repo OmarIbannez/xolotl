@@ -142,6 +142,21 @@ export type EvaluationReport = Schemas['EvaluationReportResponse']
 export type EvaluationKind = Schemas['ListKindMetrics']
 export type EvaluationFloor = Schemas['Floor']
 
+/** A synchronous check of one party (`party_id`) or one inline subject (`subject`), staff may narrow `lists`. */
+export type CheckRequest = Schemas['CheckRequest']
+/** The subject of an ad hoc check: personal data, never kept in a query key, the URL or storage. */
+export type AdHocSubjectInput = Schemas['AdHocSubjectInput']
+export type AdHocIdentifier = Schemas['AdHocIdentifier']
+/** What an API client gets back from a check: the status only. */
+export type CheckResponse = Schemas['CheckResponse']
+/** What staff get back from a check: the status and every hit with its explanation. */
+export type CheckStaffResponse = Schemas['CheckStaffResponse']
+/** A party's screening status as an API client sees it (`status: null` when never screened). */
+export type PartyScreeningResponse = Schemas['PartyScreeningResponse']
+/** A party's screening status as staff see it: also the open finding count and the findings. */
+export type PartyScreeningStaffResponse = Schemas['PartyScreeningStaffResponse']
+export type SubjectStatus = Schemas['SubjectStatus']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

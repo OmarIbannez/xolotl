@@ -1,7 +1,18 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, expectNoContent, unwrap, unwrapReplayable, type Replayable } from '@/api/client'
 import { PAGE_SIZE } from '@/api/queries'
-import type { DispositionRequest, DispositionResponse, HitBand, ListKind, MatchStatus } from '@/api/types'
+import type {
+  CheckRequest,
+  CheckResponse,
+  CheckStaffResponse,
+  DispositionRequest,
+  DispositionResponse,
+  HitBand,
+  ListKind,
+  MatchStatus,
+  PartyScreeningResponse,
+  PartyScreeningStaffResponse,
+} from '@/api/types'
 import { useIdempotentMutation } from '@/api/use-idempotent-mutation'
 import { useAuth } from '@/auth/use-auth'
 
@@ -107,5 +118,46 @@ export function useEvaluation() {
     queryFn: () => unwrap(api.GET('/screening/evaluation')),
     enabled,
     staleTime: Infinity,
+  })
+}
+
+/** True for the staff view of a party's screening (the console's), which carries the findings. */
+export function isStaffPartyScreening(
+  view: PartyScreeningResponse | PartyScreeningStaffResponse,
+): view is PartyScreeningStaffResponse {
+  return 'findings' in view
+}
+
+/** True for the staff answer of a check (the console's), which carries the hits. */
+export function isStaffCheck(result: CheckResponse | CheckStaffResponse): result is CheckStaffResponse {
+  return 'hits' in result
+}
+
+/** A party's screening status, last run, lists covered and (staff) open findings. Masked: no plaintext. */
+export function usePartyScreening(partyId: string) {
+  const { tenant, enabled } = useSignedIn()
+  return useQuery({
+    queryKey: [SCREENING, tenant, 'party', partyId],
+    queryFn: () =>
+      unwrap(api.GET('/screening/parties/{party_id}', { params: { path: { party_id: partyId } } })),
+    enabled,
+  })
+}
+
+/**
+ * Screen a party or an inline subject now (`POST /v1/screening/checks`). An ad hoc subject is
+ * personal data the user typed, so neither the variables nor the answer outlive the component
+ * (`gcTime: 0`): they are never in a query key, the URL or storage. A check changes the
+ * subject's status and findings, so the screening queries are refreshed.
+ */
+export function useCheck() {
+  const qc = useQueryClient()
+  return useIdempotentMutation<CheckRequest, Replayable<CheckResponse | CheckStaffResponse>>({
+    mutationFn: (body, idempotencyKey) =>
+      unwrapReplayable(api.POST('/screening/checks', { body, headers: { 'Idempotency-Key': idempotencyKey } })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [SCREENING] })
+    },
+    gcTime: 0,
   })
 }

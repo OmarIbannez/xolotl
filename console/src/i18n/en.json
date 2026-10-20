@@ -47,7 +47,8 @@
     "matches": "Matches",
     "lists": "Lists",
     "privateLists": "Private lists",
-    "screeningEvaluation": "Matcher evaluation"
+    "screeningEvaluation": "Matcher evaluation",
+    "screeningCheck": "Ad hoc check"
   },
   "header": {
     "tenant": "Workspace",
@@ -143,7 +144,8 @@
     "fileTooLarge": "The file is larger than 25 MB.",
     "fileType": "Choose a PDF, JPEG or PNG file.",
     "ownership": "Enter a percentage above 0 and up to 100, with at most 4 decimals; it applies to shareholders only.",
-    "uuid": "Paste the full id of the other person or company (it is in the address of its page)."
+    "uuid": "Paste the full id of the other person or company (it is in the address of its page).",
+    "countryCodes": "Use two-letter country codes separated by commas, for example MX, VE."
   },
   "home": {
     "title": "Home",
@@ -1273,6 +1275,71 @@
         "below": "Below",
         "empty": "The report has no floors."
       }
+    },
+    "subjectStatus": {
+      "CLEAR": "Clear",
+      "PENDING_REVIEW": "Pending review",
+      "TRUE_MATCH": "Confirmed match"
+    },
+    "party": {
+      "title": "List screening",
+      "never": "Not screened against the lists yet.",
+      "status": "Status",
+      "lastScreened": "Last screened",
+      "listsCovered": "Lists covered",
+      "listsNone": "None",
+      "openFindings": "Open findings",
+      "findings": "Findings",
+      "findingsEmpty": "No findings.",
+      "checkNow": "Check now",
+      "running": "Checking…",
+      "result": "Check result"
+    },
+    "check": {
+      "title": "Ad hoc check",
+      "description": "Check a person or organization against the lists without registering them. What you type is not kept and is forgotten when you leave the page.",
+      "entityType": "Type of person",
+      "names": "Names",
+      "name": "Name {{n}}",
+      "namesHint": "Full name or legal name; up to three variants.",
+      "addName": "Add name",
+      "removeName": "Remove name {{n}}",
+      "givenNames": "Given names",
+      "firstSurname": "First surname",
+      "secondSurname": "Second surname",
+      "birthDate": "Date of birth",
+      "gender": {
+        "label": "Sex",
+        "none": "Not given",
+        "MALE": "Male",
+        "FEMALE": "Female"
+      },
+      "nationalities": "Nationalities",
+      "countries": "Countries",
+      "countriesHint": "Two-letter codes separated by commas, for example MX, VE.",
+      "identifiers": "Identifiers",
+      "identifierType": "Type of identifier {{n}}",
+      "identifierValue": "Identifier {{n}}",
+      "addIdentifier": "Add identifier",
+      "removeIdentifier": "Remove identifier {{n}}",
+      "lists": "Lists",
+      "listsHint": "If you choose none, every list of the organization is checked.",
+      "submit": "Check",
+      "submitting": "Checking…",
+      "clear": "Clear",
+      "result": "Result",
+      "screenedAt": "Checked",
+      "noHits": "No list entry resembles this subject.",
+      "identifierInvalid": "An identifier is not valid for its type. Check that it is complete and correctly written."
+    },
+    "hits": {
+      "label": "Results against the lists",
+      "band": "Band",
+      "list": "List",
+      "score": "Score",
+      "finding": "Finding",
+      "openFinding": "Open finding",
+      "noFinding": "No finding"
     }
   },
   "forbidden": {

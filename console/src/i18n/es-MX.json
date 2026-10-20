@@ -47,7 +47,8 @@
     "matches": "Coincidencias",
     "lists": "Listas",
     "privateLists": "Listas privadas",
-    "screeningEvaluation": "Evaluación del motor"
+    "screeningEvaluation": "Evaluación del motor",
+    "screeningCheck": "Consulta ad hoc"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -143,7 +144,8 @@
     "fileTooLarge": "El archivo pasa de 25 MB.",
     "fileType": "Elige un archivo PDF, JPEG o PNG.",
     "ownership": "Escribe un porcentaje mayor que 0 y hasta 100, con 4 decimales como máximo; solo aplica a accionistas.",
-    "uuid": "Pega el identificador completo de la otra persona o empresa (lo ves en la dirección de su página)."
+    "uuid": "Pega el identificador completo de la otra persona o empresa (lo ves en la dirección de su página).",
+    "countryCodes": "Usa códigos de país de dos letras separados por comas, por ejemplo MX, VE."
   },
   "home": {
     "title": "Inicio",
@@ -1273,6 +1275,71 @@
         "below": "Por debajo",
         "empty": "El reporte no tiene umbrales."
       }
+    },
+    "subjectStatus": {
+      "CLEAR": "Sin coincidencias",
+      "PENDING_REVIEW": "Pendiente de revisión",
+      "TRUE_MATCH": "Coincidencia confirmada"
+    },
+    "party": {
+      "title": "Revisión en listas",
+      "never": "Aún no se ha revisado contra las listas.",
+      "status": "Estado",
+      "lastScreened": "Última revisión",
+      "listsCovered": "Listas revisadas",
+      "listsNone": "Ninguna",
+      "openFindings": "Hallazgos abiertos",
+      "findings": "Hallazgos",
+      "findingsEmpty": "No hay hallazgos.",
+      "checkNow": "Revisar ahora",
+      "running": "Revisando…",
+      "result": "Resultado de la revisión"
+    },
+    "check": {
+      "title": "Consulta ad hoc",
+      "description": "Revisa contra las listas a una persona o empresa sin registrarla. Lo que escribes no se guarda y se olvida al salir de la página.",
+      "entityType": "Tipo de persona",
+      "names": "Nombres",
+      "name": "Nombre {{n}}",
+      "namesHint": "Nombre completo o razón social; hasta tres variantes.",
+      "addName": "Agregar nombre",
+      "removeName": "Quitar el nombre {{n}}",
+      "givenNames": "Nombre(s) de pila",
+      "firstSurname": "Primer apellido",
+      "secondSurname": "Segundo apellido",
+      "birthDate": "Fecha de nacimiento",
+      "gender": {
+        "label": "Sexo",
+        "none": "Sin indicar",
+        "MALE": "Hombre",
+        "FEMALE": "Mujer"
+      },
+      "nationalities": "Nacionalidades",
+      "countries": "Países",
+      "countriesHint": "Códigos de dos letras separados por comas, por ejemplo MX, VE.",
+      "identifiers": "Identificadores",
+      "identifierType": "Tipo del identificador {{n}}",
+      "identifierValue": "Identificador {{n}}",
+      "addIdentifier": "Agregar identificador",
+      "removeIdentifier": "Quitar el identificador {{n}}",
+      "lists": "Listas",
+      "listsHint": "Si no eliges ninguna, se revisan todas las listas de la organización.",
+      "submit": "Revisar",
+      "submitting": "Revisando…",
+      "clear": "Limpiar",
+      "result": "Resultado",
+      "screenedAt": "Revisado",
+      "noHits": "Ningún registro de las listas se parece a este sujeto.",
+      "identifierInvalid": "Un identificador no es válido para su tipo. Revisa que esté completo y bien escrito."
+    },
+    "hits": {
+      "label": "Resultados contra las listas",
+      "band": "Banda",
+      "list": "Lista",
+      "score": "Puntaje",
+      "finding": "Hallazgo",
+      "openFinding": "Ver hallazgo",
+      "noFinding": "Sin hallazgo"
     }
   },
   "forbidden": {
