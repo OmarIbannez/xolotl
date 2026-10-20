@@ -12,7 +12,7 @@ from tests.modules.reporting.serializers.support import (
     ROIP_OPERATION,
     assert_golden,
 )
-from xolotl.modules.reporting.serializers.definitions import load_definition
+from xolotl.modules.reporting.serializers.definitions import load_delimited
 from xolotl.modules.reporting.serializers.errors import (
     ReportFieldError,
     ZeroReportNotAllowedError,
@@ -23,9 +23,9 @@ from xolotl.modules.reporting.serializers.formato41 import (
     serialize_f41,
 )
 
-ROI = load_definition(DEFS_DIR, "MX_F41_ROI", 1)
-ROI24 = load_definition(DEFS_DIR, "MX_F41_ROI24", 1)
-ROIP = load_definition(DEFS_DIR, "MX_F41_ROIP", 1)
+ROI = load_delimited(DEFS_DIR, "MX_F41_ROI", 1)
+ROI24 = load_delimited(DEFS_DIR, "MX_F41_ROI24", 1)
+ROIP = load_delimited(DEFS_DIR, "MX_F41_ROIP", 1)
 
 
 def _records(data: bytes) -> list[list[str]]:
