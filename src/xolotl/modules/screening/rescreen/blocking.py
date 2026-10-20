@@ -21,6 +21,22 @@ name query therefore scans the tenant's rows, which the product owner accepted f
 the MVP. A SECURITY DEFINER blocking function or LEAKPROOF operators would let the
 indexes serve the query if tenant volume grows.
 
+Stop keys mirror the forward index's rule (``STOP_KEY_POSTINGS``) on the party
+side. The library files a rare token under its phonetic key, that key's one-letter
+deletions and its ``p:``/``s:`` affix keys, each a single-key set; on a Mexican base
+keys like ``rs``, ``p:mar`` or ``s:rez`` are held by a tenth of the parties, so a
+page of a hundred entries would block nearly the whole base. Once per page, one
+aggregate query counts the holders of the page's single keys in the tenant's
+``party_name_index``, and a single-key set whose key is held by more than
+``STOP_KEY_SHARE`` of the tenant's name rows, and by more than
+``STOP_KEY_MIN_HOLDERS`` of them, is skipped silently (a debug log at most). Pair
+sets, the trigram predicate and identifier matches are untouched, so the party is
+still found through the rest of its name. Measured on the perf test's 10,000-party
+base (XOL-107): thresholds from 100 to 300 holders cut the delta's blocked union
+from 9,970 parties to the 500 near ones and keep the corpus's retrieval recall at
+0.996 to 0.998; 500 lets the union back to 9,200 and 50 breaks the 0.995 floor. The
+share scales with the base, the floor keeps small tenants' cheap keys.
+
 An entry whose candidates exceed ``BLOCKING_CAP`` parties overflows: its name
 candidates are not screened in the delta, since a name that common names no one in
 particular and screening thousands of parties for one entry would stall the batch.
@@ -32,11 +48,11 @@ search inside the tenant.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import Select, cast, false, or_, select, text
+from sqlalchemy import Select, any_, cast, false, func, or_, select, text, true
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 from sqlalchemy.types import Text
@@ -57,6 +73,9 @@ logger = logging.getLogger(__name__)
 
 BLOCKING_CAP = 5000
 TRIGRAM_THRESHOLD = 0.4
+STOP_KEY_SHARE = 0.02
+STOP_KEY_MIN_HOLDERS = 100
+NO_STOP_KEYS: frozenset[str] = frozenset()
 _ID_TYPES = {
     IdType.RFC: IdentifierType.RFC,
     IdType.CURP: IdentifierType.CURP,
@@ -77,11 +96,70 @@ class BlockedEntry:
     overflow: bool
 
 
-def blocking_query(plan: BlockingPlan, folded: str, *, limit: int) -> Select[UUID]:
+def name_plans(entry: ListEntry, idf: IdfTable) -> list[tuple[BlockingPlan, str]]:
+    """Plan each of the entry's names: its blocking plan and its folded form.
+
+    Returns:
+        One ``(plan, folded)`` per name with tokens, the primary name first.
+
+    """
+    plans: list[tuple[BlockingPlan, str]] = []
+    for name in (entry.primary_name, *entry.aliases):
+        normalized = normalize_name(
+            name.full,
+            entity_type=entry.entity_type,
+            given=name.given,
+            surname=name.surname,
+        )
+        if normalized.tokens:
+            plans.append((blocking_plan(normalized, idf), normalized.folded))
+    return plans
+
+
+def stop_keys(s: Session, plans: Iterable[BlockingPlan]) -> frozenset[str]:
+    """Find the plans' single keys too common in the tenant's base to block on.
+
+    One aggregate query under the tenant's session counts the name rows holding
+    each key; row-level security keeps the counts to the tenant's own rows.
+
+    Returns:
+        The keys held by more than ``STOP_KEY_SHARE`` of the tenant's name rows and
+        by more than ``STOP_KEY_MIN_HOLDERS`` of them.
+
+    """
+    singles = {keys[0] for plan in plans for keys in plan.key_sets if len(keys) == 1}
+    rows = s.scalar(select(func.count()).select_from(PartyNameIndex)) or 0
+    threshold = max(STOP_KEY_MIN_HOLDERS, STOP_KEY_SHARE * rows)
+    if not singles or rows <= threshold:
+        return frozenset()
+    held = func.unnest(PartyNameIndex.phonetic_keys).table_valued("key")
+    held = held.render_derived()
+    key = held.c.key
+    query = (
+        select(key)
+        .select_from(PartyNameIndex)
+        .join(held, true())
+        .where(key == any_(cast(sorted(singles), ARRAY(Text))))
+        .group_by(key)
+        .having(func.count() > threshold)
+    )
+    dropped = frozenset(s.scalars(query))
+    if dropped:
+        logger.debug(
+            "screening.blocking_stop_keys",
+            extra={"dropped": len(dropped), "rows": rows, "threshold": threshold},
+        )
+    return dropped
+
+
+def blocking_query(
+    plan: BlockingPlan, folded: str, *, limit: int, stop: frozenset[str] = NO_STOP_KEYS
+) -> Select[UUID]:
     """Build the name query of one entry name: any key set, or trigram similarity.
 
-    The trigram operator needs ``pg_trgm.similarity_threshold`` set in the
-    transaction, which ``reverse_candidates`` does once.
+    Single-key sets whose key is in ``stop`` are left out. The trigram operator
+    needs ``pg_trgm.similarity_threshold`` set in the transaction, which
+    ``reverse_candidates`` does once.
 
     Returns:
         The select of matching party ids, at most ``limit`` rows.
@@ -90,6 +168,7 @@ def blocking_query(plan: BlockingPlan, folded: str, *, limit: int) -> Select[UUI
     key_sets = [
         PartyNameIndex.phonetic_keys.contains(cast(list(keys), ARRAY(Text)))
         for keys in plan.key_sets
+        if len(keys) != 1 or keys[0] not in stop
     ]
     trigram = PartyNameIndex.norm_name.op("%")(folded) if folded else false()
     return (
@@ -100,20 +179,12 @@ def blocking_query(plan: BlockingPlan, folded: str, *, limit: int) -> Select[UUI
     )
 
 
-def _name_matches(s: Session, entry: ListEntry, idf: IdfTable) -> set[UUID]:
+def _name_matches(
+    s: Session, plans: list[tuple[BlockingPlan, str]], stop: frozenset[str]
+) -> set[UUID]:
     found: set[UUID] = set()
-    for name in (entry.primary_name, *entry.aliases):
-        normalized = normalize_name(
-            name.full,
-            entity_type=entry.entity_type,
-            given=name.given,
-            surname=name.surname,
-        )
-        if not normalized.tokens:
-            continue
-        query = blocking_query(
-            blocking_plan(normalized, idf), normalized.folded, limit=BLOCKING_CAP + 1
-        )
+    for plan, folded in plans:
+        query = blocking_query(plan, folded, limit=BLOCKING_CAP + 1, stop=stop)
         found.update(s.scalars(query))
     return found
 
@@ -157,10 +228,12 @@ def reverse_candidates(
         text("SELECT set_config('pg_trgm.similarity_threshold', :t, true)"),
         {"t": str(TRIGRAM_THRESHOLD)},
     )
+    plans = [name_plans(entry, idf) for entry in entries]
+    stop = stop_keys(s, (plan for entry_plans in plans for plan, _ in entry_plans))
     blocked: list[BlockedEntry] = []
-    for entry in entries:
+    for entry, entry_plans in zip(entries, plans, strict=True):
         by_id = _identifier_matches(s, entry)
-        party_ids = _name_matches(s, entry, idf) | by_id
+        party_ids = _name_matches(s, entry_plans, stop) | by_id
         overflow = len(party_ids) > BLOCKING_CAP
         kept = by_id if overflow else party_ids
         blocked.append(

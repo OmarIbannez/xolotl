@@ -7,12 +7,14 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, delete, text
+from sqlalchemy import Engine, delete, insert, text
 from sqlalchemy.orm import Session
 
 from tests.helpers import new_tenant, staff_session
+from tests.perf.conftest import SEED, draw_name, split_pools
 from xolotl.modules.party import service
 from xolotl.modules.party.enums import IdentifierType, PartyStatus, PartyType
+from xolotl.modules.party.models import Party
 from xolotl.modules.party.retention import purge_party
 from xolotl.modules.party.schemas import (
     IdentifierInput,
@@ -20,6 +22,7 @@ from xolotl.modules.party.schemas import (
     PartyCreateRequest,
     PersonInput,
 )
+from xolotl.modules.screening.engine.enums import NameKind
 from xolotl.modules.screening.engine.models import PartyNameIndex
 from xolotl.modules.screening.engine.names import index_party_names
 from xolotl.modules.screening.lists import (
@@ -31,6 +34,7 @@ from xolotl.modules.screening.lists import (
     NameQuality,
 )
 from xolotl.modules.screening.matching import (
+    MATCHER_VERSION,
     BlockingPlan,
     IdfTable,
     NameQuery,
@@ -55,9 +59,19 @@ from xolotl.modules.screening.rescreen.blocking import (
     reverse_candidates,
 )
 from xolotl.modules.tenants.service import CreatedTenant
+from xolotl.platform.ids import uuid7
 
 SCREENING_TESTS = Path(__file__).parents[1]
 RECALL_SAMPLE = 2000
+BACKGROUND_PARTIES = 10_000
+BACKGROUND_CHUNK = 2_000
+# Four parties sharing a given name: more than a stop-key floor of three.
+NAMESAKES = (
+    "Ulises Beltrán Ochoa",
+    "Ulises Cota Duarte",
+    "Ulises Espino Fierro",
+    "Ulises Galván Haro",
+)
 
 
 @cache
@@ -120,6 +134,49 @@ def _add(s: Session, body: PartyCreateRequest) -> UUID:
     party = service.create_party(s, body)
     _ = index_party_names(s, party.id)
     return party.id
+
+
+def _seed_background(s: Session, tenant_id: UUID, count: int) -> None:
+    """Bulk insert a seeded Mexican base: the rows reverse blocking reads.
+
+    Each party gets the ``party`` row its name row's foreign key needs and the
+    ``party_name_index`` row ``index_party_names`` would write (the library's
+    folded name, tokens and ``name_keys``), drawn as the perf base is: the party
+    pool of ``split_pools`` with ``Draw(SEED)``. No person row, no events: the base
+    is never screened, only blocked on.
+    """
+    rng = Draw(SEED)
+    given, family = split_pools()[0]
+    parties: list[dict[str, object]] = []
+    rows: list[dict[str, object]] = []
+    for _ in range(count):
+        party_id = uuid7()
+        given_names, first, second = draw_name(rng, given, family)
+        name = normalize_name(
+            f"{given_names} {first} {second}",
+            entity_type=EntityType.PERSON,
+            given=given_names,
+            surname=f"{first} {second}",
+        )
+        parties.append({
+            "tenant_id": tenant_id,
+            "id": party_id,
+            "party_type": PartyType.PERSON,
+            "country_code": "MX",
+        })
+        rows.append({
+            "tenant_id": tenant_id,
+            "id": uuid7(),
+            "party_id": party_id,
+            "name_kind": NameKind.LEGAL,
+            "norm_name": name.folded,
+            "tokens": [t.folded for t in name.tokens],
+            "phonetic_keys": sorted(name_keys(name)),
+            "matcher_version": MATCHER_VERSION,
+        })
+    for at in range(0, count, BACKGROUND_CHUNK):
+        _ = s.execute(insert(Party), parties[at : at + BACKGROUND_CHUNK])
+        _ = s.execute(insert(PartyNameIndex), rows[at : at + BACKGROUND_CHUNK])
 
 
 def _entry(
@@ -307,6 +364,99 @@ def test_an_overflowing_entry_keeps_its_identifier_matches(
     assert found == BlockedEntry("E-1", frozenset({party_id}), overflow=True)
 
 
+def _split(entry: ListEntry, idf: IdfTable) -> tuple[BlockingPlan, BlockingPlan]:
+    """Split the entry's plan into its single-key sets and its pair sets.
+
+    Returns:
+        ``(singles, pairs)``.
+
+    """
+    (name,) = _entry_names(entry)
+    plan = blocking_plan(name, idf)
+    singles = tuple(keys for keys in plan.key_sets if len(keys) == 1)
+    pairs = tuple(keys for keys in plan.key_sets if len(keys) > 1)
+    return BlockingPlan(singles), BlockingPlan(pairs)
+
+
+def test_a_single_key_held_by_more_than_the_threshold_is_dropped(
+    engine: Engine,
+    tenant: CreatedTenant,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    monkeypatch.setattr(blocking, "STOP_KEY_MIN_HOLDERS", 3)
+    caplog.set_level(logging.DEBUG, logger=blocking.__name__)
+    # Ulises is rare, so it blocks alone through its single keys; the common
+    # surnames block as a pair.
+    idf = IdfTable({"quintanilla": 0.3, "nava": 0.3})
+    entry = _entry(
+        "Ulises Quintanilla Nava", given="Ulises", surname="Quintanilla Nava"
+    )
+    singles, pairs = _split(entry, idf)
+    assert singles.key_sets
+    assert pairs.key_sets
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party_id = _add(s, _person("Ulises Quintanilla Nava"))
+        namesakes = {_add(s, _person(name)) for name in NAMESAKES}
+        (found,) = reverse_candidates(s, [entry], idf=idf)
+        by_single = set(s.scalars(blocking_query(singles, "", limit=10)))
+    # The given name's keys alone meet every Ulises: five rows, over the floor.
+    assert by_single == namesakes | {party_id}
+    # Dropped, so the party is found through the surname pair and no one else is.
+    assert found == BlockedEntry("E-1", frozenset({party_id}), overflow=False)
+    (record,) = [r for r in caplog.records if r.name == blocking.__name__]
+    assert record.levelno == logging.DEBUG
+    assert record.getMessage() == "screening.blocking_stop_keys"
+    assert record.__dict__["dropped"] == len(singles.key_sets)
+    assert "ulises" not in json.dumps(record.__dict__, default=str).lower()
+
+
+def test_a_party_whose_single_keys_are_all_dropped_is_still_found_by_trigram(
+    engine: Engine, tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(blocking, "STOP_KEY_MIN_HOLDERS", 3)
+    # One rare token and one common one: single-key sets only, no pair.
+    idf = IdfTable({"quintanilla": 0.3})
+    entry = _entry("Ulises Quintanilla", given="Ulises", surname="Quintanilla")
+    singles, pairs = _split(entry, idf)
+    assert singles.key_sets
+    assert not pairs.key_sets
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party_id = _add(s, _person("Ulises Quintanilla"))
+        namesakes = {_add(s, _person(name)) for name in NAMESAKES}
+        (found,) = reverse_candidates(s, [entry], idf=idf)
+        by_single = set(s.scalars(blocking_query(singles, "", limit=10)))
+    assert by_single == namesakes | {party_id}
+    assert found == BlockedEntry("E-1", frozenset({party_id}), overflow=False)
+
+
+def test_the_stop_key_rule_never_crosses_tenants(
+    engine: Engine, tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(blocking, "STOP_KEY_MIN_HOLDERS", 3)
+    idf = IdfTable({"quintanilla": 0.3})
+    entry = _entry("Ulises Quintanilla", given="Ulises", surname="Quintanilla")
+    other = new_tenant("beta", "admin@beta.mx")
+    with staff_session(other.tenant_id, other.admin_user_id) as s:
+        for name in NAMESAKES:
+            _ = _add(s, _person(name))
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        # Found through the given name's keys only: no surname in common, and the
+        # folded names are too far apart for the trigram predicate.
+        party_id = _add(s, _person("Ulises Beltrán Ochoa"))
+        # More rows than the floor, so the holders are counted rather than skipped.
+        for name in (
+            "Fernanda Ochoa",
+            "Rocío Cota",
+            "Teresa Espino",
+            "Graciela Montemayor",
+        ):
+            _ = _add(s, _person(name))
+        (found,) = reverse_candidates(s, [entry], idf=idf)
+    # Beta's four Ulises would push the key over the floor; they are not counted.
+    assert found.party_ids == {party_id}
+
+
 def test_blocking_never_crosses_tenants(engine: Engine, tenant: CreatedTenant):
     other = new_tenant("beta", "admin@beta.mx")
     with staff_session(other.tenant_id, other.admin_user_id) as s:
@@ -361,6 +511,8 @@ def test_postgres_blocking_retrieval_recall_meets_the_floor(
     floor = min(kind["retrieval_recall"] for kind in _floors().floors.values())
     party_of: dict[int, UUID] = {}
     with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        # A Mexican base behind the sample: its common keys are the stop keys.
+        _seed_background(s, tenant.tenant_id, BACKGROUND_PARTIES)
         for i, pair in enumerate(sample):
             party_of[i] = _add(s, _party_for(pair.query))
         entries = list(
