@@ -22,6 +22,8 @@ from xolotl.modules.party import routes_relationships as party_relationship_rout
 from xolotl.modules.party.retention import register_party
 from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
+from xolotl.modules.screening.composition import register_screening
+from xolotl.modules.screening.engine.holder import get_index_holder
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
@@ -157,6 +159,10 @@ def wire_platform(
         store=store,
         fetching=settings.lists_fetching,
     )
+    # The staff-only screening events, and this process's in-memory screening
+    # index (not warmed here: build_app and build_worker start the warm-up, so
+    # the tests that only wire the platform start no thread).
+    _ = register_screening(session_factory=session_factory, settings=settings)
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
@@ -206,6 +212,7 @@ def build_worker(session_factory: SessionFactory | None = None) -> Worker:
     factory = session_factory or get_sessionmaker()
     set_key_provider(build_key_provider(settings, factory))
     services = wire_platform(factory, settings)
+    _ = get_index_holder().start_warming()
     return worker_loop(services, settings)
 
 
@@ -243,6 +250,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
     # Hook point: process-wide adapters (plan 1b's key provider) are installed here,
     # before the platform is wired and anything is served.
     services = wire_platform(factory, settings)
+    # The screening index loads in the background; screens answer 503 until then.
+    _ = get_index_holder().start_warming()
     app = create_app(
         session_factory=factory,
         actor_resolver=resolve_bearer,

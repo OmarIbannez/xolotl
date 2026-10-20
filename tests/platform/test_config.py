@@ -259,6 +259,8 @@ def test_env_example_is_a_valid_configuration():
         "lists_max_removal_ratio",
         "private_list_max_mb",
         "private_list_max_rows",
+        "screening_index_refresh_seconds",
+        "screening_private_shards",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -601,6 +603,8 @@ def test_list_settings_default_to_the_spec_values():
     assert s.private_list_max_mb == 20
     assert s.private_list_max_rows == 100000
     assert s.lists_fetch_enabled is None
+    assert s.screening_index_refresh_seconds == 30
+    assert s.screening_private_shards == 64
 
 
 @pytest.mark.parametrize(
@@ -642,6 +646,8 @@ def test_the_poll_cron_is_validated(monkeypatch):
         ("XOLOTL_LISTS_MAX_REMOVAL_RATIO", "1.5"),
         ("XOLOTL_PRIVATE_LIST_MAX_MB", "201"),
         ("XOLOTL_PRIVATE_LIST_MAX_ROWS", "0"),
+        ("XOLOTL_SCREENING_INDEX_REFRESH_SECONDS", "0"),
+        ("XOLOTL_SCREENING_PRIVATE_SHARDS", "0"),
     ],
 )
 def test_list_limits_reject_nonsense(monkeypatch, name, value):

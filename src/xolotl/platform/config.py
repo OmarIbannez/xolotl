@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     # Upload limits of a tenant's private list.
     private_list_max_mb: int = Field(default=20, ge=1, le=200)
     private_list_max_rows: int = Field(default=100000, ge=1)
+    # How often a process checks for newer active list versions, in seconds.
+    screening_index_refresh_seconds: int = Field(default=30, ge=1)
+    # Per-process LRU of tenants' private-list shards.
+    screening_private_shards: int = Field(default=64, ge=1)
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
