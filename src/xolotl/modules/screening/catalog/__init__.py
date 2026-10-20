@@ -42,16 +42,25 @@ from xolotl.modules.screening.catalog.poll import (
 from xolotl.modules.screening.catalog.private import (
     active_private_versions,
     create_private_list,
+    get_private_list,
     private_delta,
     private_entry_of,
     upload_private_version,
+    view_entries,
     write_private_version,
 )
 from xolotl.modules.screening.catalog.queries import (
+    DeltaRowView,
     active_versions,
     current_hashes,
+    delta_page,
+    enabled_subscriptions,
     entry_of,
     version_members,
+)
+from xolotl.modules.screening.catalog.service import (
+    list_overview,
+    set_subscription_enabled,
 )
 from xolotl.modules.screening.catalog.sources import (
     SOURCES_FILE,
@@ -92,6 +101,7 @@ __all__ = [
     "STALE_TEMPLATE",
     "TEMPLATE_COLUMNS",
     "XLSX_TYPE",
+    "DeltaRowView",
     "FetchResult",
     "HttpListFetcher",
     "IngestReport",
@@ -122,11 +132,15 @@ __all__ = [
     "claim_source",
     "create_private_list",
     "current_hashes",
+    "delta_page",
+    "enabled_subscriptions",
     "entry_of",
     "file_kind",
+    "get_private_list",
     "ingest_file",
     "ingest_parsed",
     "is_stale",
+    "list_overview",
     "poll_source",
     "private_delta",
     "private_entry_of",
@@ -138,7 +152,9 @@ __all__ = [
     "remind_lpb_missing",
     "rows_to_entries",
     "seed_list_sources",
+    "set_subscription_enabled",
     "upload_private_version",
     "version_members",
+    "view_entries",
     "write_private_version",
 ]
