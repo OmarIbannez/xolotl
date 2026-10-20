@@ -5,14 +5,21 @@ delta asks the opposite question, and the parties live in Postgres, so the same
 blocking plan runs there over ``party_name_index`` (Decision 2: no search service).
 A party is a candidate for an entry when one of the entry's names meets the party's
 row by the library's ``blocking_plan`` key sets (``phonetic_keys @>`` one set,
-served by the GIN index ``ix_pni_phonetic``) or by trigram similarity of the folded
-names, or when one of the entry's RFC, CURP or passport numbers is the party's
+against the library's ``name_keys`` the row stores) or by trigram similarity of the
+folded names, or when one of the entry's RFC, CURP or passport numbers is the party's
 (the party module's blind-index lookup; nothing is decrypted).
 
 The trigram predicate is ``norm_name % :folded`` after ``SET LOCAL
 pg_trgm.similarity_threshold``, not ``similarity(norm_name, :folded) >= 0.4`` as
-the spec writes it. Both select the same rows, but only the operator is served by
-the trigram GIN index ``ix_pni_trgm``; the function call scans every row.
+the spec writes it. Both select the same rows, and only the operator could be
+served by the trigram GIN index ``ix_pni_trgm``.
+
+Neither GIN index is used today: ``party_name_index`` has forced row-level security,
+and ``@>`` and ``%`` are not LEAKPROOF, so Postgres applies the tenant policy first
+(through the primary key) and filters the tenant's rows with both predicates. Each
+name query therefore scans the tenant's rows, which the product owner accepted for
+the MVP. A SECURITY DEFINER blocking function or LEAKPROOF operators would let the
+indexes serve the query if tenant volume grows.
 
 An entry whose candidates exceed ``BLOCKING_CAP`` parties is not screened in the
 delta: it names no one in particular, and screening thousands of parties for one
