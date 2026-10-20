@@ -15,6 +15,8 @@ reaches the object store. Each version is audited with counts only and handed to
 re-screening through the staff-only ``private_list.version_activated.v1``.
 """
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -24,7 +26,7 @@ from typing import cast
 from uuid import UUID
 
 from psycopg.errors import UniqueViolation
-from sqlalchemy import Text, insert, literal, select, update
+from sqlalchemy import Text, and_, insert, literal, or_, select, update
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -48,7 +50,8 @@ from xolotl.modules.screening.events import (
     publish_screening_event,
 )
 from xolotl.modules.screening.lists import JsonValue, ListDelta, ListEntry
-from xolotl.platform.audit import AuditEvent, record
+from xolotl.platform.api.pagination import PageRequest
+from xolotl.platform.audit import VIEW_PII, AuditEvent, record
 from xolotl.platform.config import get_settings
 from xolotl.platform.crypto import (
     aad_for,
@@ -135,6 +138,24 @@ def create_private_list(
             detail={"list_code": list_code, "list_kind": kind.value},
         ),
     )
+    return private_list
+
+
+def get_private_list(s: Session, list_id: UUID) -> PrivateList:
+    """Read one of the session tenant's private lists.
+
+    Returns:
+        The list.
+
+    Raises:
+        NotFoundError: When the tenant has no list ``list_id`` (another tenant's is
+            invisible under row-level security).
+
+    """
+    private_list = s.get(PrivateList, (bound_context(s).require_tenant_id(), list_id))
+    if private_list is None:
+        msg = "private list not found"
+        raise NotFoundError(msg)
     return private_list
 
 
@@ -484,3 +505,85 @@ def private_entry_of(s: Session, row: PrivateListEntryRow) -> ListEntry:
     """
     data = row.entry.reveal(session=s)
     return ListEntry.from_json(cast("dict[str, JsonValue]", data))
+
+
+def _encode_entry_cursor(from_seq: int, id_: UUID) -> str:
+    raw = f"{from_seq}|{id_}".encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_entry_cursor(cursor: str) -> tuple[int, UUID]:
+    padded = cursor + "=" * (-len(cursor) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(padded).decode()
+        # Without a separator the id is empty, which UUID refuses.
+        seq, _, ident = raw.partition("|")
+        return int(seq), UUID(ident)
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        msg = "invalid cursor"
+        raise ValidationFailedError(msg) from None
+
+
+def view_entries(
+    s: Session, list_id: UUID, *, page: PageRequest
+) -> tuple[list[tuple[PrivateListEntryRow, ListEntry]], str | None]:
+    """Show a person one page of the members of a private list's active version.
+
+    The page is ordered by ``(from_seq, id)``. When it holds any entry, one
+    ``VIEW_PII`` event (field ``entries``) and one ``private_list.entries_viewed``
+    with the count are recorded before any value is decrypted. A cursor this
+    function did not issue is a ``ValidationFailedError``.
+
+    Returns:
+        The page's rows with their decrypted entries, and the cursor of the next
+        page (``None`` on the last one).
+
+    """
+    private_list = get_private_list(s, list_id)
+    stmt = select(PrivateListEntryRow).where(
+        PrivateListEntryRow.list_id == list_id, PrivateListEntryRow.to_seq.is_(None)
+    )
+    if page.cursor is not None:
+        after_seq, after_id = _decode_entry_cursor(page.cursor)
+        stmt = stmt.where(
+            or_(
+                PrivateListEntryRow.from_seq > after_seq,
+                and_(
+                    PrivateListEntryRow.from_seq == after_seq,
+                    PrivateListEntryRow.id > after_id,
+                ),
+            )
+        )
+    rows = list(
+        s.scalars(
+            stmt.order_by(PrivateListEntryRow.from_seq, PrivateListEntryRow.id).limit(
+                page.limit + 1
+            )
+        )
+    )
+    next_cursor = None
+    if len(rows) > page.limit:
+        rows = rows[: page.limit]
+        next_cursor = _encode_entry_cursor(rows[-1].from_seq, rows[-1].id)
+    if not rows:
+        return [], None
+    # Audited first: if either record fails, nothing is decrypted.
+    _ = record(
+        s,
+        AuditEvent(
+            action=VIEW_PII,
+            entity_type="private_list",
+            entity_id=str(private_list.id),
+            detail={"field": "entries"},
+        ),
+    )
+    _ = record(
+        s,
+        AuditEvent(
+            action="private_list.entries_viewed",
+            entity_type="private_list",
+            entity_id=str(private_list.id),
+            detail={"list_id": str(private_list.id), "count": len(rows)},
+        ),
+    )
+    return [(row, private_entry_of(s, row)) for row in rows], next_cursor

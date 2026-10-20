@@ -80,7 +80,7 @@ def _entry_row(key: str, *, current: bool = True) -> ListEntryRow:
         )
         if current:
             stmt = stmt.where(ListEntryRow.to_seq.is_(None))
-        return s.scalars(stmt.order_by(ListEntryRow.from_seq)).first()
+        return s.scalars(stmt.order_by(ListEntryRow.from_seq)).all()[0]
 
 
 def test_get_lists_shows_each_subscription_with_its_version_and_freshness(
@@ -171,9 +171,11 @@ def test_the_delta_shows_added_changed_and_removed_with_names(
         ("9999001", "ADDED"),
     ]
     removed, changed, added = rows
-    assert removed["prev_name"] and removed["new_name"] is None
+    assert removed["prev_name"]
+    assert removed["new_name"] is None
     assert removed["new_entry_id"] is None
-    assert changed["prev_name"] and changed["new_name"]
+    assert changed["prev_name"]
+    assert changed["new_name"]
     assert changed["prev_entry_id"] != changed["new_entry_id"]
     assert added["prev_name"] is None
     assert added["new_name"] == "ZEPHYRINO QUALMSBY"
@@ -197,9 +199,7 @@ def test_an_entry_is_its_list_entry_json(client, admin_headers, loaded):
     elsewhere = client.get(f"{LISTS}/{OFAC}/entries/{row.id}", headers=admin_headers)
     assert elsewhere.status_code == 404
     assert elsewhere.json()["code"] == "NOT_FOUND"
-    missing = client.get(
-        f"{LISTS}/{UN}/entries/{UUID(int=1)}", headers=admin_headers
-    )
+    missing = client.get(f"{LISTS}/{UN}/entries/{UUID(int=1)}", headers=admin_headers)
     assert missing.status_code == 404
 
 
@@ -218,10 +218,14 @@ def test_admin_toggles_a_recommended_list_and_it_is_audited(
     assert (off.json()["code"], off.json()["enabled"]) == (OFAC, False)
     again = _toggle(client, admin_headers, OFAC, enabled=False)
     assert again.status_code == 200
-    items = {i["code"]: i for i in client.get(LISTS, headers=admin_headers).json()["items"]}
+    items = {
+        i["code"]: i for i in client.get(LISTS, headers=admin_headers).json()["items"]
+    }
     assert items[OFAC]["enabled"] is False
     changes = [
-        e for e in audit_events(tenant.tenant_id) if e.action == "lists.subscription_changed"
+        e
+        for e in audit_events(tenant.tenant_id)
+        if e.action == "lists.subscription_changed"
     ]
     assert [e.detail for e in changes] == [{"list_code": OFAC, "enabled": False}]
     assert changes[0].actor_id == str(tenant.admin_user_id)
