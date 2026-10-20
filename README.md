@@ -401,6 +401,23 @@ responses: an API client sees the subject's status only (`CLEAR`, `PENDING_REVIE
 | `POST /v1/screening/matches/{id}/dispositions` | staff, not `AUDITOR_RO` | a decision under the four-eyes rules; a refusal is 409 `DISPOSITION_NOT_ALLOWED` with `blocked_reasons` |
 | `DELETE /v1/screening/whitelist/{id}` | MLRO | revoke a false-positive whitelist row |
 
+## Screening
+
+Creating a party, changing it or adding an identifier re-indexes its names and
+re-screens it through one `screening.screen_party` job per event (mode `NEW_SUBJECT`
+or `DATA_CHANGE`); the job skips when a later run already covered the event.
+
+```bash
+uv run xolotl screening check --tenant acme --party <party_id>   # screen one party now
+uv run xolotl screening replay <run_id> --tenant acme             # re-score a run's hits
+```
+
+`screening replay` rebuilds the subject's query, the scoring IDF of the run's exact list
+versions and the scoring configuration of its policy snapshot, prints one line per hit
+(stored and replayed score and band) and ends with `identical` (exit 0), or `subject
+changed` or `N differences` (exit 1). A run scored by another matcher version is
+refused with `MATCHER_VERSION_MISMATCH`.
+
 ## Connectors
 
 A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a

@@ -1,9 +1,10 @@
-"""The screening module's composition root (SP-03 spec §8.1 and §11).
+"""The screening module's composition root (SP-03 spec §8.1, §10.1 and §11).
 
 ``wire_platform`` calls ``register_screening`` once per process. It marks the
-staff-only screening events, so no webhook carries them (FR-SC-013), and installs
-the process's index holder. It starts no thread: ``build_app`` and ``build_worker``
-start the warm-up themselves.
+staff-only screening events, so no webhook carries them (FR-SC-013), installs the
+process's index holder, and subscribes consumer ``screening`` to the party events
+that re-index and re-screen a party. It starts no thread: ``build_app`` and
+``build_worker`` start the warm-up themselves.
 """
 
 from xolotl.modules.screening.engine.holder import (
@@ -11,17 +12,26 @@ from xolotl.modules.screening.engine.holder import (
     set_index_holder,
 )
 from xolotl.modules.screening.events import STAFF_ONLY_EVENT_TYPES
+from xolotl.modules.screening.rescreen.party_events import (
+    PARTY_EVENT_MODES,
+    SCREEN_PARTY_KIND,
+    SCREENING_CONSUMER,
+    make_party_event_handler,
+    screen_party_job,
+)
 from xolotl.platform.config import Settings
 from xolotl.platform.db import SessionFactory
-from xolotl.platform.events import register_staff_only
+from xolotl.platform.events import register_staff_only, register_subscriber
+from xolotl.platform.jobs.queue import PostgresJobQueue, register_job_handler
 
 
 def register_screening(
-    *, session_factory: SessionFactory, settings: Settings
+    *, session_factory: SessionFactory, settings: Settings, queue: PostgresJobQueue
 ) -> ScreeningIndexHolder:
-    """Mark the staff-only event types and install a new index holder.
+    """Mark the staff-only events, install a new holder and wire the party events.
 
-    Calling it again replaces the holder, so composing twice is harmless.
+    Calling it again replaces the holder, the subscriptions and the job handler, so
+    composing twice is harmless.
 
     Returns:
         The installed holder, not yet warmed.
@@ -35,4 +45,8 @@ def register_screening(
         private_shards=settings.screening_private_shards,
     )
     set_index_holder(holder)
+    handler = make_party_event_handler(queue)
+    for event_type in PARTY_EVENT_MODES:
+        register_subscriber(event_type, handler, consumer=SCREENING_CONSUMER)
+    register_job_handler(SCREEN_PARTY_KIND, screen_party_job)
     return holder

@@ -64,3 +64,14 @@ class ScreeningIndexUnavailableError(XolotlError):
     status: ClassVar[int] = 503
     default_code: ClassVar[str] = "SCREENING_INDEX_UNAVAILABLE"
     default_detail: ClassVar[str] = "the screening index is loading"
+
+
+class MatcherVersionMismatchError(DomainError):
+    """A run cannot be replayed exactly by this process (NFR-SC-007).
+
+    Its matcher version differs from the running ``MATCHER_VERSION``, or the scoring
+    configuration rebuilt from its policy snapshot no longer has the stored hash.
+    """
+
+    default_code: ClassVar[str] = "MATCHER_VERSION_MISMATCH"
+    default_detail: ClassVar[str] = "the run was scored by another matcher version"

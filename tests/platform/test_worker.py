@@ -31,6 +31,11 @@ from xolotl import worker as worker_module
 from xolotl.app import build_app, build_worker, wire_platform
 from xolotl.cli import app as cli
 from xolotl.modules.screening.catalog.poll import LISTS_POLL_KIND, ListsPollJob
+from xolotl.modules.screening.rescreen.party_events import (
+    SCREEN_PARTY_KIND,
+    SCREENING_CONSUMER,
+    screen_party_job,
+)
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.api.idempotency import PURGE_KIND, purge_expired_keys
@@ -45,7 +50,7 @@ from xolotl.platform.db import (
 from xolotl.platform.enums import JobStatus, OutboxStatus
 from xolotl.platform.events import Event, OutboxEventBus, publish, register_subscriber
 from xolotl.platform.events.models import OutboxRow
-from xolotl.platform.events.registry import reset_subscribers
+from xolotl.platform.events.registry import consumers, reset_subscribers
 from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs.models import JobRow, JobSchedule
 from xolotl.platform.jobs.queue import (
@@ -602,6 +607,8 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     assert isinstance(lists_poll, ListsPollJob)
     # XOLOTL_ENV=test leaves XOLOTL_LISTS_FETCH_ENABLED unset: no network fetching.
     assert lists_poll.fetching is False
+    assert job_handler(SCREEN_PARTY_KIND) is screen_party_job
+    assert SCREENING_CONSUMER in consumers()
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):

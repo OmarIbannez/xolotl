@@ -887,7 +887,11 @@ def webhook_stack(engine: Engine) -> Iterator[Stack]:
 def test_a_wildcard_endpoint_gets_run_and_status_events_but_never_match_events(
     tenant: CreatedTenant, itf_pack, lists, holder, webhook_stack: Stack
 ):
-    _ = register_screening(session_factory=get_sessionmaker(), settings=get_settings())
+    _ = register_screening(
+        session_factory=get_sessionmaker(),
+        settings=get_settings(),
+        queue=webhook_stack.queue,
+    )
     party_id = _party(tenant)
     webhook_stack.settle(tenant.tenant_id)
     _ = make_endpoint(tenant.tenant_id, event_types=["*"])
