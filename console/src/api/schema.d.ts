@@ -950,6 +950,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/screening/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Check */
+        post: operations["create_check"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run */
+        get: operations["get_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/parties/{party_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Party Screening */
+        get: operations["get_party_screening"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Matches */
+        get: operations["list_matches"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/matches/{match_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Match */
+        get: operations["get_match"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/matches/{match_id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reveal Match */
+        get: operations["reveal_match"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/matches/{match_id}/dispositions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Disposition */
+        post: operations["create_disposition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/screening/whitelist/{whitelist_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Whitelist Entry */
+        delete: operations["revoke_whitelist_entry"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -988,6 +1124,43 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AdHocIdentifier */
+        AdHocIdentifier: {
+            id_type: components["schemas"]["IdentifierType"];
+            /** Value */
+            value: string;
+            /** Country */
+            country?: string | null;
+        };
+        /**
+         * AdHocSubjectInput
+         * @description A subject screened without being a party: the check's inline ``subject``.
+         */
+        AdHocSubjectInput: {
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "PERSON" | "ORGANIZATION";
+            /** Names */
+            names: string[];
+            /** Given Names */
+            given_names?: string | null;
+            /** First Surname */
+            first_surname?: string | null;
+            /** Second Surname */
+            second_surname?: string | null;
+            /** Birth Date */
+            birth_date?: string | null;
+            /** Gender */
+            gender?: ("MALE" | "FEMALE") | null;
+            /** Nationalities */
+            nationalities?: string[];
+            /** Countries */
+            countries?: string[];
+            /** Identifiers */
+            identifiers?: components["schemas"]["AdHocIdentifier"][];
+        };
         /** AddressInput */
         AddressInput: {
             address_type: components["schemas"]["AddressType"];
@@ -1192,6 +1365,11 @@ export interface components {
             /** Hash */
             hash: string;
         };
+        /**
+         * AutoReason
+         * @enum {string}
+         */
+        AutoReason: "ID_CONFLICT_CAP" | "WHITELIST";
         /** BandsOverride */
         "BandsOverride-Input": {
             sanctions_alert?: components["schemas"]["PlainDecimal-Input"] | null;
@@ -1208,6 +1386,11 @@ export interface components {
             id_match_floor?: components["schemas"]["PlainDecimal-Output"] | null;
             id_conflict_cap?: components["schemas"]["PlainDecimal-Output"] | null;
         };
+        /**
+         * BlockedReason
+         * @enum {string}
+         */
+        BlockedReason: "STATE" | "ROLE_REQUIRED" | "SAME_REVIEWER" | "NOT_DELISTED";
         /** BranchCreateRequest */
         BranchCreateRequest: {
             /** Code */
@@ -1285,6 +1468,60 @@ export interface components {
             first_broken_seq?: number | null;
             /** Reason */
             reason?: string | null;
+        };
+        /**
+         * CheckRequest
+         * @description A synchronous check of one party or one inline subject, never both.
+         */
+        CheckRequest: {
+            /** Party Id */
+            party_id?: string | null;
+            subject?: components["schemas"]["AdHocSubjectInput"] | null;
+            /** Lists */
+            lists?: string[] | null;
+        };
+        /**
+         * CheckResponse
+         * @description What an API client learns of a check: the run and the subject's status.
+         */
+        CheckResponse: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            status: components["schemas"]["SubjectStatus"];
+            /**
+             * Screened At
+             * Format: date-time
+             */
+            screened_at: string;
+        };
+        /** CheckStaffResponse */
+        CheckStaffResponse: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            status: components["schemas"]["SubjectStatus"];
+            /**
+             * Screened At
+             * Format: date-time
+             */
+            screened_at: string;
+            /** Hits */
+            hits: components["schemas"]["HitView"][];
         };
         /**
          * CheckType
@@ -1489,6 +1726,16 @@ export interface components {
             tz?: string;
         };
         /**
+         * DecidedByType
+         * @enum {string}
+         */
+        DecidedByType: "STAFF" | "SYSTEM";
+        /**
+         * Decision
+         * @enum {string}
+         */
+        Decision: "FALSE_POSITIVE" | "POSSIBLE_TRUE_MATCH" | "TRUE_MATCH" | "DELISTED" | "SUPERSEDED";
+        /**
          * DeliveryStatus
          * @enum {string}
          */
@@ -1511,6 +1758,53 @@ export interface components {
             prev_name: string | null;
             /** New Name */
             new_name: string | null;
+        };
+        /** DispositionRequest */
+        DispositionRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "FALSE_POSITIVE" | "POSSIBLE_TRUE_MATCH" | "TRUE_MATCH" | "DELISTED";
+            /** Rationale */
+            rationale: string;
+        };
+        /** DispositionResponse */
+        DispositionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Match Id
+             * Format: uuid
+             */
+            match_id: string;
+            decision: components["schemas"]["Decision"];
+            match_status: components["schemas"]["MatchStatus"];
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+        };
+        /** DispositionView */
+        DispositionView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            decision: components["schemas"]["Decision"];
+            decided_by_type: components["schemas"]["DecidedByType"];
+            /** Decided By */
+            decided_by: string | null;
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
         };
         /** DocumentResponse */
         DocumentResponse: {
@@ -1630,6 +1924,54 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HitBand
+         * @enum {string}
+         */
+        HitBand: "ALERT" | "LOW_CONFIDENCE" | "AUTO_DISCARDED" | "WHITELISTED";
+        /** HitHistoryItem */
+        HitHistoryItem: {
+            /**
+             * Hit Id
+             * Format: uuid
+             */
+            hit_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Score */
+            score: string;
+            band: components["schemas"]["HitBand"];
+        };
+        /** HitView */
+        HitView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** List Code */
+            list_code: string;
+            /** List Kind */
+            list_kind: string;
+            band: components["schemas"]["HitBand"];
+            /** Score */
+            score: string;
+            auto_reason: components["schemas"]["AutoReason"] | null;
+            /** Match Id */
+            match_id: string | null;
+            /** Features */
+            features: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
         };
         /** HolidayResponse */
         HolidayResponse: {
@@ -1774,6 +2116,15 @@ export interface components {
          * @enum {string}
          */
         ListRequirement: "MANDATORY" | "RECOMMENDED";
+        /** ListSetMemberView */
+        ListSetMemberView: {
+            /** List Code */
+            list_code: string;
+            /** List Version Id */
+            list_version_id: string | null;
+            /** Private List Version Id */
+            private_list_version_id: string | null;
+        };
         /** ListVersionResponse */
         ListVersionResponse: {
             /**
@@ -1853,6 +2204,125 @@ export interface components {
             valid_from: string | null;
             /** Valid To */
             valid_to: string | null;
+        };
+        /** MaskedSubject */
+        MaskedSubject: {
+            kind: components["schemas"]["SubjectKind"];
+            /** Party Id */
+            party_id: string | null;
+            /** Entity Type */
+            entity_type: string;
+            /** Initials */
+            initials: string;
+            /** Identifiers */
+            identifiers: string[];
+        };
+        /** MatchDetail */
+        MatchDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Party Id */
+            party_id: string | null;
+            /** List Code */
+            list_code: string;
+            list_kind: components["schemas"]["ListKind"];
+            band: components["schemas"]["HitBand"];
+            /** Score */
+            score: string;
+            status: components["schemas"]["MatchStatus"];
+            suggested_disposition: components["schemas"]["SuggestedDisposition"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            subject: components["schemas"]["MaskedSubject"];
+            /** Entry */
+            entry: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            origin_hit: components["schemas"]["HitView"];
+            latest_hit: components["schemas"]["HitView"];
+            /** History */
+            history: components["schemas"]["HitHistoryItem"][];
+            /** Dispositions */
+            dispositions: components["schemas"]["DispositionView"][];
+            /** Whitelist Id */
+            whitelist_id: string | null;
+            /** Allowed Actions */
+            allowed_actions: components["schemas"]["Decision"][];
+            /** Blocked Reasons */
+            blocked_reasons: {
+                [key: string]: components["schemas"]["BlockedReason"][];
+            };
+        };
+        /** MatchReveal */
+        MatchReveal: {
+            /** Subject Names */
+            subject_names: string[];
+            /** Birth Date */
+            birth_date: string | null;
+            /** Identifiers */
+            identifiers: components["schemas"]["RevealedSubjectIdentifier"][];
+            /** Private Entry */
+            private_entry: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Rationales */
+            rationales: {
+                [key: string]: string;
+            };
+        };
+        /**
+         * MatchStatus
+         * @enum {string}
+         */
+        MatchStatus: "OPEN" | "ESCALATED" | "FALSE_POSITIVE" | "TRUE_MATCH" | "DELISTED" | "SUPERSEDED";
+        /** MatchSummary */
+        MatchSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Party Id */
+            party_id: string | null;
+            /** List Code */
+            list_code: string;
+            list_kind: components["schemas"]["ListKind"];
+            band: components["schemas"]["HitBand"];
+            /** Score */
+            score: string;
+            status: components["schemas"]["MatchStatus"];
+            suggested_disposition: components["schemas"]["SuggestedDisposition"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** MeResponse */
         MeResponse: {
@@ -2060,6 +2530,13 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[MatchSummary] */
+        Page_MatchSummary_: {
+            /** Items */
+            items: components["schemas"]["MatchSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[NotificationResponse] */
         Page_NotificationResponse_: {
             /** Items */
@@ -2249,6 +2726,39 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * PartyScreeningResponse
+         * @description A party's screening status; ``status`` is null until its first run.
+         */
+        PartyScreeningResponse: {
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            status: components["schemas"]["SubjectStatus"] | null;
+            /** Last Screened At */
+            last_screened_at: string | null;
+            /** Lists Covered */
+            lists_covered: string[];
+        };
+        /** PartyScreeningStaffResponse */
+        PartyScreeningStaffResponse: {
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            status: components["schemas"]["SubjectStatus"] | null;
+            /** Last Screened At */
+            last_screened_at: string | null;
+            /** Lists Covered */
+            lists_covered: string[];
+            /** Open Finding Count */
+            open_finding_count: number;
+            /** Findings */
+            findings: components["schemas"]["MatchSummary"][];
         };
         /** PartyStaffResponse */
         PartyStaffResponse: {
@@ -2787,11 +3297,91 @@ export interface components {
             /** Value */
             value: string;
         };
+        /** RevealedSubjectIdentifier */
+        RevealedSubjectIdentifier: {
+            /** Id Type */
+            id_type: string;
+            /** Value */
+            value: string;
+        };
         /**
          * Role
          * @enum {string}
          */
         Role: "ANALYST" | "SENIOR_ANALYST" | "MLRO" | "AUDITOR_RO" | "ADMIN";
+        /**
+         * RunMode
+         * @enum {string}
+         */
+        RunMode: "AD_HOC" | "NEW_SUBJECT" | "DATA_CHANGE" | "LIST_DELTA" | "PRIVATE_LIST" | "PERIODIC" | "REINDEX";
+        /** RunResponse */
+        RunResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Party Id */
+            party_id: string | null;
+            mode: components["schemas"]["RunMode"];
+            outcome: components["schemas"]["SubjectStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** RunStaffResponse */
+        RunStaffResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
+            /** Party Id */
+            party_id: string | null;
+            mode: components["schemas"]["RunMode"];
+            outcome: components["schemas"]["SubjectStatus"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            trigger_type: components["schemas"]["TriggerType"];
+            /** Trigger Ref */
+            trigger_ref: string | null;
+            /** List Set */
+            list_set: components["schemas"]["ListSetMemberView"][];
+            /** Matcher Version */
+            matcher_version: string;
+            /** Scoring Config Hash */
+            scoring_config_hash: string;
+            /**
+             * Policy Snapshot Id
+             * Format: uuid
+             */
+            policy_snapshot_id: string;
+            /** Candidate Count */
+            candidate_count: number;
+            /** Hit Count */
+            hit_count: number;
+            /** New Match Count */
+            new_match_count: number;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Hits */
+            hits: components["schemas"]["HitView"][];
+        };
         /** ScreeningBands */
         ScreeningBands: {
             /** @default 0.70 */
@@ -2879,11 +3469,26 @@ export interface components {
          * @enum {string}
          */
         StaffStatus: "ACTIVE" | "DISABLED";
+        /**
+         * SubjectKind
+         * @enum {string}
+         */
+        SubjectKind: "PARTY" | "AD_HOC";
+        /**
+         * SubjectStatus
+         * @enum {string}
+         */
+        SubjectStatus: "CLEAR" | "PENDING_REVIEW" | "TRUE_MATCH";
         /** SubscriptionUpdate */
         SubscriptionUpdate: {
             /** Enabled */
             enabled: boolean;
         };
+        /**
+         * SuggestedDisposition
+         * @enum {string}
+         */
+        SuggestedDisposition: "DELISTED";
         /**
          * TenantEnv
          * @enum {string}
@@ -3054,6 +3659,11 @@ export interface components {
             /** Code */
             code: string;
         };
+        /**
+         * TriggerType
+         * @enum {string}
+         */
+        TriggerType: "API" | "CONSOLE" | "EVENT" | "JOB" | "CLI";
         /** TrueMatchAction */
         TrueMatchAction: {
             /**
@@ -5351,6 +5961,264 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Page_PrivateListEntryResponse_"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_check: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckStaffResponse"] | components["schemas"]["CheckResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStaffResponse"] | components["schemas"]["RunResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_party_screening: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartyScreeningStaffResponse"] | components["schemas"]["PartyScreeningResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_matches: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["MatchStatus"] | null;
+                band?: components["schemas"]["HitBand"] | null;
+                list_code?: string | null;
+                list_kind?: components["schemas"]["ListKind"] | null;
+                created_before?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_MatchSummary_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_match: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                match_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reveal_match: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                match_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MatchReveal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_disposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                match_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispositionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_whitelist_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                whitelist_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
