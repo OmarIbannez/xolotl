@@ -23,12 +23,16 @@ from xolotl.app import build_key_provider, build_object_store, build_worker
 from xolotl.modules.party.retention import RetentionSweeper
 from xolotl.modules.screening.catalog import (
     SOURCES_FILE,
+    HttpListFetcher,
     IngestReport,
     ListSource,
     ListVersion,
+    PollOutcome,
     SeedReport,
     active_versions,
+    claim_source,
     ingest_file,
+    poll_source,
     read_sources,
     seed_list_sources,
 )
@@ -970,6 +974,90 @@ def lists_load_file(
             before,
         )
     typer.echo(line)
+
+
+def _fetch_line(outcome: PollOutcome) -> str:
+    report = outcome.report
+    if outcome.result == "NOT_MODIFIED" or report is None:
+        return f"{outcome.code}: not modified"
+    if report.same_file:
+        return f"{outcome.code}: unchanged (same file as the active version)"
+    return (
+        f"{outcome.code}: ingested v{report.seq} ({report.added} added, "
+        f"{report.changed} changed, {report.removed} removed)"
+    )
+
+
+def _lease_holder(session: Session, code: str) -> str:
+    """Name who holds the lease of a source that could not be claimed.
+
+    Returns:
+        The lease holder.
+
+    Raises:
+        NotFoundError: When the source is unknown or disabled.
+
+    """
+    source = session.get(ListSource, code)
+    if source is None or not source.enabled:
+        msg = f"no enabled list source {code}"
+        raise NotFoundError(msg)
+    return source.lease_holder or "another poll"
+
+
+@lists_app.command("fetch")
+def lists_fetch(
+    code: Annotated[str, typer.Argument(help="List code, such as UN_CONSOLIDATED")],
+    *,
+    force_network: Annotated[
+        bool,
+        typer.Option(
+            "--force-network",
+            help="Fetch even when XOLOTL_LISTS_FETCH_ENABLED leaves fetching off",
+        ),
+    ] = False,
+) -> None:
+    """Fetch one shared list now, due or not, and ingest it when it changed.
+
+    Takes the source's lease as the poll job does, so it never races a poll; a
+    lease held by someone else, an unknown code or a failed fetch exits 1 with one
+    line on stderr. Outside prod network fetching is off unless
+    ``--force-network`` is given.
+
+    Raises:
+        Exit: With code 2 when fetching is off and ``--force-network`` is not
+            given; with code 1 when the lease is held or the fetch failed.
+
+    """
+    settings = get_settings()
+    if not settings.lists_fetching and not force_network:
+        refusal = (
+            "error: network fetching is off (XOLOTL_LISTS_FETCH_ENABLED); "
+            "pass --force-network"
+        )
+        typer.echo(refusal, err=True)
+        raise typer.Exit(code=2)
+    actor = _cli_actor()
+    now = clock.now()
+    with _cli_errors():
+        store = build_object_store(settings)
+        with tenant_session(TenantContext.platform(actor)) as s:
+            claimed = claim_source(s, code, holder=actor, now=now)
+            holder = None if claimed is not None else _lease_holder(s, code)
+    if holder is not None:
+        typer.echo(f"error: {code} is being fetched by {holder}", err=True)
+        raise typer.Exit(code=1)
+    fetcher = HttpListFetcher(
+        timeout_seconds=settings.lists_fetch_timeout_seconds,
+        max_bytes=settings.lists_max_file_mb * 1024 * 1024,
+    )
+    outcome = poll_source(
+        get_sessionmaker(), code, holder=actor, fetcher=fetcher, store=store, now=now
+    )
+    if outcome.result == "FAILED":
+        typer.echo(f"error: {code}: failed {outcome.error}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_fetch_line(outcome))
 
 
 def _when(at: datetime | None) -> str:

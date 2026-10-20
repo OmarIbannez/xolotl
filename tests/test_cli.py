@@ -1594,3 +1594,86 @@ def test_lists_show_prints_the_active_version(admin_engine: Engine, list_objects
     none = runner.invoke(app, ["lists", "show", "OFAC_SDN"])
     assert none.exit_code == 1
     assert none.stderr == "error: NOT_FOUND: no active OFAC_SDN version\n"
+
+
+# --- lists: one immediate network fetch -----------------------------------------------
+
+UN_URL = "https://scsanctions.un.org/resources/xml/en/consolidated.xml"
+
+
+def test_lists_fetch_is_refused_without_force_network_outside_prod(
+    admin_engine: Engine, list_objects: Path
+):
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.get(UN_URL).respond(200, content=UN_V1_FILE.read_bytes())
+        result = runner.invoke(app, ["lists", "fetch", "UN_CONSOLIDATED"])
+    assert result.exit_code == 2
+    assert result.stderr == (
+        "error: network fetching is off (XOLOTL_LISTS_FETCH_ENABLED); "
+        "pass --force-network\n"
+    )
+    assert route.call_count == 0
+
+
+def test_lists_fetch_with_force_network_ingests(
+    admin_engine: Engine, list_objects: Path
+):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    with respx.mock(assert_all_called=False) as mock:
+        _ = mock.get(UN_URL).respond(
+            200, content=UN_V1_FILE.read_bytes(), headers={"ETag": '"v1"'}
+        )
+        result = runner.invoke(
+            app, ["lists", "fetch", "UN_CONSOLIDATED", "--force-network"]
+        )
+        assert result.exit_code == 0, result.output
+        assert result.stdout == (
+            "UN_CONSOLIDATED: ingested v1 (30 added, 0 changed, 0 removed)\n"
+        )
+        _ = mock.get(UN_URL).respond(304)
+        again = runner.invoke(
+            app, ["lists", "fetch", "UN_CONSOLIDATED", "--force-network"]
+        )
+    assert again.exit_code == 0, again.output
+    assert again.stdout == "UN_CONSOLIDATED: not modified\n"
+    shown = runner.invoke(app, ["lists", "show", "UN_CONSOLIDATED"])
+    assert f"loaded by  cli:{getpass.getuser()}" in shown.stdout
+    with admin_engine.connect() as conn:
+        holder = conn.scalar(
+            text("SELECT lease_holder FROM list_source WHERE code = 'UN_CONSOLIDATED'")
+        )
+    assert holder is None
+
+
+def test_lists_fetch_reports_a_failure(admin_engine: Engine, list_objects: Path):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    with respx.mock(assert_all_called=False) as mock:
+        _ = mock.get(UN_URL).respond(503)
+        result = runner.invoke(
+            app, ["lists", "fetch", "UN_CONSOLIDATED", "--force-network"]
+        )
+    assert result.exit_code == 1
+    assert result.stderr == (
+        "error: UN_CONSOLIDATED: failed HTTP_503: the server answered 503\n"
+    )
+
+
+def test_lists_fetch_reports_a_busy_lease(admin_engine: Engine, list_objects: Path):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    lease = (
+        "UPDATE list_source SET lease_until = now() + interval '1 hour', "
+        "lease_holder = 'job:other' WHERE code = 'UN_CONSOLIDATED'"
+    )
+    with admin_engine.begin() as conn:
+        _ = conn.execute(text(lease))
+    with respx.mock(assert_all_called=False) as mock:
+        route = mock.get(UN_URL).respond(200, content=UN_V1_FILE.read_bytes())
+        result = runner.invoke(
+            app, ["lists", "fetch", "UN_CONSOLIDATED", "--force-network"]
+        )
+    assert result.exit_code == 1
+    assert result.stderr == "error: UN_CONSOLIDATED is being fetched by job:other\n"
+    assert route.call_count == 0
+    unknown = runner.invoke(app, ["lists", "fetch", "NOPE", "--force-network"])
+    assert unknown.exit_code == 1
+    assert unknown.stderr == "error: NOT_FOUND: no enabled list source NOPE\n"
