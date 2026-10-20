@@ -7,7 +7,7 @@ here when they add tables, and list them in ``register_all``.
 
 from datetime import date, timedelta
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -757,7 +757,7 @@ def _private_list_entry(session: Session, tenant_id: UUID) -> PrivateListEntryRo
     row = PrivateListEntryRow(
         tenant_id=tenant_id,
         list_id=parent.id,
-        source_entry_key=f"clave {uuid7().hex[:8]}",
+        source_entry_key=f"clave {uuid4().hex}",
         content_tag=b"\x00" * 32,
         entity_type="PERSON",
         entry=encrypt_json({"k": "v"}, tenant_id=tenant_id, session=session),

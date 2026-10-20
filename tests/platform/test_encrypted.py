@@ -1058,7 +1058,10 @@ def test_a_stored_value_that_was_altered_fails_authentication_on_reveal(
     add_secret(alpha, "one", encrypt(secret_text("altered"), tenant_id=alpha))
     with admin_engine.begin() as conn:
         _ = conn.execute(
-            text("UPDATE scratch_secret SET secret = set_byte(secret, 20, 255)")
+            text("""
+                UPDATE scratch_secret
+                SET secret = set_byte(secret, 20, 255 - get_byte(secret, 20))
+            """)
         )
     with tenant_session(system_ctx(alpha)) as s:
         loaded = s.scalars(select(Secret)).one().secret
