@@ -24,10 +24,9 @@ from xolotl.modules.reporting.serializers import normalizers as norm
 from xolotl.modules.reporting.serializers.definitions import (
     Column,
     ColumnKind,
+    DelimitedDefinition,
     DelimitedLayout,
     Overflow,
-    ReportDefinition,
-    SerializerFamily,
     ZeroReportRule,
     load_code_table,
     load_layout,
@@ -43,6 +42,7 @@ from xolotl.modules.reporting.serializers.result import (
 from xolotl.platform.enums import Confidence
 
 RELEVANTE = "1"
+PREOCUPANTE = "3"
 _PERIOD_MONTHLY_TYPES = frozenset({RELEVANTE})
 _NO_SURNAME = "XXXX"
 _UNKNOWN_NATIONALITY = "0"
@@ -174,17 +174,37 @@ def _subject_fields(subject: F41Subject, line: int) -> dict[str, str | None]:
     }
 
 
+def _related_key(value: str | None) -> str | None:
+    # A CASFIM key loses its hyphen as in columns 4-5; anything else is an
+    # SAT-assigned key and passes through the column's own checks.
+    if value and norm.CASFIM_KEY.fullmatch(value.strip()):
+        return norm.casfim_key(value, field="clave_sujeto_obligado")
+    return value
+
+
+def _check_related(related: F41Related, line: int) -> None:
+    where = f"line {line}"
+    has_person = any(
+        norm.f41_text(value)
+        for value in (
+            related.first_names,
+            related.paternal_surname,
+            related.maternal_surname,
+        )
+    )
+    if not norm.f41_text(related.account) and not has_person:
+        raise ReportFieldError(where, "a related row needs an account or a person")
+    if has_person and not norm.f41_text(related.first_names):
+        raise ReportFieldError(where, "a related person needs column 37")
+
+
 def _related_fields(index: int, related: F41Related | None) -> dict[str, str | None]:
     if related is None:
         return {"consecutivo": f"{index:02d}"}
     return {
         "consecutivo": f"{index:02d}",
         "cuenta_relacionada": related.account,
-        "clave_sujeto_obligado_relacionado": (
-            norm.casfim_key(related.entity_key, field="clave_sujeto_obligado")
-            if related.entity_key
-            else None
-        ),
+        "clave_sujeto_obligado_relacionado": _related_key(related.entity_key),
         "nombre_relacionado": related.first_names,
         "apellido_paterno_relacionado": (
             _NO_SURNAME
@@ -200,6 +220,8 @@ def _description(operation: F41Operation, legend: Legend | None) -> str | None:
     if legend is None:
         return operation.description
     body = norm.f41_text(operation.description)
+    if body.startswith(legend.value):
+        return body
     # Without a description column 40 stays empty and fails as required: the
     # legend alone does not describe the operation.
     return f"{legend.value}. {body}" if body else None
@@ -207,7 +229,7 @@ def _description(operation: F41Operation, legend: Legend | None) -> str | None:
 
 @dataclass(slots=True)
 class _Renderer:
-    definition: ReportDefinition
+    definition: DelimitedDefinition
     layout: DelimitedLayout
     code_tables: Mapping[str, frozenset[str]]
     legend: Legend | None
@@ -282,6 +304,8 @@ def _check_subject(subject: F41Subject, report_type: str, line: int) -> None:
         subject.first_names
     ):
         raise ReportFieldError(where, "a persona fisica needs column 18")
+    if report_type == PREOCUPANTE and subject.person_type is not PersonType.FISICA:
+        raise ReportFieldError(where, "a preocupante reports a natural person")
     if subject.nationality is None and report_type != RELEVANTE:
         raise ReportFieldError(where, "nationality is unknown only for relevantes")
 
@@ -329,6 +353,8 @@ def _operation_rows(
     related: list[F41Related | None] = [None]
     if report_type != RELEVANTE:
         related.extend(operation.related)
+    for offset, item in enumerate(operation.related, start=1):
+        _check_related(item, first_line + offset)
     if len(related) > _MAX_ROWS_PER_OPERATION + 1:
         msg = f"line {first_line}"
         raise ReportFieldError(msg, "more than 99 related rows")
@@ -340,7 +366,7 @@ def _operation_rows(
 
 def serialize_f41(
     defs_dir: Path,
-    definition: ReportDefinition,
+    definition: DelimitedDefinition,
     header: F41Header,
     operations: Sequence[F41Operation],
     *,
@@ -356,13 +382,15 @@ def serialize_f41(
 
     Raises:
         ReportFieldError: A value is missing, malformed, outside its code table or
-            too long for a column that must not be truncated.
+            too long for a column that must not be truncated, or the legend is
+            missing for the 24-hour report or given for another kind.
         ZeroReportNotAllowedError: ``operations`` is empty for a definition
             without a zero report.
 
     """
-    if definition.serializer is not SerializerFamily.DELIMITED:
-        raise ReportFieldError(definition.code, "is not a DELIMITED definition")
+    if definition.legend_required != (legend is not None):
+        reason = "needs a legend" if definition.legend_required else "takes no legend"
+        raise ReportFieldError(definition.code, reason)
     layout = load_layout(defs_dir, definition.layout)
     tables = {
         column.code_table: frozenset(

@@ -16,6 +16,20 @@ sources:
       The UIF copy at pld.hacienda.gob.mx/work/models/uif/librerias/documentos/
       formatos/Formato_41_Campos_Compilado.pdf returned 404 on 2026-10-19; this is
       the gob.mx mirror of the same compiled resolution.
+  AVI_XSD:
+    title: Esquema XML de avisos, actividad vulnerable Activos Virtuales (fr. XVI)
+    url: https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/xsd/avi.xsd
+    retrieved: 2026-10-19
+    file: ../MX_AVISO_AVI/xsd/avi.xsd
+    sha256: 984d0a31483c7f9ac47c74204505b5dbd2920590476afec979f1942460b964e3
+    status: VERIFIED
+  AVI_FILE_RULES:
+    title: Instructivo de llenado de plantillas Excel y envío de avisos (2 MB cap)
+    url: https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/inst_excel.pdf
+    retrieved: 2026-10-19
+    file: inst_excel.pdf
+    sha256: f862df43e2c23d5ef11c02ff3a946dedd7845c70dc8db45105b328a93f07cde2
+    status: VERIFIED
   AVI_EXAMPLE:
     title: Ejemplo de aviso XML, Activos Virtuales
     url: https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/ejemplosxml/ejemplo_avi.xml
