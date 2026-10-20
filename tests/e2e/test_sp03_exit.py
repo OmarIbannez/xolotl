@@ -14,6 +14,7 @@ import logging
 import threading
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -95,9 +96,10 @@ def _person(
     return body.model_dump(mode="json")
 
 
-# Tenant A's parties: perturbed list names, and one that resembles nobody.
+# Tenant A's parties: perturbed list names (P_LPB and P_OFAC drop the second
+# surname; P_LPB also loses its accents), and one that resembles nobody.
 P_LPB = _person("Angela Beatriz", "Verastegui", born=date(1982, 4, 17))
-P_OFAC = _person("Rogelio", "Nieto", "González", date(1978, 3, 13))
+P_OFAC = _person("Rogelio", "Nieto", born=date(1978, 3, 13))
 P_CHG = _person("Ali Hassan", "Al-Majid", "Al-Tikriti", date(1943, 1, 1))
 P_REM = _person("Saddam", "Hussein", "Al-Tikriti", date(1937, 4, 28))
 P_ADD = _person("Zephyrino", "Qualmsby", born=date(1970, 1, 1))
@@ -334,170 +336,261 @@ def _only(items: list[dict], **where: object) -> dict:
     return item
 
 
+@dataclass
+class Demo:
+    """The handles one section of the demo hands to the ones after it."""
+
+    client: TestClient
+    services: PlatformServices
+    receiver: Receiver
+    acme: CreatedTenant
+    beta: CreatedTenant
+    a_admin: dict[str, str]
+    b_admin: dict[str, str]
+    a_mlro: dict[str, str]
+    b_mlro: dict[str, str]
+    a_analyst: dict[str, str]
+    b_analyst: dict[str, str]
+    a_key: dict[str, str]
+    # Filled by the sections that create them.
+    p_lpb: str = ""
+    p_ofac: str = ""
+    p_chg: str = ""
+    p_rem: str = ""
+    p_add: str = ""
+    p_clear: str = ""
+    b_twin: str = ""
+    a_run: str = ""
+
+
+def _tenants(
+    client: TestClient,
+    services: PlatformServices,
+    admin_engine: Engine,
+    receiver: Receiver,
+) -> Demo:
+    """Section 1: two tenants on the ITF pack, their staff, keys and endpoints.
+
+    Returns:
+        The demo's handles.
+
+    """
+    acme = new_tenant("acme", "admin@acme.mx")
+    beta = new_tenant("beta", "admin@beta.mx")
+    itf = install_both_packs(admin_engine)["MX/ITF-IFPE"]
+    for tenant in (acme, beta):
+        _ = assign_tenant_wide(tenant, itf, date(2026, 1, 1))
+    demo = Demo(
+        client=client,
+        services=services,
+        receiver=receiver,
+        acme=acme,
+        beta=beta,
+        a_admin=_admin(client, acme),
+        b_admin=_admin(client, beta),
+        a_mlro=_staff(client, acme, Role.MLRO),
+        b_mlro=_staff(client, beta, Role.MLRO),
+        a_analyst=_staff(client, acme, Role.ANALYST),
+        b_analyst=_staff(client, beta, Role.ANALYST),
+        a_key=machine_headers(acme, *API_SCOPES),
+    )
+    for tenant in (acme, beta):
+        _ = _staff(client, tenant, Role.SENIOR_ANALYST)
+    _ = machine_headers(beta, *API_SCOPES)
+    _webhook(client, demo.a_admin, receiver.url)
+    _webhook(client, demo.b_admin, receiver.url)
+    return demo
+
+
+def _poll_both(demo: Demo) -> None:
+    for tenant in (demo.acme, demo.beta):
+        _ = enqueue(demo.services.queue, tenant.tenant_id, kind=LISTS_POLL_KIND)
+    _ = drain(demo.services)
+
+
+def _shared_lists(demo: Demo) -> None:
+    """Section 2: the five shared lists, loaded once and seen by both tenants."""
+    assert runner.invoke(cli_app, ["lists", "seed"]).exit_code == 0
+    for code, path in FIXTURES.items():
+        assert _load(code, path).startswith(f"{code} v1: ")
+    _poll_both(demo)
+    for headers in (demo.a_admin, demo.b_admin):
+        shown = {
+            item["code"]: item
+            for item in _get(demo.client, headers, "/v1/lists")["items"]
+        }
+        assert set(shown) == set(FIXTURES), sorted(shown)
+        for code in FIXTURES:
+            assert (shown[code]["stale"], shown[code]["active_seq"]) == (False, 1)
+
+
+def _lpb(demo: Demo) -> None:
+    """Section 3: tenant A's MLRO creates the LPB and uploads its file."""
+    client = demo.client
+    created = post(
+        client,
+        demo.a_mlro,
+        "/v1/private-lists",
+        {"list_code": LPB, "title": "Lista de personas bloqueadas"},
+        uuid4().hex,
+    )
+    assert created.status_code == 201, created.text
+    lpb_id = created.json()["id"]
+    uploaded = client.post(
+        f"/v1/private-lists/{lpb_id}/versions",
+        content=LPB_FILE.read_bytes(),
+        headers={**demo.a_mlro, "Content-Type": CSV_TYPE, "Idempotency-Key": "lpb-1"},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    _ = drain(demo.services)
+    [listed] = _get(client, demo.a_mlro, "/v1/private-lists")["items"]
+    assert listed["list_code"] == LPB
+    assert listed["active_version"]["entry_count"] == LPB_ROWS
+
+
+def _parties(demo: Demo) -> None:
+    """Section 4: tenant A's six parties and tenant B's twin, screened on create."""
+    client, a_analyst = demo.client, demo.a_analyst
+    demo.p_lpb = _create_party(client, a_analyst, P_LPB)
+    demo.p_ofac = _create_party(client, a_analyst, P_OFAC)
+    demo.p_chg = _create_party(client, a_analyst, P_CHG)
+    demo.p_rem = _create_party(client, a_analyst, P_REM)
+    demo.p_add = _create_party(client, a_analyst, P_ADD)
+    demo.p_clear = _create_party(client, a_analyst, P_CLEAR)
+    demo.b_twin = _create_party(client, demo.b_analyst, B_TWIN)
+    _ = drain(demo.services)
+
+
+def _explained_hit(demo: Demo) -> None:
+    """Section 5: staff see the explained ALERT; an API client sees status only."""
+    client = demo.client
+    staff_view = _check(client, demo.a_analyst, demo.p_ofac)
+    assert staff_view["status"] == "PENDING_REVIEW"
+    hit = _only(staff_view["hits"], list_code=OFAC, band="ALERT")
+    features = hit["features"]
+    assert features["alignment"], features
+    assert all(pair["query"] and pair["entry"] for pair in features["alignment"]), (
+        features["alignment"]
+    )
+    assert features["qualifiers"], features
+    assert features["entry_ref"]["list_version_seq"] == 1
+    assert features["matcher_version"] == MATCHER_VERSION
+    client_view = _check(client, demo.a_key, demo.p_ofac)
+    assert set(client_view) == {"run_id", "subject_id", "status", "screened_at"}
+    assert client_view["status"] == "PENDING_REVIEW"
+    demo.a_run = staff_view["run_id"]
+    lpb_view = _check(client, demo.a_analyst, demo.p_lpb)
+    _ = _only(lpb_view["hits"], list_code=LPB, band="ALERT")
+
+
+def _delta(demo: Demo) -> None:
+    """Section 6: the UN's second version re-screens only what it changed."""
+    client, a_analyst = demo.client, demo.a_analyst
+    before = _findings(client, a_analyst)
+    chg_before = _only(list(before.values()), party_id=demo.p_chg, list_code=UN)
+    rem_before = _only(list(before.values()), party_id=demo.p_rem, list_code=UN)
+    assert _load(UN, UN_V2).startswith(f"{UN} v2: ")
+    _poll_both(demo)
+    batches = _get(client, a_analyst, f"{SCREENING}/batches", kind="LIST_DELTA")
+    [delta_batch] = batches["items"]
+    assert delta_batch["status"] == "COMPLETED", delta_batch
+    after = _findings(client, a_analyst)
+    new = [after[match_id] for match_id in set(after) - set(before)]
+    assert sorted((m["party_id"], m["list_code"]) for m in new) == sorted([
+        (demo.p_add, UN),
+        (demo.p_chg, UN),
+    ])
+    assert after[chg_before["id"]]["status"] == "SUPERSEDED"
+    assert after[rem_before["id"]]["suggested_disposition"] == "DELISTED"
+    screened = _delta_screened(demo.acme)
+    assert {demo.p_add, demo.p_chg} <= screened
+    assert screened.isdisjoint({demo.p_lpb, demo.p_ofac, demo.p_clear})
+
+
+def _tenant_b_sees_nothing(demo: Demo) -> None:
+    """Section 7: nothing of tenant A reaches tenant B."""
+    client, b_analyst = demo.client, demo.b_analyst
+    assert _get(client, demo.b_mlro, "/v1/private-lists")["items"] == []
+    assert _get(client, b_analyst, f"{SCREENING}/matches", list_code=LPB) == {
+        "items": [],
+        "next_cursor": None,
+    }
+    foreign = client.get(f"{SCREENING}/runs/{demo.a_run}", headers=b_analyst)
+    assert foreign.status_code == 404, foreign.text
+    twin = _get(client, b_analyst, f"{SCREENING}/parties/{demo.b_twin}")
+    assert twin["status"] == "CLEAR", twin
+    assert twin["findings"] == []
+    a_batches = {
+        b["id"] for b in _get(client, demo.a_analyst, f"{SCREENING}/batches")["items"]
+    }
+    b_batches = {
+        b["id"] for b in _get(client, b_analyst, f"{SCREENING}/batches")["items"]
+    }
+    assert b_batches
+    assert b_batches.isdisjoint(a_batches)
+
+
+def _four_eyes(demo: Demo) -> None:
+    """Section 8: the analyst escalates, cannot confirm, and the MLRO confirms."""
+    client, a_analyst = demo.client, demo.a_analyst
+    finding = _only(_party_findings(client, a_analyst, demo.p_lpb), list_code=LPB)
+    assert finding["status"] == "OPEN"
+    escalated = _dispose(client, a_analyst, finding["id"], "POSSIBLE_TRUE_MATCH")
+    assert escalated.status_code == 201, escalated.text
+    assert escalated.json()["match_status"] == "ESCALATED"
+    refused = _dispose(client, a_analyst, finding["id"], "TRUE_MATCH")
+    assert refused.status_code == 409, refused.text
+    assert "SAME_REVIEWER" in refused.json()["blocked_reasons"]
+    confirmed = _dispose(client, demo.a_mlro, finding["id"], "TRUE_MATCH")
+    assert confirmed.status_code == 201, confirmed.text
+    assert confirmed.json()["match_status"] == "TRUE_MATCH"
+    _ = drain(demo.services)
+
+
+def _no_tipping_off(demo: Demo) -> None:
+    """Section 9: no screening finding left on a webhook; the endpoint was live."""
+    received = demo.receiver.received
+    a_types, b_types = _delivered_types(demo.acme), _delivered_types(demo.beta)
+    leaked = {t for t in a_types | b_types if t.startswith(STAFF_ONLY_PREFIXES)}
+    assert not leaked, sorted(leaked)
+    assert STATUS_CHANGED in a_types, sorted(a_types)
+    assert STATUS_CHANGED in received, sorted(set(received))
+    assert not {t for t in received if t.startswith(STAFF_ONLY_PREFIXES)}
+
+
+def _audit(demo: Demo) -> None:
+    """Section 10: both tenants' audit chains verify."""
+    for headers in (demo.a_admin, demo.b_admin):
+        verified = _get(demo.client, headers, "/v1/audit/verify")
+        assert verified["valid"] is True, verified
+        assert verified["entries_checked"] > 0
+
+
 # One demo, ten numbered sections: the plan fixes it as a single test.
 @pytest.mark.usefixtures("_restore_logging")
-def test_sp03_exit(  # ruff: ignore[too-many-locals, too-many-statements]
+def test_sp03_exit(
     exit_app: FastAPI,
     exit_client: TestClient,
     admin_engine: Engine,
     receiver: Receiver,
 ):
-    client = exit_client
-    services = _services(exit_app)
-
     with section(1, "two tenants"):
-        acme = new_tenant("acme", "admin@acme.mx")
-        beta = new_tenant("beta", "admin@beta.mx")
-        itf = install_both_packs(admin_engine)["MX/ITF-IFPE"]
-        for tenant in (acme, beta):
-            _ = assign_tenant_wide(tenant, itf, date(2026, 1, 1))
-        a_admin, b_admin = _admin(client, acme), _admin(client, beta)
-        a_mlro, b_mlro = (
-            _staff(client, acme, Role.MLRO),
-            _staff(client, beta, Role.MLRO),
-        )
-        for tenant in (acme, beta):
-            _ = _staff(client, tenant, Role.SENIOR_ANALYST)
-        a_analyst = _staff(client, acme, Role.ANALYST)
-        b_analyst = _staff(client, beta, Role.ANALYST)
-        a_key = machine_headers(acme, *API_SCOPES)
-        _ = machine_headers(beta, *API_SCOPES)
-        _webhook(client, a_admin, receiver.url)
-        _webhook(client, b_admin, receiver.url)
-
+        demo = _tenants(exit_client, _services(exit_app), admin_engine, receiver)
     with section(2, "shared lists"):
-        assert runner.invoke(cli_app, ["lists", "seed"]).exit_code == 0
-        for code, path in FIXTURES.items():
-            assert _load(code, path).startswith(f"{code} v1: ")
-        for tenant in (acme, beta):
-            _ = enqueue(services.queue, tenant.tenant_id, kind=LISTS_POLL_KIND)
-        _ = drain(services)
-        for headers in (a_admin, b_admin):
-            shown = {
-                item["code"]: item
-                for item in _get(client, headers, "/v1/lists")["items"]
-            }
-            assert set(shown) == set(FIXTURES), sorted(shown)
-            for code in FIXTURES:
-                assert (shown[code]["stale"], shown[code]["active_seq"]) == (False, 1)
-
+        _shared_lists(demo)
     with section(3, "the LPB"):
-        created = post(
-            client,
-            a_mlro,
-            "/v1/private-lists",
-            {"list_code": LPB, "title": "Lista de personas bloqueadas"},
-            uuid4().hex,
-        )
-        assert created.status_code == 201, created.text
-        lpb_id = created.json()["id"]
-        uploaded = client.post(
-            f"/v1/private-lists/{lpb_id}/versions",
-            content=LPB_FILE.read_bytes(),
-            headers={**a_mlro, "Content-Type": CSV_TYPE, "Idempotency-Key": "lpb-1"},
-        )
-        assert uploaded.status_code == 201, uploaded.text
-        _ = drain(services)
-        [listed] = _get(client, a_mlro, "/v1/private-lists")["items"]
-        assert listed["list_code"] == LPB
-        assert listed["active_version"]["entry_count"] == LPB_ROWS
-
+        _lpb(demo)
     with section(4, "parties"):
-        p_lpb = _create_party(client, a_analyst, P_LPB)
-        p_ofac = _create_party(client, a_analyst, P_OFAC)
-        p_chg = _create_party(client, a_analyst, P_CHG)
-        p_rem = _create_party(client, a_analyst, P_REM)
-        p_add = _create_party(client, a_analyst, P_ADD)
-        p_clear = _create_party(client, a_analyst, P_CLEAR)
-        b_twin = _create_party(client, b_analyst, B_TWIN)
-        _ = drain(services)
-
+        _parties(demo)
     with section(5, "an explained hit"):
-        staff_view = _check(client, a_analyst, p_ofac)
-        assert staff_view["status"] == "PENDING_REVIEW"
-        hit = _only(staff_view["hits"], list_code=OFAC, band="ALERT")
-        features = hit["features"]
-        assert features["alignment"], features
-        assert all(pair["query"] and pair["entry"] for pair in features["alignment"]), (
-            features["alignment"]
-        )
-        assert features["qualifiers"], features
-        assert features["entry_ref"]["list_version_seq"] == 1
-        assert features["matcher_version"] == MATCHER_VERSION
-        client_view = _check(client, a_key, p_ofac)
-        assert set(client_view) == {"run_id", "subject_id", "status", "screened_at"}
-        assert client_view["status"] == "PENDING_REVIEW"
-        a_run = staff_view["run_id"]
-        lpb_view = _check(client, a_analyst, p_lpb)
-        _ = _only(lpb_view["hits"], list_code=LPB, band="ALERT")
-
+        _explained_hit(demo)
     with section(6, "the UN delta"):
-        before = _findings(client, a_analyst)
-        chg_before = _only(list(before.values()), party_id=p_chg, list_code=UN)
-        rem_before = _only(list(before.values()), party_id=p_rem, list_code=UN)
-        assert _load(UN, UN_V2).startswith(f"{UN} v2: ")
-        for tenant in (acme, beta):
-            _ = enqueue(services.queue, tenant.tenant_id, kind=LISTS_POLL_KIND)
-        _ = drain(services)
-        batches = _get(client, a_analyst, f"{SCREENING}/batches", kind="LIST_DELTA")
-        [delta_batch] = batches["items"]
-        assert delta_batch["status"] == "COMPLETED", delta_batch
-        after = _findings(client, a_analyst)
-        new = [after[match_id] for match_id in set(after) - set(before)]
-        assert sorted((m["party_id"], m["list_code"]) for m in new) == sorted([
-            (p_add, UN),
-            (p_chg, UN),
-        ])
-        assert after[chg_before["id"]]["status"] == "SUPERSEDED"
-        assert after[rem_before["id"]]["suggested_disposition"] == "DELISTED"
-        screened = _delta_screened(acme)
-        assert {p_add, p_chg} <= screened
-        assert screened.isdisjoint({p_lpb, p_ofac, p_clear})
-
+        _delta(demo)
     with section(7, "tenant B sees nothing"):
-        assert _get(client, b_mlro, "/v1/private-lists")["items"] == []
-        assert _get(client, b_analyst, f"{SCREENING}/matches", list_code=LPB) == {
-            "items": [],
-            "next_cursor": None,
-        }
-        foreign = client.get(f"{SCREENING}/runs/{a_run}", headers=b_analyst)
-        assert foreign.status_code == 404, foreign.text
-        twin = _get(client, b_analyst, f"{SCREENING}/parties/{b_twin}")
-        assert twin["status"] == "CLEAR", twin
-        assert twin["findings"] == []
-        a_batches = {
-            b["id"] for b in _get(client, a_analyst, f"{SCREENING}/batches")["items"]
-        }
-        b_batches = {
-            b["id"] for b in _get(client, b_analyst, f"{SCREENING}/batches")["items"]
-        }
-        assert b_batches
-        assert b_batches.isdisjoint(a_batches)
-
+        _tenant_b_sees_nothing(demo)
     with section(8, "four eyes"):
-        finding = _only(_party_findings(client, a_analyst, p_lpb), list_code=LPB)
-        assert finding["status"] == "OPEN"
-        escalated = _dispose(client, a_analyst, finding["id"], "POSSIBLE_TRUE_MATCH")
-        assert escalated.status_code == 201, escalated.text
-        assert escalated.json()["match_status"] == "ESCALATED"
-        refused = _dispose(client, a_analyst, finding["id"], "TRUE_MATCH")
-        assert refused.status_code == 409, refused.text
-        assert "SAME_REVIEWER" in refused.json()["blocked_reasons"]
-        confirmed = _dispose(client, a_mlro, finding["id"], "TRUE_MATCH")
-        assert confirmed.status_code == 201, confirmed.text
-        assert confirmed.json()["match_status"] == "TRUE_MATCH"
-        _ = drain(services)
-
+        _four_eyes(demo)
     with section(9, "no tipping-off"):
-        a_types, b_types = _delivered_types(acme), _delivered_types(beta)
-        leaked = {t for t in a_types | b_types if t.startswith(STAFF_ONLY_PREFIXES)}
-        assert not leaked, sorted(leaked)
-        assert STATUS_CHANGED in a_types, sorted(a_types)
-        assert STATUS_CHANGED in receiver.received, sorted(set(receiver.received))
-        assert not {t for t in receiver.received if t.startswith(STAFF_ONLY_PREFIXES)}
-
+        _no_tipping_off(demo)
     with section(10, "audit"):
-        for headers in (a_admin, b_admin):
-            verified = _get(client, headers, "/v1/audit/verify")
-            assert verified["valid"] is True, verified
-            assert verified["entries_checked"] > 0
+        _audit(demo)
