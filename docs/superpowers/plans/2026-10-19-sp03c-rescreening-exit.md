@@ -4,7 +4,7 @@
 
 **Goal:** Keep every tenant's party base screened as the world changes, and prove SP-03 is done. A shared list delta re-screens only the parties that Postgres blocking puts near the added and changed entries, and suggests `DELISTED` on findings whose entry was removed or became non-screenable. A new private-list version re-screens the whole base against that version. A monthly periodic batch re-screens every party against the full list set. A matcher-version change re-indexes and re-screens. A purged party's name index is deleted and the query side of its hits is redacted. Batch progress is visible through `GET /v1/screening/batches`. `xolotl screening eval` and `GET /v1/screening/evaluation` publish the evaluation report, and the console shows it. Perf tests record throughput and latency. `tests/e2e/test_sp03_exit.py` scripts the program's SP-03 exit demo over committed fixtures.
 
-**Architecture:** Everything lives under `src/xolotl/modules/screening/rescreen/` (spec §2 layout), with three small additions elsewhere: one route in 3b's `routes_screening.py`, two CLI commands on 3b's `screening` Typer app, and one schedule in `schedule_platform_jobs`. Each re-screen kind is a job that handles **one page in one transaction**. In that transaction it commits the page's runs, hits and findings, the batch's progress and cursor, and the job for the next page, so a crash replays at most one page. The replay is harmless because findings are deduplicated by 3b's `ON CONFLICT DO NOTHING` key, and a page whose cursor the batch has already passed is skipped. Forward scoring always goes through 3b's `screen()`. 3c never scores by itself. Reverse retrieval (which parties are near a changed entry) is a Postgres query over `party_name_index`. It uses the library's `blocking_plan` key sets on the phonetic-key GIN index, `pg_trgm` similarity on the trigram GIN index, and the party module's blind-index identifier lookup (spec Decision 2). Its retrieval recall is measured on the library corpus. Handlers are registered by `register_rescreen(...)`, called from `wire_platform` next to 3b's screening registration. The re-index check runs in the worker's `on_start` hook beside `ensure_platform_schedules`.
+**Architecture:** Everything lives under `src/xolotl/modules/screening/rescreen/` (spec §2 layout), with three small additions elsewhere: one route in 3b's `routes_screening.py`, two CLI commands on 3b's `screening` Typer app, and one schedule in `schedule_platform_jobs`. Each re-screen kind is a job that handles **one page in one transaction**. In that transaction it commits the page's runs, hits and findings, the batch's progress and cursor, and the job for the next page, so a crash replays at most one page. The replay is harmless because findings are deduplicated by 3b's `ON CONFLICT DO NOTHING` key, and a page whose cursor the batch has already passed is skipped. Forward scoring always goes through 3b's `screen()`. 3c never scores by itself. Reverse retrieval (which parties are near a changed entry) is a Postgres query over `party_name_index`. It uses the library's `blocking_plan` key sets on the phonetic-key GIN index, `pg_trgm` similarity on the trigram GIN index, and the party module's blind-index identifier lookup (spec Decision 2). Its retrieval recall is measured on the library corpus. Handlers and the consumers of the two catalog events are registered by `register_rescreen(*, queue)`, called from `wire_platform` right after 3b's `register_screening`; the purge subscriber joins 3b's party subscribers in `register_screening`. The re-index check runs in the worker's `on_start` hook beside `ensure_platform_schedules`.
 
 **Tech Stack:** the stack on `main` after plans 3a and 3b and the screening library are merged. No new runtime dependencies. `pg_trgm` exists (3a's 0009). The perf tests use only the standard library (`time.perf_counter`, `statistics.quantiles`).
 
@@ -23,12 +23,12 @@ This plan builds those defaults and does not reopen them.
 
 ## Global Constraints
 
-- Repository `/Users/omaribannez/code/xolotl`. Every task is one PR from `main` on branch `feat/sp03c-f<n>-<short>` in its own worktree (`docs/superpowers/execution/sp02/agreement.md` binds: gates, conventions, method, commits, report). `make ci` must be green at the end of every task. When `console/` changes (F6 only), the console gates must pass too: `npm run typecheck && npm run lint && npm test && npm run build`.
-- **No migration by default.** Every table and column 3c writes is created by 3a's `0009_lists` or 3b's `0010_screening`. There is one conditional exception, in F5: if 3b's 0010 does not grant the app role `UPDATE (features)` on `screening_hit` and `DELETE` on `party_name_index`, F5 adds `src/xolotl/migrations/versions/0011_screening_rescreen.py` with `revision = "0011_screening_rescreen"`, `down_revision = "0010_screening"` and those two grants only. It also appends `"0011_screening_rescreen"` to `CHAIN` in `tests/platform/test_migration_chain.py`. No other 3c task may add a migration.
-- Package `src/xolotl/modules/screening/rescreen/`: `__init__.py` (exports `register_rescreen`, `ensure_screening_index`), `batches.py` (F1), `delisting.py` (F1), `blocking.py` (F2), `list_delta.py` (F3), `walkers.py` (F4), `purge.py` (F5). Evaluation lives in `src/xolotl/modules/screening/evaluation_report.py` (F6). Tests go under `tests/modules/screening/rescreen/` (with `__init__.py`), `tests/perf/` (F7) and `tests/e2e/` (F8).
+- Repository `/Users/omaribannez/code/xolotl`. Every task is one PR from `main` on branch `feat/sp03c-f<n>-<short>` in its own worktree (`docs/superpowers/execution/sp03/agreement.md` binds: gates, conventions, method, commits, report). `make ci` must be green at the end of every task. When `console/` changes (F6 only), the console gates must pass too: `npm run typecheck && npm run lint && npm test && npm run build`.
+- **No migration.** Every table and column 3c writes is created by 3a's `0009_lists` or 3b's `0010_screening`. 0010 enables RLS on its tables with `enable_rls`' default grant (`SELECT, INSERT, UPDATE, DELETE`; only `match_disposition` is append-only), which covers F5's `UPDATE` of `screening_hit.features` and `DELETE` on `party_name_index`; 3b's E2 pins both privileges in `test_the_app_role_may_update_hits_and_delete_name_index_rows`. No 3c task adds a migration, so the chain ends at `0010_screening` (reconciliation finding 5).
+- Package `src/xolotl/modules/screening/rescreen/` (3b's E8 creates it with `__init__.py` and `party_events.py`): `__init__.py` (F1 adds `register_rescreen`; F4 exports `ensure_screening_index`), `batches.py` (F1), `delisting.py` (F1), `blocking.py` (F2), `list_delta.py` (F3), `walkers.py` (F4), `purge.py` (F5). Evaluation lives in `src/xolotl/modules/screening/evaluation_report.py` (F6). Tests go under `tests/modules/screening/rescreen/` (E8 creates its `__init__.py`), `tests/perf/` (F7) and `tests/e2e/` (F8).
 - **Import contracts** (spec §2): `screening.rescreen` may import `xolotl.platform.*`, the other screening subpackages and `xolotl.modules.party` **service functions and enums only**: `parties_query`, `get_party`, `PartyStatus`, `IdentifierType`, `IdentifierInvalidError` and F4's new `party_ids_after`. It never imports `xolotl.modules.party.models`. F4 adds one service function to `modules/party/service.py`, `party_ids_after(s, *, after: UUID | None, limit: int) -> list[UUID]`. It returns the ids of `ACTIVE` parties greater than `after`, in id order, and is what the walkers page with. `modules/tenants` never imports screening: the periodic schedule name is a string literal there.
 - **Settings** (`src/xolotl/platform/config.py`, prefix `XOLOTL_`): `screening_delta_batch: int = 200`, `screening_rescreen_batch: int = 500` and `screening_periodic_cron: str = "0 2 1 * *"`. The cron is validated by adding its name to the existing `@field_validator("units_fetch_cron", "retention_purge_cron", ...)` decorator of `_check_cron`. All three go in `.env.example`, the README configuration table and the `model_fields_set` assertion of `tests/platform/test_config.py::test_env_example_is_a_valid_configuration`. F1 adds the two batch sizes and F4 adds the cron. If 3b already added a field, the task reuses it and adds nothing.
-- **Job kinds** (constants in the module that handles them): `screening.list_delta` (`LIST_DELTA_KIND`, F3), `screening.private_list_rescreen` (`PRIVATE_LIST_RESCREEN_KIND`, F4), `screening.periodic_rescreen` (`PERIODIC_RESCREEN_KIND`, F4) and `screening.reindex` (`REINDEX_KIND`, F4). Next-page job keys are `<kind>:<batch_id>:<cursor>`, so the queue's dedup index refuses a second copy of the same page.
+- **Job kinds** (constants in the module that handles them): `screening.list_delta` (`LIST_DELTA_KIND`, F3), `screening.private_list_rescreen` (`PRIVATE_LIST_RESCREEN_KIND`, F4), `screening.periodic_rescreen` (`PERIODIC_RESCREEN_KIND`, F4) and `screening.reindex` (`REINDEX_KIND`, F4). Page job keys are `<kind>:<batch_id>:<cursor>` (the first page's cursor is `0` for deltas and `start` for walkers), so the queue's dedup index refuses a second copy of the same page.
 - **Payloads** (JSON, ids as strings):
 
   | Kind | Payload |
@@ -38,10 +38,11 @@ This plan builds those defaults and does not reopen them.
   | `periodic_rescreen` | `{}` from the schedule (opens the month's batch), else `{"batch_id", "after_party_id"}` |
   | `reindex` | `{"batch_id", "after_party_id"}` |
 
-  `batch_id` is optional on the two kinds 3a enqueues. Without it, the handler opens or reuses the batch by `(kind, ref)`, so 3a may enqueue before or after creating the batch row.
+  `batch_id` is always present except in the schedule's `{}`: every batch is opened by 3c code (the catalog-event consumers of F3 and F4, the periodic schedule's first job, `ensure_screening_index`, `screening rescreen`), which enqueues the first page with the batch id. 3a creates no batch and enqueues no re-screen job (reconciliation finding 1).
+- **Catalog-event consumers** (consumer `SCREENING_CONSUMER = "screening"`, 3b's `rescreen/party_events.py`, registered in `register_rescreen`): `on_list_version_published` (F3; F4 adds its `initial` branch) and `on_private_list_version_activated` (F4). Each opens its batch with `open_batch` and enqueues page one in the dispatcher's transaction, so a redelivered event finds the batch and the page key already there and adds nothing.
 - **Schedule:** per tenant, named `screening.periodic_rescreen`, with `cron = get_settings().screening_periodic_cron`, `tz = "America/Mexico_City"`, `kind = "screening.periodic_rescreen"` and `payload = {}`. It is declared by one more explicit `queue.schedule(...)` call in `schedule_platform_jobs` through the module constant `SCREENING_PERIODIC_SCHEDULE = "screening.periodic_rescreen"`. The pinned schedule tests (`tests/platform/test_worker.py::PLATFORM_SCHEDULES`, `tests/modules/tenants/test_kernel_events.py`) gain the row in name order in the same task (F4), as plan 2c's C5 did.
-- **Batches:** `screening_batch` rows (3b's model `ScreeningBatch`). `kind` is `LIST_DELTA`, `PRIVATE_LIST`, `PERIODIC` or `REINDEX`. `ref` takes one of these forms: `str(list_version_id)`, `str(private_list_version_id)`, `YYYY-MM` (Mexico City month of the run), `initial:<code>` (3a's first-version batch, walked as `PERIODIC`) or `MATCHER_VERSION`. `status` is `RUNNING`, `COMPLETED` or `FAILED`. `cursor` is the stringified offset for deltas and the last party id for walkers. `total` is computed when the batch opens. A batch is `FAILED` only when its job exhausts its attempts. The runner records the job failure, and the next open of the same `(kind, ref)` resumes a `FAILED` batch from its cursor.
-- **Runs:** every re-screen calls 3b's `screen(session, subject, *, mode, trigger, ...)` with `mode` in `LIST_DELTA`, `PRIVATE_LIST`, `PERIODIC` or `REINDEX`, `trigger.type = JOB`, `trigger.ref = str(job.id)` and the run's `batch_id` set. Delta and private-list runs pass the restricted entries, so `restricted_to_delta` is true. Only `ACTIVE` parties are screened. `PURGED` and `MERGED` parties are skipped and counted as done.
+- **Batches:** `screening_batch` rows (3b's model `ScreeningBatch`). `kind` is `LIST_DELTA`, `PRIVATE_LIST`, `PERIODIC` or `REINDEX`. `ref` takes one of these forms: `str(list_version_id)`, `str(private_list_version_id)`, `YYYY-MM` (Mexico City month of the run), `initial:<code>` (the first-version batch F4's consumer opens on an `initial` event, walked as `PERIODIC`) or `MATCHER_VERSION`. `status` is `RUNNING`, `COMPLETED` or `FAILED`. `cursor` is the stringified offset for deltas and the last party id for walkers. `total` is computed when the batch opens. A batch is `FAILED` only when its job exhausts its attempts. The runner records the job failure, and the next open of the same `(kind, ref)` resumes a `FAILED` batch from its cursor.
+- **Runs:** every re-screen calls 3b's `screen(session, subject, *, mode, trigger, lists=None, only_entries=None, only_index=None, require_versions=None, batch_id=None)` (E5) with `mode` in `LIST_DELTA`, `PRIVATE_LIST`, `PERIODIC` or `REINDEX`, `trigger.type = JOB`, `trigger.ref = str(job.id)` and `batch_id`. Delta runs pass `only_entries` and private-list runs `only_index`, so `restricted_to_delta` is true. Only `ACTIVE` parties are screened. `PURGED` and `MERGED` parties are skipped and counted as done.
 - **Events:** `screening.match_delisting_suggested.v1` (staff-only, data `{"match_id", "list_code"}`) is published once per finding that newly gets `suggested_disposition = DELISTED`. A finding that already carries it publishes nothing again. 3c publishes no other event type. Runs publish 3b's events through `screen()`.
 - **Audit:** 3c records no new audit action. Jobs are system activity, and runs are their own record (spec §5.2). `screening rescreen` from the CLI runs as `cli:<user>`, so its runs carry `trigger_type = CLI`.
 - **API:** `GET /v1/screening/batches` (staff, any role; machine scope `screening:read`) and `GET /v1/screening/evaluation` (staff only, no scope). Both are on 3b's `routes_screening.router`, built with `v1_router`, and the batches list is cursor-paginated with `paginate(..., ts_col=ScreeningBatch.started_at, id_col=ScreeningBatch.id)`.
@@ -53,8 +54,8 @@ This plan builds those defaults and does not reopen them.
 
 - **Batch bookkeeping is shared.** `rescreen/batches.py` opens batches by `(kind, ref)` with `INSERT ... ON CONFLICT (tenant_id, kind, ref) DO NOTHING` and then a locked read. It advances them in the page's transaction. A `COMPLETED` batch is never reopened: a second periodic job in the same month is a no-op, and so is a reindex for a matcher version already done. The spec says only "creates a `PERIODIC` batch (ref `YYYY-MM`)". This rule makes the schedule safe under at-least-once delivery.
 - **The re-index also backfills.** `ensure_screening_index` opens a `REINDEX` batch when any `party_name_index.matcher_version` differs from `MATCHER_VERSION` (as in the spec), **or** when an `ACTIVE` party has no `LEGAL` row. Parties created before 3b's subscriber existed (every SP-02 party) would otherwise never be reverse-screened.
-- **The private-list walker builds the version's index once per page.** It loads the version's screenable entries, builds one `MemoryIndex` per page and passes it to `screen()` through `only_index=`, a keyword F1 adds to 3b's `screen()` beside `only_entries`. The two keywords are mutually exclusive. Rebuilding a 5,000-entry index for each of 500 parties would dominate the page. If 3b's `screen()` already accepts a prebuilt index, or caches the throwaway one, F1 drops the keyword and F4 uses 3b's mechanism. *Reconciliation item.*
-- **`screen()` takes `batch_id`.** F1 adds `batch_id: UUID | None = None` to 3b's `screen()` (written to `screening_run.batch_id`) unless 3b's `Trigger` already carries it. *Reconciliation item.*
+- **The private-list walker builds the version's index once per page.** It loads the version's screenable entries, builds one `MemoryIndex` per page and passes it to `screen()` through `only_index=`, which 3b's E5 provides beside `only_entries` (mutually exclusive). Rebuilding a 5,000-entry index for each of 500 parties would dominate the page.
+- **`screen()` takes `batch_id`**, also from 3b's E5, written to `screening_run.batch_id`. 3c does not modify `screen()` (reconciliation finding 2).
 - **Trigram filter.** The blocking query uses `norm_name % :folded` after `SET LOCAL pg_trgm.similarity_threshold = 0.4`, not `similarity(norm_name, :folded) >= 0.4` as spec §10.2 writes it. The two predicates select the same rows, but only `%` is served by the `ix_pni_trgm` GIN index. The phonetic predicate is one `phonetic_keys @> CAST(:k AS text[])` per key set, OR-ed together, which `ix_pni_phonetic` serves.
 - **Identifier blocking goes through `parties_query`.** It uses `parties_query(s, id_type=..., value=...)`, the party module's blind-index lookup, for each `RFC`, `CURP` and `PASSPORT` identifier of the entry. A value that fails the party validator raises `IdentifierInvalidError`. The entry is still blocked by name, and the failure is logged at DEBUG with the list code and entry key only. Lists publish malformed RFCs, so this is routine and not a warning.
 - **Overflow:** an entry whose candidate union exceeds 5,000 parties (`BLOCKING_CAP`) is not screened in the delta. Instead it is logged at WARNING (`screening.delta_entry_overflow`, list code and entry key) and counted in `screening_batch.last_error` as `OVERFLOW:<n>`, with the batch still `COMPLETED`. The next periodic run covers it (spec §10.2).
@@ -64,42 +65,34 @@ This plan builds those defaults and does not reopen them.
 
 ## Dependencies outside this plan
 
-Names are the spec's. Where the spec fixes no name, the assumed name is marked *(assumed)*, and the task that consumes it adapts to whatever the producing plan shipped. It records any rename in its PR.
+Names are exact (reconciliation finding 3). Library task ids are the screening library plan's (`docs/superpowers/plans/2026-10-19-screening-library.md`); the execution kit calls them `LIB-lists-T1` … `LIB-corpus-T6`.
 
-**LIB-lists** (screening library, `xolotl.modules.screening.lists`):
+**LIB-lists** (screening library T1, merged in PR #52; T2 and T3 for the other parsers, `xolotl.modules.screening.lists`):
 - `ListEntry`, with `entry_key`, `screenable`, `identifiers`, `primary_name`, `aliases` and `from_json`.
 - `EntityType`, `IdType` and `EntryIdentifier`.
-- The trimmed UN fixture under `tests/modules/screening/fixtures/`, which F8 derives its second version from.
+- The trimmed fixtures under `tests/modules/screening/fixtures/` (T1's `un/consolidated.xml`; T2's OFAC and EU and T3's UK and SAT 69-B fixtures, which F8 loads).
 
-**LIB-matching** (`xolotl.modules.screening.matching`):
-- `MATCHER_VERSION`, `normalize_name`, `NormalizedName`, `blocking_plan`, `BlockingPlan`, `IdfTable`, `MemoryIndex.build` and `IndexedEntry`.
+**LIB-matching** (T4 and T5, `xolotl.modules.screening.matching`):
+- T4: `MATCHER_VERSION`, `normalize_name`, `NormalizedName`. T5: `blocking_plan`, `BlockingPlan`, `IdfTable`, `MemoryIndex.build` and `IndexedEntry`.
 
-**LIB-corpus** (`xolotl.modules.screening.matching.evaluation` and `tests/modules/screening/corpus/`):
-- `evaluate(corpus) -> EvaluationReport`.
-- The corpus loader `load_corpus(path) -> Corpus` *(assumed)*.
-- The corpus's labelled true pairs, each a query plus its `ListEntry` (`Corpus.true_pairs` *(assumed)*).
-- `corpus/floors.yaml` and its loader `load_floors(path)` *(assumed)*.
-- `EvaluationReport.to_json()` *(assumed)* and the floor check `report.below(floors) -> list[str]` *(assumed)*.
+**LIB-corpus** (T6, `xolotl.modules.screening.matching.evaluation` and `tests/modules/screening/corpus/`):
+- `evaluate(corpus) -> EvaluationReport`, the deterministic perturbation generator, `corpus/floors.yaml` (spec §4.3, library Decision 9).
+- The library plan fixes no name for the corpus loader, for reading the labelled true pairs (query plus `ListEntry`), for loading `floors.yaml`, for serializing an `EvaluationReport` or for checking it against the floors. F2, F6 and F7 use the names T6 ships, and the reconciliation raised them with the library (finding 15); none is built in 3c.
 
-**3a** (list catalog and private lists, `docs/sp03a-plan`, ids D…):
-- `ListEntryRow`, `ListEntryDeltaRow` and `ListVersion` *(model names assumed)* over `list_entry`, `list_entry_delta` and `list_version`.
-- `PrivateListEntryRow`, `PrivateListEntryDeltaRow`, `PrivateListVersion` and `PrivateList` *(assumed)* over the private tables.
-- The catch-up of spec §6.4 enqueues `screening.list_delta` with `{"version_id", "offset": 0}` (key `list_delta:<version_id>`), plus `batch_id` if it inserted the batch.
-- The first version of a list enqueues `screening.periodic_rescreen` with a `PERIODIC` batch ref `initial:<code>`.
-- A private upload enqueues `screening.private_list_rescreen` with `{"private_list_version_id", "after_party_id": null}`, plus `batch_id` if it inserted the batch.
-- `ingest_file(...)`, `xolotl lists load-file`, the `lists.poll` job kind constant `LISTS_POLL_KIND` *(assumed)*, `POST /v1/private-lists` and `POST /v1/private-lists/{id}/versions` (F8).
-- A function decrypting a private entry row to a `ListEntry`, `private_entry(s, row) -> ListEntry` *(assumed)*.
+**3a** (`docs/superpowers/plans/2026-10-19-sp03a-list-catalog.md`, tasks D1 to D9):
+- D1 models in `xolotl.modules.screening.catalog.models`: `ListVersion`, `ListEntryRow`, `ListEntryDelta` over `list_version`, `list_entry`, `list_entry_delta`; `PrivateList`, `PrivateListVersion`, `PrivateListEntryRow`, `PrivateListEntryDelta` over the private tables.
+- D3: `lists.version_published.v1` (`LISTS_VERSION_PUBLISHED`, data `{list_code, version_id, seq, added, changed, removed, initial}`), one per tenant per version, `initial: true` for a subscription's first version; `LISTS_POLL_KIND = "lists.poll"` in `catalog.poll`. D6: `private_list.version_activated.v1` (`PRIVATE_LIST_VERSION_ACTIVATED`, data `{private_list_id, version_id}`). Both in `screening/events.py`. 3a creates no batch and enqueues no re-screen job; 3c's consumers do (Global Constraints).
+- D4: `ingest_file(...)`, `ingest_parsed(...)`, `xolotl lists load-file`, the test loader `tests/modules/screening/catalog/support.py::load_shared(code, entries, *, store) -> IngestReport` and the fixture `tests/modules/screening/catalog/fixtures/un_v2.xml`. D6: `load_private(session, store, list_code, entries) -> PrivateListVersion`. D7: `POST /v1/private-lists`, `POST /v1/private-lists/{id}/versions`, `GET /v1/lists` (F8).
+- D6: `private_entry_of(session, row: PrivateListEntryRow) -> ListEntry` in `catalog.private` (decrypts; no `VIEW_PII`).
 
-**3b** (screening engine and review, `docs/sp03b-plan`, ids E…):
-- `screen(session, subject, *, mode, trigger, lists=None, only_entries=None) -> RunResult`, with `RunResult.new_match_count`.
-- `RunMode` and `TriggerType` enums, and `Trigger` *(assumed)*.
-- `subject_for_party`, `query_for_party` and `index_party_names`.
-- `ScreeningIndexHolder`, with the shared snapshot's `IdfTable` (`holder.snapshot().idf` *(assumed)*) and a per-process accessor (`get_index_holder()` *(assumed)*).
-- The models `PartyNameIndex`, `ScreeningSubject`, `ScreeningRun`, `ScreeningHit`, `ScreeningMatch`, `ScreeningBatch` and `MatchStatus` over 0010.
-- The event constant `MATCH_DELISTING_SUGGESTED = "screening.match_delisting_suggested.v1"`, registered staff-only through `register_staff_only`. If 3b omitted it, F1 adds the constant and the registration.
-- The `screening` consumer name of its party subscribers, the screening `routes_screening.router`, the `screening_app` Typer group in `cli.py` and `register_screening(...)` in `wire_platform`.
-- The console `features/screening/` folder and `ACCESS.screening` *(assumed)* (F6).
-- `POST /v1/screening/checks`, `GET /v1/screening/matches`, `GET /v1/screening/runs/{id}`, the dispositions route and the staff-only webhook guard (F8).
+**3b** (`docs/superpowers/plans/2026-10-19-sp03b-screening-engine.md`, tasks E1 to E10):
+- E5: `screen(session, subject, *, mode, trigger, lists=None, only_entries=None, only_index=None, require_versions=None, batch_id=None) -> RunResult` (`RunResult.run.new_match_count`), `Trigger(type, ref)` in `engine/screen.py`; `today_mx` in `engine/policy.py` (E4).
+- E2: `RunMode`, `TriggerType`, `BatchKind`, `BatchStatus`, `MatchStatus`, `SuggestedDisposition`, `OPEN_MATCH_STATUSES` in `engine/enums.py`; the models `PartyNameIndex`, `ScreeningSubject`, `ScreeningRun`, `ScreeningHit`, `ScreeningMatch`, `ScreeningBatch`; the event constant `MATCH_DELISTING_SUGGESTED`, registered staff-only by `register_screening` (E3).
+- E4: `subject_for_party`, `query_for_party` and `index_party_names`.
+- E3: `get_index_holder()` returning the `ScreeningIndexHolder`; `holder.shared(s, require={list_code: seq})` returns the `SharedShard`, whose `blocking_idf` is the `IdfTable` 3c blocks and builds private-version indexes with.
+- E8: `SCREENING_CONSUMER = "screening"` and the package `rescreen/` (`party_events.py`), `register_screening(*, session_factory, settings, queue)`, the `screening_app` Typer group in `cli.py`. E7: `routes_screening.router`, `schemas.py`.
+- E9: the console `features/screening/` folder (`queries.ts`) and `ACCESS.screening` (F6).
+- E7: `POST /v1/screening/checks`, `GET /v1/screening/matches`, `GET /v1/screening/runs/{id}`, the dispositions route; E1: the staff-only webhook guard (F8).
 
 **Earlier plans (on `main`):**
 - `parties_query`, `get_party`, `create_party`, `PartyStatus`, `IdentifierType` and `party.purged.v1` (2c).
@@ -118,17 +111,16 @@ Names are the spec's. Where the spec fixes no name, the assumed name is marked *
 
 ```
 src/xolotl/modules/screening/rescreen/
-  __init__.py            register_rescreen, ensure_screening_index (F1 creates; F3, F4, F5 add their registrations)
+  __init__.py            register_rescreen, ensure_screening_index (3b's E8 creates it; F1 adds register_rescreen; F3, F4 add their registrations)
   batches.py             open_batch, advance_batch, complete_batch, batch_progress, BATCH_KINDS (F1)
   delisting.py           suggest_delisting (F1)
   blocking.py            BLOCKING_CAP, reverse_candidates, BlockedEntry (F2)
   list_delta.py          LIST_DELTA_KIND, handle_list_delta (F3)
   walkers.py             PRIVATE_LIST_RESCREEN_KIND, PERIODIC_RESCREEN_KIND, REINDEX_KIND, the three handlers,
                          ensure_screening_index, start_rescreen (F4)
-  purge.py               on_party_purged, redact_features (F5)
+  purge.py               on_party_purged, redact_features (F5; registered in 3b's register_screening)
 src/xolotl/modules/screening/evaluation_report.py   load_shipped_report, EvaluationReportResponse (F6)
 src/xolotl/modules/screening/data/evaluation.json   the committed report (F6)
-src/xolotl/modules/screening/engine/…              screen(): + batch_id, + only_index (F1, 3b's file)
 src/xolotl/modules/screening/routes_screening.py    + GET /batches (F1), + GET /evaluation (F6)
 src/xolotl/modules/screening/schemas.py             + BatchResponse (F1), + EvaluationReportResponse re-export (F6)
 src/xolotl/platform/config.py, .env.example, README.md   + three settings (F1, F4)
@@ -137,12 +129,12 @@ src/xolotl/modules/party/service.py                 + party_ids_after (F4)
 src/xolotl/app.py                                   + register_rescreen in wire_platform (F1); + ensure_screening_index in worker_loop's on_start (F4)
 src/xolotl/cli.py                                   + screening rescreen (F4), + screening eval (F6)
 pyproject.toml, Makefile, .gitignore                + perf marker, -m "not perf", make perf, .perf/ (F7)
-tests/modules/screening/rescreen/{__init__,conftest}.py, test_batches.py, test_delisting.py (F1), test_blocking.py (F2),
+tests/modules/screening/rescreen/conftest.py, test_batches.py, test_delisting.py (F1), test_blocking.py (F2),
   test_list_delta.py (F3), test_walkers.py (F4), test_purge.py (F5)
 tests/modules/screening/test_evaluation_report.py, tests/test_cli.py (+) (F6)
 tests/platform/test_worker.py, tests/modules/tenants/test_kernel_events.py, tests/platform/test_config.py (+) (F1, F4)
 tests/perf/{__init__,conftest}.py, tests/perf/test_sp03_perf.py (F7)
-tests/e2e/{__init__,conftest}.py, tests/e2e/test_sp03_exit.py, tests/e2e/fixtures/{README.md, un_consolidated_v2.xml, lpb_tenant_a.csv} (F8)
+tests/e2e/{__init__,conftest}.py, tests/e2e/test_sp03_exit.py, tests/e2e/fixtures/{README.md, lpb_tenant_a.csv} (F8; the UN v2 file is 3a's un_v2.xml)
 console/src/features/screening/{EvaluationPage.tsx, EvaluationPage.test.tsx, queries.ts (+)}, App.tsx, components/layout/nav.ts,
   i18n/{es-MX.json, en.json}, api/schema.d.ts (regenerated) (F6)
 ```
@@ -151,21 +143,20 @@ console/src/features/screening/{EvaluationPage.tsx, EvaluationPage.test.tsx, que
 
 ### Task F1: Batch bookkeeping, delisting suggestions, the batches API and the `screen()` hooks
 
-Depends on 3b: `ScreeningBatch`, `ScreeningMatch`, `screen()`, `routes_screening.router`, `register_screening` and the event constants. It creates the package every other task of this plan extends. Touches `src/xolotl/app.py` (`wire_platform`). Console: no.
+Depends on 3b's E5 (`screen()` with `batch_id`), E7 (`routes_screening.router`) and E8 (the `rescreen` package, `SCREENING_CONSUMER`, `register_screening(..., queue)`); E2's `ScreeningBatch`, `ScreeningMatch`, enums and event constants come with them. It adds `register_rescreen`, which every other task of this plan extends. Touches `src/xolotl/app.py` (`wire_platform`). Console: no.
 
 **Files:**
-- Create: `src/xolotl/modules/screening/rescreen/{__init__,batches,delisting}.py`
-- Modify: 3b's `screen()` module (`batch_id`, `only_index` keywords), `routes_screening.py` (`GET /batches`), `schemas.py` (`BatchResponse`), `src/xolotl/platform/config.py`, `.env.example`, `README.md` (two batch-size settings), `src/xolotl/app.py` (`register_rescreen(queue=queue)` right after 3b's `register_screening(...)`)
-- Test: `tests/modules/screening/rescreen/{__init__,conftest}.py`, `test_batches.py`, `test_delisting.py`; `tests/platform/test_config.py` (+)
+- Create: `src/xolotl/modules/screening/rescreen/{batches,delisting}.py`
+- Modify: `src/xolotl/modules/screening/rescreen/__init__.py` (3b's E8), `routes_screening.py` (`GET /batches`), `schemas.py` (`BatchResponse`), `src/xolotl/platform/config.py`, `.env.example`, `README.md` (two batch-size settings), `src/xolotl/app.py` (`register_rescreen(queue=queue)` right after 3b's `register_screening(...)`)
+- Test: `tests/modules/screening/rescreen/conftest.py`, `test_batches.py`, `test_delisting.py`; `tests/platform/test_config.py` (+)
 
-**Consumes:** 3b's models and `screen()`, `MatchStatus`, `MATCH_DELISTING_SUGGESTED`, `publish` (platform events), `paginate`, `require_access`, `PostgresJobQueue`.
+**Consumes:** 3b's models, `BatchKind`, `BatchStatus`, `MatchStatus`, `MATCH_DELISTING_SUGGESTED`, `publish` (platform events), `paginate`, `require_access`, `PostgresJobQueue`.
 
 **Produces:**
 
 ```python
 # batches.py
-class BatchKind(StrEnum): LIST_DELTA; PRIVATE_LIST; PERIODIC; REINDEX       # 3b's enum if it defined one
-class BatchStatus(StrEnum): RUNNING; COMPLETED; FAILED
+# BatchKind and BatchStatus are 3b's (engine/enums.py, E2); batches.py imports them
 
 def open_batch(s: Session, *, kind: BatchKind, ref: str, total: int | None) -> ScreeningBatch | None
     # INSERT … ON CONFLICT (tenant_id, kind, ref) DO NOTHING; then SELECT … FOR UPDATE.
@@ -205,10 +196,6 @@ def list_screening_batches(...) -> Page[BatchResponse]
     - `test_open_escalated_and_true_match_findings_get_the_suggestion` (`FALSE_POSITIVE`, `DELISTED` and `SUPERSEDED` ones are untouched)
     - `test_a_second_suggestion_publishes_nothing` (one `screening.match_delisting_suggested.v1` per finding, ever)
     - `test_the_suggestion_event_is_staff_only` (a wildcard webhook endpoint gets no delivery row)
-  - Engine hooks (in 3b's engine test module, appended):
-    - `test_a_run_records_its_batch`
-    - `test_only_index_scores_against_the_given_index_and_marks_the_run_restricted`
-    - `test_only_entries_and_only_index_are_exclusive` (`ValueError`)
   - `tests/platform/test_config.py`: the two new fields in `.env.example`.
 - [ ] **Step 2: Run to verify failure.** `uv run pytest tests/modules/screening/rescreen tests/platform/test_config.py --no-cov -q` → `ImportError`.
 - [ ] **Step 3: Implement** the code, the settings and the `wire_platform` line.
@@ -220,7 +207,7 @@ def list_screening_batches(...) -> Page[BatchResponse]
 
 ### Task F2: Reverse blocking in Postgres, with retrieval recall on the corpus
 
-Depends on LIB-matching (`normalize_name`, `blocking_plan`, `IdfTable`), LIB-corpus (true pairs) and 3b (`PartyNameIndex`, `index_party_names`, the holder's shared `IdfTable`). It does not need F1, so it runs in parallel with it. Console: no.
+Depends on LIB T4 and T5 (`normalize_name`, `blocking_plan`, `IdfTable`), LIB T6 (true pairs) and 3b's E4 (`PartyNameIndex`, `index_party_names`). The caller passes the `IdfTable` (`SharedShard.blocking_idf` in F3; the tests build one with `IdfTable.build`). It does not need F1, so it runs in parallel with it. Console: no.
 
 **Files:**
 - Create: `src/xolotl/modules/screening/rescreen/blocking.py`
@@ -274,45 +261,49 @@ def reverse_candidates(s: Session, entries: Sequence[ListEntry], *, idf: IdfTabl
 
 ### Task F3: The shared list-delta re-screen job
 
-Depends on F1 and F2, on 3a (`list_entry_delta`, `list_entry`, the catch-up enqueue) and on 3b (`screen()`, `subject_for_party`, `get_index_holder`). Console: no.
+Depends on F1 and F2, on 3a (D1's `ListEntryDelta` and `ListEntryRow`, D3's `lists.version_published.v1`, D4's `load_shared`) and on 3b (`screen()`, `subject_for_party`, `get_index_holder`). Console: no.
 
 **Files:**
 - Create: `src/xolotl/modules/screening/rescreen/list_delta.py`
-- Modify: `rescreen/__init__.py` (`register_job_handler(LIST_DELTA_KIND, …)` in `register_rescreen`)
+- Modify: `rescreen/__init__.py` (`register_job_handler(LIST_DELTA_KIND, …)` and `register_subscriber(LISTS_VERSION_PUBLISHED, on_list_version_published(queue), consumer=SCREENING_CONSUMER)` in `register_rescreen`)
 - Test: `tests/modules/screening/rescreen/test_list_delta.py`
 
-**Consumes:** F1's `open_batch`, `lock_batch`, `advance_batch`, `complete_batch`, `page_already_done` and `suggest_delisting`; F2's `reverse_candidates`; 3a's delta and entry models; 3b's `screen`, `subject_for_party`, `IndexedEntry`, `holder.snapshot().idf`; `get_settings().screening_delta_batch`.
+**Consumes:** F1's `open_batch`, `lock_batch`, `advance_batch`, `complete_batch`, `page_already_done` and `suggest_delisting`; F2's `reverse_candidates`; 3a's `ListEntryDelta`, `ListEntryRow`, `ListVersion`; 3b's `screen`, `subject_for_party`, `IndexedEntry`, `get_index_holder().shared(s, require=...).blocking_idf`; `get_settings().screening_delta_batch`.
 
 **Produces:**
 
 ```python
 LIST_DELTA_KIND = "screening.list_delta"
 
+def on_list_version_published(queue: PostgresJobQueue) -> Handler   # consumer "screening", registered by register_rescreen
+    # initial False: batch = open_batch(LIST_DELTA, ref=data["version_id"], total=added+changed+removed); None -> return;
+    #   queue.enqueue(kind=LIST_DELTA_KIND, key=f"{LIST_DELTA_KIND}:{batch.id}:0", payload={"batch_id", "version_id", "offset": 0})
+    # initial True: nothing here; F4 adds that branch (the initial PERIODIC batch)
+
 def handle_list_delta(queue: PostgresJobQueue) -> JobHandler     # closure registered by register_rescreen
-    # 1. batch = lock_batch(payload["batch_id"]) or open_batch(LIST_DELTA, ref=version_id, total=<count of ADDED+CHANGED+REMOVED rows>)
-    #    None or page_already_done(batch, str(offset)) -> return
+    # 1. batch = lock_batch(payload["batch_id"]); page_already_done(batch, str(offset)) -> return
     # 2. at offset 0 only: removed keys and CHANGED keys whose new row is non-screenable -> suggest_delisting(list_code, keys)
     # 3. page = ADDED and CHANGED delta rows whose new row is screenable, ordered by source_entry_key, OFFSET offset LIMIT screening_delta_batch
     #    entries = [ListEntry.from_json(row.entry)]; indexed = IndexedEntry(entry, ref=new_entry_id, shard=list_code)
     # 4. blocked = reverse_candidates(s, entries, idf=holder idf); invert to party_id -> [IndexedEntry]
     # 5. for each party (id order): skip unless ACTIVE; result = screen(s, subject_for_party(s, pid), mode=LIST_DELTA,
-    #       trigger=Trigger(JOB, str(job.id)), only_entries=its entries, batch_id=batch.id)
-    # 6. advance_batch(done=len(page), runs=…, new_matches=sum(result.new_match_count), cursor=str(offset + len(page)))
+    #       trigger=Trigger(JOB, str(job.id)), only_entries=its entries, require_versions={list_code: seq}, batch_id=batch.id)
+    # 6. advance_batch(done=len(page), runs=…, new_matches=sum(result.run.new_match_count), cursor=str(offset + len(page)))
     # 7. short page -> complete_batch(note="OVERFLOW:<n>" if any overflow else None); else enqueue the next offset (key f"{kind}:{batch.id}:{next}")
 ```
 
-The handler asks the holder for the version before step 4 (`holder.ensure(version_id)`, 3b's forced refresh), so the run's list set records the delta's version.
+Before step 4 the handler calls `get_index_holder().shared(s, require={list_code: seq})` (3b's forced refresh) and blocks with that shard's `blocking_idf`; `screen()` gets the same `require_versions`, so the run's list set records the delta's version.
 
-- [ ] **Step 1: Write the failing tests** (`test_list_delta.py`). The conftest helper `load_versions(v1, v2)` ingests two `ParsedList`s built in code through 3a's `ingest_file` path, or through 3a's lower-level writer if it has one. The tenant has a subscription and parties near five entries: unchanged U, added A, changed C, removed R, and D, which becomes 69-B `DESVIRTUADO`. Before the delta, U, C, R and D each have an open finding from an earlier run.
+- [ ] **Step 1: Write the failing tests** (`test_list_delta.py`). The conftest helper `load_versions(v1, v2)` writes two versions built in code through 3a's `load_shared(code, entries, *, store)` (D4, over `ingest_parsed`). The tenant has a subscription and parties near five entries: unchanged U, added A, changed C, removed R, and D, which becomes 69-B `DESVIRTUADO`. Before the delta, U, C, R and D each have an open finding from an earlier run.
   - `test_a_delta_alerts_only_on_added_and_changed_entries`: after the job runs, the new findings are exactly those for A and C. C's old finding is `SUPERSEDED` and points at the new one. U's finding is untouched. The batch is `COMPLETED` with `done == 2` and `new_matches == 2`. Every run is `LIST_DELTA` with `restricted_to_delta` and the batch id, and every hit's `list_entry_id` is a delta row's `new_entry_id`.
   - `test_a_removed_or_desvirtuado_entry_suggests_delisting_once`: R and D are `DELISTED`-suggested, and two events are published. Re-running the job publishes none.
   - `test_parties_far_from_every_entry_are_not_screened`: no run for them.
   - `test_pages_chain_until_the_delta_is_done`: `screening_delta_batch = 2` with five changed entries gives three jobs, cursor `"5"`, `COMPLETED`.
   - `test_a_redelivered_page_changes_nothing`: running the same page job again after its commit adds no run, hit, finding or count.
-  - `test_the_job_opens_its_batch_when_the_payload_has_none`: matches 3a enqueueing before the batch exists.
+  - `test_the_version_event_opens_one_batch_and_enqueues_page_one`: dispatching `lists.version_published.v1` (`initial: false`) creates the `LIST_DELTA` batch with ref `version_id` and one `screening.list_delta` job; redelivering the event adds neither.
   - `test_an_overflowing_entry_is_left_to_the_periodic_run`: `BLOCKING_CAP` patched, `last_error == "OVERFLOW:1"`, the batch `COMPLETED`.
   - `test_purged_parties_are_skipped`.
-  - `test_the_catch_up_reaches_the_job_through_the_worker`: 3a's `lists.poll` is enqueued and the runner and bus are drained. The delta findings exist, which proves 3a's enqueue contract end to end.
+  - `test_the_catch_up_reaches_the_job_through_the_worker`: 3a's `lists.poll` is enqueued and the runner and bus are drained. The delta findings exist, which proves the event hand-over from 3a's catch-up to this consumer end to end.
 - [ ] **Step 2: Run to verify failure.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run to verify pass**, then the gates and `make ci`.
@@ -323,12 +314,13 @@ The handler asks the holder for the version before step 4 (`holder.ensure(versio
 
 ### Task F4: Party walkers: private-list, periodic and re-index batches, the schedule and `screening rescreen`
 
-Depends on F1, on 3a (private-list versions, entries and deltas, `private_entry`, the upload's enqueue, the initial-version batch) and on 3b (`screen`, `index_party_names`, the holder). It runs in parallel with F3: the two tasks share only F1's helpers and touch different files, except `rescreen/__init__.py`, where each adds one line. Touches `src/xolotl/modules/tenants/service.py`, the pinned schedule tests, `src/xolotl/app.py` (`worker_loop`) and `src/xolotl/cli.py`. Console: no.
+Depends on F1 and F3 (it adds the `initial` branch to F3's `on_list_version_published`), on 3a (D1's `PrivateListVersion`, `PrivateListEntryRow`, `PrivateListEntryDelta`; D6's `private_entry_of`, `private_list.version_activated.v1` and `load_private`) and on 3b (`screen`, `index_party_names`, the holder). Touches `src/xolotl/modules/tenants/service.py`, the pinned schedule tests, `src/xolotl/app.py` (`worker_loop`) and `src/xolotl/cli.py`. Console: no.
 
 **Files:**
 - Create: `src/xolotl/modules/screening/rescreen/walkers.py`
 - Modify:
-  - `rescreen/__init__.py` (three handlers; `ensure_screening_index` export)
+  - `rescreen/__init__.py` (three handlers; `register_subscriber(PRIVATE_LIST_VERSION_ACTIVATED, on_private_list_version_activated(queue), consumer=SCREENING_CONSUMER)`; `ensure_screening_index` export)
+  - `rescreen/list_delta.py` (the `initial` branch of `on_list_version_published`)
   - `src/xolotl/modules/party/service.py` (`party_ids_after`, with a test appended to `tests/modules/party/test_service.py`: id order, `ACTIVE` only, `after` exclusive)
   - `src/xolotl/modules/tenants/service.py` (`SCREENING_PERIODIC_SCHEDULE`, one `queue.schedule` call)
   - `src/xolotl/platform/config.py`, `.env.example` and `README.md` (`screening_periodic_cron`)
@@ -348,16 +340,21 @@ def _walk_page(s, job, queue, batch, *, mode: RunMode, after: UUID | None, scree
     # party_ids_after(s, after=after, limit=screening_rescreen_batch); screen_one each; advance_batch(cursor=str(last id));
     # short page -> complete_batch; else enqueue the same kind with {"batch_id", "after_party_id": last}
 
+def on_private_list_version_activated(queue) -> Handler      # consumer "screening"
+    # open_batch(PRIVATE_LIST, ref=data["version_id"], total=<ACTIVE party count>); None -> return; enqueue page one
+    # (key f"{PRIVATE_LIST_RESCREEN_KIND}:{batch.id}:start", payload {"batch_id", "private_list_version_id", "after_party_id": None})
+# on_list_version_published, initial True (added to F3's handler): open_batch(PERIODIC, ref=f"initial:{list_code}",
+#   total=<ACTIVE party count>); None -> return; enqueue PERIODIC_RESCREEN_KIND page one with {"batch_id", "after_party_id": None}
 def handle_private_list_rescreen(queue) -> JobHandler
-    # batch by payload or open_batch(PRIVATE_LIST, ref=version_id, total=<ACTIVE party count>)
+    # batch = lock_batch(payload["batch_id"])
     # first page only: removed private keys and non-screenable new rows -> suggest_delisting(private list_code, keys)
-    # build once per page: entries = [private_entry(s, row) for the version's screenable rows];
-    #   index = MemoryIndex.build(IndexedEntry(e, ref=row.id, shard=list_code) …, idf=holder idf)
-    # screen_one = screen(…, mode=PRIVATE_LIST, only_index=index, batch_id=…)
+    # build once per page: entries = [private_entry_of(s, row) for the version's screenable rows];
+    #   index = MemoryIndex.build(IndexedEntry(e, ref=row.id, shard=list_code) …, idf=get_index_holder().shared(s).blocking_idf)
+    # screen_one = screen(…, mode=PRIVATE_LIST, lists={list_code}, only_index=index, batch_id=…)
     # a version that is no longer ACTIVE when the page runs: complete_batch(note="SUPERSEDED_VERSION") (the newer version has its own batch)
 def handle_periodic_rescreen(queue) -> JobHandler
     # payload {} -> open_batch(PERIODIC, ref=today_mx.strftime("%Y-%m")) and enqueue the first page (None -> already done this month)
-    # payload with batch_id (including 3a's "initial:<code>" batches) -> _walk_page(mode=PERIODIC), full list set
+    # payload with batch_id (including the "initial:<code>" batches) -> _walk_page(mode=PERIODIC), full list set
 def handle_reindex(queue) -> JobHandler
     # _walk_page(mode=REINDEX) where screen_one = index_party_names(s, pid) then screen(…, mode=REINDEX)
 
@@ -389,7 +386,8 @@ The pinned rows, inserted in name order: `("screening.periodic_rescreen", "0 2 1
   - `test_a_superseded_version_stops_its_batch`
   - `test_the_periodic_job_opens_one_batch_per_month`: a second `{}` job in the same Mexico City month is a no-op. A job across the month boundary (clock patched to 2027-01-01T07:30Z, which is 01:30 in Mexico City on 1 January) opens `2027-01`.
   - `test_the_periodic_walk_screens_every_active_party_against_the_full_list_set`
-  - `test_an_initial_list_batch_is_walked_as_periodic`: 3a's `initial:<code>` batch.
+  - `test_an_initial_version_event_opens_one_periodic_batch`: dispatching `lists.version_published.v1` with `initial: true` opens the `PERIODIC` batch `initial:<code>` once (a redelivery adds nothing), enqueues no `screening.list_delta`, and the walk screens every `ACTIVE` party as `PERIODIC`.
+  - `test_the_activation_event_opens_one_private_list_batch`: dispatching `private_list.version_activated.v1` opens the `PRIVATE_LIST` batch with ref `version_id` and one job; a redelivery adds nothing.
   - `test_a_walker_resumes_from_its_cursor_after_a_crash`: the page handler raises after half the parties (monkeypatched `screen` raising on the 3rd party). The job retries and every party ends with exactly one run of the batch. The batch `done` equals the party count.
   - `test_ensure_screening_index_opens_a_reindex_for_a_new_matcher_version`: rows with `matcher_version = "1.0.0"`. The first call opens a batch and the second opens nothing. The walk re-indexes (rows now at `MATCHER_VERSION`) and gives one `REINDEX` run each.
   - `test_ensure_screening_index_backfills_parties_without_an_index_row`
@@ -407,12 +405,11 @@ The pinned rows, inserted in name order: `("screening.periodic_rescreen", "0 2 1
 
 ### Task F5: Purge redaction
 
-Depends on 3b only: the `screening` consumer, `PartyNameIndex`, `ScreeningSubject`, `ScreeningRun`, `ScreeningHit` and the features shape of spec §8.4. It runs in parallel with F1 to F4. Console: no.
+Depends on 3b's E8 only: `SCREENING_CONSUMER` and `register_screening`, plus E2's `PartyNameIndex`, `ScreeningSubject`, `ScreeningRun`, `ScreeningHit` and E5's features shape (spec §8.4). It runs in parallel with F1 to F4. Console: no.
 
 **Files:**
 - Create: `src/xolotl/modules/screening/rescreen/purge.py`
-- Modify: `rescreen/__init__.py` (`register_subscriber(PARTY_PURGED, on_party_purged, consumer=<3b's screening consumer name>)`)
-- Conditional: `src/xolotl/migrations/versions/0011_screening_rescreen.py` and `tests/platform/test_migration_chain.py`, only if 3b's grants lack `UPDATE (features)` on `screening_hit` or `DELETE` on `party_name_index` (Global Constraints)
+- Modify: `src/xolotl/modules/screening/composition.py` (`register_subscriber(PARTY_PURGED, on_party_purged, consumer=SCREENING_CONSUMER)` in `register_screening`, beside 3b's party subscribers)
 - Test: `tests/modules/screening/rescreen/test_purge.py`
 
 **Produces:**
@@ -431,7 +428,6 @@ def on_party_purged(session: Session, event: Event) -> None
   - `test_a_purged_partys_tokens_are_gone_and_its_record_stays`: create, index and screen a party with a hit. Run 2c's `RetentionSweeper.sweep` with the clock past retention, then dispatch the bus. Afterwards there are no index rows. Every hit has `redacted` set, its score, band and `entry_ref` unchanged. The finding and its dispositions are intact. The party's name is fictional and the test's list entry is built in code with an RFC equal to the party's (so the hit comes from the identifier rule, not the name). `leaked(everything_stored(admin_engine), <the party's folded surname>)` is then empty.
   - `test_redelivering_the_event_changes_nothing` (at-least-once dispatch: the second run deletes and updates nothing)
   - `test_a_party_never_screened_is_purged_without_error`
-  - When the conditional migration exists, `test_migration_0011_grants_only_what_redaction_needs`.
 - [ ] **Step 2: Run to verify failure.**
 - [ ] **Step 3: Implement.**
 - [ ] **Step 4: Run to verify pass**, then the gates and `make ci`.
@@ -442,14 +438,14 @@ def on_party_purged(session: Session, event: Event) -> None
 
 ### Task F6: `screening eval`, the evaluation endpoint and the Evaluación page
 
-Depends on LIB-corpus (`evaluate`, the loader, floors) and on 3b (`routes_screening.router`, `screening_app`, the console screening feature and its access entry). It runs in parallel with F1 to F5. Touches `console/`. Console: **yes**. Per the spec §20 cut list, the console page is the first thing to cut if SP-03 runs long. Its steps are last in this task so it can be dropped without touching the endpoint or the CLI.
+Depends on LIB T6 (`evaluate`, the loader, floors) and on 3b's E7 (`routes_screening.router`), E8 (`screening_app`) and E9 (the console `features/screening/` folder and `ACCESS.screening`). It runs in parallel with F1 to F5. Touches `console/`. Console: **yes**. Per the spec §20 cut list, the console page is the first thing to cut if SP-03 runs long. Its steps are last in this task so it can be dropped without touching the endpoint or the CLI.
 
 **Files:**
 - Create: `src/xolotl/modules/screening/evaluation_report.py`, `src/xolotl/modules/screening/data/evaluation.json` (generated by the CLI in this task)
 - Modify: `routes_screening.py` (`GET /evaluation`), `src/xolotl/cli.py` (`screening eval`), `Dockerfile` if `data/` is not already in the image (it is package data: assert only)
 - Console:
   - Create: `console/src/features/screening/EvaluationPage.tsx`, `EvaluationPage.test.tsx`
-  - Modify: `queries.ts` (+`useEvaluation`), `App.tsx` (route `/screening/evaluation`), `components/layout/nav.ts` (under Reglas, after Listas privadas), `i18n/es-MX.json`, `i18n/en.json`, `api/schema.d.ts` (regenerated with `npm run gen:api:file`)
+  - Modify: `queries.ts` (+`useEvaluation`), `App.tsx` (route `/screening/evaluation`), `components/layout/nav.ts` (flat entry `nav.screeningEvaluation`, `roles: ACCESS.screening`, after `nav.privateLists`; 3a Deviation 11: the nav has no groups), `i18n/es-MX.json`, `i18n/en.json`, `api/schema.d.ts` (regenerated with `npm run gen:api:file`)
 - Test: `tests/modules/screening/test_evaluation_report.py`, `tests/test_cli.py` (append)
 
 **Produces:**
@@ -493,7 +489,7 @@ CLI: `xolotl screening eval [--corpus PATH] [--write]` loads the corpus and runs
 
 ### Task F7: Perf tests (marked, excluded from CI)
 
-Depends on F3 and F4 (and so on 3b's `screen` and the holder). Console: no. This is the last item on the spec §20 cut list.
+Depends on F3 and F4 (and so on 3b's `screen` and the holder) and on LIB T6 (the generator and frequency tables). Console: no. This is the last item on the spec §20 cut list.
 
 **Files:**
 - Create: `tests/perf/{__init__,conftest}.py`, `tests/perf/test_sp03_perf.py`
@@ -502,7 +498,7 @@ Depends on F3 and F4 (and so on 3b's `screen` and the holder). Console: no. This
 **Produces:** `tests/perf/conftest.py::record(name, **measures)` appends one JSON object (name, measures, `MATCHER_VERSION`, `git rev-parse HEAD`, timestamp) to `.perf/sp03.json`. The synthetic data is seeded (`random.Random(20261019)`). Names come from the library's frequency tables and entries from the library's perturbation generator, so a run reproduces its own data exactly.
 
 - [ ] **Step 1: Write the tests:**
-  - `test_forward_screen_p95_at_50k_entries` (`NFR-SC-001`): 50,000 synthetic shared entries written as one `list_version` through 3a's writer, then the holder refreshed. 20 warm-up screens and 500 measured `screen(..., mode=AD_HOC)` calls on generated names. Asserts `p95 < 300 ms` and records p50, p95 and p99.
+  - `test_forward_screen_p95_at_50k_entries` (`NFR-SC-001`): 50,000 synthetic shared entries written as one `list_version` through 3a's `ingest_parsed` (D4), then the holder refreshed. 20 warm-up screens and 500 measured `screen(..., mode=AD_HOC)` calls on generated names. Asserts `p95 < 300 ms` and records p50, p95 and p99.
   - `test_delta_rescreen_of_a_10k_party_base` (`NFR-SC-003`): 10,000 parties created through `create_party` and `index_party_names` (seeded names, 5 % near list entries), then a delta of 50 added and 50 changed entries driven to completion through the runner. Asserts the batch is `COMPLETED`, the findings equal the expected near set, and the elapsed time is under 120 s. Records the elapsed time, runs and blocked parties per entry.
   - `test_periodic_rescreen_throughput` (`NFR-SC-004`): the same base and one periodic batch. Asserts every party has a run, and records parties per second. The only gate is `>= 20` parties/s, a floor generous enough for any laptop.
   - `test_perf_tests_are_excluded_by_default`: a normal-suite test (not marked) in `tests/test_toolchain_pins.py` that asserts `"not perf"` in `addopts` and the marker registered.
@@ -514,15 +510,14 @@ Depends on F3 and F4 (and so on 3b's `screen` and the holder). Console: no. This
 
 ### Task F8: The SP-03 exit test
 
-Depends on F1, F3 and F4, and on the whole of 3a and 3b being merged. It merges **last**, after F5, F6 and F7, so that the run it records is SP-03 as shipped. Console: no.
+Depends on F1, F3 and F4, on the whole of 3a and 3b being merged, and on library T2 and T3 (the OFAC, EU, UK and SAT 69-B parsers and fixtures it loads). It merges **last**, after F5, F6 and F7, so that the run it records is SP-03 as shipped. Console: no.
 
 **Files:**
 - Create:
   - `tests/e2e/__init__.py`
   - `tests/e2e/conftest.py`: the `drain(services)` helper. It loops `services.bus.dispatch_pending()` and `services.job_runner.run_once()` until both return 0, with a guard of 200 rounds that fails the test.
   - `tests/e2e/test_sp03_exit.py`
-  - `tests/e2e/fixtures/README.md`
-  - `tests/e2e/fixtures/un_consolidated_v2.xml`: the library's trimmed UN fixture with one entry added, one changed (a new alias) and one removed. The README names the three `DATAID`s and the derivation.
+  - `tests/e2e/fixtures/README.md` (names the fixtures used: the library's, 3a's `tests/modules/screening/catalog/fixtures/un_v2.xml` as the UN second version, and the LPB file)
   - `tests/e2e/fixtures/lpb_tenant_a.csv`: our template (spec §7), with fictional names and valid RFC and CURP shapes.
 
 **Produces:** one test, `test_sp03_exit`, written as numbered sections that each print a short progress line on failure, plus one helper module-level `FIXTURES` mapping list codes to the library's fixture paths. The sections follow spec §16 exit criteria and the program spec SP-03 row:
@@ -532,7 +527,7 @@ Depends on F1, F3 and F4, and on the whole of 3a and 3b being merged. It merges 
 3. **LPB.** Tenant A's MLRO creates `MX_LPB` and uploads `lpb_tenant_a.csv`, then `drain`. `GET /v1/private-lists` lists it with `entry_count` equal to the CSV rows.
 4. **Parties.** Tenant A creates P_LPB (a perturbed LPB name: dropped second surname, accent loss), P_OFAC (a perturbed OFAC fixture person), P_CHG (near the UN entry that v2 changes), P_REM (near the UN entry v2 removes), P_ADD (near the UN entry v2 adds) and P_CLEAR (a hard-negative name). Tenant B creates B_TWIN, whose name equals an LPB row of tenant A exactly, then `drain`. 3b's subscribers index and screen them.
 5. **An explained hit.** `POST /v1/screening/checks {party_id: P_OFAC}` as tenant A's analyst returns `hits[]` with an `ALERT` whose features show aligned tokens, qualifiers, the list version seq and `MATCHER_VERSION`. The same call with tenant A's API key returns exactly `{run_id, subject_id, status: "PENDING_REVIEW", screened_at}`, with no `hits` key. P_LPB shows an `ALERT` on `MX_LPB`.
-6. **Delta.** Record tenant A's findings. Load `un_consolidated_v2.xml`, enqueue `lists.poll`, `drain`. The `LIST_DELTA` batch is `COMPLETED`. The new findings are exactly one for P_ADD and one for P_CHG, P_CHG's older finding is `SUPERSEDED`, and P_REM's finding carries `suggested_disposition == "DELISTED"`. P_LPB, P_OFAC and P_CLEAR got no `LIST_DELTA` run.
+6. **Delta.** Record tenant A's findings. Load 3a's `un_v2.xml` (`xolotl lists load-file`), enqueue `lists.poll`, `drain`. The `LIST_DELTA` batch is `COMPLETED`. The new findings are exactly one for P_ADD and one for P_CHG, P_CHG's older finding is `SUPERSEDED`, and P_REM's finding carries `suggested_disposition == "DELISTED"`. P_LPB, P_OFAC and P_CLEAR got no `LIST_DELTA` run.
 7. **Tenant B sees nothing.** `GET /v1/private-lists` is empty. `GET /v1/screening/matches` holds no finding on `MX_LPB`. `GET /v1/screening/runs/{A's run}` is 404. B_TWIN's screening status is `CLEAR` with no hit on `MX_LPB`. B's batches list holds only its own.
 8. **Four-eyes.** Tenant A's analyst escalates P_LPB's finding and the same analyst confirming it is 409 `SAME_REVIEWER`. The MLRO confirms `TRUE_MATCH`. This is the demo's last step, and it proves the review path on the exit data.
 9. **No tipping-off.** No `webhook_delivery` row of either tenant has an event type starting `screening.match_`, `private_list.` or `screening.true_match`. Tenant A's endpoint did receive `screening.status_changed.v1`, which proves the wildcard endpoint was live.
@@ -550,17 +545,17 @@ Depends on F1, F3 and F4, and on the whole of 3a and 3b being merged. It merges 
 
 | Id | Title | Depends on | Console | Branch slug |
 |---|---|---|---|---|
-| F1 | Batch bookkeeping, delisting suggestions, batches API, `screen()` hooks | 3b: `screen()`, models, router, events, `register_screening` | no | `sp03c-f1-batches` |
-| F2 | Reverse blocking in Postgres with corpus recall | LIB-matching, LIB-corpus; 3b: `party_name_index`, `index_party_names`, holder IDF | no | `sp03c-f2-reverse-blocking` |
-| F3 | List-delta re-screen job | F1, F2; 3a: deltas, entries, catch-up enqueue; 3b: `screen()`, holder | no | `sp03c-f3-list-delta` |
-| F4 | Private-list, periodic and re-index walkers, schedule, `screening rescreen` | F1; 3a: private versions and deltas, upload enqueue, initial batch; 3b: `screen()`, `index_party_names` | no | `sp03c-f4-walkers` |
-| F5 | Purge redaction | 3b: party subscribers' consumer, hits, name index (grants) | no | `sp03c-f5-purge-redaction` |
-| F6 | `screening eval`, evaluation endpoint and page | LIB-corpus; 3b: router, `screening_app`, console screening feature | **yes** | `sp03c-f6-evaluation` |
-| F7 | Perf tests | F3, F4 | no | `sp03c-f7-perf` |
-| F8 | SP-03 exit test | F1, F3, F4; all of 3a and 3b; merged last | no | `sp03c-f8-exit` |
+| F1 | Batch bookkeeping, delisting suggestions, batches API | 3b: E5, E7, E8 | no | `sp03c-f1-batches` |
+| F2 | Reverse blocking in Postgres with corpus recall | LIB T4, T5, T6; 3b: E4 | no | `sp03c-f2-reverse-blocking` |
+| F3 | List-delta consumer and re-screen job | F1, F2; 3a: D3, D4; 3b: E5 | no | `sp03c-f3-list-delta` |
+| F4 | Private-list and initial-version consumers; private-list, periodic and re-index walkers, schedule, `screening rescreen` | F1, F3; 3a: D6; 3b: E5 | no | `sp03c-f4-walkers` |
+| F5 | Purge redaction | 3b: E8 | no | `sp03c-f5-purge-redaction` |
+| F6 | `screening eval`, evaluation endpoint and page | LIB T6; 3b: E7, E8, E9 | **yes** | `sp03c-f6-evaluation` |
+| F7 | Perf tests | F3, F4; LIB T6 | no | `sp03c-f7-perf` |
+| F8 | SP-03 exit test | F1, F3, F4, F5, F6, F7; all of 3a and 3b; LIB T2, T3; merged last | no | `sp03c-f8-exit` |
 
-- **Wave 1** (once 3b's engine tasks are merged): F1, F2, F5 and F6 in parallel. F5 and F6 touch no file F1 or F2 touch, except F6's `cli.py` and `routes_screening.py` lines against F1's `routes_screening.py` route. Both edits are additive, so the second to merge rebases.
-- **Wave 2:** F3 and F4 in parallel. Both add one line to `rescreen/__init__.py`, and F4 alone touches the schedule, the pinned tests, `app.py`'s `worker_loop` and `cli.py`.
+- **Wave 1** (once 3b's engine tasks are merged): F1, F2, F5 and F6 in parallel. F5 touches 3b's `composition.py` only; F6 touches no file F1 or F2 touch, except F6's `cli.py` and `routes_screening.py` lines against F1's `routes_screening.py` route. Both edits are additive, so the second to merge rebases.
+- **Wave 2:** F3, then F4 (F4 adds the `initial` branch to F3's consumer). Both add lines to `rescreen/__init__.py`, and F4 alone touches the schedule, the pinned tests, `app.py`'s `worker_loop` and `cli.py`.
 - **Wave 3:** F7, then F8.
 - **Shared files across SP-03 plans:** `src/xolotl/app.py`, `src/xolotl/cli.py`, `src/xolotl/platform/config.py`, `.env.example`, `README.md`, `src/xolotl/modules/tenants/service.py`, the pinned schedule tests (3a adds `lists.poll` and F4 adds `screening.periodic_rescreen`), `pyproject.toml` (the library and F7 may both add the `perf` marker), and the console `nav.ts`, `App.tsx` and catalogues. Every edit is additive. The later task rebases and re-applies its own lines. `schema.d.ts` is regenerated, never merged by hand.
 
@@ -580,4 +575,4 @@ SP-03 spec §16 (the `rescreen/*` row and the exit paragraph) and the program sp
 
 1. **Ad hoc subject expiry.** `screening_subject.retention_until` is set for `AD_HOC` subjects (spec §8.2), but no plan of SP-03 purges them when it passes. *Default:* leave it to SP-03's follow-up or SP-06, with the input staying encrypted until then. A small daily sweep beside 2c's retention sweep is about a day of work if wanted now.
 2. **Overflowing entries.** An entry blocked to more than 5,000 parties waits for the next monthly periodic run, as spec §10.2 says. With the accepted monthly cadence, that wait can be up to a month. *Default:* accept it, because the corpus never produces such an entry on regional names, and record it in the batch. The alternative is to open an immediate `PERIODIC` batch restricted to that entry.
-3. **Re-screen trigger for a recommended list re-enabled by ADMIN.** Turning on `EU_FSF` after months off does not re-screen the base against it until the next monthly run. *Default:* accept, since the next delta or monthly run covers it. The alternative is that 3a's subscription toggle opens an `initial:<code>`-style batch for that tenant.
+3. **Re-screen trigger for a recommended list re-enabled by ADMIN.** Turning on `EU_FSF` after months off does not re-screen the base against it until the next monthly run. *Default:* accept, since the next delta or monthly run covers it. On re-enabling, 3a's catch-up hands over the versions published while the list was off as ordinary `initial: false` events (its `last_seq` was kept), so their deltas are re-screened, but entries unchanged in that time are not. The alternative is that 3a's subscription toggle publishes an `initial: true` event for that tenant, which F4's consumer would turn into a batch; its ref would need the version (`initial:<code>:<version_id>`) because `initial:<code>` is already `COMPLETED`.

@@ -1,6 +1,6 @@
 # SP-03b — Screening engine and review — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The working agreement `docs/superpowers/execution/sp02/agreement.md` (gates, worktrees, commits, PRs, report) applies to every task unchanged.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The working agreement `docs/superpowers/execution/sp03/agreement.md` (gates, worktrees, commits, PRs, report) applies to every task unchanged.
 
 **Goal:** Screen parties and ad hoc subjects against the shared and private lists, and let staff review what was found. That means: staff-only event types that webhooks never carry; migration 0010 with the name index, subjects, list sets, runs, hits, findings, dispositions with the four-eyes trigger, whitelist and batches; the in-memory index holder; the party name index and subject queries; `screen()` with exact run records and stored explanations; dispositions, whitelist and `allowed_actions`; the screening API for both audiences; party event subscribers that re-index and re-screen; replay; and the console's match queue, match detail, party screening tab and ad hoc check.
 
@@ -21,29 +21,28 @@ These are settled. Tasks build them and do not reopen them.
 
 | Id | What | Consumed by |
 |---|---|---|
-| **LIB-matching** | The screening library's matcher (spec §4.2), built by the parallel package (`docs/superpowers/handoffs/screening-library.md`, plan `docs/superpowers/plans/2026-10-19-screening-library.md` tasks T4 and T5) under `src/xolotl/modules/screening/matching/`. Symbols: `MATCHER_VERSION`, `NameQuery`, `QueryIdentifier`, `normalize_name`, `NormalizedName`, `Token`, `TokenRole`, `phonetic_key`, `blocking_plan`, `IdfTable`, `IndexedEntry`, `Candidate`, `MemoryIndex`, `ScoringConfig`, `score`, `MatchScore`, `MatchExplanation` (and `to_json`), `Band`, `BandThresholds`, `band_for`. | E3, E4, E5, E8 |
-| **LIB-lists** | The library's list types (spec §4.1, plan T1), from the same package: `ListEntry` (`canonical_json`, `content_hash`, `from_json`), `EntityType`, `IdType`. Plan 3a also consumes them. | E3, E4, E5, E8 |
-| **3a** | Plan 3a (list catalog and private lists, branch `docs/sp03a-plan`, task ids `D1..`), named here only by spec interface so a later reconciliation can map task ids. What this plan assumes from 3a is listed under "Assumed from plan 3a" below. | E2, E3, E5, E7, E10 |
+| **LIB-matching** | The screening library's matcher (spec §4.2), built by the parallel package (`docs/superpowers/handoffs/screening-library.md`, plan `docs/superpowers/plans/2026-10-19-screening-library.md` tasks T4 and T5; kit ids `LIB-matching-T4`, `LIB-matching-T5`) under `src/xolotl/modules/screening/matching/`. T4 gives `MATCHER_VERSION`, `normalize_name`, `NormalizedName`, `Token`, `TokenRole` and `phonetic_key`; T5 gives the rest (`NameQuery` and `QueryIdentifier` are T5's `matching/query.py`). Symbols: `MATCHER_VERSION`, `NameQuery`, `QueryIdentifier`, `normalize_name`, `NormalizedName`, `Token`, `TokenRole`, `phonetic_key`, `blocking_plan`, `IdfTable`, `IndexedEntry`, `Candidate`, `MemoryIndex`, `ScoringConfig`, `score`, `MatchScore`, `MatchExplanation` (and `to_json`), `Band`, `BandThresholds`, `band_for`. | E3, E4, E5, E8 |
+| **LIB-lists** | The library's list types (spec §4.1, plan T1, kit id `LIB-lists-T1`, merged on `main` in PR #52), from the same package: `ListEntry` (`canonical_json`, `content_hash`, `from_json`), `EntityType`, `IdType`. Plan 3a also consumes them. | E3, E4, E5, E8 |
+| **3a** | Plan 3a (`docs/superpowers/plans/2026-10-19-sp03a-list-catalog.md`, tasks D1 to D9). What this plan takes from 3a is listed under "From plan 3a" below, with the 3a task that provides each. | E2, E3, E5, E10 |
 | **2c: C9** | SP-02 plan 2c's last console task (`PartyCollections` on `PartyPage.tsx`). | E10 |
 
-### Assumed from plan 3a
+### From plan 3a
 
-Each item is written as "3a: <what>". The exact class names are 3a's to choose; this plan writes the placeholders below, and the reconciliation maps them.
-- **3a: migration `0009_lists`** (`revision = "0009_lists"`), which creates `pg_trgm` and the tables of spec §5.1 and the first block of §5.2: `list_source`, `list_version`, `list_entry`, `list_entry_delta`, `tenant_list_subscription`, `private_list`, `private_list_version`, `private_list_entry`, `private_list_entry_delta`. 0010 sets `down_revision = "0009_lists"`.
-- **3a: ORM models** in `xolotl.modules.screening.catalog.models`, written here as `ListSource` (`code`, `list_kind`), `ListVersion` (`id`, `list_code`, `seq`, `status`), `ListEntryRow` (table `list_entry`; the name `ListEntry` belongs to the library dataclass), `TenantListSubscription` (`list_code`, `enabled`), `PrivateList` (`id`, `list_code`, `list_kind`), `PrivateListVersion` (`id`, `list_id`, `seq`, `status`), and `PrivateListEntry` (`id`, `list_id`, `source_entry_key`, `content_tag`, `entity_type`, `from_seq`, `to_seq`, and the encrypted entry, which this plan calls `entry` after the kernel's no-`_enc` rule; spec `entry_enc`).
-- **3a: enums** `ListKind` (`SANCTION`, `FISCAL`, `BLOCKED`, `PEP`, `INTERNAL`) and the version status (`ACTIVE`, `SUPERSEDED`). If 3a defines no `ListKind`, E2 defines it in `engine/enums.py` and 3a's reconciliation adopts it.
-- **3a: isolation factory helpers** for `private_list`, `private_list_version` and `private_list_entry` in `tests/isolation/factories.py`. E2's factories reuse them, because the app role cannot insert a `list_source` row, so a factory row of `screening_match` or `screening_hit` points at a private entry.
-- **3a: test helpers** that insert a shared list with an active version and its entries from `ListEntry` values as the owner (written here as `tests/modules/screening/catalog_support.py::load_shared(admin_engine, code, entries) -> ListVersionRow` and `load_private(session, list_code, entries) -> PrivateListVersionRow`). If 3a ships none, E3 writes them over 3a's models.
-- **3a: shared files**: `src/xolotl/modules/screening/{__init__,events,errors,schemas}.py` may already exist. Each task here creates the file when it is missing and appends otherwise. The constant `PRIVATE_LIST_VERSION_ACTIVATED = "private_list.version_activated.v1"` is defined once, in `screening/events.py`.
+Names as plan 3a defines them (`docs/superpowers/plans/2026-10-19-sp03-reconciliation.md`, finding 3).
+- **D1: migration `0009_lists`** (`revision = "0009_lists"`), which creates `pg_trgm` and the tables of spec §5.1 and the first block of §5.2: `list_source`, `list_version`, `list_entry`, `list_entry_delta`, `tenant_list_subscription`, `private_list`, `private_list_version`, `private_list_entry`, `private_list_entry_delta`. 0010 sets `down_revision = "0009_lists"`.
+- **D1: ORM models** in `xolotl.modules.screening.catalog.models`: `ListSource` (`code`, `list_kind`), `ListVersion` (`id`, `list_code`, `seq`, `status`), `ListEntryRow` (table `list_entry`; the name `ListEntry` belongs to the library dataclass), `ListEntryDelta`, `TenantListSubscription` (`list_code`, `enabled`), `PrivateList` (`id`, `list_code`, `list_kind`), `PrivateListVersion` (`id`, `list_id`, `seq`, `status`), `PrivateListEntryRow` (table `private_list_entry`: `id`, `list_id`, `source_entry_key`, `content_tag`, `entity_type`, `from_seq`, `to_seq`, and the encrypted entry `entry`, 3a Deviation 3) and `PrivateListEntryDelta`.
+- **D1: enums** in `xolotl.modules.screening.enums`: `ListKind` (`SANCTION`, `FISCAL`, `BLOCKED`, `PEP`, `INTERNAL`) and `VersionStatus` (`ACTIVE`, `SUPERSEDED`). This plan's enums live in `xolotl.modules.screening.engine.enums` (E2).
+- **D1: isolation factory helpers** `_private_list_version(session, tenant_id) -> PrivateListVersion` and `_private_list_entry(session, tenant_id) -> PrivateListEntryRow` in `tests/isolation/factories.py`. E2's factories reuse them, because the app role cannot insert a `list_source` row, so a factory row of `screening_match` or `screening_hit` points at a private entry.
+- **D4 and D6: test loaders** in `tests/modules/screening/catalog/support.py`: `load_shared(code, entries, *, store) -> IngestReport` (D4, over `ingest_parsed`; needs `seed_sources(admin_engine)` from D2 first) and `load_private(session, store, list_code, entries) -> PrivateListVersion` (D6, over `write_private_version`).
+- **D3: `src/xolotl/modules/screening/events.py`** with `EVENT_SOURCE`, `PRIVATE_LIST_VERSION_ACTIVATED = "private_list.version_activated.v1"` and `publish_screening_event(s, event_type, *, entity, entity_id, key: str, data, policy_snapshot_id=None)`. Shared files: `src/xolotl/modules/screening/{events,errors,schemas}.py` are created by 3a's D3, D4 and D7 or by this plan's E2, E3 and E7, whichever merges first; the other appends (finding 6). `PRIVATE_LIST_VERSION_ACTIVATED` is defined once, in `screening/events.py`.
+- **D7: `GET /v1/lists`**, for E10's list filter.
 
-What 3a needs from this plan (for the reconciliation):
-- 3a's tenant catch-up (spec §6.4) and private-list activation (§7) insert `screening_batch` rows, a table of migration 0010, so they need **E2** (`ScreeningBatch`, `BatchKind`, `BatchStatus`).
-- 3a publishes `private_list.version_activated.v1`, which is staff-only. Webhooks are guaranteed never to carry it only once **E1** and **E3** (`register_screening`, which registers it) are merged. 3a's activation task should merge after E3 or the two should merge together.
+What 3a takes from this plan: only **E1**. 3a's D6 calls `register_staff_only(PRIVATE_LIST_VERSION_ACTIVATED)` itself in `register_lists`, so E1 alone keeps webhooks from carrying it; `register_screening` (E3) registers it again, harmlessly. 3a creates no `screening_batch` row: its catch-up and its private-list activation publish `lists.version_published.v1` and `private_list.version_activated.v1`, and plan 3c's consumers create the batches and enqueue the jobs (finding 1).
 
 ## Global Constraints
 
 - Repository `/Users/omaribannez/code/xolotl`; one PR per task from `main`; `make ci` green at the end of every task; the console gates (`npm ci && npm run typecheck && npm run lint && npm test && npm run build`, plus the Playwright smoke) whenever `console/` changes.
-- **Migration** `src/xolotl/migrations/versions/0010_screening.py`: `revision = "0010_screening"`, `down_revision = "0009_lists"`. It is this plan's only migration. `"0010_screening"` is appended to `CHAIN` in `tests/platform/test_migration_chain.py`, after 3a's `"0009_lists"`.
+- **Migration** `src/xolotl/migrations/versions/0010_screening.py`: `revision = "0010_screening"`, `down_revision = "0009_lists"`. It is this plan's only migration and the last of SP-03: plan 3c adds none, because `enable_rls`' default grant (`SELECT, INSERT, UPDATE, DELETE`) on every 0010 table but `match_disposition` already lets 3c's F5 update `screening_hit.features` and delete `party_name_index` rows (finding 5). `"0010_screening"` is appended to `CHAIN` in `tests/platform/test_migration_chain.py`, after 3a's `"0009_lists"`.
 - **Ten tenant tables** exactly as spec §5.2 (second block): `party_name_index`, `screening_subject`, `screening_list_set`, `screening_list_set_member`, `screening_run`, `screening_match`, `screening_hit`, `match_disposition`, `screening_whitelist`, `screening_batch`. Each is `class X(TenantTableMixin, Base)` with `tenant_table_args`, composite FKs through `tenant_fk` or a named `ForeignKeyConstraint` where the naming convention's expansion would pass Postgres's 63-byte limit, `enable_rls("<table>")` in the migration, and one isolation factory registered in `register_all()`. The models are imported in `src/xolotl/models.py`. `match_disposition` joins `APPEND_ONLY_TABLES` and gets `grant=APPEND_ONLY_PRIVILEGES`. `SHARED_TABLES` is untouched (3a adds its four).
 - **Encrypted columns** (`sa.LargeBinary()` in the migration): `screening_subject.input` (`EncryptedJson`; spec `input_enc`) and `match_disposition.rationale` (`EncryptedStr`; spec `rationale_enc`). No blind index. `party_name_index` holds plaintext normalized tokens only (D7). No route ever serializes it.
 - **Import rules** (`.importlinter`; E4 adds the contract): `screening.engine`, `screening.review` and `screening.rescreen` may import `xolotl.modules.party.service`, `.enums`, `.identifiers` and `.errors`, but never `xolotl.modules.party.models`. `screening.catalog` never imports `xolotl.modules.party` (3a's contract). `xolotl.platform` imports nothing from modules. The tenants module never imports screening.
@@ -58,7 +57,7 @@ What 3a needs from this plan (for the reconciliation):
 
 ## Deviations from the sub-spec (decided here)
 
-1. **No `_enc` suffix** on `screening_subject.input` and `match_disposition.rationale`, following the kernel and party precedent (`staff_credential.totp_secret`, `person.given_names`). 3a is expected to do the same for `private_list_entry.entry`.
+1. **No `_enc` suffix** on `screening_subject.input` and `match_disposition.rationale`, following the kernel and party precedent (`staff_credential.totp_secret`, `person.given_names`). 3a's Deviation 3 does the same for `private_list_entry.entry`.
 2. **Scoring IDF is per list set, not per process.** Replay (NFR-SC-007) must re-score a hit exactly, but an `IdfTable` built over "every active shared list" changes whenever any list changes, including lists the run did not use. So the holder builds the blocking index over all shared lists, while scoring uses an `IdfTable.build` over the screenable entries of the run's own shared list-set members. That table is cached in the holder by the list set's content hash (LRU of 16). Replay rebuilds the same table from the immutable `list_entry` rows of those versions. Private entries never enter an IDF table. With the default subscriptions, one tenant uses one table.
 3. **The match detail does not reveal by itself.** Spec §12 puts the revealed subject name inside `GET /v1/screening/matches/{id}`. The party precedent (2c Deviation on `/pii`, map C trap 4) moves every reveal to its own endpoint, because a detail that reveals would record `VIEW_PII` on every cached refresh. So the detail returns the subject masked (initials, masked identifiers), the stored explanations (normalized tokens, D7 exposure) and, for shared lists, the public entry. `GET /v1/screening/matches/{id}/reveal` (staff) returns the subject's names, birth date and identifier values, the private entry (for private-list findings) and the disposition rationales. It records one `VIEW_PII` per non-empty group (`subject`, `private_entry`, `rationales`).
 4. **Synchronous checks use mode `AD_HOC`**, for an inline subject and for `{party_id}` alike: spec §5.2 lists no other on-demand mode. `NEW_SUBJECT` and `DATA_CHANGE` are reserved for event-driven runs (E8). The trigger is `CONSOLE` for staff and `API` for API clients, with the request id as `trigger_ref`.
@@ -142,15 +141,15 @@ console/src/features/parties/PartyPage.tsx (+ screening card) (E10); console/e2e
 | Id | Title | Depends on | Console | Branch slug |
 |---|---|---|---|---|
 | E1 | Staff-only event types and the webhook guard (platform) | none | no | `sp03b-e1-staff-only-events` |
-| E2 | Migration 0010, models, enums, events, isolation factories | 3a: migration 0009, catalog models, private factory helpers | no | `sp03b-e2-migration-0010` |
-| E3 | Index holder and the screening composition root | E1, E2; LIB-matching, LIB-lists; 3a: catalog models and test loaders | no | `sp03b-e3-index-holder` |
-| E4 | Party name index, subjects, queries, subject status | E2; LIB-matching, LIB-lists | no | `sp03b-e4-name-index-subjects` |
-| E5 | `screen()`: runs, list sets, hits, findings, status | E3, E4; LIB-matching, LIB-lists; 3a: subscriptions, private lists | no | `sp03b-e5-screen` |
+| E2 | Migration 0010, models, enums, events, isolation factories | 3a: D1 | no | `sp03b-e2-migration-0010` |
+| E3 | Index holder and the screening composition root | E1, E2; LIB T1, T5; 3a: D4, D6 (test loaders) | no | `sp03b-e3-index-holder` |
+| E4 | Party name index, subjects, queries, subject status | E2; LIB T1, T4, T5 | no | `sp03b-e4-name-index-subjects` |
+| E5 | `screen()`: runs, list sets, hits, findings, status | E3, E4; LIB T5; 3a: D1 (via E2) | no | `sp03b-e5-screen` |
 | E6 | Dispositions, action matrix, whitelist | E2, E4 | no | `sp03b-e6-dispositions` |
 | E7 | Screening API for both audiences | E5, E6 | no | `sp03b-e7-screening-api` |
-| E8 | Party event subscribers, screen-party job, replay, CLI | E5; LIB-matching, LIB-lists | no | `sp03b-e8-party-events-replay` |
+| E8 | Party event subscribers, screen-party job, replay, CLI | E5; LIB T5 | no | `sp03b-e8-party-events-replay` |
 | E9 | Console: match queue and match detail | E7 | yes | `sp03b-e9-console-matches` |
-| E10 | Console: party screening card and ad hoc check | E7; 2c: C9 | yes | `sp03b-e10-console-party-check` |
+| E10 | Console: party screening card and ad hoc check | E7; 3a: D7; 2c: C9 (merged) | yes | `sp03b-e10-console-party-check` |
 
 ---
 
@@ -218,7 +217,7 @@ The registry is process-wide, so the tests register the fake type themselves. Th
 
 ### Task E2: Migration 0010, the screening models, enums, events and isolation factories
 
-Depends on **3a: migration `0009_lists`** and 3a's catalog models and factory helpers (merged on `main`). No console. LIB is not needed: the models hold bytes, text and JSON.
+Depends on **3a's D1** (migration `0009_lists`, the catalog models and the factory helpers `_private_list_version` and `_private_list_entry`). No console. LIB is not needed: the models hold bytes, text and JSON.
 
 **Files:**
 - Create: `src/xolotl/migrations/versions/0010_screening.py`, `src/xolotl/modules/screening/engine/{__init__,enums,models}.py`, `src/xolotl/modules/screening/review/{__init__,models}.py`; `src/xolotl/modules/screening/events.py` (create or append)
@@ -260,11 +259,12 @@ EVENT_SOURCE = "xolotl.screening"
 RUN_COMPLETED = "screening.run_completed.v1"; STATUS_CHANGED = "screening.status_changed.v1"
 MATCH_CREATED = "screening.match_created.v1"; MATCH_DISPOSITIONED = "screening.match_dispositioned.v1"
 TRUE_MATCH_CONFIRMED = "screening.true_match_confirmed.v1"; MATCH_DELISTING_SUGGESTED = "screening.match_delisting_suggested.v1"
-PRIVATE_LIST_VERSION_ACTIVATED = "private_list.version_activated.v1"     # 3a's, if 3a defined it first: reuse
+PRIVATE_LIST_VERSION_ACTIVATED = "private_list.version_activated.v1"     # 3a's D3 constant: create it only if D3 has not merged
 STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (PRIVATE_LIST_VERSION_ACTIVATED, MATCH_CREATED, MATCH_DISPOSITIONED, TRUE_MATCH_CONFIRMED, MATCH_DELISTING_SUGGESTED)
-def publish_screening_event(s: Session, event_type: str, *, entity: str, entity_id: UUID, key: UUID,
+def publish_screening_event(s: Session, event_type: str, *, entity: str, entity_id: UUID, key: str,
                             data: dict[str, JsonValue], policy_snapshot_id: UUID | None = None) -> Event
-    # as party's publish_party_event; key is the subject id so a consumer gets one subject's events in order
+    # 3a's D3 signature (whichever of D3 and E2 merges first creates events.py); this plan passes key=str(subject_id)
+    # so a consumer gets one subject's events in order
 ```
 
 Migration 0010 (order: `party_name_index`, `screening_subject`, `screening_list_set`, `screening_list_set_member`, `screening_run`, `screening_match`, `screening_hit`, `match_disposition`, `screening_whitelist`, `screening_batch`; downgrade in reverse, then `DROP FUNCTION match_disposition_four_eyes()`):
@@ -304,6 +304,7 @@ def test_match_disposition_is_append_only_for_the_app_role(engine, tenant)      
 def test_the_name_index_has_its_gin_indexes(admin_engine)                            # ix_pni_phonetic, ix_pni_trgm with gin_trgm_ops
 def test_the_finding_key_is_unique(engine, tenant)
 def test_downgrade_removes_the_tables_and_the_trigger_function(admin_engine)          # alembic downgrade 0009_lists then upgrade head
+def test_the_app_role_may_update_hits_and_delete_name_index_rows(admin_engine)       # has_table_privilege: screening_hit UPDATE, party_name_index DELETE (3c F5)
 ```
 
 The isolation harness (`tests/isolation`) discovers the ten tables automatically and fails until the factories exist. `test_schema_sync.py` fails until the models match. `test_migration_chain.py` gets `"0010_screening"`.
@@ -317,7 +318,7 @@ The isolation harness (`tests/isolation`) discovers the ten tables automatically
 
 ### Task E3: The index holder and the screening composition root
 
-Depends on **E1** (`register_staff_only`) and **E2** (events constants), **LIB-matching** (`MemoryIndex`, `IdfTable`, `IndexedEntry`) and **LIB-lists** (`ListEntry.from_json`), and **3a: catalog models** (`ListVersion`, `ListEntryRow`, `PrivateList`, `PrivateListVersion`, `PrivateListEntry`) with **3a's test loaders**. No console. Touches `src/xolotl/app.py` (`wire_platform`, `build_app`, `build_worker`) and `src/xolotl/platform/config.py`.
+Depends on **E1** (`register_staff_only`) and **E2** (events constants), **LIB-matching** (`MemoryIndex`, `IdfTable`, `IndexedEntry`) and **LIB-lists** (`ListEntry.from_json`), and **3a's catalog models** (D1: `ListVersion`, `ListEntryRow`, `PrivateList`, `PrivateListVersion`, `PrivateListEntryRow`) with **3a's test loaders** `load_shared` (D4) and `load_private` (D6). No console. Touches `src/xolotl/app.py` (`wire_platform`, `build_app`, `build_worker`) and `src/xolotl/platform/config.py`.
 
 **Files:**
 - Create: `src/xolotl/modules/screening/engine/holder.py`, `src/xolotl/modules/screening/engine/entries.py`, `src/xolotl/modules/screening/composition.py`; `src/xolotl/modules/screening/errors.py` (create or append)
@@ -333,7 +334,7 @@ Produces:
 ```python
 # engine/entries.py
 def indexed_shared_entry(row: ListEntryRow) -> IndexedEntry               # IndexedEntry(entry=ListEntry.from_json(row.entry), ref=row.id, shard=row.list_code)
-def indexed_private_entry(s: Session, row: PrivateListEntry, list_code: str) -> IndexedEntry   # decrypts row.entry in s (processing only, no audit)
+def indexed_private_entry(s: Session, row: PrivateListEntryRow, list_code: str) -> IndexedEntry   # decrypts row.entry in s (processing only, no audit)
 def shared_version_entries(s: Session, list_code: str, seq: int) -> list[ListEntryRow]
     # members of version seq that are screenable: from_seq <= seq AND (to_seq IS NULL OR to_seq > seq) AND screenable, ordered by id
 
@@ -400,7 +401,7 @@ def test_a_holder_still_warming_answers_unavailable(holder, monkeypatch)        
 def test_a_private_shard_is_built_per_tenant_and_invalidated_by_a_new_version(holder, tenant, other_tenant)
     # load_private(tenant A, "MX_LPB", ...) -> private(sA) has it; private(sB) is None; a new A version -> a new shard object
 def test_private_shards_are_evicted_beyond_the_configured_number(...)                     # private_shards=1, two tenants -> the first rebuilt on its next use
-def test_private_entries_are_decrypted_only_inside_their_tenants_session(holder, tenant)  # PrivateListEntry.entry is Encrypted; the shard's ListEntry equals the loaded one
+def test_private_entries_are_decrypted_only_inside_their_tenants_session(holder, tenant)  # PrivateListEntryRow.entry is Encrypted; the shard's ListEntry equals the loaded one
 def test_scoring_idf_is_cached_per_list_set_key(holder, ...)                             # same key -> same object; another key -> another table
 def test_register_screening_marks_every_staff_only_type(engine)                           # wire_platform(...) -> is_staff_only(t) for t in STAFF_ONLY_EVENT_TYPES
 def test_wire_platform_does_not_start_a_thread(engine)                                    # threading.active_count() unchanged
@@ -521,7 +522,7 @@ def test_the_status_follows_the_findings_and_publishes_only_on_change(...)
 
 ### Task E5: `screen()`: runs, list sets, hits, findings and status
 
-Depends on **E3** and **E4**, **LIB-matching** (`score`, `band_for`, `Band`, `BandThresholds`, `ScoringConfig`, `MatchScore`, `MatchExplanation.to_json`, `Candidate`, `MemoryIndex.build`, `NameQuery.fingerprint`, `MATCHER_VERSION`), **LIB-lists** (`ListEntry.content_hash`), and **3a: `TenantListSubscription`, `PrivateList`** (list kinds). No console. This is the plan's centre (spec §8.3, §8.4).
+Depends on **E3** and **E4**, **LIB-matching** (`score`, `band_for`, `Band`, `BandThresholds`, `ScoringConfig`, `MatchScore`, `MatchExplanation.to_json`, `Candidate`, `MemoryIndex.build`, `NameQuery.fingerprint`, `MATCHER_VERSION`), **LIB-lists** (`ListEntry.content_hash`), and **3a's D1 models `TenantListSubscription`, `PrivateList`** (list kinds). No console. This is the plan's centre (spec §8.3, §8.4).
 
 **Files:**
 - Create: `src/xolotl/modules/screening/engine/{list_sets,screen,features}.py`
@@ -570,14 +571,18 @@ class RunResult:
     new_matches: tuple[ScreeningMatch, ...]        # created or reopened by this run
 def screen(s: Session, subject: ScreeningSubject, *, mode: RunMode, trigger: Trigger,
            lists: Collection[str] | None = None, only_entries: Sequence[IndexedEntry] | None = None,
-           require_versions: Mapping[str, int] | None = None) -> RunResult
+           only_index: MemoryIndex | None = None, require_versions: Mapping[str, int] | None = None,
+           batch_id: UUID | None = None) -> RunResult
+    # the one SP-03 signature (finding 2), owned by this task: 3c's F3 passes only_entries, require_versions and batch_id;
+    # F4 passes only_index (a version's index built once per page), lists and batch_id. only_entries and only_index
+    # together -> ValueError.
 ```
 
 `screen()` steps (spec §8.3; Deviations 2, 6, 7, 8, 12):
 1. Lock the subject row (`FOR UPDATE`), then build its query: `query_for_party` for `PARTY`, or `query_for_ad_hoc(AdHocSubjectInput.model_validate(subject.input.reveal(session=s)))` for `AD_HOC`. Then `policy = policy_for_run(s)` and `t0 = monotonic()`.
 2. `shard = holder.shared(s, require=require_versions)` and `private = holder.private(s)`. The shared codes are `(mandatory ∪ recommended)` minus disabled subscriptions, ∩ `shard.versions`; the private codes are `private.versions`; both are narrowed by `lists` when it is given. These give the members, then `list_set = upsert_list_set(...)` and `idf = holder.scoring_idf(shard, shared_codes, key=list_set.content_hash)`.
-3. Candidates. With `only_entries`, `MemoryIndex.build(only_entries, idf=idf).candidates(query, shards=codes, top_k=len(only_entries))`, keeping only entries whose shard is in the set. Otherwise, for each kind group (PEP or not), `shard.index.candidates(query, shards=shared codes of the group, top_k=top_k_for(kind))` plus the same on `private.index`. Duplicates by `ref` are dropped.
-4. Insert the run (`candidate_count = len(candidates)`, zero counts, `outcome = subject.status`, `restricted_to_delta = only_entries is not None`, `scoring_config_hash = policy.config.config_hash()`, `query_fingerprint = query.fingerprint()`, `matcher_version = MATCHER_VERSION`, `created_by = bound_context(s).actor_id`, `trigger_type`, `trigger_ref`, `mode`, `latency_ms = 0`) and flush.
+3. Candidates. With `only_entries`, `MemoryIndex.build(only_entries, idf=idf).candidates(query, shards=codes, top_k=len(only_entries))`, keeping only entries whose shard is in the set. With `only_index`, `only_index.candidates(query, shards=codes, top_k=top_k_for(kind))` per kind group. Otherwise, for each kind group (PEP or not), `shard.index.candidates(query, shards=shared codes of the group, top_k=top_k_for(kind))` plus the same on `private.index`. Duplicates by `ref` are dropped.
+4. Insert the run (`candidate_count = len(candidates)`, zero counts, `outcome = subject.status`, `restricted_to_delta = only_entries is not None or only_index is not None`, `batch_id`, `scoring_config_hash = policy.config.config_hash()`, `query_fingerprint = query.fingerprint()`, `matcher_version = MATCHER_VERSION`, `created_by = bound_context(s).actor_id`, `trigger_type`, `trigger_ref`, `mode`, `latency_ms = 0`) and flush.
 5. For each candidate: `result = score(query, entry, idf=idf, config=policy.config)`, then `band = band_for(result, thresholds_for(kind, bands))`. `BELOW_CUTOFF` is counted and not stored. The entry hash is `entry.content_hash()` for shared entries and `row.content_tag` for private ones. When the active whitelist keys contain `(list_code, entry_key, hash)`, store the hit as `WHITELISTED` with `auto_reason = WHITELIST` and create no finding. `AUTO_DISCARDED` is stored with `auto_reason = ID_CONFLICT_CAP` and no finding. `ALERT` and `LOW_CONFIDENCE` insert the finding (`ON CONFLICT DO NOTHING` on the finding key, `origin_run_id = run.id`, `list_kind`, band and score). If it already existed, the hit links to it, and a `FALSE_POSITIVE` finding without an active whitelist row is reopened (Deviation 8). A newly created finding closes every `OPEN` or `ESCALATED` finding of the same subject, list and key that has another hash: status `SUPERSEDED`, `superseded_by_match_id`, `closed_at`, and a `SYSTEM` `SUPERSEDED` disposition (rationale `encrypt("SUPERSEDED_BY_CHANGED_ENTRY")`, `policy_snapshot_id`). Each new or reopened finding publishes `MATCH_CREATED {"match_id", "subject_id", "list_kind", "band"}`.
 6. `status = refresh_subject_status(...)`; update the run (`hit_count` = stored hits, `new_match_count`, `outcome = status`, `latency_ms`) and the subject (`last_screened_at = clock.now()`, `last_run_id`). Publish `RUN_COMPLETED {"run_id", "subject_id", "party_id", "mode", "outcome"}` and return.
 
@@ -607,6 +612,9 @@ def test_a_revoked_whitelist_reopens_the_false_positive_finding(...)            
 def test_an_id_conflict_is_stored_as_auto_discarded_without_a_finding(...)      # party RFC differs from an entry RFC
 def test_below_cutoff_candidates_are_counted_not_stored(...)                    # candidate_count > hit_count
 def test_only_entries_restricts_scoring_to_the_given_entries(...)               # restricted_to_delta True; hits only on those refs
+def test_only_index_scores_against_the_given_index_and_marks_the_run_restricted(...)
+def test_only_entries_and_only_index_are_exclusive(...)                          # ValueError
+def test_a_run_records_its_batch(...)                                            # batch_id written to screening_run.batch_id
 def test_a_69b_name_only_resemblance_reaches_low_confidence_at_most(...)        # organization without RFC vs an MX_SAT_69B entry -> never ALERT (accepted Q5)
 def test_a_tenant_without_a_policy_cannot_be_screened(...)                      # POLICY_NOT_ASSIGNED, no run row
 def test_a_wildcard_endpoint_gets_run_and_status_events_but_never_match_events(...)
@@ -826,7 +834,7 @@ def test_no_plaintext_is_stored_or_logged_beyond_the_name_index(admin_engine, ca
 Depends on **E5** (and E3's composition root). It does not need E6 or E7, so it runs in parallel with them. **LIB-matching** (`score`, `band_for`, `IdfTable.build`, `MATCHER_VERSION`) and **LIB-lists** (`ListEntry.from_json`) are needed for replay. No console. Touches `src/xolotl/cli.py`, `src/xolotl/modules/screening/composition.py` and one line of `src/xolotl/app.py` (the `register_screening(...)` call gains `queue=queue`).
 
 **Files:**
-- Create: `src/xolotl/modules/screening/rescreen/{__init__,party_events}.py`, `src/xolotl/modules/screening/engine/replay.py`
+- Create: `src/xolotl/modules/screening/rescreen/{__init__,party_events}.py` (`__init__.py` with a module docstring only; 3c's F1 adds `register_rescreen` to it), `src/xolotl/modules/screening/engine/replay.py`
 - Modify: `src/xolotl/modules/screening/composition.py`, `src/xolotl/modules/screening/errors.py`, `src/xolotl/app.py` (one argument), `src/xolotl/cli.py`, `tests/test_cli.py`, `tests/platform/test_errors.py`
 - Test: `tests/modules/screening/rescreen/__init__.py`, `tests/modules/screening/rescreen/test_party_events.py`, `tests/modules/screening/engine/test_replay.py`
 
@@ -852,7 +860,9 @@ def screen_party_job(s: Session, job: Job) -> None
 # composition.py (append to register_screening; it gains queue: PostgresJobQueue)
 #   for t in PARTY_EVENT_MODES: register_subscriber(t, handler, consumer=SCREENING_CONSUMER)
 #   register_job_handler(SCREEN_PARTY_KIND, screen_party_job)
-#   (plan 3c registers party.purged.v1 under the same SCREENING_CONSUMER and its batch jobs here)
+#   (plan 3c's F5 registers party.purged.v1 here, under the same SCREENING_CONSUMER; 3c's batch jobs and its consumers of
+#   the two catalog events go in rescreen/__init__.py's register_rescreen(*, queue), which wire_platform calls right after
+#   register_screening (F1))
 
 # engine/replay.py
 @dataclass(frozen=True, slots=True)
@@ -961,7 +971,7 @@ Produces:
 
 ### Task E10: Console: the party screening card and the ad hoc check
 
-Depends on **E7**, and on **2c: C9** merged (both edit `PartyPage.tsx`). It runs in parallel with E9; the shared files are additive (see E9). The smoke step needs no lists to be loaded.
+Depends on **E7**, on **3a's D7** (`GET /v1/lists` for the list filter), and on **2c: C9** merged (both edit `PartyPage.tsx`). It runs in parallel with E9; the shared files are additive (see E9). The smoke step needs no lists to be loaded.
 
 **Files:**
 - Modify: `console/src/api/schema.d.ts` (regenerated), `console/src/api/types.ts`, `console/src/auth/access.ts`, `access.test.ts`, `guards.test.tsx`, `console/src/components/layout/nav.ts`, `console/src/App.tsx`, both catalogues, `catalogue.test.ts`, `console/src/features/parties/PartyPage.tsx`, `console/e2e/smoke.spec.ts`
@@ -973,7 +983,7 @@ Produces:
 - `access.ts`: `screeningCheck: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN']` (plus `screening` if E9 has not merged).
 - `nav.ts`: `'nav.screeningCheck'`, `{ to: '/screening/check', labelKey: 'nav.screeningCheck', icon: ScanSearch, roles: ACCESS.screeningCheck }`.
 - `PartyScreeningCard` on `PartyPage` (for `ACCESS.screening`): status badge (or "never screened"), last screened, lists covered, open finding count, findings (links to `/screening/matches/:id`), and "Revisar ahora" (`ACCESS.screeningCheck`) posting `{party_id}` and showing the staff result through `HitList`.
-- `CheckPage`: a person/organization toggle; names (up to three), given names and surnames for persons, birth date, gender, nationalities, countries, up to ten identifiers (type and value); an optional list filter (`Select` multi over the codes of `GET /v1/lists`, 3a; hidden when that route is unavailable); submit posts `{subject}`; the result shows status and `HitList` (band, list, score, a link to the finding when `match_id` is set). The form is cleared and the result forgotten on leaving the page. Nothing is kept in storage.
+- `CheckPage`: a person/organization toggle; names (up to three), given names and surnames for persons, birth date, gender, nationalities, countries, up to ten identifiers (type and value); an optional list filter (`Select` multi over the codes of `GET /v1/lists`, 3a's D7); submit posts `{subject}`; the result shows status and `HitList` (band, list, score, a link to the finding when `match_id` is set). The form is cleared and the result forgotten on leaving the page. Nothing is kept in storage.
 - `check-form.ts`: a zod schema mirroring `AdHocSubjectInput` and `toCheckRequest(values)`.
 - i18n: `nav.screeningCheck`; `screening.party.{title,never,lastScreened,listsCovered,openFindings,checkNow,running}`; `screening.check.{title,description,entityType,names,addName,givenNames,firstSurname,secondSurname,birthDate,gender.*,nationalities,countries,identifiers,addIdentifier,lists,submit,result,noHits}`; `screening.hits.*`.
 - Smoke (`console/e2e/smoke.spec.ts`): one step, `an ad hoc check returns a status`, after the party step. It opens Consulta ad hoc, enters a person name, submits, and sees a status badge, with no assertion on hits: the smoke stack may have no lists loaded. The four-eyes Playwright flow of spec §16 (LPB upload, escalate, confirm as a second user) needs loaded lists and a second staff user and is left to plan 3c's exit test (Open question 3).
@@ -989,13 +999,13 @@ Produces:
 ## Interfaces for plan 3c
 
 Named exactly as the spec does where the spec names them; the others are this plan's and are listed for 3c to consume:
-- **`screen(session, subject, *, mode, trigger, lists=None, only_entries=None)`** returning **`RunResult`** (E5), plus the keyword `require_versions: Mapping[str, int] | None` that a delta job passes so the holder refreshes to the version it is screening. `Trigger(type, ref)`; `RunMode.LIST_DELTA`, `PRIVATE_LIST`, `PERIODIC`, `REINDEX`; `TriggerType.JOB`.
+- **`screen(session, subject, *, mode, trigger, lists=None, only_entries=None, only_index=None, require_versions=None, batch_id=None)`** returning **`RunResult`** (E5; `run.new_match_count` is the count 3c's batches add up). A delta job passes `require_versions={list_code: seq}` so the holder refreshes to the version it is screening; the private-list walker passes a prebuilt `only_index`; every batch run passes `batch_id`. 3c changes nothing in `screen()`. `Trigger(type, ref)`; `RunMode.LIST_DELTA`, `PRIVATE_LIST`, `PERIODIC`, `REINDEX`; `TriggerType.JOB`.
 - **`subject_for_party(session, party_id)`**, **`query_for_party(session, party_id)`**, **`index_party_names(session, party_id)`** (E4); `refresh_subject_status(session, subject)` (E4).
-- **`ScreeningIndexHolder`** (E3) via `get_index_holder()`: `shared(s, require=...)`, `private(s)`, `scoring_idf(...)`; `indexed_shared_entry(row)`, `indexed_private_entry(s, row, list_code)` and `shared_version_entries(s, code, seq)` to build `only_entries` from delta rows.
+- **`ScreeningIndexHolder`** (E3) via `get_index_holder()`: `shared(s, require=...)` returning `SharedShard` (whose `blocking_idf` 3c's reverse blocking and private-version indexes use), `private(s)`, `scoring_idf(...)`; `indexed_shared_entry(row)`, `indexed_private_entry(s, row, list_code)` and `shared_version_entries(s, code, seq)` to build `only_entries` from delta rows.
 - **`blocking_plan`** stays the library's. 3c's Postgres blocking queries `PartyNameIndex` (`norm_name`, `tokens`, `phonetic_keys` with the GIN indexes `ix_pni_phonetic` and `ix_pni_trgm`) and `PartyNameIndex.matcher_version` (reindex check).
 - Models and enums of migration 0010 (E2): `ScreeningBatch` (`kind`, `ref`, `status`, `total`, `done`, `runs`, `new_matches`, `cursor`, `last_error`), `BatchKind`, `BatchStatus`; `ScreeningMatch.suggested_disposition` with `SuggestedDisposition.DELISTED`; `ScreeningHit.features` (3c redacts the query-side tokens on purge); `OPEN_MATCH_STATUSES`; index `ix_screening_match_entry` for the delisting lookup.
 - Events (E2): `MATCH_DELISTING_SUGGESTED` (`screening.match_delisting_suggested.v1`, already registered staff-only), `publish_screening_event`.
-- Composition (E3, E8): **`register_screening(*, session_factory, settings, queue)`** in `screening/composition.py`, where 3c registers `party.purged.v1` under **`SCREENING_CONSUMER = "screening"`** and its job kinds `screening.list_delta`, `screening.private_list_rescreen`, `screening.periodic_rescreen`, `screening.reindex`; `ensure_screening_index` joins the worker's `on_start` there.
+- Composition (E3, E8): **`register_screening(*, session_factory, settings, queue)`** in `screening/composition.py`, where 3c's F5 registers `party.purged.v1` under **`SCREENING_CONSUMER = "screening"`** (`rescreen/party_events.py`). 3c's job kinds `screening.list_delta`, `screening.private_list_rescreen`, `screening.periodic_rescreen`, `screening.reindex` and its consumers of `lists.version_published.v1` and `private_list.version_activated.v1` are registered by 3c's own `register_rescreen(*, queue)`, called by `wire_platform` after `register_screening`; `ensure_screening_index` joins `worker_loop`'s `on_start` in `app.py` (3c F4).
 - API (E7): `router` in `routes_screening.py` (prefix `/screening`), where 3c adds `GET /batches` and `GET /evaluation`; `schemas.py` for its response models.
 - CLI (E8): `screening_app` in `src/xolotl/cli.py`, where 3c adds `rescreen` and `eval`.
 - Console (E9, E10): `console/src/features/screening/` and `ACCESS.screening`, where 3c adds the Evaluación page.
@@ -1004,11 +1014,11 @@ Named exactly as the spec does where the spec names them; the others are this pl
 ## Parallelism
 
 - **E1** has no dependency and should start first: it is also what 3a's staff-only `private_list.version_activated.v1` relies on.
-- **E2** waits for 3a's migration 0009 and models. Then **E3 ∥ E4** (disjoint files; E3 edits `app.py` and `config.py`, E4 edits `party/service.py` and `.importlinter`). E4 does not need E3.
+- **E2** waits for 3a's D1 (migration 0009 and models). Then **E3 ∥ E4** (disjoint files; E3 edits `app.py` and `config.py`, E4 edits `party/service.py` and `.importlinter`). E4 does not need E3.
 - **E5** after E3 and E4. **E6** after E4, in parallel with E5. E6 only reads `engine/policy.py`: if E5 has not merged, E6 adds `policy_for_run` there and E5 rebases. Both may touch `review/whitelist.py`: E5 writes `active_whitelist_keys`, E6 the rest.
 - **E7** after E5 and E6 (edits `app.py`). **E8** after E5, in parallel with E6 and E7 (edits `cli.py`, `composition.py` and one argument in `app.py`'s `wire_platform`, which does not collide with E7's router line). E8 adds one key to `engine/features.py`, so it rebases on E5.
 - **E9 ∥ E10** after E7 (console only; E10 also waits for 2c's C9). They share the additive console files and regenerate `schema.d.ts` against the merged API.
-- **Across plans.** 3a and 3b both append to `src/xolotl/app.py`, `src/xolotl/cli.py`, `src/xolotl/models.py`, `src/xolotl/platform/config.py`, `.env.example`, `README.md`, `.importlinter`, `tests/isolation/factories.py`, `tests/platform/test_migration_chain.py`, `test_config.py`, `test_errors.py`, `tests/test_cli.py`, `src/xolotl/modules/screening/{events,errors,schemas}.py` and the console's nav, routes, access and catalogues. Every edit is additive, so whichever task merges second rebases. 3a's catch-up and private-list activation tasks need **E2** (`screening_batch`); its staff-only event needs **E1** and **E3** to be withheld from webhooks. 3c needs E5 for every job and E8 for the consumer it extends.
+- **Across plans.** 3a and 3b both append to `src/xolotl/app.py`, `src/xolotl/cli.py`, `src/xolotl/models.py`, `src/xolotl/platform/config.py`, `.env.example`, `README.md`, `.importlinter`, `tests/isolation/factories.py`, `tests/platform/test_migration_chain.py`, `test_config.py`, `test_errors.py`, `tests/test_cli.py`, `src/xolotl/modules/screening/{events,errors,schemas}.py` and the console's nav, routes, access and catalogues. Every edit is additive, so whichever task merges second rebases. 3a's D6 needs only **E1** (it registers its staff-only event itself); no 3a task touches `screening_batch`. E3 needs 3a's D4 and D6 for the test loaders, E10 needs D7. 3c needs E5 for every job and E8 for the consumer and package it extends.
 
 ## Exit criteria
 
