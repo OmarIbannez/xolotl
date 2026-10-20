@@ -1,0 +1,53 @@
+# The shared lists the platform ingests (SP-03 spec §6.1), one record per code.
+#
+# `xolotl lists seed` upserts these rows into `list_source` (owner role, idempotent);
+# `xolotl db upgrade` and `xolotl serve` run it after migrating, so a URL change ships
+# as a change to this file. A code removed from here is disabled, never deleted.
+# Each URL is the one the screening library's fixture README for that source records
+# (tests/modules/screening/fixtures/<source>/README.md); `url_checked_on` is the day
+# it was retrieved. Poll intervals are ISO-8601 durations (INT-304).
+sources:
+  - code: UN_CONSOLIDATED
+    list_kind: SANCTION
+    title: UN Security Council Consolidated List
+    jurisdiction: UN
+    format: UN_XML
+    url: https://scsanctions.un.org/resources/xml/en/consolidated.xml
+    poll_interval: PT15M
+    url_checked_on: 2026-10-19
+
+  - code: OFAC_SDN
+    list_kind: SANCTION
+    title: OFAC Specially Designated Nationals and Blocked Persons List
+    jurisdiction: US
+    format: OFAC_ENHANCED_XML
+    url: https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN_ENHANCED.XML
+    poll_interval: PT30M
+    url_checked_on: 2026-10-19
+
+  - code: EU_FSF
+    list_kind: SANCTION
+    title: EU Consolidated Financial Sanctions List
+    jurisdiction: EU
+    format: EU_FSF_XML
+    url: https://webgate.ec.europa.eu/fsd/fsf/public/files/xmlFullSanctionsList_1_1/content?token=dG9rZW4tMjAxNw
+    poll_interval: PT1H
+    url_checked_on: 2026-10-19
+
+  - code: UK_FCDO
+    list_kind: SANCTION
+    title: UK Sanctions List (FCDO)
+    jurisdiction: GB
+    format: UK_SL_XML
+    url: https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.xml
+    poll_interval: PT1H
+    url_checked_on: 2026-10-19
+
+  - code: MX_SAT_69B
+    list_kind: FISCAL
+    title: SAT Artículo 69-B CFF, listado completo
+    jurisdiction: MX
+    format: SAT_69B_CSV
+    url: http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv
+    poll_interval: P1D
+    url_checked_on: 2026-10-19

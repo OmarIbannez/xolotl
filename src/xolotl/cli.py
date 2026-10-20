@@ -6,7 +6,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -20,6 +20,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from xolotl.app import build_key_provider, build_object_store, build_worker
 from xolotl.modules.party.retention import RetentionSweeper
+from xolotl.modules.screening.catalog import (
+    SOURCES_FILE,
+    ListSource,
+    ListVersion,
+    SeedReport,
+    read_sources,
+    seed_list_sources,
+)
+from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import clock, migrate
@@ -84,6 +93,8 @@ units_app = typer.Typer(
 app.add_typer(units_app, name="units")
 party_app = typer.Typer(no_args_is_help=True, help="Party retention")
 app.add_typer(party_app, name="party")
+lists_app = typer.Typer(no_args_is_help=True, help="Shared sanctions lists")
+app.add_typer(lists_app, name="lists")
 
 _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
@@ -216,6 +227,27 @@ def _cli_errors() -> Generator[None]:
         raise typer.Exit(code=1) from exc
 
 
+def _seed_list_sources(path: Path = SOURCES_FILE) -> str:
+    """Seed the shared list catalog from a sources file as the database owner.
+
+    Only the owner role writes the catalog columns of ``list_source``; ``db
+    upgrade`` and ``serve`` run this right after migrating, so a URL change ships
+    as a change to ``sources.yaml``.
+
+    Returns:
+        The one-line report, such as ``list sources: 5 inserted, 0 updated, ...``.
+
+    """
+    specs = read_sources(path)
+    owner = sessionmaker(bind=get_admin_engine(), expire_on_commit=False)
+    with tenant_session(TenantContext.platform(_cli_actor()), factory=owner) as s:
+        report: SeedReport = seed_list_sources(s, specs)
+    return (
+        f"list sources: {report.inserted} inserted, {report.updated} updated, "
+        f"{report.unchanged} unchanged, {report.disabled} disabled"
+    )
+
+
 def _resolve_tenant(actor: str, slug: str) -> tuple[UUID, str]:
     """Look a tenant up by slug as the platform operator.
 
@@ -265,6 +297,7 @@ def serve(
     with _cli_errors():
         _ = migrate.ensure_app_role()
         migrate.upgrade()
+        logger.info(_seed_list_sources())
         assert_app_role_safe(get_engine())
     _report_object_store(settings.object_store_root)
     uvicorn.run(
@@ -308,13 +341,16 @@ def db_bootstrap() -> None:
 
 @db_app.command("upgrade")
 def db_upgrade() -> None:
-    """Apply migrations up to head, logging what they do like ``serve`` does.
+    """Apply migrations up to head, then seed the shared list catalog.
 
-    Exits 1 with one line on stderr when the database cannot be reached.
+    Logs what the migrations do like ``serve`` does. Exits 1 with one line on stderr
+    when the database cannot be reached.
     """
     configure_logging(get_settings().log_level)
     with _cli_errors():
         migrate.upgrade()
+        seeded = _seed_list_sources()
+    typer.echo(seeded)
     typer.echo("database upgraded to head")
 
 
@@ -765,3 +801,82 @@ def packs_show(
             "config": row.config,
         }
     typer.echo(json.dumps(shown, indent=2, ensure_ascii=False))
+
+
+@lists_app.command("seed")
+def lists_seed(
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="Sources file; default the shipped sources.yaml"),
+    ] = None,
+) -> None:
+    """Upsert the shared list sources from the sources file (idempotent).
+
+    Runs as the database owner, the only role that writes the catalog columns. A
+    code no longer in the file is disabled, never deleted. Exits 1 with one line on
+    stderr when the file is missing or malformed.
+    """
+    with _cli_errors():
+        line = _seed_list_sources(path or SOURCES_FILE)
+    typer.echo(line)
+
+
+def _minute(at: datetime, now: datetime) -> str:
+    # The time alone when it is today in UTC, else the date too.
+    at = at.astimezone(UTC)
+    if at.date() == now.date():
+        return at.strftime("%H:%MZ")
+    return at.strftime("%Y-%m-%dT%H:%MZ")
+
+
+def _freshness(source: ListSource, now: datetime) -> str:
+    if source.consecutive_failures > 0:
+        code = (source.last_error or "UNKNOWN").partition(":")[0]
+        return f"failing: {code} ({source.consecutive_failures})"
+    stale_before = now - 2 * source.poll_interval
+    if source.last_success_at is None or source.last_success_at < stale_before:
+        return "stale"
+    return "ok"
+
+
+def _status_line(source: ListSource, active: ListVersion | None, now: datetime) -> str:
+    version = (
+        "no version"
+        if active is None
+        else f"v{active.seq}  {active.entry_count} entries"
+    )
+    success = (
+        "never"
+        if source.last_success_at is None
+        else source.last_success_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%MZ")
+    )
+    enabled = "enabled " if source.enabled else "disabled"
+    return (
+        f"{source.code:<15}  {enabled}  {version}  last success {success}  "
+        f"next {_minute(source.next_poll_at, now)}  {_freshness(source, now)}"
+    )
+
+
+@lists_app.command("status")
+def lists_status() -> None:
+    """Print one line per shared list source: version, freshness and next poll.
+
+    A source is stale when it has never succeeded or its last success is older than
+    twice its poll interval; one whose last attempts failed shows the error code and
+    the number of failures in a row.
+    """
+    now = clock.now().astimezone(UTC)
+    with _cli_errors(), tenant_session(TenantContext.platform(_cli_actor())) as s:
+        sources = s.scalars(select(ListSource).order_by(ListSource.code)).all()
+        active = {
+            version.list_code: version
+            for version in s.scalars(
+                select(ListVersion).where(ListVersion.status == VersionStatus.ACTIVE)
+            )
+        }
+        lines = [_status_line(src, active.get(src.code), now) for src in sources]
+    if not lines:
+        typer.echo("no list sources; run xolotl lists seed")
+        return
+    for line in lines:
+        typer.echo(line)
