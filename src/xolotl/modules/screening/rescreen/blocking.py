@@ -128,9 +128,11 @@ def stop_keys(s: Session, plans: Iterable[BlockingPlan]) -> frozenset[str]:
 
     """
     singles = {keys[0] for plan in plans for keys in plan.key_sets if len(keys) == 1}
+    if not singles:
+        return frozenset()
     rows = s.scalar(select(func.count()).select_from(PartyNameIndex)) or 0
     threshold = max(STOP_KEY_MIN_HOLDERS, STOP_KEY_SHARE * rows)
-    if not singles or rows <= threshold:
+    if rows <= threshold:
         return frozenset()
     held = func.unnest(PartyNameIndex.phonetic_keys).table_valued("key")
     held = held.render_derived()
