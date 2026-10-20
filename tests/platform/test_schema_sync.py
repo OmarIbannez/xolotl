@@ -5,6 +5,7 @@ from alembic.migration import MigrationContext
 from sqlalchemy import Engine, PrimaryKeyConstraint, UniqueConstraint
 
 from xolotl.models import metadata
+from xolotl.platform.partitions import is_partition_name
 from xolotl.platform.tenancy.registry import SHARED_TABLES
 
 # Tables keyed by a natural composite key carry no ``id``: nothing references them
@@ -21,7 +22,7 @@ NATURALLY_KEYED = frozenset({
 def _include_name(name: str | None, type_: str, _parent_names: object) -> bool:
     if type_ == "table" and name is not None:
         # Partitions are created by ensure_partitions, not declared as models.
-        return not (name.startswith("audit_event_") or name == "alembic_version")
+        return not (is_partition_name(name) or name == "alembic_version")
     return True
 
 

@@ -2,14 +2,17 @@ from alembic import context
 
 from xolotl.models import metadata
 from xolotl.platform.db import get_admin_engine
+from xolotl.platform.partitions import is_partition_name
 
 
 def include_name(name: str | None, type_: str, _parent_names: object) -> bool:
-    # Autogenerate only. The monthly partitions of audit_event are created by
-    # ensure_partitions and no model declares them, so a comparison would propose to
-    # drop them. tests/platform/test_schema_sync.py filters the same names.
+    # Autogenerate only. The partitions of every registered partitioned table are
+    # created by migrations and ensure_partitions and no model declares them, so a
+    # comparison would propose to drop them. xolotl.models, imported above,
+    # registers every such table. tests/platform/test_schema_sync.py filters the
+    # same names.
     if type_ == "table" and name is not None:
-        return not name.startswith("audit_event_")
+        return not is_partition_name(name)
     return True
 
 

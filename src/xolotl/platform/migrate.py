@@ -12,7 +12,6 @@ from sqlalchemy import Connection, create_engine, make_url, text
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.pool import NullPool
 
-from xolotl.platform.audit.partitions import ensure_partitions
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import (
     APP_ROLE,
@@ -21,6 +20,7 @@ from xolotl.platform.db import (
     connect_args,
     get_admin_engine,
 )
+from xolotl.platform.partitions import ensure_all_partitions
 
 logger = logging.getLogger(__name__)
 
@@ -49,16 +49,18 @@ def alembic_config() -> Config:
 
 
 def upgrade(revision: str = "head") -> None:
-    """Apply migrations, then create any audit partition that is missing.
+    """Apply migrations, then create any missing partition of a partitioned table.
 
-    ``serve`` runs this on every start, so this month and the three after it get
-    their partitions; the monthly job that keeps them ahead arrives in plan 1c. A
-    month that cannot be created yet is logged and skipped (``ensure_partitions``),
-    and the upgrade, so the start, carries on.
+    ``serve`` runs this on every start, so every registered partitioned table
+    (``xolotl.platform.partitions``) gets this month's partition and the three
+    after it. The migrations' ``env.py`` imports ``xolotl.models``, whose model
+    modules register their tables, so the registry is full by then. A month that
+    cannot be created yet is logged and skipped (``ensure_partitions``), and the
+    upgrade, so the start, carries on.
     """
     command.upgrade(alembic_config(), revision)
     with get_admin_engine().begin() as conn:
-        _ = ensure_partitions(conn, months_ahead=3)
+        _ = ensure_all_partitions(conn, months_ahead=3)
 
 
 def _app_password() -> str:
