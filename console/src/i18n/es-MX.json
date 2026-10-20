@@ -1168,7 +1168,7 @@
         "title": "Reglas aplicadas",
         "empty": "No se aplicó ninguna regla.",
         "codes": {
-          "ID_MATCH_FLOOR": "Un identificador coincide: el puntaje sube al mínimo de alerta.",
+          "ID_MATCH_FLOOR": "Un identificador coincide: el puntaje sube al piso por identificador.",
           "ID_CONFLICT_CAP": "Un identificador contradice: el puntaje queda topado.",
           "IDENTIFIER_ONLY_LIST": "Lista que se compara solo por identificador.",
           "ENTITY_TYPE_MISMATCH": "El tipo de entidad no coincide."

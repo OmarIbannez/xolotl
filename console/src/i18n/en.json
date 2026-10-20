@@ -1168,7 +1168,7 @@
         "title": "Rules applied",
         "empty": "No rule was applied.",
         "codes": {
-          "ID_MATCH_FLOOR": "An identifier matches: the score is raised to the alert floor.",
+          "ID_MATCH_FLOOR": "An identifier matches: the score is raised to the identifier floor.",
           "ID_CONFLICT_CAP": "An identifier conflicts: the score is capped.",
           "IDENTIFIER_ONLY_LIST": "A list compared by identifier only.",
           "ENTITY_TYPE_MISMATCH": "The entity type does not match."
