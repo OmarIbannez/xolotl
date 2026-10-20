@@ -1506,6 +1506,48 @@ def test_lists_load_file_refuses_a_mass_removal_without_the_flag(
     )
 
 
+def test_lists_load_file_logs_no_warning_for_an_accepted_drop_under_the_ratio(
+    admin_engine: Engine, list_objects: Path, caplog: pytest.LogCaptureFixture
+):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    for path in (UN_V1_FILE, UN_V2_FILE):
+        loaded = runner.invoke(
+            app, ["lists", "load-file", "UN_CONSOLIDATED", str(path), "--accept-drop"]
+        )
+        assert loaded.exit_code == 0, loaded.output
+    # v2 removes 1 of 30 entries, under the guard's ratio: nothing was overridden.
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_lists_load_file_logs_the_orphan_when_it_fails_after_the_put(
+    admin_engine: Engine,
+    list_objects: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+
+    def broken(*_args: object, **_kwargs: object) -> None:
+        msg = "entries failed"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(
+        "xolotl.modules.screening.catalog.ingest._write_entries", broken
+    )
+    result = runner.invoke(
+        app, ["lists", "load-file", "UN_CONSOLIDATED", str(UN_V1_FILE)]
+    )
+    assert isinstance(result.exception, RuntimeError)
+    [error] = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert error.getMessage() == (
+        "loading UN_CONSOLIDATED failed; a raw file under lists/UN_CONSOLIDATED/ "
+        "in the shared namespace may be orphaned"
+    )
+    assert len(list(list_objects.rglob("*.xml"))) == 1
+    shown = runner.invoke(app, ["lists", "show", "UN_CONSOLIDATED"])
+    assert shown.stderr == "error: NOT_FOUND: no active UN_CONSOLIDATED version\n"
+
+
 def test_lists_load_file_reports_a_format_error_in_one_line(
     admin_engine: Engine, list_objects: Path, tmp_path: Path
 ):

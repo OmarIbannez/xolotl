@@ -7,6 +7,7 @@ import os
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
@@ -32,6 +33,8 @@ from xolotl.modules.screening.catalog import (
     seed_list_sources,
 )
 from xolotl.modules.screening.enums import VersionStatus
+from xolotl.modules.screening.errors import ListMassRemovalError
+from xolotl.modules.screening.lists import ListFormatError
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import clock, migrate
@@ -896,6 +899,10 @@ def _load_line(report: IngestReport, active: ListVersion | None) -> str:
     )
 
 
+# The refusals ingest_file raises before it stores the raw file.
+_REFUSED_BEFORE_PUT = (NotFoundError, ListFormatError, ListMassRemovalError)
+
+
 @lists_app.command("load-file")
 def lists_load_file(
     code: Annotated[str, typer.Argument(help="List code, such as UN_CONSOLIDATED")],
@@ -924,21 +931,36 @@ def lists_load_file(
     """
     actor = _cli_actor()
     data = path.read_bytes()
+    settings = get_settings()
     with _cli_errors():
-        store = build_object_store(get_settings())
-        with tenant_session(TenantContext.platform(actor)) as s:
-            report = ingest_file(
-                s,
-                code,
-                data,
-                store=store,
-                loaded_by=actor,
-                fetched_at=clock.now(),
-                accept_drop=accept_drop,
-            )
-            line = _load_line(report, active_versions(s).get(code))
-    if accept_drop and not report.same_file:
-        before = report.removed + report.changed + report.unchanged
+        store = build_object_store(settings)
+        try:
+            with tenant_session(TenantContext.platform(actor)) as s:
+                report = ingest_file(
+                    s,
+                    code,
+                    data,
+                    store=store,
+                    loaded_by=actor,
+                    fetched_at=clock.now(),
+                    accept_drop=accept_drop,
+                )
+                line = _load_line(report, active_versions(s).get(code))
+        except Exception as exc:
+            if not isinstance(exc, _REFUSED_BEFORE_PUT):
+                logger.exception(
+                    "loading %s failed; a raw file under lists/%s/ %s may be orphaned",
+                    code,
+                    code,
+                    "in the shared namespace",
+                )
+            raise
+    before = report.removed + report.changed + report.unchanged
+    mass_removal = (
+        before > 0
+        and Decimal(report.removed) / before > settings.lists_max_removal_ratio
+    )
+    if accept_drop and not report.same_file and mass_removal:
         logger.warning(
             "%s accepted a mass removal on %s v%s: removed %s of %s",
             actor,
