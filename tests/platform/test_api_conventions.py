@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from tests.helpers import make_tenant_with_keys, staff_session, system_ctx
 from xolotl.app import build_app
+from xolotl.modules.screening.engine.enums import BlockedReason
+from xolotl.modules.screening.errors import DispositionNotAllowedError
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import ApiKeyLookup
 from xolotl.modules.tenants.service import CreatedTenant
@@ -76,6 +78,13 @@ def _probe_router() -> APIRouter:
         msg = "kaboom"
         raise RuntimeError(msg)
 
+    @router.get("/probe/blocked")
+    def blocked() -> dict[str, str]:
+        raise DispositionNotAllowedError([
+            BlockedReason.ROLE_REQUIRED,
+            BlockedReason.SAME_REVIEWER,
+        ])
+
     @router.get("/probe/echo")
     def echo(q: int) -> dict[str, int]:
         return {"q": q}
@@ -132,6 +141,18 @@ def test_errors_are_problem_json_with_stable_codes(probe, path, status, code, de
     assert body["instance"] == path
     if status == 401:
         assert resp.headers["www-authenticate"] == "Bearer"
+
+
+def test_a_problem_carries_blocked_reasons_only_when_the_error_has_them(probe):
+    blocked = probe.get("/v1/probe/blocked")
+    assert blocked.status_code == 409
+    body = blocked.json()
+    assert (body["code"], body["blocked_reasons"]) == (
+        "DISPOSITION_NOT_ALLOWED",
+        ["ROLE_REQUIRED", "SAME_REVIEWER"],
+    )
+    assert set(body) == PROBLEM_KEYS | {"blocked_reasons"}
+    assert set(probe.get("/v1/probe/domain").json()) == PROBLEM_KEYS
 
 
 def test_destroyed_keys_are_a_410_problem_titled_gone(probe):
