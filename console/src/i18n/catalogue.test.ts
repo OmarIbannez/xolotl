@@ -90,6 +90,10 @@ describe('translation catalogues', () => {
       'IDENTIFIER_EXISTS',
       'IDENTIFIER_INVALID',
       'OBJECT_CORRUPT',
+      'LIST_MANDATORY',
+      'LIST_MASS_REMOVAL',
+      'LIST_FORMAT_INVALID',
+      'LIST_CODE_UNSUPPORTED',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

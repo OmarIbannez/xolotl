@@ -9,7 +9,7 @@ import { ACCESS } from './access'
 import { RequireRole } from './guards'
 import { AuthContext } from './use-auth'
 
-/** The admin pages and the parties area behind the guards the console's routes use. */
+/** The admin pages, the parties area and the lists behind the guards the console's routes use. */
 function visit(path: string, roles: Role[]) {
   render(
     <AuthContext value={makeAuth(makeUser({ roles }))}>
@@ -26,6 +26,10 @@ function visit(path: string, roles: Role[]) {
           </Route>
           <Route element={<RequireRole roles={ACCESS.parties} />}>
             <Route path="/parties" element={<p>page of parties</p>} />
+          </Route>
+          <Route element={<RequireRole roles={ACCESS.lists} />}>
+            <Route path="/lists" element={<p>page of lists</p>} />
+            <Route path="/lists/:code" element={<p>page of a list</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -85,5 +89,28 @@ describe('the parties area is open to every staff role', () => {
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
     expect(screen.queryByText('page of parties')).toBeNull()
+  })
+})
+
+describe('the lists are open to every staff role', () => {
+  it.each([
+    ['/lists', 'page of lists', 'ANALYST'],
+    ['/lists', 'page of lists', 'SENIOR_ANALYST'],
+    ['/lists', 'page of lists', 'MLRO'],
+    ['/lists', 'page of lists', 'AUDITOR_RO'],
+    ['/lists', 'page of lists', 'ADMIN'],
+    ['/lists/UN_CONSOLIDATED', 'page of a list', 'ANALYST'],
+    ['/lists/UN_CONSOLIDATED', 'page of a list', 'AUDITOR_RO'],
+  ] as const)('lets a user open %s as %s', (path, page, role) => {
+    visit(path, [role])
+
+    expect(screen.getByText(page)).toBeTruthy()
+    expect(screen.queryByText(esMX.forbidden.title)).toBeNull()
+  })
+
+  it.each(['/lists', '/lists/UN_CONSOLIDATED'])('shows "no access" at %s to a user with no role', (path) => {
+    visit(path, [])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
   })
 })
