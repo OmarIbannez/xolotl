@@ -28,8 +28,15 @@ from xolotl.modules.screening.catalog.models import (
     TenantListSubscription,
 )
 from xolotl.modules.screening.catalog.poll import (
+    LEASE,
     LISTS_POLL_KIND,
+    MAX_BACKOFF,
     ListsPollJob,
+    PollOutcome,
+    backoff,
+    claim_due_source,
+    claim_source,
+    poll_source,
     register_lists,
 )
 from xolotl.modules.screening.catalog.queries import (
@@ -57,8 +64,10 @@ from xolotl.modules.screening.catalog.subscriptions import (
 )
 
 __all__ = [
+    "LEASE",
     "LISTS_POLL_KIND",
     "LPB_MISSING_TEMPLATE",
+    "MAX_BACKOFF",
     "SOURCES_FILE",
     "STALE_TEMPLATE",
     "FetchResult",
@@ -71,6 +80,7 @@ __all__ = [
     "ListSource",
     "ListVersion",
     "ListsPollJob",
+    "PollOutcome",
     "PrivateList",
     "PrivateListEntryDelta",
     "PrivateListEntryRow",
@@ -80,14 +90,18 @@ __all__ = [
     "SourceSpec",
     "TenantListSubscription",
     "active_versions",
+    "backoff",
     "catch_up",
     "check_staleness",
+    "claim_due_source",
+    "claim_source",
     "current_hashes",
     "entry_of",
     "file_kind",
     "ingest_file",
     "ingest_parsed",
     "is_stale",
+    "poll_source",
     "read_sources",
     "reconcile_subscriptions",
     "record_success",

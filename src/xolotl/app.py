@@ -20,6 +20,7 @@ from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
 from xolotl.modules.party import routes_relationships as party_relationship_routes
 from xolotl.modules.party.retention import register_party
+from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.tenants import (
     routes_api_keys,
@@ -144,7 +145,18 @@ def wire_platform(
     )
     # The per-minute lists.poll job: subscriptions from the effective policy, the
     # catch-up events, and the stale-source and missing-LPB notices.
-    _ = register_lists(session_factory=session_factory, notifier=InAppNotifier())
+    # The shared half fetches at most one due source per run under a lease, only
+    # when network fetching is on (XOLOTL_LISTS_FETCH_ENABLED, by default in prod).
+    _ = register_lists(
+        session_factory=session_factory,
+        notifier=InAppNotifier(),
+        fetcher=HttpListFetcher(
+            timeout_seconds=settings.lists_fetch_timeout_seconds,
+            max_bytes=settings.lists_max_file_mb * 1024 * 1024,
+        ),
+        store=store,
+        fetching=settings.lists_fetching,
+    )
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
