@@ -5,12 +5,32 @@ The members of version ``n`` of a list are its ``list_entry`` rows with
 the active version are the ones with ``to_seq`` null.
 """
 
-from sqlalchemy import Select, or_, select
-from sqlalchemy.orm import Session
+from dataclasses import dataclass
+from uuid import UUID
 
-from xolotl.modules.screening.catalog.models import ListEntryRow, ListVersion
-from xolotl.modules.screening.enums import VersionStatus
+from sqlalchemy import Select, or_, select
+from sqlalchemy.orm import Session, aliased
+
+from xolotl.modules.screening.catalog.models import (
+    ListEntryDelta,
+    ListEntryRow,
+    ListVersion,
+    TenantListSubscription,
+)
+from xolotl.modules.screening.enums import DeltaChange, VersionStatus
 from xolotl.modules.screening.lists import ListEntry
+
+
+@dataclass(frozen=True, slots=True)
+class DeltaRowView:
+    """One change of a version, with the primary names of the two entry rows."""
+
+    source_entry_key: str
+    change: DeltaChange
+    prev_entry_id: UUID | None
+    new_entry_id: UUID | None
+    prev_name: str | None
+    new_name: str | None
 
 
 def active_versions(session: Session) -> dict[str, ListVersion]:
@@ -71,3 +91,61 @@ def entry_of(row: ListEntryRow) -> ListEntry:
 
     """
     return ListEntry.from_json(row.entry)
+
+
+def delta_page(
+    session: Session, version_id: UUID, *, after_key: str | None, limit: int
+) -> list[DeltaRowView]:
+    """Read one page of a version's delta rows, in entry-key order.
+
+    Returns:
+        Up to ``limit`` rows whose key follows ``after_key`` (all when it is
+        ``None``), each with the primary names of its previous and new entry rows.
+
+    """
+    prev = aliased(ListEntryRow)
+    new = aliased(ListEntryRow)
+    stmt = (
+        select(
+            ListEntryDelta.source_entry_key,
+            ListEntryDelta.change,
+            ListEntryDelta.prev_entry_id,
+            ListEntryDelta.new_entry_id,
+            prev.primary_name,
+            new.primary_name,
+        )
+        .outerjoin(prev, prev.id == ListEntryDelta.prev_entry_id)
+        .outerjoin(new, new.id == ListEntryDelta.new_entry_id)
+        .where(ListEntryDelta.version_id == version_id)
+        .order_by(ListEntryDelta.source_entry_key)
+        .limit(limit)
+    )
+    if after_key is not None:
+        stmt = stmt.where(ListEntryDelta.source_entry_key > after_key)
+    return [
+        DeltaRowView(
+            source_entry_key=key,
+            change=change,
+            prev_entry_id=prev_id,
+            new_entry_id=new_id,
+            prev_name=prev_name,
+            new_name=new_name,
+        )
+        for key, change, prev_id, new_id, prev_name, new_name in session.execute(stmt)
+    ]
+
+
+def enabled_subscriptions(session: Session) -> list[TenantListSubscription]:
+    """Read the session tenant's enabled list subscriptions.
+
+    Returns:
+        The subscriptions, ordered by list code.
+
+    """
+    return list(
+        session.scalars(
+            select(TenantListSubscription)
+            .where(TenantListSubscription.enabled)
+            .order_by(TenantListSubscription.list_code)
+        )
+    )

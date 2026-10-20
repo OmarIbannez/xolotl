@@ -20,6 +20,8 @@ from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
 from xolotl.modules.party import routes_relationships as party_relationship_routes
 from xolotl.modules.party.retention import register_party
+from xolotl.modules.screening import routes_lists as lists_routes
+from xolotl.modules.screening import routes_private_lists as private_list_routes
 from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.screening.composition import register_screening
@@ -273,6 +275,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             party_routes.router,
             party_document_routes.router,
             party_relationship_routes.router,
+            lists_routes.router,
+            private_list_routes.router,
             audit_routes.router,
         ],
     )
