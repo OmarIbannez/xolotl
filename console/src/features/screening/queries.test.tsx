@@ -3,14 +3,24 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { installFakeApi, json, noContent } from '@/test/fake-network'
 import { makeQueryClient, providers } from '@/test/render'
-import { matchDetail, matchReveal, matchSummary } from './fixtures'
-import { useDisposition, useMatch, useMatches, useRevealMatch, useRevokeWhitelist } from './queries'
+import { checkResult, matchDetail, matchReveal, matchSummary, partyScreening } from './fixtures'
+import {
+  useCheck,
+  useDisposition,
+  useMatch,
+  useMatches,
+  usePartyScreening,
+  useRevealMatch,
+  useRevokeWhitelist,
+} from './queries'
 
 const MATCHES = 'GET /v1/screening/matches'
 const DETAIL = 'GET /v1/screening/matches/m1'
 const REVEAL = 'GET /v1/screening/matches/m1/reveal'
 const DISPOSE = 'POST /v1/screening/matches/m1/dispositions'
 const REVOKE = 'DELETE /v1/screening/whitelist/w1'
+const PARTY = 'GET /v1/screening/parties/p1'
+const CHECK = 'POST /v1/screening/checks'
 
 function routes() {
   return installFakeApi({
@@ -23,6 +33,8 @@ function routes() {
         { status: 201 },
       ),
     [REVOKE]: () => noContent(),
+    [PARTY]: () => json(partyScreening()),
+    [CHECK]: () => json(checkResult(), { status: 201 }),
   })
 }
 
@@ -82,5 +94,21 @@ describe('screening queries', () => {
     await waitFor(() => expect(result.current.revoke.isSuccess).toBe(true))
     expect(api.calls(REVOKE)).toHaveLength(1)
     await waitFor(() => expect(api.calls(DETAIL)).toHaveLength(2))
+  })
+
+  it('useCheck posts with an Idempotency-Key, keeps neither the subject nor the answer, and refreshes the party view', async () => {
+    const api = routes()
+    const queryClient = makeQueryClient()
+    const { Wrapper } = providers({ queryClient })
+    const { result } = renderHook(() => ({ party: usePartyScreening('p1'), check: useCheck() }), { wrapper: Wrapper })
+    await waitFor(() => expect(result.current.party.isSuccess).toBe(true))
+
+    act(() => result.current.check.mutate({ subject: { type: 'PERSON', names: ['Juan Pérez López'] } }))
+
+    await waitFor(() => expect(result.current.check.isSuccess).toBe(true))
+    expect(api.calls(CHECK)[0]?.headers.get('Idempotency-Key')).toBeTruthy()
+    await waitFor(() => expect(api.calls(PARTY)).toHaveLength(2))
+    expect(queryClient.getMutationCache().getAll()[0]?.options.gcTime).toBe(0)
+    expect(JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.queryKey))).not.toContain('Juan')
   })
 })

@@ -15,7 +15,7 @@ describe('hasAnyRole', () => {
     expect(hasAnyRole([], ACCESS.staff)).toBe(false)
   })
 
-  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit; every role reads parties, all but AUDITOR_RO write them, only MLRO sets a legal hold; every role reads the lists and only ADMIN toggles a subscription; MLRO and ADMIN manage the private lists; every role reads the screening queue, ANALYST, SENIOR_ANALYST and MLRO decide findings, and only MLRO revokes a whitelist row', () => {
+  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit; every role reads parties, all but AUDITOR_RO write them, only MLRO sets a legal hold; every role reads the lists and only ADMIN toggles a subscription; MLRO and ADMIN manage the private lists; every role reads the screening queue, ANALYST, SENIOR_ANALYST and MLRO decide findings, only MLRO revokes a whitelist row, and every role but AUDITOR_RO runs a check on demand', () => {
     const allowed = (role: Role) => ({
       apiKeys: hasAnyRole([role], ACCESS.apiKeys),
       staff: hasAnyRole([role], ACCESS.staff),
@@ -30,6 +30,7 @@ describe('hasAnyRole', () => {
       screening: hasAnyRole([role], ACCESS.screening),
       dispositions: hasAnyRole([role], ACCESS.dispositions),
       whitelistRevoke: hasAnyRole([role], ACCESS.whitelistRevoke),
+      screeningCheck: hasAnyRole([role], ACCESS.screeningCheck),
     })
 
     expect(allowed('ADMIN')).toEqual({
@@ -46,6 +47,7 @@ describe('hasAnyRole', () => {
       screening: true,
       dispositions: false,
       whitelistRevoke: false,
+      screeningCheck: true,
     })
     expect(allowed('MLRO')).toEqual({
       apiKeys: false,
@@ -61,6 +63,7 @@ describe('hasAnyRole', () => {
       screening: true,
       dispositions: true,
       whitelistRevoke: true,
+      screeningCheck: true,
     })
     expect(allowed('AUDITOR_RO')).toEqual({
       apiKeys: false,
@@ -76,6 +79,7 @@ describe('hasAnyRole', () => {
       screening: true,
       dispositions: false,
       whitelistRevoke: false,
+      screeningCheck: false,
     })
     expect(allowed('ANALYST')).toEqual({
       apiKeys: false,
@@ -91,6 +95,7 @@ describe('hasAnyRole', () => {
       screening: true,
       dispositions: true,
       whitelistRevoke: false,
+      screeningCheck: true,
     })
     expect(allowed('SENIOR_ANALYST')).toEqual({
       apiKeys: false,
@@ -106,6 +111,7 @@ describe('hasAnyRole', () => {
       screening: true,
       dispositions: true,
       whitelistRevoke: false,
+      screeningCheck: true,
     })
   })
 })
