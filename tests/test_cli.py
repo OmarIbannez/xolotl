@@ -46,7 +46,7 @@ from xolotl.modules.party.enums import DocumentType, PartyStatus, PartyType
 from xolotl.modules.party.models import Party
 from xolotl.modules.party.schemas import PartyCreateRequest, PersonInput
 from xolotl.modules.tenants import service
-from xolotl.platform import db, migrate
+from xolotl.platform import clock, db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
 from xolotl.platform.crypto import (
     KeyDestroyedError,
@@ -56,6 +56,7 @@ from xolotl.platform.crypto import (
     set_key_provider,
 )
 from xolotl.platform.enums import KeyPurpose
+from xolotl.platform.ids import uuid7
 from xolotl.platform.storage.local import LocalFsObjectStore
 from xolotl.platform.units.banxico import BASE_URL as BANXICO_BASE_URL
 
@@ -1284,3 +1285,138 @@ def test_packs_show_prints_the_installed_version(admin_engine: Engine):
     missing = runner.invoke(app, ["packs", "show", "MX/ITF-IFPE", "--version", "9"])
     assert missing.exit_code == 1
     assert missing.stderr == "error: NOT_FOUND: no pack MX/ITF-IFPE version 9\n"
+
+
+# --- lists: the shared source catalog ---------------------------------------------
+
+LISTS_SEEDED = "list sources: 5 inserted, 0 updated, 0 unchanged, 0 disabled\n"
+LISTS_RESEEDED = "list sources: 0 inserted, 0 updated, 5 unchanged, 0 disabled\n"
+
+
+def _list_source_count(admin_engine: Engine) -> int:
+    with admin_engine.connect() as conn:
+        return conn.scalar(text("SELECT count(*) FROM list_source WHERE enabled"))
+
+
+def test_lists_help_lists_seed_and_status():
+    result = runner.invoke(app, ["lists", "--help"])
+    assert result.exit_code == 0
+    assert "seed" in result.output
+    assert "status" in result.output
+
+
+def test_lists_seed_reports_counts_and_is_idempotent(admin_engine: Engine):
+    first = runner.invoke(app, ["lists", "seed"])
+    assert first.exit_code == 0, first.output
+    assert first.output == LISTS_SEEDED
+    again = runner.invoke(
+        app,
+        ["lists", "seed", str(Path("src/xolotl/modules/screening/sources.yaml"))],
+    )
+    assert again.exit_code == 0, again.output
+    assert again.output == LISTS_RESEEDED
+    assert _list_source_count(admin_engine) == 5
+
+
+def test_lists_seed_refuses_a_missing_file_in_one_line(
+    admin_engine: Engine, tmp_path: Path
+):
+    result = runner.invoke(app, ["lists", "seed", str(tmp_path / "nope.yaml")])
+    assert result.exit_code == 1
+    [line] = result.stderr.splitlines()
+    assert line.startswith("error: VALIDATION_FAILED: ")
+
+
+def test_db_upgrade_seeds_the_catalog(admin_engine: Engine):
+    result = runner.invoke(app, ["db", "upgrade"])
+    assert result.exit_code == 0, result.output
+    # The migrations log JSON lines first; the two results come last.
+    assert result.output.endswith(LISTS_SEEDED + "database upgraded to head\n")
+    assert _list_source_count(admin_engine) == 5
+
+
+def test_serve_seeds_the_catalog_after_migrating(admin_engine: Engine, monkeypatch):
+    def run(*_args: object, **_options: object) -> None:
+        pass
+
+    monkeypatch.setattr(uvicorn, "run", run)
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 0, result.output
+    assert _list_source_count(admin_engine) == 5
+
+
+def test_lists_status_lists_every_source(admin_engine: Engine, monkeypatch):
+    now = datetime(2026, 10, 19, 12, 5, tzinfo=UTC)
+    monkeypatch.setattr(clock, "now", lambda: now)
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    with admin_engine.begin() as conn:
+        _ = conn.execute(
+            text(
+                """
+                UPDATE list_source SET last_success_at = :success, next_poll_at = :next
+                WHERE code = 'UN_CONSOLIDATED'
+                """
+            ),
+            {
+                "success": datetime(2026, 10, 19, 12, tzinfo=UTC),
+                "next": datetime(2026, 10, 19, 12, 15, tzinfo=UTC),
+            },
+        )
+        _ = conn.execute(
+            text(
+                """
+                UPDATE list_source SET last_success_at = :success, next_poll_at = :next,
+                    consecutive_failures = 2, last_error = 'HTTP_503: server answered'
+                WHERE code = 'OFAC_SDN'
+                """
+            ),
+            {
+                "success": datetime(2026, 10, 19, 11, 50, tzinfo=UTC),
+                "next": datetime(2026, 10, 20, 1, 0, tzinfo=UTC),
+            },
+        )
+        _ = conn.execute(
+            text(
+                "UPDATE list_source SET next_poll_at = :next WHERE code <> ALL(:done)"
+            ),
+            {
+                "next": datetime(2026, 10, 19, 12, 0, tzinfo=UTC),
+                "done": ["UN_CONSOLIDATED", "OFAC_SDN"],
+            },
+        )
+        _ = conn.execute(
+            text("UPDATE list_source SET enabled = false WHERE code = 'UK_FCDO'")
+        )
+        _ = conn.execute(
+            text(
+                """
+                INSERT INTO list_version (id, list_code, seq, status, parser_version,
+                    fetched_at, loaded_by, file_sha256, file_size, storage_key,
+                    entry_count, added, changed, removed)
+                VALUES (:id, 'UN_CONSOLIDATED', 3, 'ACTIVE', 'un-xml/1', :at,
+                    'cli:test', :sha, 10, 'lists/x', 1003, 0, 0, 0)
+                """
+            ),
+            {"id": uuid7(), "at": now, "sha": b"\x01" * 32},
+        )
+    result = runner.invoke(app, ["lists", "status"])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == [
+        "EU_FSF           enabled   no version  last success never  next 12:00Z  stale",
+        "MX_SAT_69B       enabled   no version  last success never  next 12:00Z  stale",
+        (
+            "OFAC_SDN         enabled   no version  last success 2026-10-19T11:50Z  "
+            "next 2026-10-20T01:00Z  failing: HTTP_503 (2)"
+        ),
+        "UK_FCDO          disabled  no version  last success never  next 12:00Z  stale",
+        (
+            "UN_CONSOLIDATED  enabled   v3  1003 entries  "
+            "last success 2026-10-19T12:00Z  next 12:15Z  ok"
+        ),
+    ]
+
+
+def test_lists_status_with_no_sources_says_so(admin_engine: Engine):
+    result = runner.invoke(app, ["lists", "status"])
+    assert result.exit_code == 0, result.output
+    assert result.output == "no list sources; run xolotl lists seed\n"
