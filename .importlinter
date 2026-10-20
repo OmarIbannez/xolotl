@@ -49,3 +49,15 @@ source_modules =
     xolotl.modules.screening.lists
 forbidden_modules =
     xolotl.modules.screening.matching
+
+[importlinter:contract:screening-engine-reads-party-through-services]
+name = screening engine reads parties through services
+type = forbidden
+source_modules =
+    xolotl.modules.screening.engine
+    xolotl.modules.screening.review
+    xolotl.modules.screening.rescreen
+forbidden_modules =
+    xolotl.modules.party.models
+ignore_imports =
+    xolotl.modules.party.service -> xolotl.modules.party.models
