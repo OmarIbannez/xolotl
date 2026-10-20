@@ -1,6 +1,6 @@
 # SP-04b — Rules, simulation, hits and captures — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The working agreement `docs/superpowers/execution/sp03/agreement.md` (gates, worktrees, commits, PRs, report) applies to every task unchanged, with "SP-03" read as "SP-04" and the spec path below.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. The working agreement `docs/superpowers/execution/sp04/agreement.md` (gates, worktrees, commits, PRs, report) applies to every task; the cross-plan decisions the three SP-04 plans carry are in `docs/superpowers/plans/2026-10-20-sp04-reconciliation.md`.
 
 **Goal:** Turn the transactions plan 4a enriches and aggregates into rule hits and reportable events, under governance. That means: the jurisdiction lists loader; typed rule definitions with a rendered sentence; the pure evaluator for the seven ALERT kinds; the Mexico typology library as pack content with its loader and CLI; migration 0013 with rule templates, tenant rules, versions, simulations, assignments, hits, tier-limit notices, capture groups, reportable events, capture periods, the counterparty subject columns and `counterparty_name_index`; rule versions with parameter bounds, the D19 lifecycle with a different approver and date-and-product assignments; the simulation job that replays Postgres history through the same evaluator in memory and writes one `rule_simulation` row; hits with dedup, cooldown and evidence, and the asynchronous tier-limit webhook; capture definitions from the policy snapshot, trigger and field maps, accumulation groups, `merge_into`, supersession on late events and the period-close reconciliation; the rules, hits and captures API; staff-only event registration; and the console's Reglas › Monitoreo, Hallazgos de reglas and Reglas › Capturas y límites pages.
 
@@ -18,51 +18,50 @@ The spec is dated 2026-10-20 "for the product owner's review"; under the blanket
 
 ## Dependencies outside this plan
 
-Plans 4a and 4c are written in parallel with this one. Every symbol taken from them is marked **(assumed)**; the reconciliation pass aligns the names, as `docs/superpowers/plans/2026-10-19-sp03-reconciliation.md` did for SP-03.
+Plans 4a and 4c were written in parallel with this one; `docs/superpowers/plans/2026-10-20-sp04-reconciliation.md` aligned the names below with what 4a and 4c build, and each row names the 4a task that provides it.
 
-### From plan 4a (assumed)
+### From plan 4a
 
 | Symbol | What this plan takes | Needed by |
 |---|---|---|
-| Migration `0012_transactions` (`revision = "0012_transactions"`, `down_revision = "0011_screening_hit_run_index"`) | the tables `account`, `counterparty`, `transaction_batch`, `transaction_file`, `transaction` (partitioned), `transaction_ref`, `transaction_parked`, `agg_bucket`, `agg_distinct`, `agg_declaration` of spec §5.2; 0013 sets `down_revision = "0012_transactions"` | B4 |
-| `xolotl.modules.monitoring.enums`: `KeyKind` (`PARTY`, `RELATIONSHIP`, `ACCOUNT`, `COUNTERPARTY`, `DEVICE`), `TransactionStatus` (`RECEIVED`, `PROCESSED`, `PARKED`, `BACKFILL`) | the key kinds of declarations, dedup and hits; the status filter of evidence, simulation and period-close reads | B1, B7, B8, B10 |
-| `xolotl.modules.monitoring.txn.schema`: `Direction`, `Rail`, `Instrument`, `Channel`, `TransactionInput`, `EnrichedTransaction`, `UnitAmount` | `EnrichedTransaction` is the frozen, database-free value the evaluator reads (spec §2 lists `monitoring.txn.schema` among the pure imports): `id`, `external_id`, `occurred_at`, `received_at`, `party_id`, `relationship_id`, `account_id`, `product`, `direction`, `rail`, `instrument`, `channel`, `amount_minor`, `currency`, `fee_minor`, `asset_qty`, `asset_code`, `unit_amounts: Mapping[str, UnitAmount]` (`UnitAmount(amount: Decimal, unit_value_id: int \| None, resolved_date: date)` keyed `"<unit>/<rule>"`), `counterparty_id`, `counterparty_country`, `counterparty_screening_status`, `device_hash`, `geo_country`, `geo_admin_area`, `crypto` (`network`, `tx_hash`, `self_custody`, `asset_code`, `asset_qty`), `purpose_code`, `period_keys: Mapping[str, str \| bool]` (`DAY`, `MONTH`, `QUARTER`, `BUSINESS_DAY`), `tier`, `risk_rating`, `monitoring_profile`, `policy_snapshot_id`, `late` | B1, B2, B7, B8, B10 |
-| `xolotl.modules.monitoring.txn.models`: `Transaction`, `TransactionBatch`, `Account`; `xolotl.modules.screening.counterparty.models.Counterparty`; `xolotl.modules.screening.counterparty.schema.CounterpartyInput`, `CounterpartyKind` | the rows hits, events and the name index reference; the evidence and simulation reads (`Transaction.status`, `.occurred_at`, `.party_id`, `.relationship_id`, `.policy_snapshot_id`) | B4, B7, B8, B10, B11 |
-| `xolotl.modules.monitoring.aggregates.declarations`: `AggregateFunction`, `WindowKind`, `Measure`, `TxnFilter`, `AggregateDeclaration` (with `agg_id()`), `AggregateKey(key_kind: KeyKind, key: str)`, `aggregate_key(txn: EnrichedTransaction, key_kind: KeyKind) -> AggregateKey`, `resolve_list_names(where: TxnFilter, lists: JurisdictionLists) -> TxnFilter`, `ensure_declarations(session, declarations: Sequence[AggregateDeclaration], *, queue: PostgresJobQueue) -> int` | spec §8.2 and §8.4. `resolve_list_names` replaces `$FATF_GREY`-style names in the country and region sets by literal codes (spec §8.2); it needs this plan's `JurisdictionLists` (B1), which therefore merges before 4a's declarations task | B1, B2, B6, B7, B10 |
-| `xolotl.modules.monitoring.aggregates.windows`: `AggregateValue` (`value: Decimal`, `count: int`, `max_value`, `min_value`, `first_at`, `last_at`, `complete: bool`), `matches_filter(txn: EnrichedTransaction, where: TxnFilter) -> bool` | the value the reader hands the evaluator (`complete = False` is the `INCOMPLETE` of spec §8.4); the `on` filter of a rule and a capture is a `TxnFilter` evaluated by the same function `add()` uses | B2, B7, B10 |
-| `xolotl.modules.monitoring.aggregates.store.AggregateStore` (the §8.1 Protocol: `add`, `read`, `calendar_read`, `accumulator_read`); `xolotl.modules.monitoring.aggregates.postgres.PostgresAggregateStore(session)`; `xolotl.modules.monitoring.aggregates.memory.MemoryAggregateStore()` | the reader wraps a store; simulation and period close build a memory store per key | B7, B8, B11 |
-| `xolotl.modules.monitoring.process.hooks`: `ProcessingContext` (`store: AggregateStore`, `snapshot: PolicySnapshotContent`, `units: UnitService`, `holidays: Holidays`, `late: bool`, `queue: PostgresJobQueue`), `ProcessingHook` (a Protocol with `name: str`, `declarations(self, s, snapshot: PolicySnapshotContent, *, on: date, product: str \| None) -> Sequence[AggregateDeclaration]` and `evaluate(self, s, txn: EnrichedTransaction, ctx: ProcessingContext) -> None`), `register_processing_hook(hook: ProcessingHook) -> None` | spec §8.5 step 2 and §22's "the evaluator hook is a no-op list": the processing job collects every hook's `declarations` before `add()` and calls every hook's `evaluate` after it, in the row's transaction, before publishing `monitoring.transaction_processed.v1` | B7, B10 |
-| `xolotl.modules.monitoring.enrich.rows.enriched_from_row(s, row: Transaction) -> EnrichedTransaction` and `xolotl.modules.monitoring.enrich.periods.mx_date(at: datetime) -> date`, `period_key_bounds(period_key: str) -> tuple[date, date]` | rebuilding the evaluator's input from stored rows (simulation, late re-evaluation, period close) and the Mexico City calendar date | B7, B8, B10, B11 |
-| `xolotl.modules.monitoring.events`: `EVENT_SOURCE = "xolotl.monitoring"`, `STAFF_ONLY_EVENT_TYPES: tuple[str, ...]`, `publish_monitoring_event(s, event_type, *, entity, entity_id, key: str, data, policy_snapshot_id=None) -> Event` (the `publish_screening_event` shape) | this plan appends its constants and staff-only types (shared file: create or append) | B4 |
-| `xolotl.modules.monitoring.errors`, `schemas.py`, `composition.py` (`register_monitoring(*, queue, ...)`), `routes_transactions.py` | shared files this plan appends to; `register_rules(*, queue)` is called by `wire_platform` right after `register_monitoring` | B4, B7, B9 |
-| `xolotl.modules.monitoring.process.job.PROCESS_KIND = "monitoring.process"` and `tests/modules/monitoring/support.py`: `ingest_fixtures(s, items) -> list[UUID]`, `process_party(engine, tenant_id, party_id) -> None` (runs the processing job to completion), `seed_unit_values(admin_engine, rows)` | the capture goldens, the hit tests and the hook tests run real rows through 4a's job | B7, B10, B11 |
-| `Settings.monitoring_agg_backfill_batch` (`XOLOTL_MONITORING_AGG_BACKFILL_BATCH`, default 5000), `Settings.monitoring_process_page` | the simulation page size (spec §13.1) | B8 |
-| `tests/isolation/factories.py` helpers `_transaction(session, tenant_id) -> Transaction`, `_counterparty(session, tenant_id) -> Counterparty`, `_customer_relationship(session, tenant_id) -> CustomerRelationship` (B4 adds the last one when 4a has not) | the hit, event and name-index factories | B4 |
-| `screening.counterparty.reveal_counterparty(s, counterparty_id) -> RevealedCounterparty` (`name`, `account`, `wallet_address`; records `VIEW_PII`) | the hit reveal | B12 |
-| Console: `console/src/features/transactions/` and `ACCESS.transactions`; the transaction detail's "hits and captures on this transaction" cards read B12's and B11's endpoints once they exist | B14, B15 |
+| Migration `0012_transactions` (A2; `revision = "0012_transactions"`, `down_revision = "0011_screening_hit_run_index"`) | the tables `account`, `counterparty`, `transaction_batch`, `transaction_file`, `transaction` (partitioned), `transaction_ref`, `transaction_parked`, `agg_bucket`, `agg_distinct`, `agg_declaration` of spec §5.2; 0013 sets `down_revision = "0012_transactions"`. A2 also adds the `.importlinter` contracts `monitoring-boundaries` and `screening-never-imports-monitoring` and the factory helpers `_customer_relationship`, `_account`, `_counterparty`, `_transaction_batch`, `_transaction` | B4 |
+| `xolotl.modules.monitoring.enums` (A2): `TransactionStatus` (`RECEIVED`, `PROCESSED`, `PARKED`, `BACKFILL`); `xolotl.modules.monitoring.txn.schema` (A3): `KeyKind` (`PARTY`, `RELATIONSHIP`, `ACCOUNT`, `COUNTERPARTY`, `DEVICE`) | the key kinds of declarations, dedup and hits; the status filter of evidence, simulation and period-close reads | B1, B7, B8, B10 |
+| `xolotl.modules.monitoring.txn.schema` (A3): `Direction`, `Rail`, `Instrument`, `Channel`, `TransactionInput`, `EnrichedTransaction`, `UnitAmount`, `PeriodKeys` | `EnrichedTransaction` is the frozen, database-free value the evaluator reads: `id`, `external_id`, `occurred_at`, `received_at`, `party_id`, `relationship_id`, `account_id`, `product`, `direction`, `rail`, `instrument`, `channel`, `amount_minor`, `currency`, `fee_minor`, `asset_qty`, `asset_code`, `unit_amounts: dict[str, UnitAmount]` (`UnitAmount(amount: Decimal, unit_value_id: int \| None, resolved_date: date)` keyed `"<unit>/<rule>"`; `unit_amount(unit_key) -> Decimal \| None`), `counterparty_id`, `counterparty_key` (the dedup hash as hex), `counterparty_country`, `counterparty_screening_status`, `device_key` (the device hash as hex), `geo_country`, `geo_admin_area`, `crypto`, `fx`, `purpose_code`, `period_keys: PeriodKeys` (attributes `DAY`, `MONTH`, `QUARTER`, `BUSINESS_DAY`), `tier`, `risk_rating`, `monitoring_profile`, `policy_snapshot_id`, `policy_country`, `late`; `key_for(kind) -> str \| None` | B1, B2, B7, B8, B10 |
+| `xolotl.modules.monitoring.txn.models` (A2): `Transaction`, `TransactionBatch`, `Account`; `xolotl.modules.screening.counterparty.models.Counterparty` (A2); `xolotl.modules.screening.counterparty.schema.CounterpartyInput`, `CounterpartyKind` (A3) | the rows hits, events and the name index reference; the evidence and simulation reads (`Transaction.status`, `.occurred_at`, `.party_id`, `.relationship_id`, `.policy_snapshot_id`) | B4, B7, B8, B10, B11 |
+| `xolotl.modules.monitoring.aggregates.declarations` (A7, pure): `AggregateFunction`, `WindowKind`, `Measure`, `TxnFilter`, `AggregateDeclaration` (`agg_id()`, `canonical_json()`, `from_json()`, `lists_hash`), `matches(where, txn) -> bool`; `xolotl.modules.monitoring.aggregates.store` (A7, pure): `AggregateKey(kind, key)`, `BucketRow`, `AggregateValue` (`value`, `count`, `max_value`, `min_value`, `first_at`, `last_at`, `distinct`, `complete: bool`; `of(function)`); `xolotl.modules.monitoring.aggregates.postgres.ensure_declarations(session, declarations, *, queue) -> list[str]` | spec §8.2 and §8.4. A key is `AggregateKey(kind, txn.key_for(kind))` (no `aggregate_key` helper); `complete = False` is the `INCOMPLETE` of spec §8.4; the `on` filter of a rule and a capture is a `TxnFilter` evaluated by the same `matches` that `add()` uses. List names (`$FATF_GREY`) are this plan's: `resolve_list_names` and `resolve_definition` (B1) rewrite a `TxnFilter` to literal codes, and B6 applies them to every `on`, `evidence.transactions_where` and declaration `where` of a loaded rule, setting `lists_hash`, before anything reaches 4a | B1, B2, B6, B7, B10 |
+| `xolotl.modules.monitoring.aggregates.windows` (A7, pure): `window_bounds`, `period_bucket_start`, `accum_window`; `aggregates.store.AggregateStore` (the §8.1 Protocol: `add`, `read`, `calendar_read`, `accumulator_read`); `aggregates.postgres.PostgresAggregateStore(session)`; `aggregates.memory.MemoryAggregateStore()` | the reader wraps a store; simulation and period close build a memory store per key | B7, B8, B10, B11 |
+| `xolotl.modules.monitoring.process.hooks` (A8): `ProcessingContext(txn, row, store, declarations, snapshot: SnapshotRef, units: UnitService, holidays: Holidays, late: bool, queue: PostgresJobQueue)`, `ProcessingHook` (a Protocol with `name: str`, `declarations(self, s, snapshot: SnapshotRef, *, on: date, product: str \| None) -> Sequence[AggregateDeclaration]` and `evaluate(self, s, txn: EnrichedTransaction, ctx: ProcessingContext) -> None`), `register_processing_hook(hook)`; `xolotl.modules.monitoring.enrich.policy.SnapshotRef(snapshot_id, policy: EffectivePolicy)` (A6) | spec §8.5 step 2: the job asks every hook for its declarations once per snapshot it meets in a drain (`ensure_declarations` for the ones `agg_declaration` lacks) and calls every hook's `evaluate` after `add()`, in the row's transaction, before publishing `monitoring.transaction_processed.v1` | B7, B10 |
+| `xolotl.modules.monitoring.enrich.service.enriched_from_row(row: Transaction) -> EnrichedTransaction` (A6; no session), `xolotl.modules.monitoring.enrich.policy.policy_date(at: datetime) -> date` (A6; the Mexico City calendar date), `xolotl.modules.monitoring.enrich.units.unit_amounts_for(units, *, amount, currency, on, pairs, holidays) -> dict[str, UnitAmount]` (A6; the one conversion path, 4a Deviation 6) | rebuilding the evaluator's input from stored rows (simulation, late re-evaluation, period close), the calendar date, and the fee conversion of a `FEE_THRESHOLD` capture (Deviation 8) | B7, B8, B10, B11 |
+| `xolotl.modules.monitoring.events` (A4): `EVENT_SOURCE = "xolotl.monitoring"`, `STAFF_ONLY_EVENT_TYPES: tuple[str, ...]` (4a's; not edited here), `publish_monitoring_event(s, event_type, *, entity, entity_id, key: str, data, policy_snapshot_id=None) -> Event` (the `publish_screening_event` shape) | this plan appends its constants and its own `RULES_STAFF_ONLY_EVENT_TYPES` tuple, which `register_rules` registers | B4 |
+| `xolotl.modules.monitoring.errors` (A4), `schemas.py` (A10), `composition.py` (A5; `register_monitoring(*, session_factory, settings, queue, store, notifier)`), `routes_transactions.py` (A10), `kinds.py` (A4; `PROCESS_KIND = "monitoring.process"`) | shared files this plan appends to; `register_rules(*, queue)` is called by `wire_platform` right after `register_monitoring` | B4, B7, B9 |
+| `tests/modules/monitoring/support.py` (A2, A4, A7, A8): `itf_tenant`, `both_packs_tenant`, `make_item(**overrides) -> dict`, `ingest_items(session, items, *, queue) -> BatchReport`, `run_processing(services, tenant_id) -> int`, `declare`, `stream`; `tests/platform/units_support.py::load_unit_values(session, path)` (on `main`) | the capture goldens, the hit tests and the hook tests run real rows through 4a's job. B7 commits `tests/modules/monitoring/fixtures/unit_values_2026.yaml` (UDI, UMA and `USD_MXN_FIX` for July to December 2026, with the 11 December FIX and no row for 12 and 13 December) and loads it with `load_unit_values`; C11 reuses the file | B7, B10, B11 |
+| `Settings.monitoring_agg_backfill_batch` (A2; `XOLOTL_MONITORING_AGG_BACKFILL_BATCH`, default 5000), `Settings.monitoring_process_page` (A2) | the simulation page size (spec §13.1) | B8 |
+| `tests/isolation/factories.py` helpers (A2) `_transaction(session, tenant_id) -> Transaction`, `_counterparty(session, tenant_id) -> Counterparty`, `_customer_relationship(session, tenant_id) -> CustomerRelationship` | the hit, event and name-index factories | B4 |
+| `xolotl.modules.screening.counterparty.views.reveal_counterparty(s, counterparty_id) -> RevealedCounterparty` (A10; `name`, `account`, `wallet_address`, `wallet_network`, `identifier_type`, `identifier`; one `VIEW_PII` row per non-null field) and `counterparty_summary(s, counterparty_id) -> CounterpartySummary` (A10; masked: the `has_*` flags, kind, institution, country, network, status, count) | the hit reveal and the masked counterparty of an evidence transaction | B12 |
+| Console (A11, A12): `console/src/features/transactions/` (`TransactionPage.tsx`, `queries.ts`), `ACCESS.transactions`; `features/parties/PartyPage.tsx` (SP-02c; A12 adds its `PartyTransactionsCard`) | B14 adds `TransactionHitsCard` to the transaction detail and `PartyHitsCard` to the party page; B15 adds `TransactionCapturesCard` to the transaction detail (additive edits of 4a's files; the "hits and captures on this transaction" of spec §17) | B14, B15 |
 
 ### On `main` already
 
 `effective_policy`, `snapshot_policy`, `get_snapshot`, `PolicySnapshotContent`, `EffectivePolicy` (`kyc.tiers[].limits.monthly_ops`, `units.tier_limit_rule`, `captures[]`, `country`), `Quantity`, `Capture`, `add_iso_duration`, `iso_duration_days` (`xolotl.platform.policy`); `UnitService.to_unit`, `threshold_in_ccy`, `Conversion`, `ConversionRule` (`xolotl.platform.units`; conversions are MXN-only, `_check_currency`); `load_holidays`, `MEXICO_CITY` (`xolotl.platform.calendar`); `canonical_json`, `record`, `AuditEvent`, `VIEW_PII` (`xolotl.platform.audit`); `register_staff_only`, `register_subscriber`, `publish` (`xolotl.platform.events`); `PostgresJobQueue.enqueue`/`schedule`, `register_job_handler`, `Job` (`xolotl.platform.jobs.queue`); `v1_router`, `require_access`, `paginate`, `Page`, `PageDep`, `SessionDep`; `XolotlError.blocked_reasons`, `ErrorItem`, `XolotlError.errors`; `enable_rls`, `grant_shared`, `tenant_fk`, `tenant_table_args`, `TenantTableMixin`, `enum_column`; `get_party`, `reveal_pii`, `summaries`, `CustomerRelationship` (`party_id`, `product`, `account_tier`, `started_at`), `PepStatus`; `xolotl.modules.screening.api.party_view(s, party_id, staff=True).status` (the party's screening status without side effects); `ScreeningSubject`, `SubjectStatus`; `install_both_packs`, `both_packs` (`tests/platform/policy_support.py`); `everything_stored`, `leaked`, `new_tenant`, `staff_session`, `system_ctx` (`tests/helpers.py`); `report-defs/codetables/MX/f41_tipo_operacion.yaml`, `f41_instrumento_monetario.yaml`.
 
-### From plan 4c (assumed)
+### From plan 4c
 
-Nothing is consumed. 4c consumes this plan (see "Interfaces for plan 4c"). `customer_relationship.declared_profile` is 4c's column (migration 0014): until it exists, `profile_for` (B7) reads `None` and `PROFILE_DEVIATION` stays silent (spec Decision 10).
+Nothing is consumed. 4c consumes this plan (see "Interfaces for plan 4c"). `customer_relationship.declared_profile` is C4's column (migration 0014) and C8 makes B7's `profile_for` read it into B2's `DeclaredProfile`; until then `profile_for` returns `declared_profile=None` and `PROFILE_DEVIATION` stays silent (spec Decision 10). C5 reads `active_rules`, `RuleSet.sync_rules`, `RuleSet.ruleset_hash()`, `reader_for`, `profile_for`, `evaluate` and `notice_tier_limit(..., source=NoticeSource.DECIDE)`, and appends `decision: DecisionSummary | None` to B12's `HitDetail`; C6 reads `replay_rule_set`; C7 deletes this plan's rows in the order of "Interfaces for plan 4c".
 
 ## Global Constraints
 
 - **Migration numbering.** The chain on `main` ends at `0011_screening_hit_run_index` (merged 2026-10-20), so SP-04's migrations are renumbered: 4a's is `0012_transactions`, this plan's is **`0013_rules_captures`**, 4c's is `0014_decide_profiles`. Wherever the spec writes "migration 0011", "0012" and "0013" (spec §2, §5.2, §11.1, §12.1, §22), read 0012, 0013 and 0014. This plan uses 0013 throughout.
 - Repository `/Users/omaribannez/code/xolotl`; every task is one PR from `main` on branch `feat/sp04b-b<n>-<short>` in its own worktree; `make ci` green at the end of every task; the console gates (`npm ci && npm run typecheck && npm run lint && npm test && npm run build`, plus the Playwright smoke) whenever `console/` changes.
-- **Migration** `src/xolotl/migrations/versions/0013_rules_captures.py`: `revision = "0013_rules_captures"`, `down_revision = "0012_transactions"` (assumed). It is this plan's only migration. `"0013_rules_captures"` is appended to `CHAIN` in `tests/platform/test_migration_chain.py` after 4a's `"0012_transactions"`.
+- **Migration** `src/xolotl/migrations/versions/0013_rules_captures.py`: `revision = "0013_rules_captures"`, `down_revision = "0012_transactions"` (A2's revision; the three SP-04 migrations merge in the order A2 → B4 → C4). It is this plan's only migration. `"0013_rules_captures"` is appended to `CHAIN` in `tests/platform/test_migration_chain.py` after 4a's `"0012_transactions"`.
 - **Two shared tables** (`rule_template`, `rule_template_version`, spec §5.1) join `SHARED_TABLES` and not `SHARED_WRITABLE`: the owner role seeds them (`xolotl rules load`), the app role gets `SELECT` through `grant_shared`. **Eleven tenant tables** exactly as the 4b block of spec §5.2: `monitoring_rule`, `monitoring_rule_version`, `rule_simulation`, `rule_assignment`, `rule_hit`, `rule_hit_transaction`, `capture_group`, `reportable_event`, `tier_limit_notice`, `capture_period`, `counterparty_name_index`. Each is `class X(TenantTableMixin, Base)` with `tenant_table_args`, composite FKs through `tenant_fk` or a named `ForeignKeyConstraint` where the convention would pass 63 bytes, `enable_rls("<table>")` in the migration (default grant), one isolation factory in `register_all()`, and its model imported in `src/xolotl/models.py`. A link to a transaction carries `(tenant_id, occurred_at, transaction_id)` with the composite FK to the partitioned primary key (spec §5.2). Nothing in 0013 is append-only.
 - **No encrypted column in 0013.** `rule_hit.evidence`, `reportable_event.fields`, `rule_simulation.sample` and `counterparty_name_index` carry amounts, units, codes, hashes, ids and normalized tokens only (PRV-501, D7); no route serializes `counterparty_name_index`.
-- **Import contracts** (`.importlinter`, B1 adds the contract `monitoring-evaluator-is-pure`): the pure set `xolotl.modules.monitoring.rules.definitions`, `xolotl.modules.monitoring.rules.kinds`, `xolotl.modules.monitoring.rules.render`, `xolotl.modules.monitoring.rules.library` and `xolotl.modules.monitoring.captures.definitions` never imports `sqlalchemy`, `fastapi`, `xolotl.modules.screening`, `xolotl.modules.party.models`, `xolotl.modules.party.service` or any `xolotl.platform` package other than `xolotl.platform.errors`, `xolotl.platform.enums`, `xolotl.platform.units.rules`, `xolotl.platform.units.quantity`, `xolotl.platform.policy.schema`, `xolotl.platform.policy.resolver` (the `EffectivePolicy` type) and `xolotl.platform.policy.jurisdictions`; among monitoring modules it imports only `monitoring.enums`, `monitoring.txn.schema`, `monitoring.aggregates.declarations` and `monitoring.aggregates.windows` (4a's pure modules, assumed). `xolotl.modules.monitoring` never imports `xolotl.modules.reporting`; `xolotl.modules.screening` never imports `xolotl.modules.monitoring` (B4 adds the contract `screening-never-imports-monitoring`).
+- **Import contracts** (`.importlinter`, B1 adds the contract `monitoring-evaluator-is-pure`): the pure set `xolotl.modules.monitoring.rules.definitions`, `xolotl.modules.monitoring.rules.kinds`, `xolotl.modules.monitoring.rules.render`, `xolotl.modules.monitoring.rules.library` and `xolotl.modules.monitoring.captures.definitions` never imports `sqlalchemy`, `fastapi`, `xolotl.modules.screening`, `xolotl.modules.party.models`, `xolotl.modules.party.service` or any `xolotl.platform` package other than `xolotl.platform.errors`, `xolotl.platform.enums`, `xolotl.platform.units.rules`, `xolotl.platform.units.quantity`, `xolotl.platform.policy.schema`, `xolotl.platform.policy.resolver` (the `EffectivePolicy` type) and `xolotl.platform.policy.jurisdictions`; among monitoring modules it imports only `monitoring.enums`, `monitoring.txn.schema`, `monitoring.aggregates.declarations`, `monitoring.aggregates.windows` and `monitoring.aggregates.store` (4a's pure modules, A3 and A7). `xolotl.modules.monitoring` never imports `xolotl.modules.reporting` and `xolotl.modules.screening` never imports `xolotl.modules.monitoring` (A2's contracts `monitoring-boundaries` and `screening-never-imports-monitoring`; this plan adds neither).
 - **Settings** (`src/xolotl/platform/config.py`, prefix `XOLOTL_`): `monitoring_allow_custom_rules: bool = False` (B5), `monitoring_rule_cache_seconds: int = Field(default=30, ge=0)` and `monitoring_simulation_max_age_days: int = Field(default=30, ge=1)` (B6), `monitoring_simulation_max_days: int = Field(default=190, ge=1)` (B8), `monitoring_period_close_cron: str = "0 4 1 * *"` added to the `_check_cron` validator (B11). Each goes in `.env.example`, the README configuration table and the `model_fields_set` assertion of `tests/platform/test_config.py::test_env_example_is_a_valid_configuration`.
 - **Problem codes** introduced, each with a row in `tests/platform/test_errors.py`: `RULE_TEMPLATE_UNKNOWN` (404, B5), `RULE_TEMPLATE_IMMUTABLE` (409, B5; Deviation 2), `RULE_PARAM_OUT_OF_BOUNDS` (422 with `errors[]`, B5), `RULE_TRANSITION_NOT_ALLOWED` (409 with `blocked_reasons`, B6), `SIMULATION_RANGE_TOO_LONG` (422, B8), `PERIOD_NOT_ENDED` (409, B11). Reused: `NOT_FOUND`, `VALIDATION_FAILED`, `POLICY_NOT_ASSIGNED`, `ROLE_FORBIDDEN`, `SCOPE_MISSING`, `IDEMPOTENCY_*`.
-- **Events** (`source = "xolotl.monitoring"`, ids and codes only, exactly the fields of spec §14): staff-only `monitoring.rule_hit_created.v1` (key `str(party_id)`), `monitoring.reportable_event_captured.v1`, `monitoring.reportable_event_superseded.v1`, `monitoring.capture_period_closed.v1`, `monitoring.capture_period_changed.v1` (key `str(party_id)` for events, the period id for periods), `monitoring.rule_version_activated.v1`, `monitoring.rule_version_retired.v1`, `monitoring.simulation_completed.v1` (key `str(rule_version_id)`); webhook-safe `monitoring.tier_limit_reached.v1` (key `str(relationship_id)`, data `relationship_id`, `account_id`, `tier`, `limit_code`, `period_key`, `outcome`, never an amount). `register_rules` (B7) marks every staff-only type with `register_staff_only`.
+- **Events** (`source = "xolotl.monitoring"`, ids and codes only, exactly the fields of spec §14): staff-only `monitoring.rule_hit_created.v1` (key `str(party_id)`), `monitoring.reportable_event_captured.v1`, `monitoring.reportable_event_superseded.v1`, `monitoring.capture_period_closed.v1`, `monitoring.capture_period_changed.v1` (key `str(party_id)` for events, the period id for periods), `monitoring.rule_version_activated.v1`, `monitoring.rule_version_retired.v1`, `monitoring.simulation_completed.v1` (key `str(rule_version_id)`); webhook-safe `monitoring.tier_limit_reached.v1` (key `str(relationship_id)`, data `relationship_id`, `account_id`, `tier`, `limit_code`, `period_key`, `outcome`, never an amount). The eight staff-only types are B4's `RULES_STAFF_ONLY_EVENT_TYPES` (a separate tuple; 4a's `STAFF_ONLY_EVENT_TYPES` is not edited) and `register_rules` (B7) marks each with `register_staff_only`.
 - **Audit actions** (entity type is the table name, ids as `str(uuid)`, codes only in `detail`): `rules.seeded`, `rules.version_created`, `rules.version_updated`, `rules.version_submitted`, `rules.version_approved`, `rules.version_rejected`, `rules.version_activated` (detail `{"assignment_id", "effective_from", "product", "category": "CHANGE_POLICY"}`, Deviation 4), `rules.version_retired`, `rules.simulation_requested`, and `VIEW_PII` from the hit reveal only. `record(...)` comes last in each service function, before `publish`.
 - **API**: routers from `v1_router` only; every `POST`/`PATCH` needs `Idempotency-Key`; API clients use the new scope `rules:read` on templates, rules and simulations; hits, captures, periods and every rule write are staff-only (no scope); lists paginate with `paginate(...)`; literal routes (`/monitoring/captures/periods`, `/monitoring/templates`) are registered before their `/{id}` siblings; handler names are unique operation ids. An API client never receives a hit, a capture, a rule name of a hit or a counterparty's screening status (D20, PRV-502).
-- **Dates**: the calendar date of a transaction is `mx_date(occurred_at)` (America/Mexico_City); "today" for lifecycle and periods is `mx_date(clock.now())`; dedup windows floor in UTC for ISO durations and use `period_keys["MONTH"]` for `MONTH`.
+- **Dates**: the calendar date of a transaction is 4a's `policy_date(occurred_at)` (`monitoring.enrich.policy`, America/Mexico_City); "today" for lifecycle and periods is `policy_date(clock.now())`; dedup windows floor in UTC for ISO durations and use `period_keys.MONTH` for `MONTH`.
 - **Job kinds and keys**: `monitoring.simulate` (`SIMULATE_KIND`, key `simulate:<simulation_id>`, payload `{"simulation_id"}`, `max_attempts=1`), `monitoring.period_close` (`PERIOD_CLOSE_KIND`, payload `{}` from the schedule or `{"capture_code", "period_key"}` from the CLI and the manual close). Schedule `monitoring.period_close` per tenant on `XOLOTL_MONITORING_PERIOD_CLOSE_CRON` in `America/Mexico_City`, declared in `schedule_platform_jobs` through the literal `MONITORING_PERIOD_CLOSE_SCHEDULE`.
 - **Console**: Spanish-first keyed strings in both catalogues; `schema.d.ts` regenerated against the merged API in every console task, never merged by hand; revealed values only through `useMutation` with `gcTime: 0`; no string visible to a customer mentions a rule, a hit, a capture or a suspicion (DD-00). Flat navigation (SP-03a Deviation 11): `nav.ruleHits`, `nav.monitoringRules`, `nav.captures` are three entries after `nav.privateLists`.
 - MVP footprint: one container plus Postgres; no new service, cache or worker pool. The rule-set cache is a per-process dictionary.
@@ -70,14 +69,14 @@ Nothing is consumed. 4c consumes this plan (see "Interfaces for plan 4c"). `cust
 
 ## Deviations from the sub-spec (decided here)
 
-1. **The pure set imports 4a's pure modules.** Spec §2 lists what `monitoring.rules.kinds` may import and names neither `monitoring.aggregates.declarations` (`TxnFilter`, `AggregateDeclaration`, `AggregateKey`) nor `monitoring.aggregates.windows` (`AggregateValue`, `matches_filter`), yet a definition declares aggregates with those types and the evaluator applies the `on` filter. The contract therefore treats 4a's two pure aggregate modules and this plan's pure modules as one pure set (Global Constraints). Nothing else changes: no `sqlalchemy`, no `fastapi`, no other module.
+1. **The pure set imports 4a's pure modules.** Spec §2 lists what `monitoring.rules.kinds` may import and names neither `monitoring.aggregates.declarations` (`TxnFilter`, `AggregateDeclaration`, `matches`) nor `monitoring.aggregates.store` (`AggregateKey`, `AggregateValue`) nor `monitoring.aggregates.windows`, yet a definition declares aggregates with those types and the evaluator applies the `on` filter. The contract therefore treats 4a's three pure aggregate modules and this plan's pure modules as one pure set (Global Constraints). Nothing else changes: no `sqlalchemy`, no `fastapi`, no other module.
 2. **`RULE_TEMPLATE_IMMUTABLE`.** Spec §5.1 says a changed hash for an existing template version "is an error" without a code; `xolotl rules load` raises `RuleTemplateImmutableError` (409, `RULE_TEMPLATE_IMMUTABLE`) naming the code and version, and loads nothing of that file. `rules load` is not audited per tenant: like list ingestion (SP-03a), shared seeding is not tenant activity and `rule_template_version.loaded_by`, `loaded_at` and `source_path` are its provenance; `rules.seeded` (tenant) is audited.
 3. **`NOT_AUTHOR` is a blocked reason.** Spec §9.4 lets only the author submit, but its reason list has no reason for someone else trying. `RuleBlockedReason` gains `NOT_AUTHOR`, reported in the order `STATE`, `ROLE_REQUIRED`, `NOT_AUTHOR`, `SAME_AUTHOR`, `SIMULATION_MISSING`, `SIMULATION_STALE`, `PARAM_OUT_OF_BOUNDS`.
 4. **`CHANGE_POLICY` is a detail, not an action.** Spec §14 writes `rules.version_activated (also CHANGE_POLICY)`; no `CHANGE_POLICY` audit action exists on `main`. The activation audit row is `rules.version_activated` with `detail.category = "CHANGE_POLICY"`, so a filter on the category finds it.
 5. **Assignments resolve by date, versions by status.** At activation the new `rule_assignment` starts at `effective_from` (must be ≥ today, else 422 `VALIDATION_FAILED`); the rule's current `ACTIVE` version becomes `RETIRED` at once (the partial unique index allows one `ACTIVE` per rule) and its assignment gets `effective_to = effective_from − 1 day`. `active_rules(on, product)` reads versions in status `ACTIVE` or `RETIRED` whose assignment is in force on `on`, so a rule keeps applying until its successor starts and "which rules applied on this date" is answered from the assignment rows (spec Decision 13). Retire sets `effective_to = today`.
 6. **`POST /v1/monitoring/rules` for an existing code creates a version.** Spec §15 has one route to create a rule from a template and another to add a version; when the tenant already has a rule for `template_code`, the first behaves as the second (a new version from the latest one) instead of refusing, so seeding and the console need one call.
 7. **The hit reveal is its own endpoint.** Spec §15 puts `?reveal=true` on `GET /v1/monitoring/hits/{id}`; the party and screening precedent (SP-03b Deviation 3) moves every reveal to `GET /v1/monitoring/hits/{id}/reveal`, because a detail that reveals would record `VIEW_PII` on every cached refresh. The detail is masked; the reveal records one `VIEW_PII` per non-empty group (`party`, `counterparties`).
-8. **Captures compare in unit space and record the converted threshold.** Spec §10.2 compares `amount_minor` with `threshold_in_ccy(...)`, but `UnitService` converts into MXN only and a transaction may be in USD; 4a's `unit_amounts["<unit>/<rule>"]` already holds the transaction in the threshold's unit for every capture of the snapshot (spec §7 step 3). A capture fires when `unit_amounts[unit_key].amount >= threshold.amount`; `unit_values.converted` records `threshold_in_ccy(threshold, "MXN", on, rule)` for the record. A fee threshold converts `fee_minor` with `to_unit` at evaluation (the row carries no fee unit amount).
+8. **Captures compare in unit space and record the converted threshold.** Spec §10.2 compares `amount_minor` with `threshold_in_ccy(...)`, but `UnitService` converts into MXN only and a transaction may be in USD. 4a accepts `MXN` and `USD` only and brings a USD amount to pesos at the prior banking day's FIX before converting it to every threshold unit (4a Deviation 6), so `unit_amounts["<unit>/<rule>"]` already holds the transaction in the threshold's unit for every capture of the snapshot (spec §7 step 3). A capture fires when `unit_amounts[unit_key].amount >= threshold.amount`; `unit_values.converted` records `threshold_in_ccy(threshold, "MXN", on, rule)` for the record. A fee threshold converts the fee through the same path at evaluation, 4a's `unit_amounts_for(units, amount=Decimal(fee_minor) / 100, currency=txn.currency, on=policy_date(txn.occurred_at), pairs={(unit, rule)}, holidays=…)` (the row carries no fee unit amount), so a USD fee follows the same FIX rule. The currency rule itself is 4a's Open question 1 for the product owner.
 9. **Accumulation reads the store; the group row records it.** The `ACCUM` aggregate of an `ACCUMULATION` capture is declared through `capture_definitions(...).declarations` (so 4a maintains it and 4c's decide path can read it); the crossing test reads `accumulator_read` (which includes the transaction under evaluation) and `capture_group.accumulated_unit`/`accumulated_minor` mirror that value. Members of a group are the transactions of the key in the group's window that match the capture's `on` (a query over `transaction`, no member table), which is also what the late-event supersession recomputes.
 10. **`merge_into` voids the merged event.** When an `AVI_XVI_A` event is written for a transaction that already has an `AVI_XVI_B` event (a group crossing after the fee event), the B event becomes `VOIDED` with `void_reason = "MERGED"` and the A event carries `fields.merged_captures = ["AVI_XVI_B"]`; when both fire at once only A is written (spec §10.2).
 11. **Period rows exist for every capture of the period.** Spec §10.4 closes "every `(capture_code, period_key)` that ended"; a period with no event would have no row and would never be reconciled. `open_period(...)` upserts the row on the first event, and the close job first ensures a row for every capture code of every policy in force on the last day of each ended period (`MONTH` for every tenant, `QUARTER` on the first of January, April, July and October), then reconciles each `OPEN` row whose `period_end < today`.
@@ -107,12 +106,12 @@ src/xolotl/platform/config.py, .env.example, README.md   + the five settings (B5
 src/xolotl/migrations/versions/0013_rules_captures.py    (B4)
 src/xolotl/models.py                                     + monitoring rules and captures models, CounterpartyNameIndex (B4)
 src/xolotl/platform/tenancy/registry.py                  SHARED_TABLES + rule_template, rule_template_version (B4)
-src/xolotl/modules/screening/counterparty/models.py      + CounterpartyNameIndex (B4; 4a's file)
+src/xolotl/modules/screening/counterparty/models.py      + CounterpartyNameIndex (B4; A2's file)
 src/xolotl/modules/screening/engine/models.py            ScreeningSubject.counterparty_id, the kind check (B4)
 src/xolotl/modules/monitoring/
-  events.py            + the 4b constants and staff-only types (B4; create or append)
+  events.py            + the 4b constants and RULES_STAFF_ONLY_EVENT_TYPES (B4; A4's file, appended)
   errors.py            + RuleTemplateUnknownError, RuleTemplateImmutableError, RuleParamOutOfBoundsError, RuleTransitionNotAllowedError, SimulationRangeTooLongError, PeriodNotEndedError (B5, B6, B8, B11)
-  schemas.py           + rules, hits and captures response models (B9, B11, B12; create or append)
+  schemas.py           + rules, hits and captures response models (B9, B11, B12; A10's file, appended)
   routes_rules.py      /v1/monitoring/templates, /rules, /simulations, /assignments (B9)
   routes_hits.py       /v1/monitoring/hits, /v1/parties/{id}/hits (B12)
   routes_captures.py   /v1/monitoring/captures, /periods (B11)
@@ -148,7 +147,7 @@ src/xolotl/modules/monitoring/
 src/xolotl/modules/tenants/service.py                    + MONITORING_PERIOD_CLOSE_SCHEDULE (B11)
 src/xolotl/app.py                                        register_rules after register_monitoring (B7); + three routers (B9, B11, B12)
 src/xolotl/cli.py                                        rules_app: validate (B3), load, show, seed-tenant (B5), simulate, activate (B8); monitoring_app (4a) + period-close (B11); db upgrade and serve run the library load (B5)
-.importlinter                                            + monitoring-evaluator-is-pure (B1), screening-never-imports-monitoring (B4)
+.importlinter                                            + monitoring-evaluator-is-pure (B1)
 tests/platform/test_jurisdictions.py (B1); test_migration_chain.py, test_errors.py, test_config.py, test_worker.py (appended)
 tests/isolation/factories.py (+11) (B4)
 tests/modules/monitoring/rules/{__init__,conftest,test_definitions,test_render,test_kinds,test_library,test_migration_0013,test_templates,test_versions,test_lifecycle,test_assignments,test_evaluate,test_hits,test_hook,test_tier_limits}.py
@@ -158,7 +157,8 @@ tests/golden/monitoring/rules/render/<CODE>.es-MX.txt, <CODE>.en.txt (B1, B3); t
 tests/test_cli.py (+) (B3, B5, B8, B11)
 console/src/features/rules/{queries.ts, queries.test.tsx, fixtures.ts, RulesPage.tsx, RulesPage.test.tsx, RulePage.tsx, RulePage.test.tsx, VersionEditor.tsx, VersionEditor.test.tsx, SimulationPanel.tsx, SimulationPanel.test.tsx, LifecycleButtons.tsx, LifecycleButtons.test.tsx, RuleStatusBadge.tsx} (B13)
 console/src/features/hits/{queries.ts, HitsPage.tsx, HitsPage.test.tsx, HitPage.tsx, HitPage.test.tsx, EvidenceTable.tsx, EvidenceTable.test.tsx, HitRevealCard.tsx, SeverityBadge.tsx, fixtures.ts} (B14)
-console/src/features/captures/{queries.ts, CapturesPage.tsx, CapturesPage.test.tsx, PeriodTable.tsx, PeriodTable.test.tsx, fixtures.ts} (B15)
+console/src/features/captures/{queries.ts, CapturesPage.tsx, CapturesPage.test.tsx, PeriodTable.tsx, PeriodTable.test.tsx, TransactionCapturesCard.tsx} (B15)
+console/src/features/hits/{TransactionHitsCard.tsx, PartyHitsCard.tsx} (B14); console/src/features/transactions/TransactionPage.tsx (A11; + the two cards, B14 and B15); console/src/features/parties/PartyPage.tsx (+ PartyHitsCard, B14)
 console/src/{api/schema.d.ts, api/types.ts, auth/access.ts, auth/access.test.ts, auth/guards.test.tsx, components/layout/nav.ts, App.tsx, i18n/es-MX.json, i18n/en.json, i18n/catalogue.test.ts} (B13, B14, B15); console/e2e/smoke.spec.ts (+ step) (B13)
 ```
 
@@ -166,27 +166,27 @@ console/src/{api/schema.d.ts, api/types.ts, auth/access.ts, auth/access.test.ts,
 
 | Id | Title | Depends on | Console | Branch slug |
 |---|---|---|---|---|
-| B1 | Jurisdiction lists loader, rule definitions and the rendered sentence | 4a's `aggregates/declarations.py` (assumed; pure) | no | `sp04b-b1-definitions` |
-| B2 | The pure evaluator: the seven kinds | B1; 4a's `aggregates/windows.py` (assumed; pure) | no | `sp04b-b2-evaluator` |
+| B1 | Jurisdiction lists loader, rule definitions and the rendered sentence | A7 (`aggregates/declarations.py`, `store.py`; pure) | no | `sp04b-b1-definitions` |
+| B2 | The pure evaluator: the seven kinds | B1 (A7's `store.py` and `windows.py` come with it) | no | `sp04b-b2-evaluator` |
 | B3 | The Mexico typology library files, the loader and `rules validate` | B1 | no | `sp04b-b3-typology-library` |
-| B4 | Migration 0013, models, enums, events, isolation factories | 4a's 0012 and models | no | `sp04b-b4-migration-0013` |
+| B4 | Migration 0013, models, enums, events, isolation factories | A2 (0012, models, factories) | no | `sp04b-b4-migration-0013` |
 | B5 | Templates in the database, tenant rules and versions with bounds, `rules load/show/seed-tenant` | B3, B4 | no | `sp04b-b5-templates-versions` |
 | B6 | Lifecycle, assignments and the active rule set | B5 | no | `sp04b-b6-lifecycle` |
-| B7 | Hits, dedup, cooldown, evidence, the tier-limit notice, the rules processing hook and staff-only registration | B2, B6; 4a's store, hooks and support | no | `sp04b-b7-hits-hook` |
+| B7 | Hits, dedup, cooldown, evidence, the tier-limit notice, the rules processing hook and staff-only registration | B2, B6, A8 (hooks, `run_processing`) | no | `sp04b-b7-hits-hook` |
 | B8 | Simulation engine and job, `rules simulate`, `rules activate`, typology goldens | B7 | no | `sp04b-b8-simulation` |
 | B9 | Rules API: templates, rules, versions, transitions, simulations, assignments | B8 | no | `sp04b-b9-rules-api` |
 | B10 | Capture definitions, trigger and field maps, reportable events, groups, `merge_into`, supersession, the captures hook, capture goldens | B4, B7 | no | `sp04b-b10-captures` |
 | B11 | Capture periods, period close, its schedule and CLI, captures API | B10 | no | `sp04b-b11-period-close-api` |
 | B12 | Hits API | B7 | no | `sp04b-b12-hits-api` |
 | B13 | Console: Reglas › Monitoreo with the editor, simulation panel and lifecycle | B9 | yes | `sp04b-b13-console-rules` |
-| B14 | Console: Hallazgos de reglas | B12 | yes | `sp04b-b14-console-hits` |
-| B15 | Console: Reglas › Capturas y límites | B11 | yes | `sp04b-b15-console-captures` |
+| B14 | Console: Hallazgos de reglas | B12, A11 | yes | `sp04b-b14-console-hits` |
+| B15 | Console: Reglas › Capturas y límites | B11, A11 | yes | `sp04b-b15-console-captures` |
 
 ---
 
 ### Task B1: Jurisdiction lists loader, rule definitions and the rendered sentence
 
-Depends on **4a's `aggregates/declarations.py`** (assumed: `TxnFilter`, `AggregateDeclaration`, `KeyKind` in `monitoring/enums.py`), which is pure, so B1 starts as soon as that module is on `main`, in parallel with the rest of 4a. 4a's `resolve_list_names` consumes B1's `JurisdictionLists`; whichever merges first, the other rebases. No tables, no console. Adds one platform module (spec §9.1: "plan 4b adds the loader").
+Depends on **A7** (`aggregates/declarations.py`: `TxnFilter`, `AggregateDeclaration`; `aggregates/store.py`: `AggregateKey`; and A3's `KeyKind` in `monitoring/txn/schema.py`), which is pure, so B1 starts as soon as A7 is on `main`, in parallel with the rest of 4a. List-name resolution is this plan's: B1 defines `resolve_list_names` and `resolve_definition` beside `JurisdictionLists`, and 4a never sees a name. No tables, no console. Adds one platform module (spec §9.1: "plan 4b adds the loader").
 
 **Files:**
 - Create: `src/xolotl/platform/policy/jurisdictions.py`, `src/xolotl/modules/monitoring/rules/__init__.py`, `src/xolotl/modules/monitoring/rules/definitions.py`, `src/xolotl/modules/monitoring/rules/render.py`
@@ -195,7 +195,7 @@ Depends on **4a's `aggregates/declarations.py`** (assumed: `TxnFilter`, `Aggrega
 
 **Interfaces:**
 
-Consumes: `canonical_json` (`xolotl.platform.audit.chain`, pure), `ConversionRule`, `Quantity`, `TxnFilter`, `AggregateDeclaration`, `KeyKind` (assumed), `check_iso_duration` (`xolotl.platform.policy.durations`).
+Consumes: `canonical_json` (`xolotl.platform.audit.chain`, pure), `ConversionRule`, `Quantity`, `TxnFilter`, `AggregateDeclaration`, `AggregateKey` (A7), `KeyKind` (A3), `check_iso_duration` (`xolotl.platform.policy.durations`).
 
 Produces:
 
@@ -211,6 +211,14 @@ class JurisdictionLists:
 def load_jurisdictions(path: Path = JURISDICTIONS_FILE) -> JurisdictionLists
     # file keys: as_of, source, confidence, call_for_action -> FATF_BLACK, increased_monitoring -> FATF_GREY, tax_haven -> TAX_HAVEN,
     # regions: {BORDER_ZONE_MX: [...]}; a missing key, a non-alpha-2 code or a region not matching ^[A-Z]{2}-[A-Z0-9]{1,3}$ -> ValidationFailedError
+
+# rules/definitions.py (pure; list-name resolution is this plan's, reconciliation finding 3)
+def resolve_list_names(where: TxnFilter, lists: JurisdictionLists) -> TxnFilter
+    # a `$NAME` in counterparty_country_in, counterparty_country_not_in or geo_admin_area_in is replaced by the set's codes (countries through
+    # resolve_countries, regions through resolve_regions); literal codes pass through; an unknown name -> ValueError
+def resolve_definition(definition: RuleDefinition, lists: JurisdictionLists) -> RuleDefinition
+    # resolve_list_names over `on`, `evidence.transactions_where` and every declaration's `where`, and lists_hash = lists.content_hash.hex() on every
+    # declaration (4a Deviation 8), so a changed _jurisdictions.yaml yields new agg_ids (spec §8.2); B6 calls it when it loads a rule set
 
 # rules/definitions.py
 class RuleFamily(StrEnum): ALERT; CAPTURE
@@ -270,6 +278,7 @@ def test_each_kind_requires_its_parameters()                             # STRUC
 def test_conditions_name_declared_aggregates_and_params()               # unknown aggregate -> ValidationError; both threshold and ratio_of -> ValidationError
 def test_with_params_replaces_values_and_keeps_bounds()
 def test_a_tier_limit_definition_is_sync_and_monthly()
+def test_list_names_resolve_to_codes_and_change_the_agg_id()              # `$FATF_GREY` -> the 22 codes; lists_hash set on every declaration; another file hash -> another agg_id; an unknown name -> ValueError
 
 # tests/modules/monitoring/rules/test_render.py (golden: prints a unified diff on mismatch, as tests/golden/packs does)
 def test_the_cash_structuring_sentence_matches_the_spec()                # the exact es-MX sentence above
@@ -286,7 +295,7 @@ def test_every_kind_renders_in_both_locales()                            # one h
 
 ### Task B2: The pure evaluator: the seven kinds
 
-Depends on **B1** and on **4a's `aggregates/windows.py`** (assumed: `AggregateValue`, `matches_filter`). Pure code: no session, no tables. Can run beside B3 and B4.
+Depends on **B1** (A7's `aggregates/store.py` gives `AggregateValue` and `AggregateKey`, `aggregates/declarations.py` gives `matches`). Pure code: no session, no tables. Can run beside B3 and B4.
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/rules/kinds.py`
@@ -294,7 +303,7 @@ Depends on **B1** and on **4a's `aggregates/windows.py`** (assumed: `AggregateVa
 
 **Interfaces:**
 
-Consumes: B1's models, `EnrichedTransaction` (assumed), `AggregateValue`, `matches_filter`, `AggregateDeclaration`, `KeyKind` (assumed), `EffectivePolicy` (`kyc.tiers`, `units.tier_limit_rule`, `country`), `JurisdictionLists`, `iso_duration_days`.
+Consumes: B1's models, `EnrichedTransaction`, `KeyKind` (A3), `AggregateValue`, `AggregateKey` (A7 `store`), `matches`, `AggregateDeclaration` (A7 `declarations`), `EffectivePolicy` (`kyc.tiers`, `units.tier_limit_rule`, `country`), `JurisdictionLists`, `iso_duration_days`.
 
 Produces (`rules/kinds.py`):
 
@@ -320,11 +329,11 @@ class Firing:
     rule_code: str; key_kind: KeyKind; key: str; window_start: datetime; window_end: datetime
     severity: Severity; outcome: HitOutcome; aggregates: Mapping[str, AggregateSnapshot]; params: Mapping[str, str]; explanation: str
 def applies(definition: RuleDefinition, ctx: EvalContext) -> bool
-    # family ALERT; matches_filter(ctx.txn, definition.on); segment: each non-empty list contains the profile's value (tier, risk_rating, monitoring_profile)
+    # family ALERT; matches(definition.on, ctx.txn); ctx.txn.key_for(definition.key_kind) is not None; segment: each non-empty list contains the profile's value (tier, risk_rating, monitoring_profile)
 def evaluate(definition: RuleDefinition, ctx: EvalContext) -> Firing | None
     # applies() first; then the kind; any declared aggregate the kind reads that is INCOMPLETE -> None (never a hit from a partial window);
     # window_end = txn.occurred_at; window_start = window_end - the kind's window (THRESHOLD, TIER_LIMIT: the month start for TIER_LIMIT, occurred_at for THRESHOLD);
-    # params rendered as strings; explanation = render(definition, "es-MX"); key = str(aggregate_key(txn, definition.key_kind).key)
+    # params rendered as strings; explanation = render(definition, "es-MX"); key = txn.key_for(definition.key_kind)
 ```
 
 Kind semantics, exactly spec §9.1:
@@ -412,11 +421,11 @@ def test_rules_validate_lists_the_library_without_a_database()           # exit 
 
 ### Task B4: Migration 0013, models, enums, events and isolation factories
 
-Depends on **4a's migration 0012 and models** (assumed: `Transaction`, `Account`, `Counterparty`, `CustomerRelationship` on `main`, `_transaction`, `_counterparty` factory helpers). No console. B1 is not needed: the models hold text, bytes and JSON.
+Depends on **A2** (migration 0012; the models `Transaction`, `Account`, `Counterparty`; the factory helpers `_transaction`, `_counterparty`, `_customer_relationship`; the contract `screening-never-imports-monitoring`). No console. B1 is not needed: the models hold text, bytes and JSON.
 
 **Files:**
-- Create: `src/xolotl/migrations/versions/0013_rules_captures.py`, `src/xolotl/modules/monitoring/rules/{enums,models}.py`, `src/xolotl/modules/monitoring/captures/{__init__,enums,models}.py`; `src/xolotl/modules/monitoring/events.py` (create or append)
-- Modify: `src/xolotl/models.py`, `src/xolotl/platform/tenancy/registry.py`, `src/xolotl/modules/screening/counterparty/models.py` (+ `CounterpartyNameIndex`), `src/xolotl/modules/screening/engine/models.py` (`ScreeningSubject.counterparty_id`, `SUBJECT_KIND_CHECK`), `.importlinter`, `tests/isolation/factories.py`, `tests/platform/test_migration_chain.py`
+- Create: `src/xolotl/migrations/versions/0013_rules_captures.py`, `src/xolotl/modules/monitoring/rules/{enums,models}.py`, `src/xolotl/modules/monitoring/captures/{__init__,enums,models}.py`
+- Modify: `src/xolotl/modules/monitoring/events.py` (A4's file; append), `src/xolotl/models.py`, `src/xolotl/platform/tenancy/registry.py`, `src/xolotl/modules/screening/counterparty/models.py` (A2's file; + `CounterpartyNameIndex`), `src/xolotl/modules/screening/engine/models.py` (`ScreeningSubject.counterparty_id`, `SUBJECT_KIND_CHECK`), `tests/isolation/factories.py`, `tests/platform/test_migration_chain.py`
 - Test: `tests/modules/monitoring/rules/test_migration_0013.py`
 
 **Interfaces:**
@@ -454,7 +463,7 @@ CAPTURE_PERIOD_CLOSED = "monitoring.capture_period_closed.v1"; CAPTURE_PERIOD_CH
 RULE_VERSION_ACTIVATED = "monitoring.rule_version_activated.v1"; RULE_VERSION_RETIRED = "monitoring.rule_version_retired.v1"
 SIMULATION_COMPLETED = "monitoring.simulation_completed.v1"
 RULES_STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (RULE_HIT_CREATED, REPORTABLE_EVENT_CAPTURED, REPORTABLE_EVENT_SUPERSEDED, CAPTURE_PERIOD_CLOSED,
-    CAPTURE_PERIOD_CHANGED, RULE_VERSION_ACTIVATED, RULE_VERSION_RETIRED, SIMULATION_COMPLETED)   # appended to 4a's STAFF_ONLY_EVENT_TYPES
+    CAPTURE_PERIOD_CHANGED, RULE_VERSION_ACTIVATED, RULE_VERSION_RETIRED, SIMULATION_COMPLETED)   # a separate tuple beside 4a's STAFF_ONLY_EVENT_TYPES; B7's register_rules registers it
 ```
 
 Migration 0013 (order: `rule_template`, `rule_template_version`, `monitoring_rule`, `monitoring_rule_version`, `rule_simulation`, the `fk_rule_version_simulation` constraint, `rule_assignment`, `rule_hit`, `rule_hit_transaction`, `capture_group`, `reportable_event`, `tier_limit_notice`, `capture_period`, the `screening_subject` changes, `fk_counterparty_subject`, `counterparty_name_index`; downgrade in reverse):
@@ -462,9 +471,9 @@ Migration 0013 (order: `rule_template`, `rule_template_version`, `monitoring_rul
 - Explicit FK names where the convention would pass 63 bytes, pinned by the migration test: `fk_rule_version_retired_by`, `fk_rule_version_simulation`, `fk_rule_hit_first_transaction`, `fk_rule_hit_transaction_txn`, `fk_reportable_event_supersedes`, `fk_reportable_event_superseded_by`, `fk_reportable_event_policy_snapshot`, `fk_capture_group_superseded_by`.
 - `grant_shared("rule_template")`, `grant_shared("rule_template_version")` (SELECT for the app role); `enable_rls` with the default grant on the eleven tenant tables.
 - `SHARED_TABLES` gains the two template tables. `models.py` imports `monitoring_rules_models`, `monitoring_captures_models` (and the counterparty models file already imported by 4a).
-- `.importlinter`: `screening-never-imports-monitoring` (forbidden: source `xolotl.modules.screening`, forbidden `xolotl.modules.monitoring`).
+- `.importlinter`: nothing to add; A2's `screening-never-imports-monitoring` already covers `CounterpartyNameIndex` and the `screening_subject` change.
 
-Isolation factories (one each, registered in `register_all()`): `monitoring_rule` over `_staff_user`; `monitoring_rule_version` (status `DRAFT`, `template_version_id = NULL`: the app role cannot insert a template row) over a rule and `_staff_user`; `rule_simulation` over a version and `_staff_user`; `rule_assignment` over a version; `rule_hit` over a version, an assignment, `_party`, `_customer_relationship`, `_policy_snapshot` and **4a's** `_transaction`; `rule_hit_transaction` over a hit and `_transaction`; `tier_limit_notice` over `_customer_relationship`; `capture_group`; `reportable_event` over `_transaction`, `_party`, `_customer_relationship`, `_policy_snapshot`; `capture_period`; `counterparty_name_index` over **4a's** `_counterparty`. `_customer_relationship(session, tenant_id) -> CustomerRelationship` is added here when 4a has not.
+Isolation factories (one each, registered in `register_all()`): `monitoring_rule` over `_staff_user`; `monitoring_rule_version` (status `DRAFT`, `template_version_id = NULL`: the app role cannot insert a template row) over a rule and `_staff_user`; `rule_simulation` over a version and `_staff_user`; `rule_assignment` over a version; `rule_hit` over a version, an assignment, `_party`, `_customer_relationship`, `_policy_snapshot` and **4a's** `_transaction`; `rule_hit_transaction` over a hit and `_transaction`; `tier_limit_notice` over `_customer_relationship`; `capture_group`; `reportable_event` over `_transaction`, `_party`, `_customer_relationship`, `_policy_snapshot`; `capture_period`; `counterparty_name_index` over **A2's** `_counterparty`. `_customer_relationship(session, tenant_id) -> CustomerRelationship` is A2's helper.
 
 - [ ] **Step 1: Write the failing tests** (`test_migration_0013.py`, with the `admin_engine` inspector as `tests/modules/screening/engine/test_migration_0010.py` does):
 
@@ -486,7 +495,7 @@ def test_downgrade_removes_the_tables_and_restores_the_subject_check(admin_engin
 The isolation harness discovers the eleven tenant tables and fails until the factories exist; `test_schema_sync.py` fails until the models match; `test_migration_chain.py` gets `"0013_rules_captures"`; `tests/isolation/test_structural.py` checks the two shared tables.
 
 - [ ] **Step 2: Run to verify failure.** `uv run pytest tests/modules/monitoring/rules/test_migration_0013.py tests/isolation tests/platform/test_schema_sync.py tests/platform/test_migration_chain.py --no-cov -q`.
-- [ ] **Step 3: Implement** the enums, models, events constants, migration, factories, registry and contract.
+- [ ] **Step 3: Implement** the enums, models, events constants, migration, factories and registry.
 - [ ] **Step 4: Run to verify pass**, then `make lint types vulture importlint`, then `make test`. Vulture: an enum module with members unused until B6 or B10 is left as is only when a test references the members; otherwise leave the member out until its first user lands.
 - [ ] **Step 5: Commit** `feat(monitoring): migration 0013 with rule templates, versions, hits, captures and the counterparty name index`.
 
@@ -594,7 +603,7 @@ Depends on **B5**. No console. Touches `src/xolotl/platform/config.py`. Mirrors 
 
 **Interfaces:**
 
-Consumes: B4 models and enums, B5 `check_params`, `definition_of`, `ensure_declarations` and `resolve_list_names` (assumed 4a), `load_jurisdictions` (B1), `publish_monitoring_event`, `record`, `bound_context`, `Role`, `mx_date` (assumed), `clock`, `get_settings`.
+Consumes: B4 models and enums, B5 `check_params`, `definition_of`, `ensure_declarations` (A7), `resolve_definition` and `load_jurisdictions` (B1), `publish_monitoring_event`, `record`, `bound_context`, `Role`, `policy_date` (A6), `clock`, `get_settings`.
 
 Produces:
 
@@ -631,7 +640,7 @@ def retire_version(s, version_id) -> MonitoringRuleVersion           # RETIRED, 
 # rules/assignments.py
 @dataclass(frozen=True, slots=True)
 class LoadedRule:
-    rule_id: UUID; rule_version_id: UUID; rule_code: str; assignment_id: UUID; definition: RuleDefinition   # on and evidence filters with list names resolved
+    rule_id: UUID; rule_version_id: UUID; rule_code: str; assignment_id: UUID; definition: RuleDefinition   # resolve_definition(definition, lists): filters resolved, lists_hash set
     segment: SegmentFilter | None; sync: bool; definition_hash: bytes; typology: tuple[str, ...]
 @dataclass(frozen=True, slots=True)
 class RuleSet:
@@ -640,7 +649,7 @@ class RuleSet:
     def declarations(self) -> tuple[AggregateDeclaration, ...]    # union over rules, deduplicated by agg_id, with list names resolved
     @property
     def sync_rules(self) -> tuple[LoadedRule, ...]
-    def ruleset_hash(self) -> bytes                                # sha256 over the sorted definition hashes (4c's txn_decision.ruleset_hash)
+    def ruleset_hash(self) -> bytes                                # sha256 over the sorted definition hashes of the sync rules (C5's txn_decision.ruleset_hash)
 def assignments_on(s, *, on: date, product: str | None) -> list[RuleAssignment]
     # effective_from <= on AND (effective_to IS NULL OR effective_to >= on) AND (product IS NULL OR product = :product), joined to versions ACTIVE or RETIRED (Deviation 5)
 def active_rules(s, *, on: date, product: str | None) -> RuleSet
@@ -675,7 +684,7 @@ def test_rules_resolve_by_date_and_product_like_packs(...)                  # pr
 def test_the_rule_set_deduplicates_declarations_by_agg_id(...)              # two rules with the same in_sum declaration -> one
 def test_list_names_are_resolved_at_load(...)                               # on.counterparty_country_in {"$FATF_GREY"} -> the 22 codes in the loaded rule
 def test_the_cache_refreshes_on_activation_and_after_the_ttl(fake_monotonic, ...)
-def test_the_ruleset_hash_is_order_independent(...)
+def test_the_ruleset_hash_is_order_independent_and_covers_the_sync_rules_only(...)
 ```
 
 `tests/platform/test_errors.py`: `(RuleTransitionNotAllowedError, 409, "RULE_TRANSITION_NOT_ALLOWED")`. `tests/platform/test_config.py`: the two settings.
@@ -690,7 +699,7 @@ def test_the_ruleset_hash_is_order_independent(...)
 
 ### Task B7: Hits, dedup, cooldown, evidence, the tier-limit notice, the rules processing hook and staff-only registration
 
-Depends on **B2** and **B6**, and on **4a's** store, processing hooks, `enriched_from_row` and test support (assumed). No console. Touches `src/xolotl/app.py` (`register_rules` after `register_monitoring`). This is the plan's centre (spec §8.5 step 2, §9.5, §9.6, §12.2 asynchronous path).
+Depends on **B2**, **B6** and **A8** (`ProcessingHook`, `register_processing_hook`, `run_processing`; A6's `enriched_from_row` and A7's store come with it). No console. Touches `src/xolotl/app.py` (`register_rules` after `register_monitoring`). This is the plan's centre (spec §8.5 step 2, §9.5, §9.6, §12.2 asynchronous path).
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/rules/{evaluate,hits,tier_limits,hook,wiring}.py`
@@ -699,14 +708,14 @@ Depends on **B2** and **B6**, and on **4a's** store, processing hooks, `enriched
 
 **Interfaces:**
 
-Consumes: `evaluate`, `applies`, `EvalContext`, `EvalProfile`, `DeclaredProfile`, `Firing`, `INCOMPLETE` (B2), `active_rules`, `RuleSet`, `LoadedRule` (B6), `AggregateStore`, `aggregate_key`, `matches_filter`, `ProcessingContext`, `ProcessingHook`, `register_processing_hook`, `enriched_from_row`, `mx_date`, `Transaction` (assumed), `get_party`, `PepStatus`, `CustomerRelationship`, `screening.api.party_view`, `publish_monitoring_event`, `register_staff_only`, `add_iso_duration`, `iso_duration_days`, `load_jurisdictions`.
+Consumes: `evaluate`, `applies`, `EvalContext`, `EvalProfile`, `DeclaredProfile`, `Firing`, `INCOMPLETE` (B2), `active_rules`, `RuleSet`, `LoadedRule` (B6), `AggregateStore`, `AggregateKey`, `matches`, `ProcessingContext`, `ProcessingHook`, `register_processing_hook`, `enriched_from_row`, `policy_date`, `Transaction` (4a), `get_party`, `PepStatus`, `CustomerRelationship`, `screening.api.party_view`, `publish_monitoring_event`, `register_staff_only`, `add_iso_duration`, `iso_duration_days`, `load_jurisdictions`.
 
 Produces:
 
 ```python
 # rules/evaluate.py
 def reader_for(store: AggregateStore, txn: EnrichedTransaction, declarations: Mapping[str, AggregateDeclaration]) -> AggregateReader
-    # name -> store.read / calendar_read(period_key = txn.period_keys[window]) / accumulator_read by window_kind, key = aggregate_key(txn, decl.key_kind), at = txn.occurred_at;
+    # name -> store.read / calendar_read(period_key = txn.period_keys.MONTH or .QUARTER) / accumulator_read by window_kind, key = AggregateKey(decl.key_kind, txn.key_for(decl.key_kind)), at = txn.occurred_at;
     # value.complete False -> INCOMPLETE; reads are memoised per name
 def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile
     # relationship: account_tier, started_at, declared_profile (getattr with None until 4c); party pep_status (get_party); screening status party_view(s, party_id, staff=True).status;
@@ -714,7 +723,7 @@ def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile
 def evaluate_rules(ruleset: RuleSet, ctx: EvalContext) -> list[tuple[LoadedRule, Firing]]    # evaluate(rule.definition, ctx) per rule, in rule_code order
 
 # rules/hits.py
-def dedup_bucket(txn: EnrichedTransaction, dedup: Dedup) -> str    # "MONTH" -> txn.period_keys["MONTH"]; else floor(occurred_at UTC, window).isoformat()
+def dedup_bucket(txn: EnrichedTransaction, dedup: Dedup) -> str    # "MONTH" -> txn.period_keys.MONTH; else floor(occurred_at UTC, window).isoformat()
 def dedup_key_for(firing: Firing, txn: EnrichedTransaction, dedup: Dedup) -> str   # f"{key_kind}:{key}:{bucket}"
 def evidence_transactions(s, rule: LoadedRule, firing: Firing, txn: EnrichedTransaction) -> list[Transaction]
     # PROCESSED rows of the firing's key with occurred_at in [occurred_at - evidence.transactions_window, occurred_at), matching evidence.transactions_where, occurred_at DESC, limit 500
@@ -736,7 +745,7 @@ class RulesHook:                                   # implements 4a's ProcessingH
     name = "rules"
     def declarations(self, s, snapshot, *, on, product) -> Sequence[AggregateDeclaration]    # active_rules(s, on=on, product=product).declarations
     def evaluate(self, s, txn, ctx) -> None
-        # ruleset = active_rules(s, on=mx_date(txn.occurred_at), product=txn.product); ectx = EvalContext(txn, reader_for(ctx.store, txn, by name), profile_for(s, txn), ctx.snapshot.policy, ruleset.lists, clock.now())
+        # ruleset = active_rules(s, on=policy_date(txn.occurred_at), product=txn.product); ectx = EvalContext(txn, reader_for(ctx.store, txn, by name), profile_for(s, txn), ctx.snapshot.policy, ruleset.lists, clock.now())
         # for rule, firing in evaluate_rules(...): hit = record_firing(...); TIER_LIMIT firings with a new hit -> notice_tier_limit(source=PROCESS)
         # ctx.late -> reevaluate_later(s, txn, ruleset, ctx)
 def reevaluate_later(s, late: EnrichedTransaction, ruleset: RuleSet, ctx: ProcessingContext) -> int
@@ -799,7 +808,7 @@ Depends on **B7** (the reader, the profile, the hits for overlap). No console. T
 
 **Interfaces:**
 
-Consumes: `MemoryAggregateStore`, `enriched_from_row`, `Transaction`, `Settings.monitoring_agg_backfill_batch` (assumed), `reader_for`, `profile_for`, `evaluate_rules`, `dedup_key_for` (B7), `LoadedRule`, `RuleSet`, `active_rules` (B6), `get_snapshot`, `ScreeningSubject`, `SubjectStatus`, `register_job_handler`, `PostgresJobQueue.enqueue`, `Job`.
+Consumes: `MemoryAggregateStore`, `enriched_from_row`, `Transaction`, `Settings.monitoring_agg_backfill_batch` (A2), `reader_for`, `profile_for`, `evaluate_rules`, `dedup_key_for` (B7), `LoadedRule`, `RuleSet`, `active_rules` (B6), `get_snapshot`, `ScreeningSubject`, `SubjectStatus`, `register_job_handler`, `PostgresJobQueue.enqueue`, `Job`.
 
 Produces:
 
@@ -958,7 +967,7 @@ Depends on **B4** (tables) and **B7** (`register_rules`, the hook pattern, `read
 
 **Interfaces:**
 
-Consumes: `EffectivePolicy`, `Capture`, `Quantity`, `ConversionRule`, `TxnFilter`, `AggregateDeclaration`, `matches_filter`, `aggregate_key`, `AggregateStore.accumulator_read`, `UnitService`, `add_iso_duration`, `mx_date`, `Transaction`, `Account`, `enriched_from_row` (assumed), `ProcessingHook`, `publish_monitoring_event`, B4 models and enums, the code tables under `report-defs/codetables/MX/`.
+Consumes: `EffectivePolicy`, `Capture`, `Quantity`, `ConversionRule`, `TxnFilter`, `AggregateDeclaration`, `matches`, `AggregateKey`, `AggregateStore.accumulator_read`, `unit_amounts_for`, `UnitService`, `Holidays`, `add_iso_duration`, `policy_date`, `Transaction`, `Account`, `enriched_from_row` (4a), `ProcessingHook`, `publish_monitoring_event`, B4 models and enums, the code tables under `report-defs/codetables/MX/`.
 
 Produces:
 
@@ -990,7 +999,7 @@ AVI_XVI_B: {instrument: [CRYPTO]}            # the fee threshold cannot fire wit
 class FieldMap: report_code: str; operation_type: Mapping[str, str]; instrument: Mapping[str, str]; codetables: Mapping[str, str]   # "<DIRECTION>/<INSTRUMENT>" -> code; "<INSTRUMENT>" -> code; field -> code table name or absent (values written as-is)
 def read_field_map(report_code: str) -> FieldMap                            # captures/field_maps/<report_code>.yaml; cached
 def event_fields(txn: EnrichedTransaction, account_ref: str, fmap: FieldMap, *, merged: Sequence[str] = ()) -> dict[str, JsonValue]
-    # {"operation_date": mx_date iso, "operation_type", "instrument", "amount": {"minor": int, "currency"}, "fee": {"minor", "currency"} | None, "account_ref", "branch": "0000",
+    # {"operation_date": policy_date(txn.occurred_at).isoformat(), "operation_type", "instrument", "amount": {"minor": int, "currency"}, "fee": {"minor", "currency"} | None, "account_ref", "branch": "0000",
     #  "locality": None, "counterparty": {"country", "institution": None, "account_hash": None} | None (institution and the account hash are counterparty-row facts 4a stores; written
     #  when the enriched transaction carries them, else None), "crypto": {"network", "asset_code", "asset_qty": str} | None, "merged_captures": list(merged), "period_keys": {"MONTH", "QUARTER"}}
 def unit_values(definition: CaptureDefinition, txn: EnrichedTransaction, converted: Conversion, *, fee: Conversion | None = None) -> dict[str, JsonValue]
@@ -999,7 +1008,7 @@ def unit_values(definition: CaptureDefinition, txn: EnrichedTransaction, convert
 # captures/groups.py
 def open_group_for(s, definition: CaptureDefinition, txn: EnrichedTransaction) -> CaptureGroup
     # key_kind RELATIONSHIP, key str(relationship_id); the OPEN or CROSSED group whose [window_start, window_end) contains occurred_at, else a new OPEN group with
-    # window_start = the Mexico City day start of occurred_at, window_end = add_iso_duration(day, window) at day start, period_key = txn.period_keys[period]; FOR UPDATE
+    # window_start = the Mexico City day start of occurred_at, window_end = add_iso_duration(day, window) at day start, period_key = getattr(txn.period_keys, period); FOR UPDATE
 def add_to_group(group: CaptureGroup, txn: EnrichedTransaction, unit_amount: Decimal) -> None     # accumulated_minor += amount_minor; accumulated_unit = the store's accumulator value (Deviation 9)
 def group_members(s, definition: CaptureDefinition, group: CaptureGroup) -> list[Transaction]     # PROCESSED rows of the key in the window matching definition.on, occurred_at ASC
 def cross_group(s, definition, group, *, at: datetime) -> list[ReportableEvent]                   # CROSSED, threshold_crossed_at = at; one event per member without a CAPTURED event (capture_group_id = group.id, period_key of each member's own month)
@@ -1007,9 +1016,10 @@ def cross_group(s, definition, group, *, at: datetime) -> list[ReportableEvent] 
 # captures/events.py
 @dataclass(frozen=True, slots=True)
 class CaptureOutcome: events: tuple[ReportableEvent, ...]; voided: tuple[ReportableEvent, ...]
-def capture_transaction(s, definitions: Sequence[CaptureDefinition], txn: EnrichedTransaction, *, store: AggregateStore, units: UnitService, late: bool) -> CaptureOutcome
-    # for each definition with matches_filter(txn, on), in a fixed order (merge targets before the captures that merge into them):
-    # THRESHOLD: txn.unit_amounts[unit_key].amount >= threshold.amount -> write_event; FEE_THRESHOLD: fee_minor present and units.to_unit(fee_minor / 100, currency, unit, on, rule).amount >= threshold -> write_event
+def capture_transaction(s, definitions: Sequence[CaptureDefinition], txn: EnrichedTransaction, *, store: AggregateStore, units: UnitService, holidays: Holidays, late: bool) -> CaptureOutcome
+    # for each definition with matches(on, txn), in a fixed order (merge targets before the captures that merge into them):
+    # THRESHOLD: txn.unit_amounts[unit_key].amount >= threshold.amount -> write_event; FEE_THRESHOLD: fee_minor present and
+    #   unit_amounts_for(units, amount=Decimal(fee_minor) / 100, currency=txn.currency, on=policy_date(txn.occurred_at), pairs={(unit, rule)}, holidays=holidays)[unit_key].amount >= threshold -> write_event (Deviation 8)
     # ACCUMULATION: amount >= threshold -> write_event alone; else group = open_group_for; add_to_group; accumulated_unit = store.accumulator_read(...).value;
     #   group OPEN and accumulated_unit >= threshold -> cross_group; group CROSSED -> write_event for txn (capture_group_id)
     # merge_into: when the target's event was written for txn in this call, skip this capture and set target.fields.merged_captures += [code]; when the target's event is written now
@@ -1031,7 +1041,7 @@ def reopen_period(s, capture_code: str, period_key: str) -> CapturePeriod | None
 class CapturesHook:                                 # 4a's ProcessingHook
     name = "captures"
     def declarations(self, s, snapshot, *, on, product) -> Sequence[AggregateDeclaration]     # union of capture_definitions(snapshot.policy).declarations
-    def evaluate(self, s, txn, ctx) -> None          # capture_transaction(...); ctx.late and an ACCUMULATION group affected -> supersede_group
+    def evaluate(self, s, txn, ctx) -> None          # capture_transaction(s, capture_definitions(ctx.snapshot.policy), txn, store=ctx.store, units=ctx.units, holidays=ctx.holidays, late=ctx.late); ctx.late and an ACCUMULATION group affected -> supersede_group
 ```
 
 `register_rules` adds `register_processing_hook(CapturesHook())` after the rules hook.
@@ -1085,14 +1095,14 @@ Depends on **B10**. No console (B15 regenerates the types). Touches `src/xolotl/
 
 **Interfaces:**
 
-Consumes: B10, `period_key_bounds`, `mx_date` (assumed), `MemoryAggregateStore`, `enriched_from_row`, `get_snapshot`, `assignments_in_force`, `effective_policy`, `register_job_handler`, `PostgresJobQueue.schedule`, `require_access`, `paginate`.
+Consumes: B10, `policy_date` (A6), `MemoryAggregateStore`, `enriched_from_row`, `get_snapshot`, `assignments_in_force`, `effective_policy`, `register_job_handler`, `PostgresJobQueue.schedule`, `require_access`, `paginate`.
 
 Produces:
 
 ```python
 # captures/periods.py
 PERIOD_CLOSE_KIND = "monitoring.period_close"
-def open_period(s, definition: CaptureDefinition, period_key: str) -> CapturePeriod      # INSERT ON CONFLICT (tenant_id, capture_code, period_key) DO NOTHING then select; period_start/end from period_key_bounds; event_count recomputed = CAPTURED + INCLUDED events
+def open_period(s, definition: CaptureDefinition, period_key: str) -> CapturePeriod      # INSERT ON CONFLICT (tenant_id, capture_code, period_key) DO NOTHING then select; period_start/end from period_key_bounds(period_key) -> tuple[date, date], defined here (a YYYY-MM or YYYY-Qn key to its first and last day); event_count recomputed = CAPTURED + INCLUDED events
 def ensure_periods(s, *, ended_before: date) -> int
     # for each ended MONTH (and QUARTER when ended_before is the first day of a quarter) since the tenant's earliest PROCESSED transaction: for every capture of every policy in force
     # on the period's last day (assignments_in_force on that day, effective_policy per product): open_period (Deviation 11); returns rows created
@@ -1120,7 +1130,7 @@ class CapturePeriodResponse(BaseModel): id: UUID; capture_code: str; report_code
 class CaptureLimitView(BaseModel): code: str; kind: CaptureKind | Literal["TIER_LIMIT"]; threshold: str; unit: str; conversion_rule: ConversionRule; window: str | None; period: str | None; report_code: str | None; legal_basis: str; confidence: str; source: str   # the read-only Capturas y límites rows
 ```
 
-Routes (`router = v1_router(prefix="/monitoring/captures", tags=["monitoring-captures"])`, staff only): `list_captures` `GET ""` (filters `capture_code`, `report_code`, `period_key`, `status`, `relationship_id`; `paginate(ts_col=ReportableEvent.captured_at, ...)`), `list_capture_periods` `GET /periods` (filters `capture_code`, `status`; ordered `period_key DESC`), `close_capture_period` `POST /periods/{period_id}/close` (`require_access(roles=(Role.MLRO, Role.ADMIN), write=True)`; runs `close_period` now), `list_effective_captures` `GET /effective?on=&product=` (the snapshot's captures and tier limits as `CaptureLimitView` with provenance, for B15), `get_capture` `GET /{event_id}`.
+Routes (`router = v1_router(prefix="/monitoring/captures", tags=["monitoring-captures"])`, staff only): `list_captures` `GET ""` (filters `capture_code`, `report_code`, `period_key`, `status`, `relationship_id`, `transaction_id` (B15's card on the transaction detail); `paginate(ts_col=ReportableEvent.captured_at, ...)`), `list_capture_periods` `GET /periods` (filters `capture_code`, `status`; ordered `period_key DESC`), `close_capture_period` `POST /periods/{period_id}/close` (`require_access(roles=(Role.MLRO, Role.ADMIN), write=True)`; runs `close_period` now), `list_effective_captures` `GET /effective?on=&product=` (the snapshot's captures and tier limits as `CaptureLimitView` with provenance, for B15), `get_capture` `GET /{event_id}`.
 
 Schedule: `MONITORING_PERIOD_CLOSE_SCHEDULE = "monitoring.period_close"` in `schedule_platform_jobs` with `cron = get_settings().monitoring_period_close_cron`, `tz = "America/Mexico_City"`, `payload = {}`; `PLATFORM_SCHEDULES` gains the row in name order (4a adds its own rows; additive). CLI: `monitoring period-close --tenant <slug> [--capture <code> --period <key>]` runs `handle_period_close` inline and prints one line per period `"<capture> <period> CLOSED events=<n> reconciled=<n> discrepancies=<n>"`, exit 1 when any discrepancy count is non-zero.
 
@@ -1168,7 +1178,7 @@ Depends on **B7**. It does not need B8 to B11, so it runs beside them. No consol
 
 **Interfaces:**
 
-Consumes: B4 models, `summaries` (`xolotl.modules.party.service`, the masked `PartyResponse`), `reveal_pii`, `reveal_counterparty` (assumed 4a), `mask_tail`, `require_access`, `paginate`, `Transaction`, `Counterparty`.
+Consumes: B4 models, `summaries` (`xolotl.modules.party.service`, the masked `PartyResponse`), `reveal_pii`, `reveal_counterparty`, `counterparty_summary` (A10, `screening.counterparty.views`), `mask_tail`, `require_access`, `paginate`, `Transaction`, `Counterparty`.
 
 Produces (`schemas.py`):
 
@@ -1183,7 +1193,7 @@ class HitDetail(HitSummary): evidence: EvidenceView; transactions: list[HitTrans
 class HitReveal(BaseModel): party: PartyPiiResponse; counterparties: dict[UUID, RevealedCounterpartyView]    # per counterparty id of the evidence transactions: name, account, wallet masked tail revealed
 ```
 
-Routes: `router = v1_router(prefix="/monitoring", tags=["monitoring-hits"])` with `list_hits` `GET /hits` (staff; filters `severity`, `rule_code`, `typology`, `outcome`, `party_id`, `created_before`; `paginate(ts_col=RuleHit.created_at, ...)`), `get_hit` `GET /hits/{hit_id}`, `reveal_hit` `GET /hits/{hit_id}/reveal` (one `VIEW_PII` per non-empty group: `party` through `reveal_pii`, `counterparties` through `reveal_counterparty`; Deviation 7); and `party_router = v1_router(prefix="/parties", tags=["monitoring-hits"])` with `list_party_hits` `GET /parties/{party_id}/hits` (staff; the party's hits newest first). Both routers are mounted.
+Routes: `router = v1_router(prefix="/monitoring", tags=["monitoring-hits"])` with `list_hits` `GET /hits` (staff; filters `severity`, `rule_code`, `typology`, `outcome`, `party_id`, `transaction_id` (B14's card on the transaction detail), `created_before`; `paginate(ts_col=RuleHit.created_at, ...)`), `get_hit` `GET /hits/{hit_id}`, `reveal_hit` `GET /hits/{hit_id}/reveal` (one `VIEW_PII` per non-empty group: `party` through `reveal_pii`, `counterparties` through `reveal_counterparty`; Deviation 7); and `party_router = v1_router(prefix="/parties", tags=["monitoring-hits"])` with `list_party_hits` `GET /parties/{party_id}/hits` (staff; the party's hits newest first). Both routers are mounted.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -1240,20 +1250,20 @@ Produces:
 
 ### Task B14: Console: Hallazgos de reglas
 
-Depends on **B12**. Console only; runs beside B13 and B15 (additive shared files).
+Depends on **B12** and **A11** (the transaction detail it extends). Console only; runs beside B13 and B15 (additive shared files).
 
 **Files:**
-- Modify: `console/src/api/schema.d.ts` (regenerated), `console/src/api/types.ts`, `console/src/auth/access.ts`, `access.test.ts`, `guards.test.tsx`, `console/src/components/layout/nav.ts`, `console/src/App.tsx`, both catalogues, `catalogue.test.ts`
-- Create: `console/src/features/hits/{queries.ts, HitsPage.tsx, HitsPage.test.tsx, HitPage.tsx, HitPage.test.tsx, EvidenceTable.tsx, EvidenceTable.test.tsx, HitRevealCard.tsx, SeverityBadge.tsx, fixtures.ts}`
+- Modify: `console/src/api/schema.d.ts` (regenerated), `console/src/api/types.ts`, `console/src/auth/access.ts`, `access.test.ts`, `guards.test.tsx`, `console/src/components/layout/nav.ts`, `console/src/App.tsx`, both catalogues, `catalogue.test.ts`, `console/src/features/transactions/TransactionPage.tsx` (A11; + `TransactionHitsCard`), `console/src/features/parties/PartyPage.tsx` (+ `PartyHitsCard`)
+- Create: `console/src/features/hits/{queries.ts, HitsPage.tsx, HitsPage.test.tsx, HitPage.tsx, HitPage.test.tsx, EvidenceTable.tsx, EvidenceTable.test.tsx, HitRevealCard.tsx, SeverityBadge.tsx, TransactionHitsCard.tsx, PartyHitsCard.tsx, fixtures.ts}`
 
 **Interfaces:**
 
 Produces:
 - `types.ts`: `HitSummary`, `HitDetail`, `HitReveal`, `EvidenceView`, `HitTransactionView`, `HitOutcome`, `HitTransactionRole`, `Page_HitSummary_`.
-- `access.ts`: `monitoring: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']` (reused when 4a defined it).
+- `access.ts`: `monitoring: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']` (defined here; A11's `transactions` has the same five roles, and C9 reuses that one so it does not depend on this task).
 - `nav.ts`: `'nav.ruleHits'`, `{ to: '/monitoring/hits', labelKey: 'nav.ruleHits', icon: Siren, roles: ACCESS.monitoring }` before `nav.monitoringRules`.
 - `App.tsx`: `/monitoring/hits` (`HitsPage`) and `/monitoring/hits/:hitId` (`HitPage`) under `RequireRole roles={ACCESS.monitoring}`.
-- `queries.ts`: `useHits(filters, cursor)`, `useHit(hitId)`, `useRevealHit(hitId)` (`useMutation`, `gcTime: 0`), `usePartyHits(partyId)` (for the party page's card, consumed by 4a's Cliente › Transacciones tab when it lands).
+- `queries.ts`: `useHits(filters, cursor)`, `useHit(hitId)`, `useRevealHit(hitId)` (`useMutation`, `gcTime: 0`), `usePartyHits(partyId)` and `useTransactionHits(transactionId)` (`GET /monitoring/hits?party_id=` and `?transaction_id=`); `PartyHitsCard` on `PartyPage.tsx` beside A12's `PartyTransactionsCard`, and `TransactionHitsCard` on A11's `TransactionPage.tsx` (the "hits on this transaction" of spec §17), both behind `ACCESS.monitoring`.
 - `HitsPage`: tabs by severity (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`; default the highest with rows), filters rule, typology, outcome, "older than" (days → `created_before`); columns party (masked), rule, typology tags, severity, outcome, window, fired count, created; `CursorPager`.
 - `HitPage`: the rendered sentence, parameters against the aggregates at firing time (`EvidenceTable`: name, value, unit, window, the parameter it was compared with), the evidence transactions table (role, date, direction, instrument, rail, amount, counterparty masked), the decision link when `decision_id` is set (4c's route; rendered as plain text until then), the dedup key and cooldown state, `HitRevealCard` ("Revelar", the audited notice, `aria-live`). No disposition, no note field (spec §17).
 - i18n: `nav.ruleHits`; `hits.{title,description,tabs.*,empty,filters.*,table.*,severity.*,outcome.*,role.*,detail.{sentence,params,aggregates,transactions,dedup,cooldown,decision,decided}}`, `hits.reveal.*`.
@@ -1268,11 +1278,11 @@ Produces:
 
 ### Task B15: Console: Reglas › Capturas y límites
 
-Depends on **B11**. Console only; runs beside B13 and B14.
+Depends on **B11** and **A11** (the transaction detail it extends). Console only; runs beside B13 and B14.
 
 **Files:**
-- Modify: `console/src/api/schema.d.ts` (regenerated), `console/src/api/types.ts`, `console/src/auth/access.ts`, `access.test.ts`, `guards.test.tsx`, `console/src/components/layout/nav.ts`, `console/src/App.tsx`, both catalogues, `catalogue.test.ts`
-- Create: `console/src/features/captures/{queries.ts, CapturesPage.tsx, CapturesPage.test.tsx, PeriodTable.tsx, PeriodTable.test.tsx, fixtures.ts}`
+- Modify: `console/src/api/schema.d.ts` (regenerated), `console/src/api/types.ts`, `console/src/auth/access.ts`, `access.test.ts`, `guards.test.tsx`, `console/src/components/layout/nav.ts`, `console/src/App.tsx`, both catalogues, `catalogue.test.ts`, `console/src/features/transactions/TransactionPage.tsx` (A11; + `TransactionCapturesCard`)
+- Create: `console/src/features/captures/{queries.ts, CapturesPage.tsx, CapturesPage.test.tsx, PeriodTable.tsx, PeriodTable.test.tsx, TransactionCapturesCard.tsx, fixtures.ts}`
 
 **Interfaces:**
 
@@ -1281,7 +1291,7 @@ Produces:
 - `access.ts`: `capturesClose: ['MLRO', 'ADMIN']`.
 - `nav.ts`: `'nav.captures'`, `{ to: '/rules/captures', labelKey: 'nav.captures', icon: FileCheck, roles: ACCESS.rules }` after `nav.monitoringRules`.
 - `App.tsx`: `/rules/captures` (`CapturesPage`) under `RequireRole roles={ACCESS.rules}`.
-- `queries.ts`: `useEffectiveCaptures(on, product)`, `useCapturePeriods(filters)`, `useCaptures(filters, cursor)`, `useClosePeriod()` (`useIdempotentMutation`, invalidating periods).
+- `queries.ts`: `useEffectiveCaptures(on, product)`, `useCapturePeriods(filters)`, `useCaptures(filters, cursor)`, `useTransactionCaptures(transactionId)` (`GET /monitoring/captures?transaction_id=`, for `TransactionCapturesCard` on A11's `TransactionPage.tsx`), `useClosePeriod()` (`useIdempotentMutation`, invalidating periods).
 - `CapturesPage`: the effective policy's captures and tier limits read-only (code, kind, threshold with unit, conversion rule, window, period, report, legal basis and confidence as the Políticas page shows provenance), each with "Proponer ajuste" linking to the SP-02 override flow (`/policy` with the capture code as a query parameter); the `PeriodTable` (capture, period, status, events, reconciled, discrepancies count with the ids behind a disclosure) with "Cerrar periodo" for `ACCESS.capturesClose` on ended `OPEN`/`REOPENED` rows (a `ConfirmDialog`; `PERIOD_NOT_ENDED` shown as a form alert); a captures list below filtered by period.
 - i18n: `nav.captures`; `captures.{title,description,limits.*,kind.*,period.*,status.*,table.*,close.{action,confirm,done},propose,discrepancies.*,events.*}`; `errors.PERIOD_NOT_ENDED`.
 
@@ -1296,42 +1306,42 @@ Produces:
 ## Interfaces for plan 4c
 
 Named exactly as the spec does where the spec names them; the others are this plan's and are listed for 4c to consume:
-- **The evaluator for the decide path (spec §12.1 step 5):** `active_rules(s, *, on, product) -> RuleSet` (B6) with `RuleSet.sync_rules`, `RuleSet.declarations` and `RuleSet.ruleset_hash()` (the `txn_decision.ruleset_hash`); `reader_for(store, txn, declarations_by_name)`, `profile_for(s, txn)`, `evaluate_rules(ruleset, ctx)` (B7) over a `MemoryAggregateStore` seeded from the `ix_agg_bucket_window` reads and `add()`-ed the candidate; `EvalContext`, `EvalProfile`, `Firing`, `HitOutcome` (B2, B1). `BLOCK` when a `TIER_LIMIT` firing has `outcome BLOCK` or any firing has `severity CRITICAL`; `REVIEW` for any other firing.
+- **The evaluator for the decide path (spec §12.1 step 5):** `active_rules(s, *, on, product) -> RuleSet` (B6) with `RuleSet.sync_rules`, `RuleSet.declarations` and `RuleSet.ruleset_hash()` (the `txn_decision.ruleset_hash`); `reader_for(store, txn, declarations_by_name)`, `profile_for(s, txn)` (B7) over a `MemoryAggregateStore` seeded with A7's `seed(key, declaration, PostgresAggregateStore(s).buckets(key, declaration, start=…, end=…))` and `add()`-ed the candidate; C5 evaluates `ruleset.sync_rules` with B2's `evaluate(rule.definition, ctx)` and reads a declaration whose `agg_declaration.backfilled_through` is NULL as `INCOMPLETE`; `EvalContext`, `EvalProfile`, `Firing`, `HitOutcome` (B2, B1). `BLOCK` when a `TIER_LIMIT` firing has `outcome BLOCK` or any firing has `severity CRITICAL`; `REVIEW` for any other firing.
 - **The tier-limit notice (spec §12.1 step 6, §12.2):** `notice_tier_limit(s, *, relationship_id, account_id, tier, limit_code, period_key, outcome, source=NoticeSource.DECIDE) -> bool` (B7); it publishes `monitoring.tier_limit_reached.v1` only when it inserted the row, so the two paths send one webhook per relationship, limit and month. `LIMIT_CODE_MONTHLY_OPS = "monthly_ops"`.
-- **Replay (spec §13.1, §16 `monitoring replay --dry-run`):** `replay_rule_set(s, ruleset, *, range_start, range_end, page) -> Iterator[SimulatedHit]` (B8) over `active_rules(...)`; `SimulatedHit.dedup_key` and `rule_version_id` are what the exit test compares with `rule_hit` rows.
+- **Replay (spec §13.1, §16 `monitoring replay --dry-run`):** `replay_rule_set(s, ruleset, *, range_start, range_end, page) -> Iterator[SimulatedHit]` (B8) over `active_rules(...)` (C6's `replay_range`); `SimulatedHit.dedup_key` and `rule_version_id` are what the exit test compares with `rule_hit` rows.
 - **Metrics (spec §13.2):** `RuleHit` (`rule_version_id`, `severity`, `created_at`, `first_occurred_at`, `party_id`), `MonitoringRule.typology`, `ReportableEvent` (`report_code`, `period_key`, `status`), `CapturePeriod.reconciled_count` (B4, B11); the indexes `ix_rule_hit_rule_period` and `ix_reportable_event_period`.
-- **Counterparty screening (spec §11.2, §11.3):** `CounterpartyNameIndex` (`xolotl.modules.screening.counterparty.models`, B4) with `ix_cni_phonetic` and `ix_cni_trgm`; `ScreeningSubject.counterparty_id` and the `COUNTERPARTY` branch of `ck_screening_subject_kind_input`; `fk_counterparty_subject`. 4c adds `SubjectKind.COUNTERPARTY` and `RunMode.COUNTERPARTY` (text columns, no migration) and registers `screening.counterparty_status_changed.v1` staff-only itself.
-- **Hits on the decision (spec §12.1, §15):** `RuleHit.decision_id` stays `NULL` in this plan; 4c's linkage sets it with `transaction.decision_id`, and B12's `HitSummary.decision_id` and B14's "decided BLOCK at …" read it.
+- **Counterparty screening (spec §11.2, §11.3):** `CounterpartyNameIndex` (`xolotl.modules.screening.counterparty.models`, B4) with `ix_cni_phonetic` and `ix_cni_trgm`; `ScreeningSubject.counterparty_id` and the `COUNTERPARTY` branch of `ck_screening_subject_kind_input`; `fk_counterparty_subject`. C1 needs B4 and nothing else of this plan; it adds `SubjectKind.COUNTERPARTY` and `RunMode.COUNTERPARTY` (text columns, no migration) and registers `screening.counterparty_status_changed.v1` staff-only itself.
+- **Hits on the decision (spec §12.1, §15):** B12's `HitSummary.decision_id` is the trigger transaction's `transaction.decision_id`, which C5's linkage sets; C5 appends `decision: DecisionSummary | None` to `HitDetail` (`monitoring/schemas.py`) and fills it in `routes_hits.py`, and B14 renders it as "decided BLOCK at …" when present (the bare id until then).
 - **Retention (spec §8.6):** the month's rows 4c deletes in order: `rule_hit_transaction`, `reportable_event` (and emptied `capture_group`), `rule_hit` by `first_occurred_at`; `tier_limit_notice` is kept (no transaction link); `capture_period` rows are kept.
-- **Composition (B7):** `register_rules(*, queue)` in `monitoring/rules/wiring.py`, called by `wire_platform` after `register_monitoring`; 4c registers nothing there.
-- **API and console:** `routes_rules.router` (prefix `/monitoring`), `routes_hits.router`, `routes_captures.router` (B9, B11, B12); `schemas.py` for 4c's `GET /v1/monitoring/metrics` models; console `ACCESS.monitoring`, `ACCESS.rules`, `features/hits/queries.ts::usePartyHits` for the Cliente › Transacciones tab.
+- **Composition (B7):** `register_rules(*, queue)` in `monitoring/rules/wiring.py`, called by `wire_platform` after A5's `register_monitoring`; 4c registers nothing there (C5, C7 and C8 append to `register_monitoring`).
+- **API and console:** `routes_rules.router` (prefix `/monitoring`), `routes_hits.router`, `routes_captures.router` (B9, B11, B12); `monitoring/schemas.py` (A10's file) for C6's metrics models; console `ACCESS.rules` and `ACCESS.monitoring` (B14; C9 gates its Perfil card with A11's `ACCESS.transactions` instead, so it does not wait for B14).
 
 ## Parallelism
 
 | Id | Title | Depends on | Console | Branch slug |
 |---|---|---|---|---|
-| B1 | Jurisdiction lists loader, rule definitions and the rendered sentence | 4a's `aggregates/declarations.py` (assumed) | no | `sp04b-b1-definitions` |
-| B2 | The pure evaluator: the seven kinds | B1; 4a's `aggregates/windows.py` (assumed) | no | `sp04b-b2-evaluator` |
+| B1 | Jurisdiction lists loader, rule definitions and the rendered sentence | A7 | no | `sp04b-b1-definitions` |
+| B2 | The pure evaluator: the seven kinds | B1 | no | `sp04b-b2-evaluator` |
 | B3 | The Mexico typology library files, the loader and `rules validate` | B1 | no | `sp04b-b3-typology-library` |
-| B4 | Migration 0013, models, enums, events, isolation factories | 4a's 0012 and models (assumed) | no | `sp04b-b4-migration-0013` |
+| B4 | Migration 0013, models, enums, events, isolation factories | A2 | no | `sp04b-b4-migration-0013` |
 | B5 | Templates in the database, tenant rules and versions with bounds, `rules load/show/seed-tenant` | B3, B4 | no | `sp04b-b5-templates-versions` |
 | B6 | Lifecycle, assignments and the active rule set | B5 | no | `sp04b-b6-lifecycle` |
-| B7 | Hits, dedup, cooldown, evidence, the tier-limit notice, the rules processing hook and staff-only registration | B2, B6; 4a's store, hooks and test support (assumed) | no | `sp04b-b7-hits-hook` |
+| B7 | Hits, dedup, cooldown, evidence, the tier-limit notice, the rules processing hook and staff-only registration | B2, B6, A8 | no | `sp04b-b7-hits-hook` |
 | B8 | Simulation engine and job, `rules simulate`, `rules activate`, typology goldens | B7 | no | `sp04b-b8-simulation` |
 | B9 | Rules API | B8 | no | `sp04b-b9-rules-api` |
 | B10 | Capture definitions, maps, reportable events, groups, supersession, the captures hook, capture goldens | B4, B7 | no | `sp04b-b10-captures` |
 | B11 | Capture periods, period close, schedule, CLI, captures API | B10 | no | `sp04b-b11-period-close-api` |
 | B12 | Hits API | B7 | no | `sp04b-b12-hits-api` |
 | B13 | Console: Reglas › Monitoreo | B9 | yes | `sp04b-b13-console-rules` |
-| B14 | Console: Hallazgos de reglas | B12 | yes | `sp04b-b14-console-hits` |
-| B15 | Console: Reglas › Capturas y límites | B11 | yes | `sp04b-b15-console-captures` |
+| B14 | Console: Hallazgos de reglas | B12, A11 | yes | `sp04b-b14-console-hits` |
+| B15 | Console: Reglas › Capturas y límites | B11, A11 | yes | `sp04b-b15-console-captures` |
 
-- **Wave 0, beside 4a (pure code):** B1 as soon as 4a's `aggregates/declarations.py` is on `main`; then B2 ∥ B3 (B2 also waits for 4a's `aggregates/windows.py`). Neither needs a table. 4a's `resolve_list_names` and `ensure_declarations` consume B1's `JurisdictionLists`, so B1 should merge early.
-- **Wave 1, after 4a's 0012:** B4 (it can start beside B2 and B3). Then B5 (needs B3 and B4), then B6.
-- **Wave 2:** B7 after B2 and B6 (and 4a's store, hooks and test support). Then **B8 ∥ B10 ∥ B12** (disjoint files; B8 and B10 both append to `rules/wiring.py`, additive).
+- **Wave 0, beside 4a (pure code):** B1 as soon as A7 is on `main`; then B2 ∥ B3. Neither needs a table. Nothing in 4a depends on B1: list names are resolved in this plan (reconciliation finding 3).
+- **Wave 1, after A2:** B4 (it can start beside B2 and B3; the migrations merge A2 → B4 → C4). Then B5 (needs B3 and B4), then B6.
+- **Wave 2:** B7 after B2, B6 and A8. Then **B8 ∥ B10 ∥ B12** (disjoint files; B8 and B10 both append to `rules/wiring.py`, additive).
 - **Wave 3:** B9 after B8; B11 after B10. B9, B11 and B12 each add a router line to `app.py` and models to `schemas.py` (additive; the later one rebases).
-- **Wave 4 (console):** B13 ∥ B14 ∥ B15 after B9, B12 and B11 respectively. They share the additive console files and regenerate `schema.d.ts` against the merged API.
-- **Across plans.** 4a, 4b and 4c all append to `src/xolotl/app.py`, `src/xolotl/cli.py`, `src/xolotl/models.py`, `src/xolotl/platform/config.py`, `.env.example`, `README.md`, `.importlinter`, `src/xolotl/modules/tenants/service.py` and the pinned schedule tests, `tests/isolation/factories.py`, `tests/platform/test_migration_chain.py`, `test_config.py`, `test_errors.py`, `tests/test_cli.py`, `src/xolotl/modules/monitoring/{events,errors,schemas,composition}.py`, `src/xolotl/modules/screening/counterparty/models.py` and the console's nav, routes, access and catalogues. Every edit is additive; whichever task merges second rebases. 4c's counterparty screening (its first wave) needs only B4 from this plan and runs beside B5 to B12; 4c's decide path needs B6 and B7; 4c's replay needs B8; 4c's exit test merges after B15.
+- **Wave 4 (console):** B13 ∥ B14 ∥ B15 after B9, B12 and B11 respectively (B14 and B15 also after A11, whose transaction detail they extend). They share the additive console files and regenerate `schema.d.ts` against the merged API.
+- **Across plans.** 4a, 4b and 4c all append to `src/xolotl/app.py`, `src/xolotl/cli.py`, `src/xolotl/models.py`, `src/xolotl/platform/config.py`, `.env.example`, `README.md`, `.importlinter`, `src/xolotl/modules/tenants/service.py` and the pinned schedule tests, `tests/isolation/factories.py`, `tests/platform/test_migration_chain.py`, `test_config.py`, `test_errors.py`, `tests/test_cli.py`, `src/xolotl/modules/monitoring/{events,errors,schemas,composition}.py`, `src/xolotl/modules/screening/counterparty/models.py` and the console's nav, routes, access and catalogues. Every edit is additive; whichever task merges second rebases. C1 needs only B4 from this plan and runs beside B5 to B12; C4 needs B4; C5 needs B7 and B12; C6 needs B8 and B11; C8 needs B7; C11 merges after B13, B14 and B15.
 - **Estimate:** two weeks with three agents: wave 0 overlaps 4a's second week; waves 1 to 3 take about seven working days on the critical path B4 → B5 → B6 → B7 → B8 → B9 → B13; waves 2 and 3 run three tasks abreast.
 
 ## Exit criteria
