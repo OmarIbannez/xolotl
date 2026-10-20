@@ -44,6 +44,7 @@ _AMOUNT_DIGITS = 18
 # A crypto quantity or an FX rate keeps at most 28 digits, the default decimal
 # context's precision, so normalising it never rounds.
 _QUANTITY_DIGITS = 28
+_QUANTITY_CEILING = Decimal(10) ** 18
 
 
 def _canonical(value: Decimal) -> Decimal:
@@ -119,7 +120,8 @@ class CryptoContext(BaseModel):
     address: str | None = Field(default=None, json_schema_extra=_PII)
     self_custody: bool | None = None
     asset_code: str
-    asset_qty: Decimal = Field(gt=0, max_digits=_QUANTITY_DIGITS)
+    # The column is numeric(28, 10): at most 18 digits before the point.
+    asset_qty: Decimal = Field(gt=0, lt=_QUANTITY_CEILING, max_digits=_QUANTITY_DIGITS)
 
     @field_validator("asset_qty")
     @classmethod

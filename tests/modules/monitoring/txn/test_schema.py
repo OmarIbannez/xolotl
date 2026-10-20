@@ -149,6 +149,14 @@ def test_the_hash_ignores_how_an_amount_or_an_instant_is_written() -> None:
         ({"fee_amount": "1e30"}, "fee_amount", FieldErrorCode.OUT_OF_RANGE),
         ({"fee_amount": "-0.01"}, "fee_amount", FieldErrorCode.OUT_OF_RANGE),
         ({"fee_amount": "1.001"}, "fee_amount", FieldErrorCode.OUT_OF_RANGE),
+        (
+            {
+                "instrument": "CRYPTO",
+                "crypto": {"network": "ETH", "asset_code": "USDT", "asset_qty": "1e18"},
+            },
+            "crypto.asset_qty",
+            FieldErrorCode.OUT_OF_RANGE,
+        ),
     ],
 )
 def test_each_rule_reports_its_field_and_code(
