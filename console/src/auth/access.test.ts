@@ -15,7 +15,7 @@ describe('hasAnyRole', () => {
     expect(hasAnyRole([], ACCESS.staff)).toBe(false)
   })
 
-  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit; every role reads parties, all but AUDITOR_RO write them, only MLRO sets a legal hold; every role reads the lists and only ADMIN toggles a subscription', () => {
+  it('follows the access table: ADMIN manages keys, staff and connectors; MLRO, ADMIN and AUDITOR_RO read audit; every role reads parties, all but AUDITOR_RO write them, only MLRO sets a legal hold; every role reads the lists and only ADMIN toggles a subscription; MLRO and ADMIN manage the private lists', () => {
     const allowed = (role: Role) => ({
       apiKeys: hasAnyRole([role], ACCESS.apiKeys),
       staff: hasAnyRole([role], ACCESS.staff),
@@ -26,6 +26,7 @@ describe('hasAnyRole', () => {
       legalHold: hasAnyRole([role], ACCESS.legalHold),
       lists: hasAnyRole([role], ACCESS.lists),
       listsAdmin: hasAnyRole([role], ACCESS.listsAdmin),
+      privateLists: hasAnyRole([role], ACCESS.privateLists),
     })
 
     expect(allowed('ADMIN')).toEqual({
@@ -38,6 +39,7 @@ describe('hasAnyRole', () => {
       legalHold: false,
       lists: true,
       listsAdmin: true,
+      privateLists: true,
     })
     expect(allowed('MLRO')).toEqual({
       apiKeys: false,
@@ -49,6 +51,7 @@ describe('hasAnyRole', () => {
       legalHold: true,
       lists: true,
       listsAdmin: false,
+      privateLists: true,
     })
     expect(allowed('AUDITOR_RO')).toEqual({
       apiKeys: false,
@@ -60,6 +63,7 @@ describe('hasAnyRole', () => {
       legalHold: false,
       lists: true,
       listsAdmin: false,
+      privateLists: false,
     })
     expect(allowed('ANALYST')).toEqual({
       apiKeys: false,
@@ -71,6 +75,7 @@ describe('hasAnyRole', () => {
       legalHold: false,
       lists: true,
       listsAdmin: false,
+      privateLists: false,
     })
     expect(allowed('SENIOR_ANALYST')).toEqual({
       apiKeys: false,
@@ -82,6 +87,7 @@ describe('hasAnyRole', () => {
       legalHold: false,
       lists: true,
       listsAdmin: false,
+      privateLists: false,
     })
   })
 })
