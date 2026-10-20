@@ -8,13 +8,15 @@ refs it loaded under that tenant's row-level security.
 
 ``port`` defines the contract and ``local`` (a directory tree) is the only adapter
 so far; S3 is a later adapter behind the same port. The composition root picks the
-adapter from ``OBJECT_STORE``.
+adapter from ``OBJECT_STORE``. Objects no tenant owns live under
+``SHARED_NAMESPACE``, the nil UUID.
 """
 
 from xolotl.platform.storage.port import (
     MAX_KEY_LENGTH,
     NO_METADATA,
     RECORD_SUFFIX,
+    SHARED_NAMESPACE,
     InvalidObjectKeyError,
     InvalidObjectMetadataError,
     ObjectIntegrityError,
@@ -32,6 +34,7 @@ __all__ = [
     "MAX_KEY_LENGTH",
     "NO_METADATA",
     "RECORD_SUFFIX",
+    "SHARED_NAMESPACE",
     "InvalidObjectKeyError",
     "InvalidObjectMetadataError",
     "ObjectIntegrityError",

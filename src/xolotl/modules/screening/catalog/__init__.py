@@ -9,6 +9,13 @@ from xolotl.modules.screening.catalog.fetcher import (
     ListFetcher,
     ListFetchError,
 )
+from xolotl.modules.screening.catalog.ingest import (
+    IngestReport,
+    file_kind,
+    ingest_file,
+    ingest_parsed,
+    record_success,
+)
 from xolotl.modules.screening.catalog.models import (
     ListEntryDelta,
     ListEntryRow,
@@ -19,6 +26,12 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListEntryRow,
     PrivateListVersion,
     TenantListSubscription,
+)
+from xolotl.modules.screening.catalog.queries import (
+    active_versions,
+    current_hashes,
+    entry_of,
+    version_members,
 )
 from xolotl.modules.screening.catalog.sources import (
     SOURCES_FILE,
@@ -32,6 +45,7 @@ __all__ = [
     "SOURCES_FILE",
     "FetchResult",
     "HttpListFetcher",
+    "IngestReport",
     "ListEntryDelta",
     "ListEntryRow",
     "ListFetchError",
@@ -45,6 +59,14 @@ __all__ = [
     "SeedReport",
     "SourceSpec",
     "TenantListSubscription",
+    "active_versions",
+    "current_hashes",
+    "entry_of",
+    "file_kind",
+    "ingest_file",
+    "ingest_parsed",
     "read_sources",
+    "record_success",
     "seed_list_sources",
+    "version_members",
 ]

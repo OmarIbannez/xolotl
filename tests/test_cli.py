@@ -1,5 +1,6 @@
 import base64
 import getpass
+import hashlib
 import json
 import os
 import re
@@ -1420,3 +1421,134 @@ def test_lists_status_with_no_sources_says_so(admin_engine: Engine):
     result = runner.invoke(app, ["lists", "status"])
     assert result.exit_code == 0, result.output
     assert result.output == "no list sources; run xolotl lists seed\n"
+
+
+# --- lists: offline ingestion and versions --------------------------------------------
+
+UN_V1_FILE = Path("tests/modules/screening/fixtures/un/consolidated.xml")
+UN_V2_FILE = Path("tests/modules/screening/catalog/fixtures/un_v2.xml")
+
+
+@pytest.fixture
+def list_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    objects = tmp_path / "objects"
+    monkeypatch.setattr(
+        "xolotl.cli.get_settings",
+        lambda: get_settings().model_copy(update={"object_store_root": objects}),
+    )
+    return objects
+
+
+def test_lists_load_file_ingests_then_reports_unchanged(
+    admin_engine: Engine, list_objects: Path
+):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    first = runner.invoke(
+        app, ["lists", "load-file", "UN_CONSOLIDATED", str(UN_V1_FILE)]
+    )
+    assert first.exit_code == 0, first.output
+    assert first.stdout == (
+        "UN_CONSOLIDATED v1: 30 entries (30 added, 0 changed, 0 removed, "
+        "0 unchanged) [un-xml/1]\n"
+    )
+    second = runner.invoke(
+        app, ["lists", "load-file", "UN_CONSOLIDATED", str(UN_V2_FILE)]
+    )
+    assert second.exit_code == 0, second.output
+    assert second.stdout == (
+        "UN_CONSOLIDATED v2: 30 entries (1 added, 1 changed, 1 removed, "
+        "28 unchanged) [un-xml/1]\n"
+    )
+    again = runner.invoke(
+        app, ["lists", "load-file", "UN_CONSOLIDATED", str(UN_V2_FILE)]
+    )
+    assert again.exit_code == 0, again.output
+    assert again.stdout == "UN_CONSOLIDATED: unchanged (same file as v2)\n"
+    stored = sorted(p.name for p in list_objects.rglob("*.xml"))
+    assert len(stored) == 2
+
+
+def test_lists_load_file_refuses_a_mass_removal_without_the_flag(
+    admin_engine: Engine,
+    list_objects: Path,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    assert (
+        runner.invoke(
+            app, ["lists", "load-file", "UN_CONSOLIDATED", str(UN_V1_FILE)]
+        ).exit_code
+        == 0
+    )
+    # The UN fixture without its entities: 8 of 30 entries removed.
+    text_v1 = UN_V1_FILE.read_text(encoding="utf-8")
+    start, end = text_v1.index("<ENTITIES>"), text_v1.index("</ENTITIES>")
+    smaller = tmp_path / "smaller.xml"
+    _ = smaller.write_text(
+        text_v1[:start] + "<ENTITIES>" + text_v1[end:], encoding="utf-8"
+    )
+    refused = runner.invoke(
+        app, ["lists", "load-file", "UN_CONSOLIDATED", str(smaller)]
+    )
+    assert refused.exit_code == 1
+    assert refused.stderr == "error: LIST_MASS_REMOVAL: removed 8 of 30\n"
+    accepted = runner.invoke(
+        app,
+        ["lists", "load-file", "UN_CONSOLIDATED", str(smaller), "--accept-drop"],
+    )
+    assert accepted.exit_code == 0, accepted.output
+    assert accepted.stdout.startswith("UN_CONSOLIDATED v2: 22 entries (0 added, ")
+    [warning] = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert warning.getMessage() == (
+        f"cli:{getpass.getuser()} accepted a mass removal on UN_CONSOLIDATED v2: "
+        "removed 8 of 30"
+    )
+
+
+def test_lists_load_file_reports_a_format_error_in_one_line(
+    admin_engine: Engine, list_objects: Path, tmp_path: Path
+):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    broken = tmp_path / "broken.xml"
+    _ = broken.write_bytes(UN_V1_FILE.read_bytes()[:1000])
+    result = runner.invoke(app, ["lists", "load-file", "UN_CONSOLIDATED", str(broken)])
+    assert result.exit_code == 1
+    [line] = result.stderr.splitlines()
+    assert line.startswith("error: LIST_FORMAT_INVALID: ")
+
+
+def test_lists_show_prints_the_active_version(admin_engine: Engine, list_objects: Path):
+    assert runner.invoke(app, ["lists", "seed"]).exit_code == 0
+    for path in (UN_V1_FILE, UN_V2_FILE):
+        loaded = runner.invoke(
+            app, ["lists", "load-file", "UN_CONSOLIDATED", str(path)]
+        )
+        assert loaded.exit_code == 0, loaded.output
+    sha_v2 = hashlib.sha256(UN_V2_FILE.read_bytes()).hexdigest()[:12]
+    actor = f"cli:{getpass.getuser()}"
+    shown = runner.invoke(app, ["lists", "show", "UN_CONSOLIDATED"])
+    assert shown.exit_code == 0, shown.output
+    lines = shown.stdout.splitlines()
+    assert lines[0] == "UN_CONSOLIDATED v2  ACTIVE"
+    assert lines[1] == "published  2026-10-20T23:00Z"
+    assert lines[2].startswith("fetched    ")
+    assert lines[3:] == [
+        f"loaded by  {actor}",
+        "parser     un-xml/1",
+        f"sha256     {sha_v2}",
+        "entries    30 (1 added, 1 changed, 1 removed)",
+    ]
+    first = runner.invoke(app, ["lists", "show", "UN_CONSOLIDATED", "--version", "1"])
+    assert first.exit_code == 0, first.output
+    assert first.stdout.splitlines()[0] == "UN_CONSOLIDATED v1  SUPERSEDED"
+    assert (
+        first.stdout.splitlines()[-1]
+        == "entries    30 (30 added, 0 changed, 0 removed)"
+    )
+    missing = runner.invoke(app, ["lists", "show", "UN_CONSOLIDATED", "--version", "9"])
+    assert missing.exit_code == 1
+    assert missing.stderr == "error: NOT_FOUND: no UN_CONSOLIDATED version 9\n"
+    none = runner.invoke(app, ["lists", "show", "OFAC_SDN"])
+    assert none.exit_code == 1
+    assert none.stderr == "error: NOT_FOUND: no active OFAC_SDN version\n"
