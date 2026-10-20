@@ -1,12 +1,18 @@
 import pytest
 
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
-from xolotl.modules.screening.errors import ListMandatoryError, ListMassRemovalError
+from xolotl.modules.screening.errors import (
+    ListMandatoryError,
+    ListMassRemovalError,
+    PrivateListExistsError,
+    PrivateListInvalidError,
+)
 from xolotl.platform.connectors import NoRouteError
 from xolotl.platform.enums import ActorType, Role
 from xolotl.platform.errors import (
     ContextMissingError,
     DomainError,
+    ErrorItem,
     ForbiddenError,
     IdempotencyConflictError,
     IdempotencyInProgressError,
@@ -56,6 +62,8 @@ from xolotl.platform.units.errors import (
         (IdentifierInvalidError, 422, "IDENTIFIER_INVALID"),
         (ListMassRemovalError, 409, "LIST_MASS_REMOVAL"),
         (ListMandatoryError, 409, "LIST_MANDATORY"),
+        (PrivateListInvalidError, 422, "PRIVATE_LIST_INVALID"),
+        (PrivateListExistsError, 409, "PRIVATE_LIST_EXISTS"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
@@ -71,6 +79,13 @@ def test_error_code_and_detail_can_be_overridden():
     assert exc.code == "SCOPE_MISSING"
     assert exc.detail == "scope tenants:read required"
     assert exc.status == 403
+
+
+def test_an_error_carries_located_items_and_none_by_default():
+    item = ErrorItem(loc=("row", 12, "rfc"), msg="invalid RFC", type="INVALID_RFC")
+    exc = ValidationFailedError("bad rows", errors=[item])
+    assert exc.errors == (item,)
+    assert ValidationFailedError().errors == ()
 
 
 def test_enum_values_are_uppercase_strings():

@@ -125,11 +125,16 @@ def _xolotl_error(request: Request, exc: Exception) -> Response:
         if error.status == HTTPStatus.UNAUTHORIZED
         else None
     )
+    errors = [
+        ProblemError(loc=list(item.loc), msg=item.msg, type=item.type)
+        for item in error.errors
+    ]
     return problem(
         request,
         status=error.status,
         code=error.code,
         detail=error.detail,
+        errors=errors or None,
         headers=headers,
     )
 

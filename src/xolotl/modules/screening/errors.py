@@ -2,7 +2,7 @@
 
 from typing import ClassVar
 
-from xolotl.platform.errors import DomainError
+from xolotl.platform.errors import DomainError, ValidationFailedError
 
 
 class ListMassRemovalError(DomainError):
@@ -21,3 +21,17 @@ class ListMandatoryError(DomainError):
 
     default_code: ClassVar[str] = "LIST_MANDATORY"
     default_detail: ClassVar[str] = "a mandatory list cannot be disabled"
+
+
+class PrivateListInvalidError(ValidationFailedError):
+    """A private-list upload has bad rows; ``errors`` locates each, never its value."""
+
+    default_code: ClassVar[str] = "PRIVATE_LIST_INVALID"
+    default_detail: ClassVar[str] = "the file has rows that do not follow the template"
+
+
+class PrivateListExistsError(DomainError):
+    """The tenant already has a private list with that code."""
+
+    default_code: ClassVar[str] = "PRIVATE_LIST_EXISTS"
+    default_detail: ClassVar[str] = "a private list with this code already exists"
