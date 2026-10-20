@@ -43,7 +43,8 @@
     "apiDocs": "Documentación de la API",
     "units": "Unidades",
     "calendar": "Calendario",
-    "parties": "Personas"
+    "parties": "Personas",
+    "lists": "Listas"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -835,6 +836,86 @@
       "result": "Vence"
     }
   },
+  "lists": {
+    "title": "Listas",
+    "description": "Fuentes a las que está suscrita la organización: vigencia, versión activa y número de registros.",
+    "empty": "La organización no tiene listas suscritas.",
+    "table": {
+      "label": "Listas suscritas",
+      "code": "Código",
+      "title": "Nombre",
+      "requirement": "Requisito",
+      "freshness": "Vigencia",
+      "version": "Versión",
+      "entries": "Registros",
+      "lastSuccess": "Última descarga correcta",
+      "subscription": "Suscripción"
+    },
+    "freshness": {
+      "FRESH": "Al día",
+      "STALE": "Desactualizada",
+      "FAILING": "Con fallas",
+      "EMPTY": "Sin versión"
+    },
+    "requirement": {
+      "MANDATORY": "Obligatoria",
+      "RECOMMENDED": "Recomendada"
+    },
+    "change": {
+      "ADDED": "Altas",
+      "CHANGED": "Cambios",
+      "REMOVED": "Bajas"
+    },
+    "status": {
+      "ACTIVE": "Activa",
+      "SUPERSEDED": "Reemplazada"
+    },
+    "mandatory": "Siempre activa",
+    "toggled": "Suscripción a {{code}} actualizada.",
+    "subscription": {
+      "on": "Activa",
+      "off": "Desactivada"
+    },
+    "versions": {
+      "title": "Versiones de {{code}}",
+      "description": "Cada versión descargada de la fuente, con sus altas, cambios y bajas.",
+      "back": "Volver a listas",
+      "label": "Versiones de la lista",
+      "seq": "N.º",
+      "status": "Estado",
+      "published": "Publicada",
+      "fetched": "Descargada",
+      "entries": "Registros",
+      "loadedBy": "Cargada por",
+      "show": "Ver los cambios de la versión {{seq}}",
+      "showShort": "Ver cambios",
+      "showHeader": "Acciones",
+      "empty": "Esta lista aún no tiene versiones."
+    },
+    "delta": {
+      "title": "Cambios de la versión {{seq}}",
+      "label": "Cambios de la versión",
+      "key": "Clave",
+      "change": "Movimiento",
+      "previous": "Nombre anterior",
+      "new": "Nombre nuevo",
+      "filter": "Filtrar por movimiento",
+      "empty": "Esta versión no tiene cambios.",
+      "emptyFiltered": "No hay movimientos de este tipo en esta página."
+    },
+    "entry": {
+      "title": "Registro de la lista",
+      "name": "Nombre",
+      "entityType": "Tipo",
+      "aliases": "Alias",
+      "birthDates": "Fechas de nacimiento",
+      "birthPlaces": "Lugares de nacimiento",
+      "nationalities": "Nacionalidades",
+      "programs": "Programas",
+      "identifiers": "Identificadores",
+      "listedOn": "Fecha de inclusión"
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -870,6 +951,10 @@
     "POLICY_LOOSENING": "El ajuste relajaría la política: solo se permiten ajustes más estrictos que el paquete.",
     "IDENTIFIER_EXISTS": "Ya existe una persona o empresa con ese identificador.",
     "IDENTIFIER_INVALID": "El identificador no es válido para su tipo.",
-    "OBJECT_CORRUPT": "El archivo guardado no pasó la verificación de integridad. Avisa a soporte."
+    "OBJECT_CORRUPT": "El archivo guardado no pasó la verificación de integridad. Avisa a soporte.",
+    "LIST_MANDATORY": "Esta lista es obligatoria y no se puede desactivar.",
+    "LIST_MASS_REMOVAL": "La nueva versión quitaba demasiados registros a la vez y se rechazó.",
+    "LIST_FORMAT_INVALID": "El archivo de la lista no tiene el formato esperado.",
+    "LIST_CODE_UNSUPPORTED": "Todavía no se puede leer esta lista."
   }
 }

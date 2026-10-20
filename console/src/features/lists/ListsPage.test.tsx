@@ -59,11 +59,12 @@ async function row(name: RegExp) {
 describe('ListsPage: the subscriptions and their freshness', () => {
   it('shows the loading table, then each list with its requirement, freshness, version and count', async () => {
     let answer: (response: Response) => void = () => undefined
-    renderApp(<ListsPage />, {
+    const { fakeApi } = renderApp(<ListsPage />, {
       path: '/lists',
       routes: { 'GET /v1/lists': () => new Promise<Response>((resolve) => (answer = resolve)) },
     })
-    await waitFor(() => expect(table().getAttribute('aria-busy')).toBe('true'))
+    await waitFor(() => expect(fakeApi.calls('GET /v1/lists')).toHaveLength(1))
+    expect(table().getAttribute('aria-busy')).toBe('true')
     answer(json({ items: [overview(), OFAC, EU] }))
 
     const un = await row(/UN_CONSOLIDATED/)
