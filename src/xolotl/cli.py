@@ -36,6 +36,15 @@ from xolotl.modules.screening.catalog import (
     read_sources,
     seed_list_sources,
 )
+from xolotl.modules.screening.engine.enums import RunMode, TriggerType
+from xolotl.modules.screening.engine.holder import (
+    ScreeningIndexHolder,
+    get_index_holder,
+    set_index_holder,
+)
+from xolotl.modules.screening.engine.replay import ReplayReport, replay_run
+from xolotl.modules.screening.engine.screen import Trigger, screen
+from xolotl.modules.screening.engine.subjects import subject_for_party
 from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.screening.errors import ListMassRemovalError
 from xolotl.modules.screening.lists import ListFormatError
@@ -105,6 +114,8 @@ party_app = typer.Typer(no_args_is_help=True, help="Party retention")
 app.add_typer(party_app, name="party")
 lists_app = typer.Typer(no_args_is_help=True, help="Shared sanctions lists")
 app.add_typer(lists_app, name="lists")
+screening_app = typer.Typer(no_args_is_help=True, help="Screening")
+app.add_typer(screening_app, name="screening")
 
 _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
@@ -1123,3 +1134,97 @@ def lists_show(
         ]
     for line in lines:
         typer.echo(line)
+
+
+def _ensure_index_holder() -> None:
+    """Install a screening index holder if this process has none yet.
+
+    The API and the worker install theirs in ``wire_platform``; a command that
+    screens runs in a process that never wires the platform. The holder loads the
+    shared lists on the first screen.
+    """
+    try:
+        _ = get_index_holder()
+    except RuntimeError:
+        settings = get_settings()
+        set_index_holder(
+            ScreeningIndexHolder(
+                get_sessionmaker(),
+                refresh_seconds=settings.screening_index_refresh_seconds,
+                private_shards=settings.screening_private_shards,
+            )
+        )
+
+
+@screening_app.command("check")
+def screening_check(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    party: Annotated[UUID, typer.Option("--party", help="Party id")],
+) -> None:
+    """Screen one party now against the tenant's lists."""
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        _ensure_key_provider()
+        _ensure_index_holder()
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            subject = subject_for_party(s, party, for_update=True)
+            run = screen(
+                s,
+                subject,
+                mode=RunMode.AD_HOC,
+                trigger=Trigger(TriggerType.CLI, actor),
+            ).run
+            line = (
+                f"run {run.id}: {run.outcome} ({run.hit_count} hits, "
+                f"{run.new_match_count} new findings)"
+            )
+    typer.echo(line)
+
+
+def _replay_lines(report: ReplayReport) -> list[str]:
+    lines = [
+        " ".join((
+            row.list_code,
+            row.entry_key,
+            str(row.stored_score),
+            row.stored_band,
+            "->",
+            str(row.replayed_score),
+            row.replayed_band,
+            "same" if row.same else "DIFFERENT",
+        ))
+        for row in report.rows
+    ]
+    if report.subject_changed:
+        lines.append("subject changed")
+    elif report.identical:
+        lines.append("identical")
+    else:
+        lines.append(f"{sum(not row.same for row in report.rows)} differences")
+    return lines
+
+
+@screening_app.command("replay")
+def screening_replay(
+    run_id: Annotated[UUID, typer.Argument(help="The screening run id")],
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+) -> None:
+    """Re-score a run's hits and say whether they are identical (NFR-SC-007).
+
+    Raises:
+        Exit: With code 1 when the subject changed or a hit replays differently.
+
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        _ensure_key_provider()
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            report = replay_run(s, run_id)
+    for line in _replay_lines(report):
+        typer.echo(line)
+    if not report.identical:
+        raise typer.Exit(code=1)

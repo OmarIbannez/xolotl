@@ -2,7 +2,8 @@
 
 The library's explanation plus what a reviewer and a replay need: the list kind, the
 thresholds the band was cut with, the matcher version, the scoring configuration's
-hash and the exact entry. The query side holds normalized tokens only (D7).
+hash and the exact entry. The query side holds normalized tokens only (D7). A
+whitelisted hit also keeps the band it would have had, so a replay can compare it.
 """
 
 from collections.abc import Mapping
@@ -42,12 +43,14 @@ def hit_features(
     thresholds: BandThresholds,
     config_hash: bytes,
     entry_ref: Mapping[str, JsonValue],
+    band_before_whitelist: str | None = None,
 ) -> dict[str, JsonValue]:
     """Build the JSON stored with a hit.
 
     Returns:
         ``MatchExplanation.to_json()`` with ``v``, ``list_kind``, ``thresholds``
-        (as strings), ``matcher_version``, ``config_hash`` (hex) and ``entry_ref``.
+        (as strings), ``matcher_version``, ``config_hash`` (hex) and ``entry_ref``,
+        plus ``band_before_whitelist`` when it is given (a whitelisted hit).
 
     """
     thresholds_json: dict[str, JsonValue] = {
@@ -62,6 +65,8 @@ def hit_features(
         "config_hash": config_hash.hex(),
         "entry_ref": dict(entry_ref),
     }
+    if band_before_whitelist is not None:
+        extra["band_before_whitelist"] = band_before_whitelist
     features = result.explanation.to_json()
     features.update(extra)
     return features

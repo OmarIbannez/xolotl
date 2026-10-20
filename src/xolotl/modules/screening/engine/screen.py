@@ -145,7 +145,13 @@ def _locked(s: Session, subject: ScreeningSubject) -> ScreeningSubject:
     ).one()
 
 
-def _query(s: Session, subject: ScreeningSubject) -> NameQuery:
+def subject_query(s: Session, subject: ScreeningSubject) -> NameQuery:
+    """Build the query of a subject: its party's data, or its decrypted ad hoc input.
+
+    Returns:
+        The query a run of the subject screens, and a replay rebuilds.
+
+    """
     if subject.party_id is not None:
         return query_for_party(s, subject.party_id)
     # An AD_HOC subject always has its input (the kind_input check constraint).
@@ -327,6 +333,11 @@ class _Run:
             ),
             "list_version_seq": member.seq,
         }
+        whitelisted = (
+            member.list_code,
+            entry.entry_key,
+            content_hash,
+        ) in self.whitelisted
         hit = ScreeningHit(
             tenant_id=self.run.tenant_id,
             run_id=self.run.id,
@@ -343,9 +354,10 @@ class _Run:
                 thresholds=thresholds,
                 config_hash=self.run.scoring_config_hash,
                 entry_ref=entry_ref,
+                band_before_whitelist=item.band.value if whitelisted else None,
             ),
         )
-        if (member.list_code, entry.entry_key, content_hash) in self.whitelisted:
+        if whitelisted:
             hit.band = HitBand.WHITELISTED
             hit.auto_reason = AutoReason.WHITELIST
         elif item.band is Band.AUTO_DISCARDED:
@@ -564,7 +576,7 @@ def screen(
         msg = "only_entries and only_index are exclusive"
         raise ValueError(msg)
     subject = _locked(s, subject)
-    query = _query(s, subject)
+    query = subject_query(s, subject)
     view = policy_for_run(s)
     started = time.monotonic()
     members, list_set, sources = _prepare(s, view, options)

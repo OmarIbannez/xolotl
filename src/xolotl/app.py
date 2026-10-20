@@ -163,8 +163,11 @@ def wire_platform(
     )
     # The staff-only screening events, and this process's in-memory screening
     # index (not warmed here: build_app and build_worker start the warm-up, so
-    # the tests that only wire the platform start no thread).
-    _ = register_screening(session_factory=session_factory, settings=settings)
+    # the tests that only wire the platform start no thread), and consumer
+    # "screening", which re-indexes and re-screens a party on its events.
+    _ = register_screening(
+        session_factory=session_factory, settings=settings, queue=queue
+    )
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,

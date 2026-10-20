@@ -40,12 +40,30 @@ from tests.helpers import (
     system_ctx,
     wrapped_keys,
 )
+from tests.modules.screening.catalog.support import load_shared, seed_sources
+from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
 from xolotl.modules.party import documents
 from xolotl.modules.party import service as party_service
-from xolotl.modules.party.enums import DocumentType, PartyStatus, PartyType
+from xolotl.modules.party.enums import (
+    DocumentType,
+    IdentifierType,
+    PartyStatus,
+    PartyType,
+)
 from xolotl.modules.party.models import Party
-from xolotl.modules.party.schemas import PartyCreateRequest, PersonInput
+from xolotl.modules.party.schemas import (
+    IdentifierInput,
+    PartyCreateRequest,
+    PersonInput,
+)
+from xolotl.modules.screening.engine.holder import set_index_holder
+from xolotl.modules.screening.lists import (
+    EntityType,
+    EntryName,
+    ListEntry,
+    NameQuality,
+)
 from xolotl.modules.tenants import service
 from xolotl.platform import clock, db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
@@ -1677,3 +1695,89 @@ def test_lists_fetch_reports_a_busy_lease(admin_engine: Engine, list_objects: Pa
     unknown = runner.invoke(app, ["lists", "fetch", "NOPE", "--force-network"])
     assert unknown.exit_code == 1
     assert unknown.stderr == "error: NOT_FOUND: no enabled list source NOPE\n"
+
+
+# ---- screening -------------------------------------------------------------------
+
+
+def test_screening_help_lists_check_and_replay():
+    result = runner.invoke(
+        app,
+        ["screening", "--help"],
+        env={"COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"},
+    )
+    assert result.exit_code == 0
+    assert "check" in result.stdout
+    assert "replay" in result.stdout
+
+
+def test_screening_check_and_replay(admin_engine: Engine, tmp_path: Path):
+    created = new_tenant()
+    seed_sources(admin_engine)
+    _ = load_shared(
+        "OFAC_SDN",
+        [
+            ListEntry(
+                list_code="OFAC_SDN",
+                entry_key="7001",
+                entity_type=EntityType.PERSON,
+                primary_name=EntryName("JUAN CARLOS PEREZ GOMEZ", NameQuality.PRIMARY),
+                source_ref="sdn 7001",
+            )
+        ],
+        store=LocalFsObjectStore(tmp_path / "objects"),
+    )
+    assign_itf(created, admin_engine)
+    with staff_session(created.tenant_id, created.admin_user_id) as s:
+        party = party_service.create_party(
+            s,
+            PartyCreateRequest(
+                party_type=PartyType.PERSON,
+                person=PersonInput(
+                    given_names="Juan Carlos",
+                    first_surname="Pérez",
+                    second_surname="Gómez",
+                ),
+            ),
+        )
+    set_index_holder(None)
+    try:
+        checked = runner.invoke(
+            app, ["screening", "check", "--tenant", "acme", "--party", str(party.id)]
+        )
+        assert checked.exit_code == 0, checked.output
+        match = re.fullmatch(
+            r"run ([0-9a-f-]{36}): PENDING_REVIEW \(1 hits, 1 new findings\)\n",
+            checked.stdout,
+        )
+        assert match is not None, checked.stdout
+
+        replayed = runner.invoke(
+            app, ["screening", "replay", match.group(1), "--tenant", "acme"]
+        )
+        assert replayed.exit_code == 0, replayed.output
+        lines = replayed.stdout.splitlines()
+        assert lines == [
+            "OFAC_SDN 7001 1.0000 ALERT -> 1.0000 ALERT same",
+            "identical",
+        ]
+
+        with staff_session(created.tenant_id, created.admin_user_id) as s:
+            _ = party_service.add_identifier(
+                s,
+                party.id,
+                IdentifierInput(id_type=IdentifierType.PASSPORT, value="G12345678"),
+            )
+        changed = runner.invoke(
+            app, ["screening", "replay", match.group(1), "--tenant", "acme"]
+        )
+        assert changed.exit_code == 1
+        assert changed.stdout == "subject changed\n"
+
+        unknown = runner.invoke(
+            app, ["screening", "check", "--tenant", "nope", "--party", str(party.id)]
+        )
+        assert unknown.exit_code == 1
+        assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
+    finally:
+        set_index_holder(None)

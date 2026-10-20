@@ -5,6 +5,7 @@ from xolotl.modules.screening.errors import (
     DispositionNotAllowedError,
     ListMandatoryError,
     ListMassRemovalError,
+    MatcherVersionMismatchError,
     PrivateListExistsError,
     PrivateListInvalidError,
     ScreeningIndexUnavailableError,
@@ -68,6 +69,7 @@ from xolotl.platform.units.errors import (
         (PrivateListExistsError, 409, "PRIVATE_LIST_EXISTS"),
         (DispositionNotAllowedError, 409, "DISPOSITION_NOT_ALLOWED"),
         (ScreeningIndexUnavailableError, 503, "SCREENING_INDEX_UNAVAILABLE"),
+        (MatcherVersionMismatchError, 409, "MATCHER_VERSION_MISMATCH"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
