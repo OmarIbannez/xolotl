@@ -75,7 +75,7 @@ export function EntriesCard({ listId }: { listId: string }) {
           {shown ? (
             <Button type="button" variant="outline" size="sm" onClick={hide}>
               <EyeOff aria-hidden />
-              {t('privateLists.entries.hide')}
+              {reveal.isPending && page === undefined ? t('privateLists.entries.revealing') : t('privateLists.entries.hide')}
             </Button>
           ) : (
             <Button type="button" variant="outline" size="sm" onClick={() => show(undefined)}>

@@ -101,8 +101,8 @@ export function PrivateListPage() {
       />
 
       <div className="animate-fade-in-up space-y-6">
-        <UploadCard listId={listId} />
-        <HistoryCard listId={listId} />
+        <UploadCard key={listId} listId={listId} />
+        <HistoryCard key={listId} listId={listId} />
         <EntriesCard key={listId} listId={listId} />
       </div>
     </>

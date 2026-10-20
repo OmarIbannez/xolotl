@@ -69,6 +69,13 @@ describe('PrivateListsPage: the lists', () => {
     expect(screen.getByText(text.lpbMissing)).toBeTruthy()
   })
 
+  it('with more than one page of lists, shows a note and does not judge the LPB banner', async () => {
+    setup({ routes: { [LISTS]: () => json({ items: [INTERNAL], next_cursor: 'c2' }) } })
+
+    expect(await screen.findByText(text.overflow)).toBeTruthy()
+    expect(screen.queryByText(text.lpbMissing)).toBeNull()
+  })
+
   it('renders titles as text, never as markup', async () => {
     setup({ items: [privateList({ title: '<img src=x onerror=alert(1)>' })] })
 

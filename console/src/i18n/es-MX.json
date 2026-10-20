@@ -939,6 +939,7 @@
   "privateLists": {
     "title": "Listas privadas",
     "description": "Listas propias de la organización: la Lista de Personas Bloqueadas (LPB) y las listas internas. Cada versión se carga desde la plantilla.",
+    "overflow": "Se muestran las primeras 200 listas.",
     "lpbMissing": "Aún no hay una versión cargada de la Lista de Personas Bloqueadas (LPB). Crea la lista y sube el archivo más reciente.",
     "empty": "La organización aún no tiene listas privadas.",
     "table": {

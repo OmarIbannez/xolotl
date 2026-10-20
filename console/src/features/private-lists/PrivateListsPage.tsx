@@ -82,10 +82,16 @@ export function PrivateListsPage() {
       />
 
       <div className="space-y-6">
-        {lists.data && !hasActiveLpb(lists.data.items) && (
+        {lists.data && lists.data.next_cursor === null && !hasActiveLpb(lists.data.items) && (
           <Alert role="status" className="animate-fade-in-up border-warning/40 bg-warning/10">
             <TriangleAlert aria-hidden className="text-warning" />
             <AlertDescription>{t('privateLists.lpbMissing')}</AlertDescription>
+          </Alert>
+        )}
+
+        {lists.data?.next_cursor != null && (
+          <Alert role="status" className="animate-fade-in-up">
+            <AlertDescription>{t('privateLists.overflow')}</AlertDescription>
           </Alert>
         )}
 

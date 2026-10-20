@@ -939,6 +939,7 @@
   "privateLists": {
     "title": "Private lists",
     "description": "The organization's own lists: the Blocked Persons List (LPB) and internal lists. Each version is loaded from the template.",
+    "overflow": "Showing the first 200 lists.",
     "lpbMissing": "No version of the Blocked Persons List (LPB) has been loaded yet. Create the list and upload the latest file.",
     "empty": "The organization has no private lists yet.",
     "table": {

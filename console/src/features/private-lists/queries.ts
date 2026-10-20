@@ -94,6 +94,8 @@ export function useUploadPrivateList(listId: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: [PRIVATE_LISTS] })
     },
+    // The variables hold the File, which carries personal data: drop them once the card lets go.
+    gcTime: 0,
   })
 }
 
