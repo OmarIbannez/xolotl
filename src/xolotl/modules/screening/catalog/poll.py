@@ -212,10 +212,10 @@ def poll_source(
 
     """
     ctx = TenantContext.platform(holder)
-    with tenant_session(ctx, factory=session_factory) as s:
-        source = s.get_one(ListSource, source_code)
-        url, etag, last_modified = source.url, source.etag, source.last_modified
     try:
+        with tenant_session(ctx, factory=session_factory) as s:
+            source = s.get_one(ListSource, source_code)
+            url, etag, last_modified = source.url, source.etag, source.last_modified
         result = fetcher.fetch(url, etag=etag, last_modified=last_modified)
         with tenant_session(ctx, factory=session_factory) as s:
             return _store_result(

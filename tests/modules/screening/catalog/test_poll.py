@@ -17,7 +17,7 @@ import httpx
 import pytest
 import respx
 from sqlalchemy import Engine, select, text, update
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from tests.helpers import new_tenant, platform_ctx, system_ctx
 from tests.modules.screening.catalog.support import (
@@ -55,7 +55,7 @@ from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.screening.events import LISTS_VERSION_PUBLISHED
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
-from xolotl.platform.db import get_sessionmaker, tenant_session
+from xolotl.platform.db import SessionFactory, get_sessionmaker, tenant_session
 from xolotl.platform.enums import JobStatus
 from xolotl.platform.events import InAppNotifier
 from xolotl.platform.events.event import event_from_row
@@ -217,10 +217,19 @@ def _run(job: ListsPollJob, tenant_id: UUID) -> None:
 
 
 def _poll(
-    store: ObjectStore, *, now: datetime = NOW, fetcher: ListFetcher | None = None
+    store: ObjectStore,
+    *,
+    now: datetime = NOW,
+    fetcher: ListFetcher | None = None,
+    session_factory: SessionFactory | None = None,
 ) -> PollOutcome:
+    # Claim the source first, as the job and the CLI do, so that the lease the
+    # poll releases is one it really held.
+    with tenant_session(platform_ctx("job:test")) as s:
+        assert claim_source(s, UN, holder="job:test", now=now) is not None
+    assert _source().lease_holder == "job:test"
     return poll_source(
-        get_sessionmaker(),
+        session_factory or get_sessionmaker(),
         UN,
         holder="job:test",
         fetcher=fetcher or HttpListFetcher(timeout_seconds=5, max_bytes=10_000_000),
@@ -283,6 +292,7 @@ def test_not_modified_refreshes_freshness_and_keeps_the_version(
         admin_engine,
         UN,
         etag='"v1"',
+        last_modified="Mon, 19 Oct 2026 12:00:00 GMT",
         last_success_at=NOW - timedelta(hours=1),
         next_poll_at=NOW - timedelta(minutes=1),
     )
@@ -290,12 +300,16 @@ def test_not_modified_refreshes_freshness_and_keeps_the_version(
     _run(_job(store, frozen), two_tenants[0].tenant_id)
 
     assert route.call_count == 1
-    assert route.calls.last.request.headers["If-None-Match"] == '"v1"'
+    request = route.calls.last.request
+    assert request.headers["If-None-Match"] == '"v1"'
+    assert request.headers["If-Modified-Since"] == "Mon, 19 Oct 2026 12:00:00 GMT"
     assert _versions() == [(1, VersionStatus.ACTIVE)]
     source = _source()
     assert source.last_success_at == NOW
     assert source.next_poll_at == NOW + timedelta(minutes=15)
     assert source.etag == '"v1"'
+    assert source.last_modified == "Mon, 19 Oct 2026 12:00:00 GMT"
+    assert source.lease_until is None
     assert source.lease_holder is None
 
 
@@ -308,7 +322,10 @@ def test_a_body_equal_to_the_active_file_is_same_file(
     assert outcome.result == "SAME_FILE"
     assert outcome.error is None
     assert _versions() == [(1, VersionStatus.ACTIVE)]
-    assert _source().last_success_at == NOW
+    source = _source()
+    assert source.last_success_at == NOW
+    assert source.lease_until is None
+    assert source.lease_holder is None
 
 
 def test_two_tenants_polling_at_once_fetch_once(
@@ -445,6 +462,8 @@ def test_mass_removal_is_refused_and_backs_off(
     assert source.last_error == "LIST_MASS_REMOVAL: removed 8 of 30"
     assert source.consecutive_failures == 1
     assert source.next_poll_at == NOW + timedelta(minutes=30)
+    assert source.lease_until is None
+    assert source.lease_holder is None
     assert _versions() == [(1, VersionStatus.ACTIVE)]
     assert len(_published(tenant_id)) == 1
 
@@ -499,7 +518,9 @@ def test_fetching_off_never_touches_the_network(
     route = mock.get(UN_URL).respond(200, content=UN_V1.read_bytes())
     _run(_job(store, frozen, fetching=False), two_tenants[0].tenant_id)
     assert route.call_count == 0
-    assert _source().lease_holder is None
+    source = _source()
+    assert source.lease_until is None
+    assert source.lease_holder is None
     assert _versions() == []
     with tenant_session(system_ctx(two_tenants[0].tenant_id)) as s:
         codes = set(s.scalars(select(TenantListSubscription.list_code)))
@@ -541,10 +562,30 @@ class _BrokenFetcher:
 def test_an_unexpected_error_still_releases_the_lease(
     seeded: None, store: LocalFsObjectStore, caplog: pytest.LogCaptureFixture
 ):
-    with tenant_session(platform_ctx("job:test")) as s:
-        assert claim_due_source(s, holder="job:test", now=NOW) is not None
     broken = _BrokenFetcher()
     outcome = _poll(store, fetcher=broken)
     assert broken.calls == 1
+    _ = _assert_failed_once(outcome, "INTERNAL: RuntimeError")
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+def test_a_failure_reading_the_source_still_releases_the_lease(
+    seeded: None, store: LocalFsObjectStore, caplog: pytest.LogCaptureFixture
+):
+    sessions = get_sessionmaker()
+    opened = 0
+
+    def flaky() -> Session:
+        # The first session, the one that reads the source's url, fails to open.
+        nonlocal opened
+        opened += 1
+        if opened == 1:
+            msg = "database went away"
+            raise RuntimeError(msg)
+        return sessions()
+
+    broken = _BrokenFetcher()
+    outcome = _poll(store, fetcher=broken, session_factory=flaky)
+    assert broken.calls == 0
     _ = _assert_failed_once(outcome, "INTERNAL: RuntimeError")
     assert any(r.levelname == "ERROR" for r in caplog.records)

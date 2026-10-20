@@ -1051,9 +1051,15 @@ def lists_fetch(
         timeout_seconds=settings.lists_fetch_timeout_seconds,
         max_bytes=settings.lists_max_file_mb * 1024 * 1024,
     )
-    outcome = poll_source(
-        get_sessionmaker(), code, holder=actor, fetcher=fetcher, store=store, now=now
-    )
+    with _cli_errors():
+        outcome = poll_source(
+            get_sessionmaker(),
+            code,
+            holder=actor,
+            fetcher=fetcher,
+            store=store,
+            now=now,
+        )
     if outcome.result == "FAILED":
         typer.echo(f"error: {code}: failed {outcome.error}", err=True)
         raise typer.Exit(code=1)
