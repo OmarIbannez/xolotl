@@ -699,6 +699,18 @@ def test_a_stronger_band_raises_the_finding_and_never_lowers_it(
         s.get_one(ScreeningMatch, (tenant.tenant_id, raised.id)).score = Decimal("0.99")
     _ = _check(tenant, party_id)
     assert (finding().band, finding().score) == (HitBand.ALERT, Decimal("0.99"))
+    with _staff(tenant) as s:
+        decided = s.get_one(ScreeningMatch, (tenant.tenant_id, raised.id))
+        decided.status = MatchStatus.TRUE_MATCH
+        decided.band = HitBand.LOW_CONFIDENCE
+        decided.score = Decimal("0.10")
+    _ = _check(tenant, party_id)
+    # A decided finding's evidence is not changed after the decision.
+    assert (finding().status, finding().band, finding().score) == (
+        MatchStatus.TRUE_MATCH,
+        HitBand.LOW_CONFIDENCE,
+        Decimal("0.10"),
+    )
 
 
 def test_an_id_conflict_is_stored_as_auto_discarded_without_a_finding(
