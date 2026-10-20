@@ -36,7 +36,12 @@ from xolotl.platform.enums import (
 from xolotl.platform.events.event import Event
 from xolotl.platform.events.models import EventConsumption, OutboxRow
 from xolotl.platform.events.registry import (
+    EventTypeNotDeliverableError,
     consumers,
+    is_staff_only,
+    register_staff_only,
+    register_subscriber,
+    require_deliverable,
     reset_subscribers,
     subscribers_for,
 )
@@ -307,3 +312,86 @@ def test_a_fan_out_that_fails_leaves_no_trace_and_is_tried_again(
     assert len(deliveries(tenant_id)) == 2
     assert len(delivery_jobs(tenant_id)) == 2
     assert outbox_row(event).status is OutboxStatus.PUBLISHED
+
+
+# ---- staff-only event types (FR-SC-013, PRV-303) ---------------------------------
+
+# The registry of staff-only types is process-wide, so these tests register a type of
+# their own; the real screening types are registered by the screening module.
+STAFF_ONLY = "test.staff_only.v1"
+
+
+def test_a_staff_only_type_is_never_fanned_out_even_to_a_wildcard_endpoint(
+    stack: Stack, tenant_id: UUID
+):
+    register_staff_only(STAFF_ONLY)
+    # Inserted directly, past the guard that refuses such an endpoint on creation.
+    _ = make_endpoint(tenant_id, event_types=["*"])
+    _ = make_endpoint(tenant_id, event_types=[STAFF_ONLY])
+    event = an_event(tenant_id, type_=STAFF_ONLY)
+
+    assert stack.fan_out(tenant_id, event) == 1
+
+    assert deliveries(tenant_id) == []
+    assert delivery_jobs(tenant_id) == []
+    assert outbox_row(event).status is OutboxStatus.PUBLISHED
+    assert consumed_by_webhooks(event)
+
+
+def test_an_ordinary_type_still_reaches_the_wildcard_endpoint(
+    stack: Stack, tenant_id: UUID
+):
+    register_staff_only(STAFF_ONLY)
+    star = make_endpoint(tenant_id, event_types=["*"])
+    _ = make_endpoint(tenant_id, event_types=[STAFF_ONLY])
+    event = an_event(tenant_id, type_="test.ordinary.v1")
+
+    assert stack.fan_out(tenant_id, event) == 1
+
+    assert [row.endpoint_id for row in deliveries(tenant_id)] == [star.id]
+    assert len(delivery_jobs(tenant_id)) == 1
+
+
+def test_in_process_consumers_still_receive_staff_only_events(
+    stack: Stack, tenant_id: UUID
+):
+    register_staff_only(STAFF_ONLY)
+    _ = make_endpoint(tenant_id, event_types=["*"])
+    received: list[UUID] = []
+
+    def recorder(_session: Session, event: Event) -> None:
+        received.append(event.id)
+
+    register_subscriber(STAFF_ONLY, recorder, consumer="recorder")
+    event = an_event(tenant_id, type_=STAFF_ONLY)
+
+    assert stack.fan_out(tenant_id, event) == 1
+
+    assert received == [event.id]
+    assert deliveries(tenant_id) == []
+
+
+def test_registering_a_staff_only_type_twice_is_harmless_and_a_wildcard_is_refused():
+    register_staff_only(STAFF_ONLY)
+    register_staff_only(STAFF_ONLY)
+    assert is_staff_only(STAFF_ONLY)
+    assert not is_staff_only("test.ordinary.v1")
+    for refused in ("*", "", "   "):
+        with pytest.raises(ValueError, match="staff-only"):
+            register_staff_only(refused)
+    assert not is_staff_only("*")
+    assert not is_staff_only("")
+
+
+def test_require_deliverable_names_the_first_staff_only_type_in_sorted_order():
+    register_staff_only(STAFF_ONLY)
+    register_staff_only("test.another_staff_only.v1")
+    require_deliverable(["*", "party.created.v1"])
+    with pytest.raises(EventTypeNotDeliverableError) as refused:
+        require_deliverable([
+            STAFF_ONLY,
+            "party.created.v1",
+            "test.another_staff_only.v1",
+        ])
+    assert refused.value.code == "EVENT_TYPE_NOT_DELIVERABLE"
+    assert refused.value.detail == "test.another_staff_only.v1 is staff-only"

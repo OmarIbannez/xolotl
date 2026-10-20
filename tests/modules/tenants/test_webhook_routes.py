@@ -50,7 +50,7 @@ from xolotl.platform.config import Settings
 from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import DeliveryStatus, EndpointStatus, Role
 from xolotl.platform.events.models import WebhookDelivery, WebhookEndpoint
-from xolotl.platform.events.registry import reset_subscribers
+from xolotl.platform.events.registry import register_staff_only, reset_subscribers
 from xolotl.platform.events.url_policy import UrlPolicy
 from xolotl.platform.events.webhooks import verify_signature
 
@@ -331,6 +331,28 @@ def test_a_malformed_body_is_refused(
     )
     assert (response.status_code, response.json()["code"]) == (422, "VALIDATION_FAILED")
     assert endpoint_rows(tenant.tenant_id) == []
+
+
+STAFF_ONLY = "test.staff_only.v1"
+
+
+def test_creating_an_endpoint_for_a_staff_only_type_is_refused(
+    client: TestClient, tenant: CreatedTenant, admin_headers
+):
+    register_staff_only(STAFF_ONLY)
+
+    response = create(
+        client, admin_headers, "k1", event_types=["party.created.v1", STAFF_ONLY]
+    )
+
+    assert (response.status_code, response.json()["code"]) == (
+        422,
+        "EVENT_TYPE_NOT_DELIVERABLE",
+    )
+    assert STAFF_ONLY in response.json()["detail"]
+    assert endpoint_rows(tenant.tenant_id) == []
+    assert audited(tenant.tenant_id, "webhook_endpoint.created") == []
+    assert create(client, admin_headers, "k2", event_types=["*"]).status_code == 201
 
 
 # ---- listing endpoints -----------------------------------------------------------

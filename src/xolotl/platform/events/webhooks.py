@@ -92,7 +92,11 @@ from xolotl.platform.errors import DomainError, NotFoundError
 from xolotl.platform.events.bus import OutboxEventBus
 from xolotl.platform.events.event import Event, event_from_row
 from xolotl.platform.events.models import OutboxRow, WebhookDelivery, WebhookEndpoint
-from xolotl.platform.events.registry import WILDCARD, register_subscriber
+from xolotl.platform.events.registry import (
+    WILDCARD,
+    is_staff_only,
+    register_subscriber,
+)
 from xolotl.platform.events.url_policy import (
     Resolver,
     UrlPolicy,
@@ -473,8 +477,12 @@ class WebhookService:
         An endpoint wants an event whose type it lists, or every event when it lists
         ``*``. For each one this inserts a ``PENDING`` delivery, due now, and queues its
         job, in the dispatcher's transaction: nothing is sent here. A delivery that
-        already exists (a replay) is left alone and gets no second job.
+        already exists (a replay) is left alone and gets no second job. A staff-only
+        type (``register_staff_only``) reaches no endpoint, a ``*`` one included; the
+        dispatcher still records the consumption, so it is not tried again.
         """
+        if is_staff_only(event.type):
+            return
         now = self._clock()
         endpoint_ids = session.scalars(
             select(WebhookEndpoint.id)
