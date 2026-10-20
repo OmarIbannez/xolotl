@@ -31,7 +31,7 @@ from xolotl.modules.screening.catalog.private import (
 )
 from xolotl.modules.screening.catalog.template import CSV_TYPE, XLSX_TYPE
 from xolotl.modules.screening.enums import VersionStatus
-from xolotl.modules.screening.lists import JsonValue, ListEntry
+from xolotl.modules.screening.lists import EntityType, JsonValue, ListEntry
 from xolotl.modules.screening.schemas import (
     PrivateListCreate,
     PrivateListEntryResponse,
@@ -55,6 +55,12 @@ PrivateListWriter = Annotated[
 ]
 PrivateListReader = Annotated[
     Actor, Depends(require_access(roles=_ROLES, scope="private_lists:read"))
+]
+# Spec §12 puts the version history under the write scope; it stays a read, so
+# AUDITOR_RO is refused by the roles check rather than the read-only rule.
+PrivateListHistoryReader = Annotated[
+    Actor,
+    Depends(require_access(roles=_ROLES, scope="private_lists:write", write=False)),
 ]
 # Staff only: a route without a scope refuses every API client.
 PrivateListViewer = Annotated[Actor, Depends(require_access(roles=_ROLES))]
@@ -186,7 +192,10 @@ async def upload_private_list_version(
 
 @router.get("/{list_id}/versions")
 def list_private_list_versions(
-    list_id: UUID, _reader: PrivateListReader, session: SessionDep, page: PageDep
+    list_id: UUID,
+    _reader: PrivateListHistoryReader,
+    session: SessionDep,
+    page: PageDep,
 ) -> Page[PrivateListVersionResponse]:
     _ = get_private_list(session, list_id)
     rows, next_cursor = paginate(
@@ -206,7 +215,7 @@ def _entry_response(
     return PrivateListEntryResponse(
         id=row.id,
         source_entry_key=row.source_entry_key,
-        entity_type=row.entity_type,
+        entity_type=EntityType(row.entity_type),
         entry=cast("dict[str, JsonValue]", json.loads(entry.canonical_json())),
     )
 

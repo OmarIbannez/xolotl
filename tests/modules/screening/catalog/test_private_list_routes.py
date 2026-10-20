@@ -155,8 +155,10 @@ def test_an_api_key_with_the_scope_uploads_and_without_it_is_refused(
     refused = _upload(client, reader, list_id, "m2")
     assert (refused.status_code, refused.json()["code"]) == (403, "SCOPE_MISSING")
     assert client.get(PRIVATE_LISTS, headers=reader).status_code == 200
-    versions = client.get(f"{PRIVATE_LISTS}/{list_id}/versions", headers=reader)
-    assert versions.status_code == 200
+    history = f"{PRIVATE_LISTS}/{list_id}/versions"
+    versions = client.get(history, headers=reader)
+    assert (versions.status_code, versions.json()["code"]) == (403, "SCOPE_MISSING")
+    assert client.get(history, headers=writer).status_code == 200
     assert client.get(PRIVATE_LISTS, headers=writer).status_code == 403
 
 

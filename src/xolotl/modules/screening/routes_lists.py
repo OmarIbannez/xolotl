@@ -13,7 +13,11 @@ from uuid import UUID
 from fastapi import Depends, Query
 from sqlalchemy import select
 
-from xolotl.modules.screening.catalog.models import ListEntryRow, ListVersion
+from xolotl.modules.screening.catalog.models import (
+    ListEntryRow,
+    ListSource,
+    ListVersion,
+)
 from xolotl.modules.screening.catalog.queries import delta_page
 from xolotl.modules.screening.catalog.service import (
     list_overview,
@@ -90,6 +94,9 @@ def list_lists(_reader: ListsReader, session: SessionDep) -> ListOverviewRespons
 def list_list_versions(
     code: str, _staff: ListsStaff, session: SessionDep, page: PageDep
 ) -> Page[ListVersionResponse]:
+    if session.get(ListSource, code) is None:
+        msg = "list not found"
+        raise NotFoundError(msg)
     rows, next_cursor = paginate(
         session,
         select(ListVersion).where(ListVersion.list_code == code),

@@ -15,6 +15,7 @@ from xolotl.modules.screening.enums import (
     ListRequirement,
     VersionStatus,
 )
+from xolotl.modules.screening.lists import EntityType
 
 
 class ListOverview(BaseModel):
@@ -111,5 +112,5 @@ class PrivateListResponse(BaseModel):
 class PrivateListEntryResponse(BaseModel):
     id: UUID
     source_entry_key: str
-    entity_type: str
+    entity_type: EntityType
     entry: dict[str, JsonValue]

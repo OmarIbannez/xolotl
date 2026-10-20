@@ -151,6 +151,12 @@ def test_versions_page_newest_first_with_a_cursor(client, admin_headers, loaded)
     assert second["next_cursor"] is None
 
 
+def test_versions_of_an_unknown_list_are_not_found(client, admin_headers):
+    response = client.get(f"{LISTS}/NO_SUCH_LIST/versions", headers=admin_headers)
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+
+
 def test_the_delta_shows_added_changed_and_removed_with_names(
     client, admin_headers, loaded
 ):
