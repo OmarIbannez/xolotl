@@ -44,7 +44,8 @@
     "units": "Units",
     "calendar": "Calendar",
     "parties": "Parties",
-    "lists": "Lists"
+    "lists": "Lists",
+    "privateLists": "Private lists"
   },
   "header": {
     "tenant": "Workspace",
@@ -935,6 +936,112 @@
       "OTHER": "Other"
     }
   },
+  "privateLists": {
+    "title": "Private lists",
+    "description": "The organization's own lists: the Blocked Persons List (LPB) and internal lists. Each version is loaded from the template.",
+    "lpbMissing": "No version of the Blocked Persons List (LPB) has been loaded yet. Create the list and upload the latest file.",
+    "empty": "The organization has no private lists yet.",
+    "table": {
+      "label": "The organization's private lists",
+      "code": "Code",
+      "title": "Name",
+      "kind": "Kind",
+      "version": "Active version",
+      "entries": "Entries",
+      "uploadedAt": "Uploaded",
+      "noVersion": "No version"
+    },
+    "kind": {
+      "SANCTION": "Sanctions",
+      "FISCAL": "Tax",
+      "BLOCKED": "Blocked persons",
+      "PEP": "Politically exposed persons",
+      "INTERNAL": "Internal"
+    },
+    "create": {
+      "button": "New list",
+      "title": "New private list",
+      "description": "The LPB is created once. An internal list has its own key and a kind.",
+      "type": "List type",
+      "typeLpb": "Blocked Persons List (LPB)",
+      "typeInternal": "Internal list",
+      "slug": "Key",
+      "slugHint": "Capital letters, digits and underscores, up to 40 characters. The code becomes INTERNAL_<key>.",
+      "slugInvalid": "Use only unaccented letters, digits and underscores, up to 40 characters.",
+      "kind": "Kind",
+      "listTitle": "Name",
+      "titleTooLong": "Use at most 200 characters.",
+      "submit": "Create list",
+      "creating": "Creating…",
+      "created": "List {{code}} created."
+    },
+    "detail": {
+      "description": "Code {{code}}. Upload a new version with the template, review the history and look up the entries.",
+      "fallbackTitle": "Private list",
+      "back": "Back to private lists"
+    },
+    "upload": {
+      "title": "Upload a version",
+      "description": "Upload the whole file as CSV (UTF-8) or XLSX with the template's columns. If any row has errors, nothing is loaded.",
+      "file": "CSV or XLSX file",
+      "template": "Download the template",
+      "submit": "Upload version",
+      "uploading": "Uploading…",
+      "uploaded": "Version {{seq}} loaded.",
+      "wrongType": "Choose a CSV or XLSX file.",
+      "tooLarge": "The file is over 20 MB."
+    },
+    "rowErrors": {
+      "title": "File errors",
+      "description": "Fix these rows in your file and upload it again. Values are not shown here.",
+      "label": "Errors by row",
+      "row": "Row",
+      "column": "Column",
+      "problem": "Problem",
+      "wholeFile": "Whole file"
+    },
+    "rowError": {
+      "EMPTY_FILE": "The file has no data rows.",
+      "UNREADABLE_FILE": "The file cannot be read as the template.",
+      "MISSING_COLUMN": "A required column (clave or tipo) is missing.",
+      "UNKNOWN_COLUMN": "A column is outside the template or repeated.",
+      "TOO_MANY_ROWS": "The file has more rows than allowed.",
+      "REQUIRED": "A required value is missing.",
+      "INVALID_TYPE": "The type must be PF or PM.",
+      "NAME_AMBIGUOUS": "The name is given in more than one form.",
+      "INVALID_DATE": "The date is not valid.",
+      "INVALID_RFC": "The RFC is not valid.",
+      "INVALID_CURP": "The CURP is not valid.",
+      "RFC_TYPE_MISMATCH": "The RFC's length does not match the type.",
+      "INVALID_COUNTRY": "The country code is not valid.",
+      "DUPLICATE_KEY": "The key repeats an earlier row's.",
+      "unknown": "The row does not follow the template."
+    },
+    "history": {
+      "title": "Version history",
+      "label": "Versions of the list",
+      "seq": "No.",
+      "status": "Status",
+      "uploadedAt": "Uploaded",
+      "uploadedBy": "Uploaded by",
+      "entries": "Entries",
+      "empty": "This list has no versions yet."
+    },
+    "entries": {
+      "title": "Entries of the active version",
+      "description": "Entries hold personal data: they are shown only when revealed, and every page viewed is recorded in the audit log.",
+      "reveal": "Reveal",
+      "revealing": "Revealing…",
+      "hide": "Hide",
+      "notice": "This lookup was recorded in the audit log.",
+      "label": "Entries of the list",
+      "key": "Key",
+      "type": "Type",
+      "name": "Name",
+      "identifiers": "Identifiers",
+      "empty": "The active version has no entries."
+    }
+  },
   "forbidden": {
     "title": "No access",
     "body": "Your role does not allow viewing this section."
@@ -974,6 +1081,8 @@
     "LIST_MANDATORY": "This list is mandatory and cannot be turned off.",
     "LIST_MASS_REMOVAL": "The new version removed too many records at once and was refused.",
     "LIST_FORMAT_INVALID": "The list file is not in the expected format.",
-    "LIST_CODE_UNSUPPORTED": "This list cannot be read yet."
+    "LIST_CODE_UNSUPPORTED": "This list cannot be read yet.",
+    "PRIVATE_LIST_INVALID": "The file has rows that do not follow the template; nothing was loaded.",
+    "PRIVATE_LIST_EXISTS": "A private list with this code already exists."
   }
 }

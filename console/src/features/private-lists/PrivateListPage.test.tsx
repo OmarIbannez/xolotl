@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import { toast } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -147,9 +147,9 @@ describe('PrivateListPage: uploading a version', () => {
   it('never sends a file that is neither CSV nor XLSX', async () => {
     const { user, fakeApi } = setup()
 
-    // applyAccept off: the browser's picker filter is a hint the user can bypass.
-    await user.upload(await fileInput(), new File(['%PDF'], 'lpb.pdf', { type: 'application/pdf' }), {
-      applyAccept: false,
+    // The picker's filter is only a hint: a user can still choose any file.
+    fireEvent.change(await fileInput(), {
+      target: { files: [new File(['%PDF'], 'lpb.pdf', { type: 'application/pdf' })] },
     })
     await user.click(screen.getByRole('button', { name: text.upload.submit }))
 
@@ -197,7 +197,8 @@ describe('PrivateListPage: revealed entries', () => {
     const pagers = screen.getAllByRole('button', { name: esMX.common.pager.next })
     await user.click(pagers[pagers.length - 1] as HTMLElement)
 
-    expect(await within(entries).findByText('clave LPB-002')).toBeTruthy()
+    const next = await screen.findByRole('table', { name: text.entries.label })
+    expect(await within(next).findByText('clave LPB-002')).toBeTruthy()
     expect(fakeApi.queries(ENTRIES).map((query) => query.get('cursor'))).toEqual([null, 'e-next'])
   })
 

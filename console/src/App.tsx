@@ -112,6 +112,25 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.privateLists} />,
+                children: [
+                  {
+                    path: '/private-lists',
+                    lazy: () =>
+                      import('@/features/private-lists/PrivateListsPage').then((m) => ({
+                        Component: m.PrivateListsPage,
+                      })),
+                  },
+                  {
+                    path: '/private-lists/:listId',
+                    lazy: () =>
+                      import('@/features/private-lists/PrivateListPage').then((m) => ({
+                        Component: m.PrivateListPage,
+                      })),
+                  },
+                ],
+              },
+              {
                 // Unit values and the calendar are reference data every signed-in role reads.
                 path: '/units',
                 lazy: () =>

@@ -44,7 +44,8 @@
     "units": "Unidades",
     "calendar": "Calendario",
     "parties": "Personas",
-    "lists": "Listas"
+    "lists": "Listas",
+    "privateLists": "Listas privadas"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -935,6 +936,112 @@
       "OTHER": "Otro"
     }
   },
+  "privateLists": {
+    "title": "Listas privadas",
+    "description": "Listas propias de la organización: la Lista de Personas Bloqueadas (LPB) y las listas internas. Cada versión se carga desde la plantilla.",
+    "lpbMissing": "Aún no hay una versión cargada de la Lista de Personas Bloqueadas (LPB). Crea la lista y sube el archivo más reciente.",
+    "empty": "La organización aún no tiene listas privadas.",
+    "table": {
+      "label": "Listas privadas de la organización",
+      "code": "Código",
+      "title": "Nombre",
+      "kind": "Clase",
+      "version": "Versión activa",
+      "entries": "Registros",
+      "uploadedAt": "Cargada",
+      "noVersion": "Sin versión"
+    },
+    "kind": {
+      "SANCTION": "Sanciones",
+      "FISCAL": "Fiscal",
+      "BLOCKED": "Personas bloqueadas",
+      "PEP": "Personas políticamente expuestas",
+      "INTERNAL": "Interna"
+    },
+    "create": {
+      "button": "Nueva lista",
+      "title": "Nueva lista privada",
+      "description": "La LPB se crea una sola vez. Una lista interna lleva una clave propia y una clase.",
+      "type": "Tipo de lista",
+      "typeLpb": "Lista de Personas Bloqueadas (LPB)",
+      "typeInternal": "Lista interna",
+      "slug": "Clave",
+      "slugHint": "Mayúsculas, números y guion bajo, hasta 40 caracteres. El código queda como INTERNAL_<clave>.",
+      "slugInvalid": "Usa solo letras sin acentos, números y guion bajo, hasta 40 caracteres.",
+      "kind": "Clase",
+      "listTitle": "Nombre",
+      "titleTooLong": "Usa 200 caracteres como máximo.",
+      "submit": "Crear lista",
+      "creating": "Creando…",
+      "created": "Lista {{code}} creada."
+    },
+    "detail": {
+      "description": "Código {{code}}. Sube una versión nueva con la plantilla, revisa el historial y consulta los registros.",
+      "fallbackTitle": "Lista privada",
+      "back": "Volver a listas privadas"
+    },
+    "upload": {
+      "title": "Cargar versión",
+      "description": "Sube el archivo completo en CSV (UTF-8) o XLSX con las columnas de la plantilla. Si alguna fila tiene errores, no se carga nada.",
+      "file": "Archivo CSV o XLSX",
+      "template": "Descargar plantilla",
+      "submit": "Subir versión",
+      "uploading": "Subiendo…",
+      "uploaded": "Versión {{seq}} cargada.",
+      "wrongType": "Elige un archivo CSV o XLSX.",
+      "tooLarge": "El archivo pasa de 20 MB."
+    },
+    "rowErrors": {
+      "title": "Errores del archivo",
+      "description": "Corrige estas filas en tu archivo y vuelve a subirlo. Los valores no se muestran aquí.",
+      "label": "Errores por fila",
+      "row": "Fila",
+      "column": "Columna",
+      "problem": "Problema",
+      "wholeFile": "Todo el archivo"
+    },
+    "rowError": {
+      "EMPTY_FILE": "El archivo no tiene filas de datos.",
+      "UNREADABLE_FILE": "El archivo no se puede leer con la plantilla.",
+      "MISSING_COLUMN": "Falta una columna obligatoria (clave o tipo).",
+      "UNKNOWN_COLUMN": "Hay una columna fuera de la plantilla o repetida.",
+      "TOO_MANY_ROWS": "El archivo tiene más filas de las permitidas.",
+      "REQUIRED": "Falta un valor obligatorio.",
+      "INVALID_TYPE": "El tipo debe ser PF o PM.",
+      "NAME_AMBIGUOUS": "El nombre viene en más de una forma.",
+      "INVALID_DATE": "La fecha no es válida.",
+      "INVALID_RFC": "El RFC no es válido.",
+      "INVALID_CURP": "La CURP no es válida.",
+      "RFC_TYPE_MISMATCH": "La longitud del RFC no corresponde al tipo.",
+      "INVALID_COUNTRY": "El código de país no es válido.",
+      "DUPLICATE_KEY": "La clave repite la de una fila anterior.",
+      "unknown": "La fila no sigue la plantilla."
+    },
+    "history": {
+      "title": "Historial de versiones",
+      "label": "Versiones de la lista",
+      "seq": "N.º",
+      "status": "Estado",
+      "uploadedAt": "Cargada",
+      "uploadedBy": "Cargada por",
+      "entries": "Registros",
+      "empty": "Esta lista aún no tiene versiones."
+    },
+    "entries": {
+      "title": "Registros de la versión activa",
+      "description": "Los registros contienen datos personales: se muestran solo al revelarlos, y cada página consultada queda en la auditoría.",
+      "reveal": "Revelar",
+      "revealing": "Revelando…",
+      "hide": "Ocultar",
+      "notice": "Esta consulta quedó registrada en la auditoría.",
+      "label": "Registros de la lista",
+      "key": "Clave",
+      "type": "Tipo",
+      "name": "Nombre",
+      "identifiers": "Identificadores",
+      "empty": "La versión activa no tiene registros."
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -974,6 +1081,8 @@
     "LIST_MANDATORY": "Esta lista es obligatoria y no se puede desactivar.",
     "LIST_MASS_REMOVAL": "La nueva versión quitaba demasiados registros a la vez y se rechazó.",
     "LIST_FORMAT_INVALID": "El archivo de la lista no tiene el formato esperado.",
-    "LIST_CODE_UNSUPPORTED": "Todavía no se puede leer esta lista."
+    "LIST_CODE_UNSUPPORTED": "Todavía no se puede leer esta lista.",
+    "PRIVATE_LIST_INVALID": "El archivo tiene filas que no siguen la plantilla; no se cargó nada.",
+    "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código."
   }
 }
