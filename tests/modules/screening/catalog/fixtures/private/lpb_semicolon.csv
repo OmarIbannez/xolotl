@@ -1,0 +1,4 @@
+﻿clave;tipo;nombre_completo;nombres;primer_apellido;segundo_apellido;razon_social;alias;fecha_nacimiento;rfc;curp;nacionalidad;otro_identificador;fecha_alta;observaciones
+LPB-001;PF;;Ximena;Quetzalcoyotl;Tlalocana;;Xime Quetzal|;1980-01-01;QUTX800101AB2;QUTX800101MDFLLM03;MX;;2024-05-01;Observacion confidencial uno
+LPB-002;PM;;;;;Fantasmagorica Comercial SA de CV;;;FCO010203XY7;;MX;;2024-05-02;
+;PF;Zacarias Ocelotlmetztli Mixcoatlan;;;;;;1975;;;MX|gt;PAS-12345;;nota secreta del oficial

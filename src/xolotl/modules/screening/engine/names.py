@@ -1,9 +1,13 @@
 """The party name index: each party's names as normalized tokens (program spec D7).
 
 Reverse screening (plan 3c) blocks on these rows in Postgres. They hold the
-library's normalized tokens and phonetic keys only, never a name as written, and no
-route serializes them. One row per name kind: ``LEGAL`` (a person's full name or an
-organization's legal name) and ``TRADE`` when the organization has a trade name.
+library's normalized tokens and blocking keys only, never a name as written, and no
+route serializes them. ``phonetic_keys`` stores the library's ``name_keys`` (spec
+§4.2): each token's phonetic key, its one-letter deletions and the ``p:``/``s:``
+prefix and suffix keys, the same set the library's memory index files a name under,
+so every key of a ``blocking_plan`` can meet a party row. One row per name kind:
+``LEGAL`` (a person's full name or an organization's legal name) and ``TRADE`` when
+the organization has a trade name.
 """
 
 from uuid import UUID
@@ -21,15 +25,12 @@ from xolotl.modules.screening.lists import EntityType
 from xolotl.modules.screening.matching import (
     MATCHER_VERSION,
     NormalizedName,
-    TokenRole,
+    name_keys,
     normalize_name,
 )
 from xolotl.platform import clock
 from xolotl.platform.db import bound_context
 from xolotl.platform.ids import uuid7
-
-# Particles and legal forms say nothing about who a party is.
-_UNKEYED_ROLES = frozenset({TokenRole.PARTICLE, TokenRole.LEGAL_FORM})
 
 
 def _names(profile: PartyScreeningProfile) -> dict[NameKind, NormalizedName]:
@@ -63,7 +64,8 @@ def _names(profile: PartyScreeningProfile) -> dict[NameKind, NormalizedName]:
 def index_party_names(s: Session, party_id: UUID) -> list[PartyNameIndex]:
     """Upsert a party's name index rows and delete those of names it lost.
 
-    A purged party, or a party without a name, keeps no row.
+    Each row stores the name's normalized tokens and the library's ``name_keys``
+    blocking keys. A purged party, or a party without a name, keeps no row.
 
     Returns:
         The party's rows after the call, ``LEGAL`` first.
@@ -81,9 +83,7 @@ def index_party_names(s: Session, party_id: UUID) -> list[PartyNameIndex]:
         values = {
             "norm_name": name.folded,
             "tokens": [t.folded for t in name.tokens],
-            "phonetic_keys": sorted({
-                t.phonetic for t in name.tokens if t.role not in _UNKEYED_ROLES
-            }),
+            "phonetic_keys": sorted(name_keys(name)),
             "matcher_version": MATCHER_VERSION,
         }
         _ = s.execute(

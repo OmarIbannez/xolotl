@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import Engine, select, update
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from tests.helpers import platform_ctx, staff_session
 from xolotl.modules.screening.catalog.ingest import (
@@ -15,8 +15,17 @@ from xolotl.modules.screening.catalog.ingest import (
     ingest_file,
     ingest_parsed,
 )
-from xolotl.modules.screening.catalog.models import ListVersion
+from xolotl.modules.screening.catalog.models import (
+    ListVersion,
+    PrivateList,
+    PrivateListVersion,
+)
+from xolotl.modules.screening.catalog.private import (
+    create_private_list,
+    write_private_version,
+)
 from xolotl.modules.screening.catalog.sources import read_sources, seed_list_sources
+from xolotl.modules.screening.catalog.template import CSV_TYPE
 from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.screening.lists import ListEntry, ParsedList
 from xolotl.modules.tenants.service import CreatedTenant
@@ -154,3 +163,32 @@ def assign_tenant_wide(
             effective_from=effective_from,
             approved_by=tenant.admin_user_id,
         )
+
+
+def load_private(
+    session: Session, store: ObjectStore, list_code: str, entries: Iterable[ListEntry]
+) -> PrivateListVersion:
+    """Write hand-built entries as the next version of one of a tenant's private lists.
+
+    The list is created in ``session`` when the tenant has none with ``list_code``
+    (``MX_LPB`` or ``INTERNAL_<SLUG>``, of the default kind). The stored upload is
+    the entries' canonical JSON, one per line.
+
+    Returns:
+        The new active version.
+
+    """
+    entries = tuple(entries)
+    private_list = session.scalar(
+        select(PrivateList).where(PrivateList.list_code == list_code)
+    ) or create_private_list(
+        session, list_code=list_code, title=list_code, list_kind=None
+    )
+    return write_private_version(
+        session,
+        store,
+        private_list=private_list,
+        entries=entries,
+        data=b"\n".join(e.canonical_json() for e in entries),
+        content_type=CSV_TYPE,
+    )

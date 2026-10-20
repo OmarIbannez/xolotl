@@ -1,6 +1,21 @@
 """Errors the API layer maps to problem+json responses (spec §7)."""
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import ClassVar
+
+
+@dataclass(frozen=True, slots=True)
+class ErrorItem:
+    """One located error of a request, rendered as an item of the problem's ``errors``.
+
+    ``loc`` points at what failed (``("row", 12, "rfc")``), ``type`` is a stable code
+    and ``msg`` a fixed sentence; neither ever carries a value the caller sent.
+    """
+
+    loc: tuple[str | int, ...]
+    msg: str
+    type: str
 
 
 class XolotlError(Exception):
@@ -11,9 +26,16 @@ class XolotlError(Exception):
     # body only when non-empty (SP-03b Deviation 10).
     blocked_reasons: tuple[str, ...] = ()
 
-    def __init__(self, detail: str | None = None, *, code: str | None = None) -> None:
+    def __init__(
+        self,
+        detail: str | None = None,
+        *,
+        code: str | None = None,
+        errors: Sequence[ErrorItem] = (),
+    ) -> None:
         self.detail: str = detail if detail is not None else self.default_detail
         self.code: str = code or self.default_code
+        self.errors: tuple[ErrorItem, ...] = tuple(errors)
         super().__init__(self.detail)
 
 

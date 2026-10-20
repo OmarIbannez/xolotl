@@ -164,7 +164,7 @@ The library plan fixes the names 3a and 3b consume; 3c needs more from T6 than T
 5. **The perturbation generator's public name** (F6's CLI test writes a 50-pair slice with a fixed seed; F7 generates synthetic entries). T6 puts it in `matching/evaluation.py` (library Decision 9) without naming it; also the frequency tables `data/surnames_mx.csv` and `data/given_names_mx.csv` without a loader name.
 6. **The `perf` pytest marker** (F7). T5 adds "a non-gating perf test at 50,000 entries"; whichever of T5 and F7 merges first registers `perf` and `-m "not perf"` in `pyproject.toml`, and the other reuses them. The library owner should know F7 depends on that name.
 
-Two points to confirm rather than gaps: the spec has `NameQuery.fingerprint()` as a method while the library plan lists `fingerprint` beside `NameQuery` in `matching/query.py` (3b's E5 and E8 call the method); and F2 relies on `blocking_plan(...).key_sets` being sets of `Token.phonetic` values, the same keys E4 stores in `party_name_index.phonetic_keys` (spec §4.2 says so).
+Two points to confirm rather than gaps: the spec has `NameQuery.fingerprint()` as a method while the library plan lists `fingerprint` beside `NameQuery` in `matching/query.py` (3b's E5 and E8 call the method); and F2 relies on `party_name_index.phonetic_keys` storing the library's `name_keys` (spec §4.2), the same keys the `blocking_plan(...).key_sets` use.
 
 ### 16. Smaller exact-name fixes
 

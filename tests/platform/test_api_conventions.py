@@ -36,9 +36,11 @@ from xolotl.platform.crypto.errors import KeyDestroyedError
 from xolotl.platform.db import RoleBypassError, tenant_session
 from xolotl.platform.errors import (
     DomainError,
+    ErrorItem,
     ForbiddenError,
     NotFoundError,
     UnauthorizedError,
+    ValidationFailedError,
 )
 from xolotl.platform.logging import JsonFormatter, RedactionFilter
 
@@ -48,8 +50,27 @@ DRIVER_MESSAGE = """duplicate key value violates unique constraint
 DETAIL: Key (email)=(a@b.mx) already exists."""
 
 
+def _list_error_probes(router: APIRouter) -> None:
+    @router.get("/probe/items")
+    def items() -> dict[str, str]:
+        msg = "bad rows"
+        raise ValidationFailedError(
+            msg,
+            code="ROWS_INVALID",
+            errors=[ErrorItem(loc=("row", 2, "rfc"), msg="invalid RFC", type="X")],
+        )
+
+    @router.get("/probe/blocked")
+    def blocked() -> dict[str, str]:
+        raise DispositionNotAllowedError([
+            BlockedReason.ROLE_REQUIRED,
+            BlockedReason.SAME_REVIEWER,
+        ])
+
+
 def _probe_router() -> APIRouter:
     router = APIRouter()
+    _list_error_probes(router)
 
     @router.get("/probe/domain")
     def domain() -> dict[str, str]:
@@ -77,13 +98,6 @@ def _probe_router() -> APIRouter:
     def boom() -> dict[str, str]:
         msg = "kaboom"
         raise RuntimeError(msg)
-
-    @router.get("/probe/blocked")
-    def blocked() -> dict[str, str]:
-        raise DispositionNotAllowedError([
-            BlockedReason.ROLE_REQUIRED,
-            BlockedReason.SAME_REVIEWER,
-        ])
 
     @router.get("/probe/echo")
     def echo(q: int) -> dict[str, int]:
@@ -162,6 +176,20 @@ def test_destroyed_keys_are_a_410_problem_titled_gone(probe):
         "Gone",
         "KEY_DESTROYED",
     )
+
+
+def test_error_items_render_as_problem_errors(probe):
+    resp = probe.get("/v1/probe/items")
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["code"] == "ROWS_INVALID"
+    assert body["errors"] == [
+        {"loc": ["row", 2, "rfc"], "msg": "invalid RFC", "type": "X"}
+    ]
+
+
+def test_an_error_without_items_has_no_errors_member(probe):
+    assert "errors" not in probe.get("/v1/probe/domain").json()
 
 
 def test_validation_errors_carry_locations(probe):
