@@ -2353,6 +2353,7 @@ export interface components {
             subject_id: string;
             /** Party Id */
             party_id: string | null;
+            subject: components["schemas"]["MaskedSubject"];
             /** List Code */
             list_code: string;
             list_kind: components["schemas"]["ListKind"];
@@ -2371,7 +2372,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            subject: components["schemas"]["MaskedSubject"];
             /** Entry */
             entry: {
                 [key: string]: components["schemas"]["JsonValue"];
@@ -2427,6 +2427,7 @@ export interface components {
             subject_id: string;
             /** Party Id */
             party_id: string | null;
+            subject: components["schemas"]["MaskedSubject"];
             /** List Code */
             list_code: string;
             list_kind: components["schemas"]["ListKind"];

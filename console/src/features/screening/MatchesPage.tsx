@@ -38,6 +38,35 @@ function compact(filters: MatchFilters): MatchFilters {
 }
 
 /**
+ * The subject of a finding as the queue shows it: the initials link to the detail, with
+ * the origin (customer or ad hoc check) and the masked identifiers beneath. A subject
+ * without a name (a purged customer) is linked by its origin alone.
+ */
+function SubjectCell({ row }: { row: MatchSummary }) {
+  const { t } = useTranslation()
+  const { subject } = row
+  const origin = subject.kind === 'AD_HOC' ? t('screening.matches.table.adHoc') : t('screening.matches.table.party')
+  const named = subject.initials !== ''
+  return (
+    <div className="space-y-0.5">
+      <Link to={`/screening/matches/${row.id}`} className="font-medium underline-offset-4 hover:underline">
+        {named ? subject.initials : origin}
+      </Link>
+      {(named || subject.identifiers.length > 0) && (
+        <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+          {named && <span>{origin}</span>}
+          {subject.identifiers.map((id) => (
+            <span key={id} className="font-mono">
+              {id}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * The screening queue (Coincidencias): findings by band tab, filtered by status (open by
  * default), list kind, list code and age. Every row opens the finding's detail.
  */
@@ -84,12 +113,7 @@ export function MatchesPage() {
     {
       id: 'subject',
       header: t('screening.matches.table.subject'),
-      cell: (row) => (
-        <Link to={`/screening/matches/${row.id}`} className="font-medium underline-offset-4 hover:underline">
-          {row.party_id === null ? t('screening.matches.table.adHoc') : t('screening.matches.table.party')}
-          <span className="ml-1.5 font-mono text-xs text-muted-foreground">{row.subject_id.slice(0, 8)}</span>
-        </Link>
-      ),
+      cell: (row) => <SubjectCell row={row} />,
     },
     {
       id: 'list',
