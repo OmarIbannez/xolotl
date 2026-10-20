@@ -145,7 +145,10 @@ describe('ListVersionsPage: the delta of a version', () => {
     expect(entry.getByText('1970-03')).toBeTruthy()
     expect(entry.getByText('MX, AF')).toBeTruthy()
     expect(entry.getByText('QDi')).toBeTruthy()
-    expect(entry.getByText(/P-123/)).toBeTruthy()
+    // Enum values read as words, never as the raw API values.
+    expect(entry.getByText(text.entityType.PERSON)).toBeTruthy()
+    expect(entry.getByText(`${text.idType.PASSPORT} P-123 (AF)`)).toBeTruthy()
+    expect(entry.queryByText(/PASSPORT|PERSON/)).toBeNull()
     expect(fakeApi.calls(`GET ${BASE}/entries/e-new-2`)).toHaveLength(1)
   })
 })

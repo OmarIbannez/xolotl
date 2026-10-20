@@ -44,6 +44,8 @@ const SAME_IN_BOTH = new Set([
   'parties.identifierType.CUIT',
   'parties.identifierType.RUT',
   'parties.identifierType.NIT',
+  'lists.idType.RFC', // identifier acronyms on list entries, as parties.identifierType
+  'lists.idType.CURP',
 ])
 
 describe('translation catalogues', () => {

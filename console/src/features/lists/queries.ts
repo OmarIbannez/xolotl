@@ -1,11 +1,9 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, unwrap } from '@/api/client'
+import { PAGE_SIZE } from '@/api/queries'
 import { useAuth } from '@/auth/use-auth'
 
 const LISTS = 'lists'
-
-/** Rows per page of the versions and the delta tables (the delta allows at most 200). */
-export const LISTS_PAGE_SIZE = 50
 
 /** Signed-in queries wait for the profile and for a forced password change, and key by tenant. */
 function useSignedIn() {
@@ -14,7 +12,7 @@ function useSignedIn() {
 }
 
 const withCursor = (cursor: string | undefined) => ({
-  limit: LISTS_PAGE_SIZE,
+  limit: PAGE_SIZE,
   ...(cursor === undefined ? {} : { cursor }),
 })
 

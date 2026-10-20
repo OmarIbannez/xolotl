@@ -872,6 +872,7 @@
     },
     "mandatory": "Always on",
     "toggled": "Subscription to {{code}} updated.",
+    "toggle": "Subscription to {{code}}",
     "subscription": {
       "on": "On",
       "off": "Off"
@@ -914,6 +915,24 @@
       "programs": "Programmes",
       "identifiers": "Identifiers",
       "listedOn": "Listed on"
+    },
+    "entityType": {
+      "PERSON": "Person",
+      "ORGANIZATION": "Organization",
+      "VESSEL": "Vessel",
+      "AIRCRAFT": "Aircraft",
+      "OTHER": "Other"
+    },
+    "idType": {
+      "RFC": "RFC",
+      "CURP": "CURP",
+      "PASSPORT": "Passport",
+      "NATIONAL_ID": "National ID",
+      "TAX_ID": "Tax ID",
+      "REGISTRATION": "Registration number",
+      "IMO": "IMO number",
+      "DIGITAL_CURRENCY_ADDRESS": "Digital currency address",
+      "OTHER": "Other"
     }
   },
   "forbidden": {

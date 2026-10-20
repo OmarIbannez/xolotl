@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { KeyValues } from '@/components/common/page'
@@ -25,12 +26,43 @@ function partialDate(value: unknown): string | null {
   return parts.join('-')
 }
 
-function identifier(value: unknown): string | null {
+/** The library's `EntityType` and `IdType` values, each with a `lists.*` catalogue key. */
+const ENTITY_TYPES = ['PERSON', 'ORGANIZATION', 'VESSEL', 'AIRCRAFT', 'OTHER'] as const
+const ID_TYPES = [
+  'RFC',
+  'CURP',
+  'PASSPORT',
+  'NATIONAL_ID',
+  'TAX_ID',
+  'REGISTRATION',
+  'IMO',
+  'DIGITAL_CURRENCY_ADDRESS',
+  'OTHER',
+] as const
+
+const isOneOf = <T extends string>(values: readonly T[], value: string): value is T =>
+  (values as readonly string[]).includes(value)
+
+/** An entity type in words; a value the console does not know yet shows as sent. */
+function entityType(t: TFunction, value: unknown): string | null {
+  const raw = textOf(value)
+  if (raw === null) return null
+  return isOneOf(ENTITY_TYPES, raw) ? t(`lists.entityType.${raw}`) : raw
+}
+
+/** An identifier type in words; a value the console does not know yet shows as sent. */
+function idType(t: TFunction, value: unknown): string {
+  const raw = textOf(value)
+  if (raw === null) return ''
+  return isOneOf(ID_TYPES, raw) ? t(`lists.idType.${raw}`) : raw
+}
+
+function identifier(t: TFunction, value: unknown): string | null {
   if (!isObject(value)) return null
   const shown = textOf(value.value)
   if (shown === null) return null
   const country = textOf(value.country)
-  return `${textOf(value.id_type) ?? ''} ${shown}${country ? ` (${country})` : ''}`.trim()
+  return `${idType(t, value.id_type)} ${shown}${country ? ` (${country})` : ''}`.trim()
 }
 
 /** One list entry's public data, read from its canonical JSON. Every value renders as text. */
@@ -58,13 +90,13 @@ function EntryDetail({ entry }: { entry: Json }) {
     <KeyValues
       items={[
         [t('lists.entry.name'), nameOf(entry.primary_name) ?? none],
-        [t('lists.entry.entityType'), textOf(entry.entity_type) ?? none],
+        [t('lists.entry.entityType'), entityType(t, entry.entity_type) ?? none],
         [t('lists.entry.aliases'), listed(arrayOf(entry.aliases).map(nameOf))],
         [t('lists.entry.birthDates'), joined(arrayOf(entry.birth_dates).map(partialDate))],
         [t('lists.entry.birthPlaces'), joined(strings(entry.birth_places))],
         [t('lists.entry.nationalities'), joined(strings(entry.nationalities))],
         [t('lists.entry.programs'), joined(strings(entry.programs))],
-        [t('lists.entry.identifiers'), listed(arrayOf(entry.identifiers).map(identifier))],
+        [t('lists.entry.identifiers'), listed(arrayOf(entry.identifiers).map((value) => identifier(t, value)))],
         [t('lists.entry.listedOn'), textOf(entry.listed_on) ?? none],
       ]}
     />

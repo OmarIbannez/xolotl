@@ -48,7 +48,7 @@ export function ListsPage() {
       return (
         <Switch
           checked={row.enabled}
-          aria-label={row.code}
+          aria-label={t('lists.toggle', { code: row.code })}
           disabled={toggle.isPending}
           onCheckedChange={(enabled) => setEnabled(row, enabled)}
         />

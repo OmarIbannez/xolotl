@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { toast } from 'sonner'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ListOverview, Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
@@ -8,7 +9,11 @@ import { makeMe, renderApp } from '@/test/render-app'
 import { overview } from './fixtures'
 import { ListsPage } from './ListsPage'
 
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
+
 const text = esMX.lists
+/** The accessible name of a list's subscription switch. */
+const switchName = (code: string) => text.toggle.replace('{{code}}', code)
 
 const OFAC = overview({
   code: 'OFAC_SDN',
@@ -117,7 +122,11 @@ describe('ListsPage: the subscriptions and their freshness', () => {
 })
 
 describe('ListsPage: the subscription toggles', () => {
-  it.each(['ANALYST', 'MLRO', 'AUDITOR_RO'] as const)('shows %s no switch, only whether each list is on', async (role) => {
+  beforeEach(() => {
+    vi.mocked(toast.success).mockClear()
+  })
+
+  it.each(['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO'] as const)('shows %s no switch, only whether each list is on', async (role) => {
     setup([role])
 
     const ofac = await row(/OFAC_SDN/)
@@ -136,11 +145,19 @@ describe('ListsPage: the subscription toggles', () => {
   })
 
   it('lets an administrator turn a recommended list off with a PATCH of { enabled: false }', async () => {
+    let overviews = 0
     const { user, fakeApi } = setup(['ADMIN'], {
-      routes: { 'PATCH /v1/lists/subscriptions/OFAC_SDN': () => json({ ...OFAC, enabled: false }) },
+      routes: {
+        // The second read of the overview, after the PATCH, holds OFAC disabled.
+        'GET /v1/lists': () => {
+          overviews += 1
+          return json({ items: [overview(), overviews === 1 ? OFAC : { ...OFAC, enabled: false }, SAT, EU] })
+        },
+        'PATCH /v1/lists/subscriptions/OFAC_SDN': () => json({ ...OFAC, enabled: false }),
+      },
     })
 
-    const toggle = (await row(/OFAC_SDN/)).getByRole('switch', { name: 'OFAC_SDN' })
+    const toggle = (await row(/OFAC_SDN/)).getByRole('switch', { name: switchName('OFAC_SDN') })
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     await user.click(toggle)
 
@@ -149,6 +166,12 @@ describe('ListsPage: the subscription toggles', () => {
     expect(await request?.json()).toEqual({ enabled: false })
     // The overview is asked for again so the table shows what the API now holds.
     await waitFor(() => expect(fakeApi.calls('GET /v1/lists')).toHaveLength(2))
+    await waitFor(async () =>
+      expect((await row(/OFAC_SDN/)).getByRole('switch', { name: switchName('OFAC_SDN') }).getAttribute('aria-checked')).toBe(
+        'false',
+      ),
+    )
+    expect(toast.success).toHaveBeenCalledWith(text.toggled.replace('{{code}}', 'OFAC_SDN'))
   })
 
   it('turns a disabled recommended list back on', async () => {
@@ -156,7 +179,7 @@ describe('ListsPage: the subscription toggles', () => {
       routes: { 'PATCH /v1/lists/subscriptions/MX_SAT_69B': () => json({ ...SAT, enabled: true }) },
     })
 
-    await user.click((await row(/MX_SAT_69B/)).getByRole('switch', { name: 'MX_SAT_69B' }))
+    await user.click((await row(/MX_SAT_69B/)).getByRole('switch', { name: switchName('MX_SAT_69B') }))
 
     await waitFor(() => expect(fakeApi.calls('PATCH /v1/lists/subscriptions/MX_SAT_69B')).toHaveLength(1))
     expect(await fakeApi.calls('PATCH /v1/lists/subscriptions/MX_SAT_69B')[0]?.json()).toEqual({ enabled: true })
@@ -167,7 +190,7 @@ describe('ListsPage: the subscription toggles', () => {
       routes: { 'PATCH /v1/lists/subscriptions/OFAC_SDN': () => problem(409, 'LIST_MANDATORY') },
     })
 
-    await user.click((await row(/OFAC_SDN/)).getByRole('switch', { name: 'OFAC_SDN' }))
+    await user.click((await row(/OFAC_SDN/)).getByRole('switch', { name: switchName('OFAC_SDN') }))
 
     expect((await screen.findByRole('alert')).textContent).toContain(esMX.errors.LIST_MANDATORY)
   })
