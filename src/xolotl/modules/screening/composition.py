@@ -3,10 +3,12 @@
 ``wire_platform`` calls ``register_screening`` once per process. It marks the
 staff-only screening events, so no webhook carries them (FR-SC-013), installs the
 process's index holder, and subscribes consumer ``screening`` to the party events
-that re-index and re-screen a party. It starts no thread: ``build_app`` and
+that re-index and re-screen a party, and to ``party.purged.v1``, which forgets a
+purged party's name. It starts no thread: ``build_app`` and
 ``build_worker`` start the warm-up themselves.
 """
 
+from xolotl.modules.party.events import PARTY_PURGED
 from xolotl.modules.screening.engine.holder import (
     ScreeningIndexHolder,
     set_index_holder,
@@ -19,6 +21,7 @@ from xolotl.modules.screening.rescreen.party_events import (
     make_party_event_handler,
     screen_party_job,
 )
+from xolotl.modules.screening.rescreen.purge import on_party_purged
 from xolotl.platform.config import Settings
 from xolotl.platform.db import SessionFactory
 from xolotl.platform.events import register_staff_only, register_subscriber
@@ -48,5 +51,6 @@ def register_screening(
     handler = make_party_event_handler(queue)
     for event_type in PARTY_EVENT_MODES:
         register_subscriber(event_type, handler, consumer=SCREENING_CONSUMER)
+    register_subscriber(PARTY_PURGED, on_party_purged, consumer=SCREENING_CONSUMER)
     register_job_handler(SCREEN_PARTY_KIND, screen_party_job)
     return holder
