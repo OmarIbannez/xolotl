@@ -177,7 +177,7 @@ console/src/{api/schema.d.ts, api/types.ts, auth/access.ts, auth/access.test.ts,
 | B9 | Rules API: templates, rules, versions, transitions, simulations, assignments | B8 | no | `sp04b-b9-rules-api` |
 | B10 | Capture definitions, trigger and field maps, reportable events, groups, `merge_into`, supersession, the captures hook, capture goldens | B4, B7 | no | `sp04b-b10-captures` |
 | B11 | Capture periods, period close, its schedule and CLI, captures API | B10 | no | `sp04b-b11-period-close-api` |
-| B12 | Hits API | B7 | no | `sp04b-b12-hits-api` |
+| B12 | Hits API | B7, A10 | no | `sp04b-b12-hits-api` |
 | B13 | Console: Reglas › Monitoreo with the editor, simulation panel and lifecycle | B9 | yes | `sp04b-b13-console-rules` |
 | B14 | Console: Hallazgos de reglas | B12, A11 | yes | `sp04b-b14-console-hits` |
 | B15 | Console: Reglas › Capturas y límites | B11, A11 | yes | `sp04b-b15-console-captures` |
@@ -343,7 +343,7 @@ Kind semantics, exactly spec §9.1:
 - `VELOCITY`: `count` over `window >= params.count` or `sum >= params.sum` (whichever is declared); `new_account_days` gate: `relationship_started_at` is None or older than N days → no firing; `dormant_days` gate: declaration `last_seen` (LAST_SEEN over `P6M` ending before the window) older than N days or absent with `history_months >= 6` → reactivation, else no firing.
 - `HIGH_RISK_JURISDICTION`: codes = `lists.resolve_countries(params.lists.split(","))`; fires when `txn.counterparty_country` or `txn.geo_country` is in codes and the amount in `unit_key >= threshold`, or when the declared `to_listed_sum`/`to_listed_count` over the window reaches `threshold`/`count`.
 - `PROFILE_DEVIATION`: declarations `mtd_in`, `mtd_out` (SUM, AMOUNT_MINOR, MONTH) and `trailing_in`, `trailing_out` (SUM, AMOUNT_MINOR, P6M); against the declaration: `mtd / declared_profile.monthly_*_minor >= ratio` (same currency, else no firing); against history: `history_months >= 3` and `mtd / ((trailing − mtd) / history_months_in_window) >= history_ratio`; no declaration and under three months → None.
-- `TIER_LIMIT`: `tier = profile.tier`; `limit = policy.kyc.tiers[tier].limits.monthly_ops` (None → no firing); `rule = policy.units.tier_limit_rule.value`; declaration `month_in` (SUM, UNIT_AMOUNT, `f"{limit.unit}/{rule}"`, RELATIONSHIP, MONTH, direction IN); fires when `month_in.value > limit.amount` (the sum already includes the transaction, spec §8.5); `outcome = params.outcome`, severity from the definition (HIGH), `window_start` = the month's first instant in Mexico City.
+- `TIER_LIMIT`: `tier = profile.tier`; `limit = policy.kyc.tiers[tier].limits.monthly_ops` (None → no firing); `rule = policy.units.tier_limit_rule.value`; the definition's declared `month_in` (SUM, UNIT_AMOUNT, RELATIONSHIP, MONTH, direction IN, with a static `unit_key`: B3's tier files declare `UDI/LAST_DAY_PREV_MONTH`), read by name like every other aggregate; no firing when `f"{limit.unit}/{rule}"` differs from the declared `unit_key` (the snapshot and the template disagree: a pack change needs a template version); fires when `month_in.value > limit.amount` (the sum already includes the transaction, spec §8.5); `outcome = params.outcome`, severity from the definition (HIGH), `window_start` = the month's first instant in Mexico City.
 
 - [ ] **Step 1: Write the failing tests** (`conftest.py`: `FakeReader(values: Mapping[str, AggregateValue | Incomplete])`, `enriched(**overrides) -> EnrichedTransaction` with a MXN deposit of 1,000 on 2026-12-10 10:00 Mexico City, `unit_amounts` for `USD/PRIOR_BANKING_DAY`, `UDI/SAME_DAY`, `UDI/LAST_DAY_PREV_MONTH`, `UMA/SAME_DAY`, `MXN/SAME_DAY` at fixed rates (18.0, 8.6, 8.6, 117.31, 1), `profile(**overrides)`, `itf_policy()` from `both_packs()["MX/ITF-IFPE"]`, `lists()` from the shipped file, and one hand-built definition per kind):
 
@@ -358,7 +358,7 @@ def test_a_ratio_condition_compares_against_another_aggregate()          # out 1
 def test_velocity_gates_on_account_age_and_dormancy()                    # started 10 days ago -> fires with new_account_days 30; 40 days -> None; dormant_days 180 with last_seen 200 days ago -> fires
 def test_high_risk_jurisdiction_resolves_list_names()                    # counterparty_country "IR" with lists "FATF_BLACK,FATF_GREY" and 1,000 USD -> fires; "MX" -> None
 def test_profile_deviation_is_silent_without_a_declaration_and_history() # declared None, history_months 2 -> None; declared 100,000 minor, mtd 250,000 -> fires with ratio 2.0
-def test_tier_limit_reads_the_snapshots_tier_and_includes_the_transaction()  # N1, month_in 750.000001 UDI -> BLOCK; exactly 750 -> None; N3 -> None; tier None -> None
+def test_tier_limit_reads_the_snapshots_tier_and_includes_the_transaction()  # N1, month_in 750.000001 UDI -> BLOCK; exactly 750 -> None (the limit must not be exceeded, spec §12.2); N3 -> None; tier None -> None; a snapshot whose limit unit or tier_limit_rule differs from the declared unit_key -> None
 def test_a_firing_carries_rendered_params_and_the_explanation()          # params {"threshold": "5000", ...}; explanation == definition.render("es-MX")
 ```
 
@@ -392,7 +392,7 @@ def read_typology(path: Path) -> TypologyFile      # file = {version, country_co
 def read_library(directory: Path = TYPOLOGIES_DIR) -> list[TypologyFile]   # *.yaml sorted by code; a duplicate code or a validation error names the file
 ```
 
-The sixteen files carry exactly spec §9.3's parameters, defaults and bounds, `unit_key = "USD/PRIOR_BANKING_DAY"` for USD thresholds, `typology` tags, `packs` (`MX/ITF-IFPE` for all; `MX/LFPIORPI-AVI` too for the four crypto, two screening and the PEP rules; the two tier rules `MX/ITF-IFPE` only), severity (`CRITICAL` for `COUNTERPARTY_TRUE_MATCH` and `BLOCKED_PERSON_PARTY`, `HIGH` for the tier rules and `PEP_LARGE_OPERATION`, `MEDIUM` otherwise), `dedup` (`RELATIONSHIP`, window = the rule's window or `P1D` for thresholds, cooldown `P7D`; tier rules `MONTH` and `P0D`) and `evidence` (the window's matching transactions and every declared aggregate). The three profile-gated rules use the `Param[str]` gates of B2 (`party_screening_status: {value: "TRUE_MATCH", choices: ["TRUE_MATCH"]}`, `pep_status_not: {value: "NONE", choices: ["NONE"]}`); `COUNTERPARTY_TRUE_MATCH` uses `on.counterparty_screening_status: ["TRUE_MATCH"]`. `CASH_STRUCTURING`: `threshold {value: "5000", min: "1000", tighten: LOWER, unit: USD}`, `near_ratio {value: "0.70", min: "0.50", max: "0.95"}`, `window {value: "P7D"}`, `min_count {value: 3, min: 2}`. `TIER_N1_MONTHLY_OPS`: `outcome {value: BLOCK, choices: [BLOCK, REVIEW]}`; N2 `REVIEW`.
+The sixteen files carry exactly spec §9.3's parameters, defaults and bounds, `unit_key = "USD/PRIOR_BANKING_DAY"` for USD thresholds, `typology` tags, `packs` (`MX/ITF-IFPE` for all; `MX/LFPIORPI-AVI` too for the four crypto, two screening and the PEP rules; the two tier rules `MX/ITF-IFPE` only), severity (`CRITICAL` for `COUNTERPARTY_TRUE_MATCH` and `BLOCKED_PERSON_PARTY`, `HIGH` for the tier rules and `PEP_LARGE_OPERATION`, `MEDIUM` otherwise), `dedup` (`RELATIONSHIP`, window = the rule's window or `P1D` for thresholds, cooldown `P7D`; tier rules `MONTH` and `P0D`) and `evidence` (the window's matching transactions and every declared aggregate). The three profile-gated rules use the `Param[str]` gates of B2 (`party_screening_status: {value: "TRUE_MATCH", choices: ["TRUE_MATCH"]}`, `pep_status_not: {value: "NONE", choices: ["NONE"]}`); `COUNTERPARTY_TRUE_MATCH` uses `on.counterparty_screening_status: ["TRUE_MATCH"]`. `CASH_STRUCTURING`: `threshold {value: "5000", min: "1000", tighten: LOWER, unit: USD}`, `near_ratio {value: "0.70", min: "0.50", max: "0.95"}`, `window {value: "P7D"}`, `min_count {value: 3, min: 2}`. `TIER_N1_MONTHLY_OPS`: `outcome {value: BLOCK, choices: [BLOCK, REVIEW]}`; N2 `REVIEW`. Both tier files declare `month_in` statically (SUM, UNIT_AMOUNT, `unit_key: UDI/LAST_DAY_PREV_MONTH`, RELATIONSHIP, MONTH, direction IN), the ITF pack's `kyc.tiers[].limits.monthly_ops.unit` under `units.tier_limit_rule`, so `RuleSet.declarations`, B6's `ensure_declarations` and C5's seeding see it like any declaration (reconciliation finding 24).
 
 CLI (`src/xolotl/cli.py`): `rules_app = typer.Typer(no_args_is_help=True, help="Monitoring rule templates and tenant rules")`, `app.add_typer(rules_app, name="rules")`; `rules validate [path]` reads the library (default `TYPOLOGIES_DIR`) without a database and prints one line per template `"<code> v<n> <kind> <hash[:12]> <packs>"`, exit 1 with the file and the error on a bad file. B5 adds `load`, `show`, `seed-tenant`; B8 adds `simulate`, `activate`.
 
@@ -402,7 +402,7 @@ CLI (`src/xolotl/cli.py`): `rules_app = typer.Typer(no_args_is_help=True, help="
 # test_library.py
 def test_the_shipped_library_has_the_sixteen_templates_of_the_spec()     # codes == the table of spec §9.3; kinds and typologies per row; every params default within its bounds
 def test_cash_structuring_carries_the_spec_bounds()                      # threshold 5000 LOWER min 1000; near_ratio 0.70 in [0.50, 0.95]; window P7D; min_count 3
-def test_the_tier_templates_read_nothing_but_the_outcome()               # params == {"outcome"}; kind TIER_LIMIT; sync True; dedup MONTH
+def test_the_tier_templates_read_nothing_but_the_outcome()               # params == {"outcome"}; kind TIER_LIMIT; sync True; dedup MONTH; aggregates == [month_in: SUM UNIT_AMOUNT UDI/LAST_DAY_PREV_MONTH, RELATIONSHIP, MONTH, direction IN]
 def test_a_file_whose_code_differs_from_its_name_is_refused(tmp_path)
 def test_every_template_renders_its_golden_sentence()                    # both locales, unified diff on mismatch
 def test_hashes_are_pinned()                                             # tests/golden/monitoring/rules/hashes.yaml (code -> version -> hex), as tests/golden/packs/hashes.yaml
@@ -503,7 +503,7 @@ The isolation harness discovers the eleven tenant tables and fails until the fac
 
 ### Task B5: Templates in the database, tenant rules and versions with bounds, `rules load`, `rules show`, `rules seed-tenant`
 
-Depends on **B3** (the library) and **B4** (the tables). No console. Touches `src/xolotl/cli.py` (`rules_app`, `db upgrade`, `serve`) and `src/xolotl/platform/config.py`.
+Depends on **B3** (the library) and **B4** (the tables). It appends to A4's `monitoring/errors.py` without an edge to A4: the wave order (A4 merges three waves earlier) and finding 17's first-to-merge rule cover it. No console. Touches `src/xolotl/cli.py` (`rules_app`, `db upgrade`, `serve`) and `src/xolotl/platform/config.py`.
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/rules/templates.py`, `src/xolotl/modules/monitoring/rules/versions.py`
@@ -702,7 +702,7 @@ def test_the_ruleset_hash_is_order_independent_and_covers_the_sync_rules_only(..
 Depends on **B2**, **B6** and **A8** (`ProcessingHook`, `register_processing_hook`, `run_processing`; A6's `enriched_from_row` and A7's store come with it). No console. Touches `src/xolotl/app.py` (`register_rules` after `register_monitoring`). This is the plan's centre (spec §8.5 step 2, §9.5, §9.6, §12.2 asynchronous path).
 
 **Files:**
-- Create: `src/xolotl/modules/monitoring/rules/{evaluate,hits,tier_limits,hook,wiring}.py`
+- Create: `src/xolotl/modules/monitoring/rules/{evaluate,hits,tier_limits,hook,wiring}.py`, `tests/modules/monitoring/fixtures/unit_values_2026.yaml` (UDI, UMA and `USD_MXN_FIX` for July to December 2026 in `load_unit_values`'s format; no FIX row for 12 and 13 December, a weekend; C11 reuses it)
 - Modify: `src/xolotl/app.py`
 - Test: `tests/modules/monitoring/rules/{test_evaluate,test_hits,test_hook,test_tier_limits}.py`
 
@@ -750,7 +750,7 @@ class RulesHook:                                   # implements 4a's ProcessingH
         # ctx.late -> reevaluate_later(s, txn, ruleset, ctx)
 def reevaluate_later(s, late: EnrichedTransaction, ruleset: RuleSet, ctx: ProcessingContext) -> int
     # longest = max window of the ruleset's declarations; for each PROCESSED row of the same party with occurred_at in (late.occurred_at, late.occurred_at + longest], occurred_at ASC:
-    # txn = enriched_from_row(s, row); evaluate and record as above (dedup makes repeats harmless); returns the number of rows re-evaluated
+    # txn = enriched_from_row(row); evaluate and record as above (dedup makes repeats harmless); returns the number of rows re-evaluated
 
 # rules/wiring.py
 def register_rules(*, queue: PostgresJobQueue) -> None
@@ -759,7 +759,7 @@ def register_rules(*, queue: PostgresJobQueue) -> None
 
 `src/xolotl/app.py`: `wire_platform` calls `register_rules(queue=queue)` right after 4a's `register_monitoring(...)`.
 
-- [ ] **Step 1: Write the failing tests** (fixtures: tenant A with both packs assigned as the exit demo, the library loaded, `CASH_STRUCTURING`, `COUNTERPARTY_TRUE_MATCH` and `TIER_N1_MONTHLY_OPS` activated through B6 with a simulation row inserted directly; unit values seeded with `seed_unit_values` for the week of 7 to 13 December 2026; transactions through `ingest_fixtures` and `process_party`):
+- [ ] **Step 1: Write the failing tests** (fixtures: tenant A with both packs assigned as the exit demo, the library loaded, `CASH_STRUCTURING`, `COUNTERPARTY_TRUE_MATCH` and `TIER_N1_MONTHLY_OPS` activated through B6 with a simulation row inserted directly and an `effective_from` on or before the first fixture (the clock is patched to 2026-06-30 for the activation and to the December week afterwards: `activate_version` refuses a past `effective_from` and `active_rules(on=policy_date(txn.occurred_at))` sees only assignments effective on the transaction's date, reconciliation finding 23); unit values loaded with `load_unit_values(session, Path("tests/modules/monitoring/fixtures/unit_values_2026.yaml"))`, the fixture this task commits; transactions through `ingest_items` and `run_processing`):
 
 ```python
 # test_evaluate.py
@@ -845,7 +845,7 @@ class SimulationRangeTooLongError(ValidationFailedError): default_code = "SIMULA
 
 Settings: `monitoring_simulation_max_days`. `register_rules` registers `register_job_handler(SIMULATE_KIND, handle_simulate)`.
 
-CLI: `rules simulate --tenant <slug> --version <id> --from <date> --to <date>` prints `"simulation <id>: <hits> hits, <customers> customers, <weeks> weeks"`; `rules activate --tenant <slug> --version <id> --approved-by <email> [--simulate-from --simulate-to]` runs `run_simulation_now` over the range (default the last 30 days), then `submit_version` as the author (a platform context narrowed to the tenant with `actor_id = str(author_id)`), `approve_version` as the approver (must differ from the author; the same email is refused with `RULE_TRANSITION_NOT_ALLOWED`) and `activate_version(effective_from=today, product=None)`; prints the assignment id. Both commands are audited through the service functions.
+CLI: `rules simulate --tenant <slug> --version <id> --from <date> --to <date>` prints `"simulation <id>: <hits> hits, <customers> customers, <weeks> weeks"`; `rules activate --tenant <slug> --version <id> --approved-by <email> [--simulate-from --simulate-to]` runs `run_simulation_now` over the range (default the last 30 days), then `submit_version` as the author (a platform context narrowed to the tenant with `actor_id = str(author_id)`), `approve_version` as the approver (must differ from the author; the same email is refused with `RULE_TRANSITION_NOT_ALLOWED`) and `activate_version(effective_from=today, product=None)`; prints the assignment id. `effective_from` is today and B6 refuses a past date, so a demo that activates after its fixtures' dates runs the command under an earlier clock (C11 section 2 at 2026-06-30, simulating 2026-06-01 to 2026-06-29; reconciliation finding 23). Both commands are audited through the service functions.
 
 Typology goldens (`tests/golden/monitoring/typologies/<CODE>/scenario.yaml`: `rates`, `profile`, `transactions` as enriched fields; `expected.yaml`: exactly one hit with `dedup_key`, `window_start`, `window_end`, `outcome`, `aggregates`): `test_typology_goldens` is parametrised over the 16 templates, builds the `LoadedRule` from the library file with default params, runs `replay_party` with the ITF policy (`both_packs()`) and the shipped lists, and prints a unified diff on mismatch. The scenarios are the exit demo's shapes: three near-threshold deposits for `CASH_STRUCTURING`, a `TRUE_MATCH` counterparty for `COUNTERPARTY_TRUE_MATCH`, 760 UDI in a month for `TIER_N1_MONTHLY_OPS`, and so on per spec §9.3; each scenario also contains one transaction that must not fire.
 
@@ -882,7 +882,7 @@ def test_rules_simulate_and_activate(...)   # simulate prints the summary; activ
 
 ### Task B9: Rules API: templates, rules, versions, transitions, simulations, assignments
 
-Depends on **B8** (every service it mounts). No console (B13 regenerates the types). Mounts the router in `src/xolotl/app.py`.
+Depends on **B8** (every service it mounts). It appends to A10's `monitoring/schemas.py` and `app.py` without an edge to A10: the wave order and finding 17's first-to-merge rule cover it. No console (B13 regenerates the types). Mounts the router in `src/xolotl/app.py`.
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/routes_rules.py`; `src/xolotl/modules/monitoring/schemas.py` (create or append)
@@ -1046,7 +1046,7 @@ class CapturesHook:                                 # 4a's ProcessingHook
 
 `register_rules` adds `register_processing_hook(CapturesHook())` after the rules hook.
 
-Capture goldens (`tests/golden/monitoring/captures/<CODE>/`): `units.yaml` (the unit rows of the week: `USD_MXN_FIX` for 7 to 13 December 2026 with 12 December absent as the Banxico holiday, `UDI`, `UMA` 117.31), `transactions.yaml` (`TransactionInput` items for one relationship), `expected.yaml` (the exact events: `transaction external_id`, `period_key`, `capture_group`, `fields`, `unit_values`, `late`). The test ingests through `ingest_fixtures`, runs `process_party`, and compares the `reportable_event` rows, printing a unified diff. Six directories: `ITF_ROR_CASH` (a USD 5,000 cash deposit on 13 December converted at the prior banking day's FIX of 11 December across the 12 December holiday, and a 4,999 one that is not captured), `ITF_FX_CASH`, `ITF_INTL_TRANSFER` (a SWIFT transfer and a domestic one), `ITF_VA_OPS`, `AVI_XVI_A` (one crypto operation per month July to December 2026 whose December operation crosses 210 UMA: six events, one group, each with its own month), `AVI_XVI_B` (a fee of 4 UMA on an operation that also crosses: one `AVI_XVI_A` event with `merged_captures ["AVI_XVI_B"]`).
+Capture goldens (`tests/golden/monitoring/captures/<CODE>/`): `units.yaml` (the unit rows of the week: `USD_MXN_FIX` for 7 to 13 December 2026 with no row for 12 and 13 December, a weekend, `UDI`, `UMA` 117.31), `transactions.yaml` (`TransactionInput` items for one relationship), `expected.yaml` (the exact events: `transaction external_id`, `period_key`, `capture_group`, `fields`, `unit_values`, `late`). The test ingests through `ingest_items`, runs `run_processing`, and compares the `reportable_event` rows, printing a unified diff. Six directories: `ITF_ROR_CASH` (a USD 5,000 cash deposit on 13 December converted at the prior banking day's FIX of 11 December across the weekend of 12 and 13 December, and a 4,999 one that is not captured), `ITF_FX_CASH`, `ITF_INTL_TRANSFER` (a SWIFT transfer and a domestic one), `ITF_VA_OPS`, `AVI_XVI_A` (one crypto operation per month July to December 2026 whose December operation crosses 210 UMA: six events, one group, each with its own month), `AVI_XVI_B` (a fee of 4 UMA on an operation that also crosses: one `AVI_XVI_A` event with `merged_captures ["AVI_XVI_B"]`).
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -1086,7 +1086,7 @@ def test_a_late_threshold_capture_is_just_late(...)                       # late
 
 ### Task B11: Capture periods, period close, its schedule and CLI, captures API
 
-Depends on **B10**. No console (B15 regenerates the types). Touches `src/xolotl/modules/tenants/service.py` (the schedule), the pinned schedule tests, `src/xolotl/cli.py` (`monitoring period-close` on 4a's `monitoring_app`), `src/xolotl/platform/config.py` and `src/xolotl/app.py` (the router).
+Depends on **B10**. It appends to A10's `monitoring/schemas.py`, A5's `monitoring_app` and A9's schedule rows without an edge to them: the wave order and finding 17's first-to-merge rule cover it. No console (B15 regenerates the types). Touches `src/xolotl/modules/tenants/service.py` (the schedule), the pinned schedule tests, `src/xolotl/cli.py` (`monitoring period-close` on 4a's `monitoring_app`), `src/xolotl/platform/config.py` and `src/xolotl/app.py` (the router).
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/captures/periods.py`, `src/xolotl/modules/monitoring/routes_captures.py`
@@ -1169,7 +1169,7 @@ def test_monitoring_period_close_reports_discrepancies(...)               # clea
 
 ### Task B12: Hits API
 
-Depends on **B7**. It does not need B8 to B11, so it runs beside them. No console (B14 regenerates the types). Mounts the router in `src/xolotl/app.py`.
+Depends on **B7** and **A10** (`reveal_counterparty` and `counterparty_summary` in `screening.counterparty.views`; `monitoring/schemas.py`, which this task appends to). It does not need B8 to B11, so it runs beside them. No console (B14 regenerates the types). Mounts the router in `src/xolotl/app.py`.
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/routes_hits.py`
@@ -1331,7 +1331,7 @@ Named exactly as the spec does where the spec names them; the others are this pl
 | B9 | Rules API | B8 | no | `sp04b-b9-rules-api` |
 | B10 | Capture definitions, maps, reportable events, groups, supersession, the captures hook, capture goldens | B4, B7 | no | `sp04b-b10-captures` |
 | B11 | Capture periods, period close, schedule, CLI, captures API | B10 | no | `sp04b-b11-period-close-api` |
-| B12 | Hits API | B7 | no | `sp04b-b12-hits-api` |
+| B12 | Hits API | B7, A10 | no | `sp04b-b12-hits-api` |
 | B13 | Console: Reglas › Monitoreo | B9 | yes | `sp04b-b13-console-rules` |
 | B14 | Console: Hallazgos de reglas | B12, A11 | yes | `sp04b-b14-console-hits` |
 | B15 | Console: Reglas › Capturas y límites | B11, A11 | yes | `sp04b-b15-console-captures` |
@@ -1354,7 +1354,7 @@ The 4b share of spec §19 (the `rules/*`, `captures/*`, `simulation/*` rows, the
 - Parameters outside the template's bounds or looser than `tighten` allows are refused naming the bound and its source; the lifecycle matrix (state × role × same-user × action) matches spec §9.4 exhaustively; the author cannot approve; a simulation older than 30 days or of another definition blocks submission and approval; assignments resolve by date and product like packs (B5, B6).
 - Over the exit fixtures (the week of 7 to 13 December 2026), `CASH_STRUCTURING` fires once with three near-threshold deposits as evidence; re-sending the batch creates no second hit; a late deposit re-fires nothing already recorded; the N1 overrun produces a `BLOCK` hit and exactly one `monitoring.tier_limit_reached.v1` with ids and codes only; a wildcard webhook endpoint never receives a `monitoring.rule_hit_*`, `reportable_event_*`, `capture_period_*`, `rule_version_*` or `simulation_*` delivery (B7).
 - A simulation of the week writes only its own row and reproduces the stored hits; it reports hits per week, customers, overlap and an ids-only sample, and resumes after a crash with exact counts (B8).
-- `ITF_ROR_CASH` captures exactly the cash operation at or above USD 5,000 at the prior banking day's FIX across the 12 December holiday, and `AVI_XVI_A` captures the whole six-month group when the December operation crosses 210 UMA, each event carrying its period key, pre-mapped fields and unit values; a crypto operation dated 10 December arriving on 12 December supersedes and re-captures the affected group and reopens a closed period; `AVI_XVI_B` merges into `AVI_XVI_A` (B10).
+- `ITF_ROR_CASH` captures exactly the cash operation at or above USD 5,000 at the prior banking day's FIX across the weekend of 12 and 13 December, and `AVI_XVI_A` captures the whole six-month group when the December operation crosses 210 UMA, each event carrying its period key, pre-mapped fields and unit values; a crypto operation dated 10 December arriving on 12 December supersedes and re-captures the affected group and reopens a closed period; `AVI_XVI_B` merges into `AVI_XVI_A` (B10).
 - `xolotl monitoring period-close` closes December 2026 and Q4 2026 with zero discrepancies on clean data and names an injected gap; the schedule runs it monthly per tenant (B11).
 - Staff see hits with evidence and captures with their chains through the API; API clients cannot reach hits, captures, rule names or counterparty statuses; the reveal is audited per group; no plaintext is stored beyond the encrypted columns and the name indexes (B9, B11, B12).
 - Console: the library shows every template's sentence; an analyst tunes a parameter within its bounds, simulates, submits, and a second user approves and activates from `allowed_actions` with `blocked_reasons` as tooltips; the hit queue opens on the highest severity with rows and the detail shows the rendered rule, aggregates against thresholds and the evidence transactions; the captures page shows the effective captures and limits with provenance and the period table with "Cerrar periodo" for the MLRO (B13, B14, B15).

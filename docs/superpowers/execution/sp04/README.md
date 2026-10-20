@@ -16,7 +16,7 @@ This directory is for the agent that executes the three SP-04 plans, one pull re
 - `roles.md`: implementer, task reviewer, fixer, finisher and merger (unchanged from SP-03).
 - `execute.workflow.js`: the Workflow script, the SP-03 one with the kit path pointing here. It keeps the `external` handling (a row marked external is never implemented), which nothing in SP-04 uses.
 - `check-graph.mjs`: checks `tasks.json` (unique ids, every dependency exists, acyclic, complete rows) and prints the longest chain and the waves for a given `done` list. Run it before every wave: `node docs/superpowers/execution/sp04/check-graph.mjs A1,A3`.
-- `../../plans/2026-10-20-sp04-reconciliation.md`: the twenty-two cross-plan findings and the decisions the plans carry, the shared-file ownership table (finding 17) and the questions for the product owner.
+- `../../plans/2026-10-20-sp04-reconciliation.md`: the twenty-six cross-plan findings (22 from the first pass, 23 to 26 from the review of PR #98) and the decisions the plans carry, the shared-file ownership table (finding 17) and the questions for the product owner.
 
 ## Order of work
 

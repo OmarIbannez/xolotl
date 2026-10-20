@@ -1,10 +1,10 @@
 # SP-04 plans: cross-plan reconciliation record
 
-The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 to A12; `2026-10-20-sp04b-rules-captures.md`, B1 to B15; `2026-10-20-sp04c-counterparties-decide-exit.md`, C1 to C11) were written in parallel by three writers who could not see each other, against the SP-04 spec (`docs/superpowers/specs/2026-10-20-sp04-monitoring-captures-design.md`, a draft dated 2026-10-20 that the product owner has not yet formally accepted; the plans bind themselves to its Decisions and §21 defaults under the blanket approval of 2026-10-19 and list their departures as Deviations). Each plan marked what it guessed about the others as *(assumed)*: 4a had 5 markers, 4b 24 and 4c 32. A cross-plan check compared every seam between them and the code on `main` at `0c68cb7` they build on (`xolotl.platform.{events,policy,units,calendar,audit.partitions}`, `modules.party`, `modules.screening`, the migration chain ending at `0011_screening_hit_run_index`). This file records the twenty-two findings below, the decision taken on each, and the sections edited.
+The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 to A12; `2026-10-20-sp04b-rules-captures.md`, B1 to B15; `2026-10-20-sp04c-counterparties-decide-exit.md`, C1 to C11) were written in parallel by three writers who could not see each other, against the SP-04 spec (`docs/superpowers/specs/2026-10-20-sp04-monitoring-captures-design.md`, a draft dated 2026-10-20 that the product owner has not yet formally accepted; the plans bind themselves to its Decisions and §21 defaults under the blanket approval of 2026-10-19 and list their departures as Deviations). Each plan marked what it guessed about the others as *(assumed)*: 4a had 5 markers, 4b 24 and 4c 32. A cross-plan check compared every seam between them and the code on `main` at `0c68cb7` they build on (`xolotl.platform.{events,policy,units,calendar,audit.partitions}`, `modules.party`, `modules.screening`, the migration chain ending at `0011_screening_hit_run_index`). This file records the twenty-six findings below (22 from the first pass, 23 to 26 from fix round 1 of PR #98), the decision taken on each, and the sections edited.
 
 ## State
 
-- **Applied.** Every finding is applied to the plans committed next to this file. The edits were exact string replacements with match counts checked (4a: 52, 4b: 77, 4c: 75). Each plan keeps all its task sections, its Deviations, Review Focus, File structure, Parallelism, Exit criteria and Open questions. No *(assumed)* marker and no "4a's …"/"4b's …" placeholder is left in a dependency; every cross-plan reference names a task id and an exact symbol.
+- **Applied.** Every finding is applied to the plans committed next to this file. The edits were exact string replacements with match counts checked (first pass 4a: 52, 4b: 77, 4c: 75; fix round 1 added 4a: 8, 4b: 18, 4c: 14). A "Round 1" line under a finding records what the review changed in it. Each plan keeps all its task sections, its Deviations, Review Focus, File structure, Parallelism, Exit criteria and Open questions. No *(assumed)* marker and no "4a's …"/"4b's …" placeholder is left in a dependency; every cross-plan reference names a task id and an exact symbol.
 - **The code on `main` is untouched.** Where a plan assumed a platform mechanism `main` does not have (an opt-in webhook registry, a `today_mx` outside screening, a `PARTITIONED_TABLES` tuple), the plan now uses what the owning plan builds or what `main` has.
 - **The screening library is untouched.** The spec's §11.4 library change (optional `NameQuery.names`) is withdrawn: 4c's Deviation 1 shows `main` already accepts `names=()` and scores identifiers alone. `tasks.json` therefore carries no `external` row.
 - **The execution kit** is `docs/superpowers/execution/sp04/`. `tasks.json` carries the dependency edges of finding 20; `check-graph.mjs` validates the graph.
@@ -20,10 +20,10 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 | 4 | Two processing-hook shapes (`register_evaluator` versus `ProcessingHook`) | One shape, 4b's, owned by A8: `ProcessingHook` with `declarations` and `evaluate`, `register_processing_hook`; the context carries `units`, `holidays` and `queue` |
 | 5 | Names 4b guessed in 4a's pure modules | 4a's names: `KeyKind` in `txn.schema`, `matches(where, txn)`, `AggregateKey` and `AggregateValue` in `aggregates.store` (now in the pure contract), no `aggregate_key`, `enriched_from_row(row)`, `policy_date`, `period_keys` attributes, `PROCESS_KIND` in `kinds.py`, `ensure_declarations -> list[str]` |
 | 6 | Where decision linkage lives | C5's `link_decisions(session, rows)` in `monitoring/decide/linkage.py`, called by A4's `ingest_batch` between steps 2 and 4 |
-| 7 | The opt-in webhook mechanism | None exists and none is built: `monitoring.transaction_processed.v1` (4a) and `monitoring.decision_issued.v1` (C5) are staff-only; a per-endpoint opt-in is an open question |
+| 7 | The opt-in webhook mechanism | None exists and none is built: `monitoring.transaction_processed.v1` (4a) and `monitoring.decision_issued.v1` (C5) are staff-only; a per-endpoint opt-in is an open question (the delivery is last on the spec's cut list) |
 | 8 | USD: 4a's Deviation 6 versus 4b's Deviation 8 | Consistent and recorded in both: MXN and USD only, the USD leg at the prior banking day's FIX, captures compare in unit space, fees convert through `unit_amounts_for` |
-| 9 | `MemoryAggregateStore.seed` assumed by 4c | A7's `seed(key, declaration, buckets)` filled from `PostgresAggregateStore.buckets`; the decide path reads an unbackfilled declaration as `INCOMPLETE` |
-| 10 | 4a pieces the decide path assumed | A6 gains `enrich_input`, A4 gains `find_account`; `parse_item` and `relationship_by_external_ref` replace `resolve_customer`; the profile is B7's `profile_for`, extended by C8 |
+| 9 | `MemoryAggregateStore.seed` assumed by 4c | A7's `seed(key, declaration, buckets)` filled from `PostgresAggregateStore.buckets`; A7's store takes `incomplete_ids` so the decide path reads an unbackfilled declaration as `INCOMPLETE` |
+| 10 | 4a pieces the decide path assumed | A6 gains `enrich_input`, A4 gains `find_account`; `parse_item` and `relationship_by_external_ref` replace `resolve_customer`; the profile is B7's `profile_for`, extended by C8; `account_id` is `UUID \| None` |
 | 11 | 4b names 4c guessed | `notice_tier_limit` with `NoticeSource.DECIDE`; `RuleSet.sync_rules` and `ruleset_hash()` over the sync rules; `replay_rule_set` and `SimulatedHit`; C5 appends `HitDetail.decision` |
 | 12 | Counterparty ownership and the helpers 4c needed | `counterparty` in 0012 (A2), the name index and subject columns in 0013 (B4), the screening code in C1; A4 exposes the four component hash helpers; `on_counterparty_created(s, id)`; `_customer_relationship` is A2's |
 | 13 | 4a's counterparty views returned models from `monitoring/schemas.py` | `CounterpartySummary` and `RevealedCounterparty` move to `screening/counterparty/schemas.py` (A10); one `VIEW_PII` row per revealed field; C3 extends them |
@@ -33,9 +33,13 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 | 17 | Shared files several tasks append to | Ownership table below; first to merge creates, the others append |
 | 18 | Settings and schedules | The 23 `MONITORING_*` keys split 12 (4a), 5 (4b), 6 (4c) with no overlap; schedules A9, B11, C7, C8 |
 | 19 | Test support names and the December 2026 fixtures | 4a's helpers everywhere; B7 commits the 2026 unit rows that C11 reuses; 12 December 2026 is a Saturday |
-| 20 | Missing or wrong cross-task edges | Table below; the longest chain is nine tasks |
+| 20 | Missing or wrong cross-task edges | Table below (B12 → A10 added in round 1); the longest chain is twelve tasks |
 | 21 | The library's optional-names change | Withdrawn (4c Deviation 1); no external row; C1 edits SP-03's `screen()` (ours) for `entity_type` |
-| 22 | Smaller exact-name fixes | `today_mx` → `policy_date(clock.now())`, `period_key_bounds` is B11's, the agreement path, `CounterpartyReveal` gone, `profiles/declared.py` gone |
+| 22 | Smaller exact-name fixes | `today_mx` → `policy_date(clock.now())`, `period_key_bounds` is B11's, the agreement path, `CounterpartyReveal` gone, `profiles/declared.py` gone, the two reveal conventions, account normalization |
+| 23 | The exit test activated rules after its fixtures' dates and simulated 196 days | C11 sections 1 and 2 run under a 2026-06-30 clock and simulate 1 to 29 June; B7's fixtures activate the same way |
+| 24 | `TIER_LIMIT`'s `month_in` was policy-derived in B2 but declared nowhere | B3's tier files declare it statically in `UDI/LAST_DAY_PREV_MONTH`; B2 reads it by name and stays silent when the snapshot disagrees |
+| 25 | A `ParkTransaction` on the decide path would be a 500 | C5 lists A6's `ParkTransaction` among the fail-mode triggers and tests it |
+| 26 | C5's tier-limit boundary contradicted B2 and the spec | At the limit allows; one unit over blocks |
 
 ### 1. One migration chain, in order
 
@@ -76,7 +80,8 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 ### 7. No opt-in webhooks in SP-04
 
 - **Finding.** Spec §14 makes `monitoring.transaction_processed.v1` and `monitoring.decision_issued.v1` tenant-visible but "opt-in, off by default per endpoint". `xolotl.platform.events.registry` on `main` has `register_staff_only`, `is_staff_only` and `require_deliverable` and nothing per endpoint. 4a's Deviation 7 registered `transaction_processed` staff-only and raised Open question 2; 4c assumed `register_opt_in`/`is_opt_in` from 4a and would have added them to the platform in C5 otherwise.
-- **Decision.** The MVP answer: no opt-in mechanism. Both events are published (in-process consumers and the outbox see them) and registered staff-only, so a wildcard endpoint never receives them and an endpoint naming them is refused with `EVENT_TYPE_NOT_DELIVERABLE`. C5 appends `DECISION_ISSUED` to 4a's `STAFF_ONLY_EVENT_TYPES`; its test becomes `test_decision_issued_never_reaches_a_webhook`. The opt-in delivery is first on the spec's cut list (§23) and is listed for the product owner below.
+- **Decision.** The MVP answer: no opt-in mechanism. Both events are published (in-process consumers and the outbox see them) and registered staff-only, so a wildcard endpoint never receives them and an endpoint naming them is refused with `EVENT_TYPE_NOT_DELIVERABLE`. C5 appends `DECISION_ISSUED` to 4a's `STAFF_ONLY_EVENT_TYPES`; its test becomes `test_decision_issued_never_reaches_a_webhook`. The opt-in delivery is last (eighth) on the spec's cut list (§23) and is listed for the product owner below.
+- **Round 1.** The cut-list position was wrongly "first" in 4a Deviation 7, 4a Open question 2 and here; corrected to last.
 - **Edited.** 4a: Interfaces (Events), Deviation 7. 4c: Architecture, Global Constraints (Events), "Dependencies outside this plan" (plan 4a), Review Focus 3, C5 Files and tests, Exit criteria.
 
 ### 8. USD handling is one rule across 4a and 4b
@@ -88,13 +93,15 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 ### 9. Seeding the memory store on the decide path
 
 - **Finding.** 4c's C5 wrote `store.seed(key, declaration, PostgresAggregateStore(s).read(...))` and "assumed 4a method, else C5 adds it". 4a's A7 has `MemoryAggregateStore.seed(key, declaration, buckets: Iterable[BucketRow])` and `PostgresAggregateStore.buckets(key, declaration, *, start, end) -> list[BucketRow]` (the `ix_agg_bucket_window` range read), marked "*(assumed use)*".
-- **Decision.** C5 seeds with bucket rows: for each declaration the sync rules read, `AggregateKey(d.key_kind, enriched.key_for(d.key_kind))`, the window bounds ending now (`window_bounds`, `period_bucket_start` or the open accumulator), `seed(key, d, PostgresAggregateStore(s).buckets(...))`, then `add()` the candidate. A declaration whose `agg_declaration.backfilled_through` is NULL (`load_declarations`) is read as `INCOMPLETE`, as processing does (spec §8.4), since the memory store's `complete` is always true.
+- **Decision.** C5 seeds with bucket rows: for each declaration the sync rules read, `AggregateKey(d.key_kind, enriched.key_for(d.key_kind))`, the window bounds ending now (`window_bounds`, `period_bucket_start` or the open accumulator), `seed(key, d, PostgresAggregateStore(s).buckets(...))`, then `add()` the candidate. A declaration whose `agg_declaration.backfilled_through` is NULL, or that has no row yet (`load_declarations`), is read as `INCOMPLETE`, as processing does (spec §8.4).
+- **Round 1.** The mechanism was unnamed (the memory store's `complete` was always true). A7's `MemoryAggregateStore` gains `incomplete_ids: Collection[str] = ()`, the mirror of `PostgresAggregateStore(complete_ids=...)`: a read of a declaration whose `agg_id` is in it has `complete = False`, and B7's `reader_for` turns that into `INCOMPLETE`. C5 builds the set from `load_declarations(s)`.
 - **Edited.** 4a: Interfaces (Aggregates), A7 `seed` comment. 4b: "Interfaces for plan 4c" (evaluator bullet). 4c: C5 step 4.
 
 ### 10. The 4a pieces the decide path needs
 
 - **Finding.** 4c assumed `txn/resolve.py` with `resolve_customer`/`resolve_account`, `enrich/profile.py::profile_context`, `enrich_input(s, item, resolved, *, units, holidays, policy)` and a `tests/platform/policy_support.py::assign_product`. 4a has `relationship_by_external_ref` (party service), `account_for` (an upsert), `enrich(session, row, …)` over a `Transaction` row only, and no profile context (the profile the evaluator reads is 4b's `profile_for`).
 - **Decision.** A6 exposes `enrich_input(session, item, *, relationship, account_id, units, holidays, snapshot, now) -> EnrichedTransaction`, the same steps over a validated input with no row (the counterparty's key and status through `dedup_hash_of` and `status_by_dedup_hash`, no upsert), and `enrich(row, …)` is that function over the row's stored input. A4 adds `find_account(session, relationship_id, account_ref) -> Account | None`, a read, so a decision never creates an account. C5 validates with A3's `parse_item`, resolves with `relationship_by_external_ref`, and reads the profile with B7's `profile_for(s, enriched)`; C8 makes `profile_for` read `declared_profile` instead of extending a 4a context. `both_packs_tenant` (A2) replaces `assign_product`.
+- **Round 1.** `find_account` may return None (an `account_ref` never seen), so A3's `EnrichedTransaction.account_id` and A6's `enrich_input(..., account_id)` are `UUID | None`; `key_for(ACCOUNT)` is None then and ACCOUNT-keyed aggregates read empty on the decide path. The `transaction` row's `account_id` stays NOT NULL: ingest always resolves or creates the account.
 - **Edited.** 4a: Interfaces (Enrichment, Counterparty), A4 Produces (`find_account`), A6 Produces and tests. 4c: "Dependencies outside this plan" (plan 4a), C5 header and steps 1 to 3, C8 header, Files and the profile paragraph, C11 section 1.
 
 ### 11. The 4b names 4c took
@@ -113,6 +120,7 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 
 - **Finding.** 4a's A10 defined `CounterpartySummary` and `RevealedCounterparty` in `monitoring/schemas.py` and returned them from `screening/counterparty/views.py`, which would make screening import monitoring, against 4a's own contract. 4a's reveal recorded one `VIEW_PII` with field `identity`; 4c's C3 planned its own `counterparty/api.py` with a second `reveal_counterparty` returning `CounterpartyReveal` and one `VIEW_PII` per field, and a richer masked list row.
 - **Decision.** A10 creates `screening/counterparty/schemas.py` with `CounterpartySummary` and `RevealedCounterparty` (`name`, `account`, `wallet_address`, `wallet_network`, `identifier_type`, `identifier`); `monitoring/schemas.py` imports them. `reveal_counterparty` records one `VIEW_PII` row per non-null field, before any decryption (the party precedent); A10's test is `test_reveal_audits_each_field_then_decrypts`. C3 appends `CounterpartyResponse(CounterpartySummary)` (initials, masked tails, `screened_at`, `subject_id`, the seen timestamps) and `CounterpartyDetail` to that file, builds them in `counterparty/api.py` (`counterparty_row`, `counterparty_detail`) and reuses A10's reveal through `reveal_counterparty_endpoint`. C3 depends on A10.
+- **Round 1.** 4c's File structure still listed `counterparty_summary` and `reveal_counterparty` under C3's `api.py`, and `CounterpartyResponse` redeclared the base's fields; both corrected. B12 consumes the same A10 views and gains the edge (finding 20).
 - **Edited.** 4a: Interfaces (Counterparty), File structure, A10 Files, schemas block, `reveal_counterparty`, tests. 4b: "From plan 4a" (reveal row), B12 Consumes. 4c: File structure, C3 header, Files, Produces and routes, the Parallelism table.
 
 ### 14. Staff-only registration across three composition roots
@@ -185,6 +193,7 @@ The rule is the SP-02 one: edits are additive, the second task to merge rebases 
 | `policy-packs/_jurisdictions.yaml` | SP-02 | B1 (`tax_haven`, `regions`) |
 
 - **Edited.** 4a: Parallelism "Shared files". 4b: File structure, Parallelism "Across plans". 4c: File structure, Parallelism "Shared files across SP-04 plans".
+- **Round 1.** 4c's File structure and shared-files list said `monitoring/enums.py` is appended by 4c; it is not (C4's enums live in `decide/enums.py`), and both now say so. B5, B9 and B11 append to A4's `errors.py` and A10's `schemas.py` and `app.py` without an edge to A4 or A10; their headers now say the wave order (A4 and A10 merge waves earlier) and this table's first-to-merge rule cover it. C2's Files gained `rescreen/blocking.py` (the `table` parameter).
 
 ### 18. Settings and schedules split cleanly
 
@@ -197,6 +206,7 @@ The rule is the SP-02 one: edits are additive, the second task to merge rebases 
 - **Finding.** 4b assumed `ingest_fixtures`, `process_party(engine, tenant_id, party_id)` and `seed_unit_values(admin_engine, rows)`; 4c assumed `ingest`, `process_all`, `make_txn` and `assign_product`. 4a's `support.py` has `itf_tenant`, `both_packs_tenant`, `make_item`, `ingest_items`, `run_processing`, `declare`, `stream`; `main` has `tests/platform/units_support.py::load_unit_values(session, path)`. The exit demo and 4b's goldens sit in the week of 7 to 13 December 2026; the seed files on `main` cover December 2025 to January 2026 and `policy-packs/_holidays/MX.yaml` lists no Banxico holiday on 12 December 2026, which is a Saturday (4a Open question 3; 4c Deviation 14).
 - **Decision.** 4a's names everywhere. B7 commits `tests/modules/monitoring/fixtures/unit_values_2026.yaml` (UDI, UMA and `USD_MXN_FIX` for July to December 2026, with the 11 December FIX and no row for 12 and 13 December) and loads it with `load_unit_values`; B10's capture goldens keep their own per-code `units.yaml`; C11 reuses B7's file and commits no `unit_values.yaml`. The seed files on `main` are not changed by SP-04: the demo's "prior banking day across the 12 December holiday" crosses a weekend, and 4a's goldens use the seeded window. Whether the demo should instead show a weekday holiday is for the product owner.
 - **Edited.** 4a: Interfaces (Test support), Open question 3. 4b: "From plan 4a" (test-support row). 4c: "Dependencies outside this plan" (plan 4a), C5 conftest, C10, C11 Files and section 1, File structure.
+- **Round 1.** B7's Step 1 and B10's goldens still used `seed_unit_values`, `ingest_fixtures` and `process_party`, and `reevaluate_later` still read `enriched_from_row(s, row)`; all now use `load_unit_values`, `ingest_items`, `run_processing` and `enriched_from_row(row)`. B7's Files now create `tests/modules/monitoring/fixtures/unit_values_2026.yaml`. 4b's three mentions of a "12 December holiday" now say the weekend of 12 and 13 December.
 
 ### 20. Cross-task edges made explicit
 
@@ -206,6 +216,7 @@ The rule is the SP-02 one: edits are additive, the second task to merge rebases 
 | B2 | B1 only (A7 comes with it) | `AggregateValue`, `matches` |
 | B4 | A2 | the migration, the models, the factory helpers |
 | B7 | B2, B6, A8 | the hook shape, `run_processing` |
+| B12 | + A10 (round 1) | `reveal_counterparty`, `counterparty_summary`, `monitoring/schemas.py` |
 | B14, B15 | + A11 | the transaction detail they extend (finding 16) |
 | C1 | A4, B4 | finding 2 |
 | C3 | C1, A10 | the counterparty views and schemas (finding 13) |
@@ -236,13 +247,38 @@ The longest chain is twelve tasks: A1 → A2 → A7 → B1 → B3 → B5 → B6 
 - 4c's `CounterpartyReveal` is A10's `RevealedCounterparty`; its route handler is `reveal_counterparty_endpoint`.
 - 4b's `register_rules` registers no contract; `.importlinter` lines moved to A2 and B1.
 - The three plan headers point at `docs/superpowers/execution/sp04/agreement.md` and this file.
+- **Round 1.** Two reveal conventions coexist on purpose: A10 keeps `?reveal=true` on `GET /v1/transactions/{id}` as spec §15 writes it (one detail, one reveal, audited each call), while 4b Deviation 7 (hits) and C3 (counterparties) use a separate `GET /{id}/reveal`, the party and screening precedent, so a cached detail never records `VIEW_PII`. Both are intended. 4a gains Deviation 17: a counterparty account is blind-indexed as sent and stripped, since `main`'s `normalize_identifier(value)` has no account type argument. C11's section 9 named `MX_ITF_INTL_TRANSFER` where the capture code is `ITF_INTL_TRANSFER`.
+
+### 23. The exit test must activate its rules before its fixtures' dates
+
+- **Finding.** C11 patched the clock to 2026-12-14 and activated the three rules with `rules activate`, which (B8) calls `activate_version(effective_from=today)`; B6 refuses a past `effective_from`, and `active_rules(on=policy_date(txn.occurred_at))` sees only assignments effective on the transaction's date, so the 7 to 13 December deposits and the July to November AVI batch would have been evaluated with no active rule and `CASH_STRUCTURING` would never fire in section 6. The same command's `--simulate-from 2026-06-01 --simulate-to 2026-12-13` is 196 days, over `MONITORING_SIMULATION_MAX_DAYS` (190). B7's test fixtures had the same gap ("activated through B6 with a simulation row inserted directly" at an unstated date).
+- **Decision.** The clock, not a B6 exception: C11 runs sections 1 and 2 under 2026-06-30T15:00Z, simulating 2026-06-01 to 2026-06-29 (29 days; an empty range completes with zero hits), so the three assignments are effective from 30 June and cover every fixture; the clock then moves to 2026-12-14 for sections 3 to 8 and 10 to 14 and to 2027-01-01 for section 9. B7's fixtures activate under a 2026-06-30 clock too. B8's `rules activate` description says why. No `--effective-from` is added to the CLI and B6 keeps refusing past dates.
+- **Edited.** 4b: B7 Step 1, B8 CLI paragraph. 4c: C11 Produces (the clock sentence) and section 2.
+
+### 24. `TIER_LIMIT` declares `month_in` statically
+
+- **Finding.** B2 derived `month_in`'s unit key from the snapshot (`f"{limit.unit}/{rule}"`), but `RulesHook.declarations`, B6's `ensure_declarations` and C5's seeding take declarations from `RuleSet.declarations`, the template definition, and B3 said the tier templates' params are `{"outcome"}` without saying what they declare; the accumulator would never have been maintained.
+- **Decision.** `TIER_N1_MONTHLY_OPS.yaml` and `TIER_N2_MONTHLY_OPS.yaml` declare `month_in` (SUM, UNIT_AMOUNT, `unit_key: UDI/LAST_DAY_PREV_MONTH`, RELATIONSHIP, MONTH, direction IN), the ITF pack's `kyc.tiers[].limits.monthly_ops.unit` under `units.tier_limit_rule`. B2 reads it by name like every other aggregate and does not fire when the snapshot's `limit.unit` or `tier_limit_rule` differ from the declared key (a pack change needs a template version). B3's test pins the declaration; B2's test adds the mismatch case.
+- **Edited.** 4b: B2 `TIER_LIMIT` semantics and test, B3 file description and test.
+
+### 25. `ParkTransaction` is a fail-mode trigger on the decide path
+
+- **Finding.** 4c Deviation 8 and C5 step 3 switched to the fail mode on `UnitValueMissingError`, but A6's `unit_amounts_for` and `enrich_input` convert it into `ParkTransaction(UNIT_VALUE_MISSING, …)` (and a missing policy into `POLICY_NOT_ASSIGNED`); unhandled, it would have been a 500 where the spec promises never a 503.
+- **Decision.** C5 lists A6's `ParkTransaction` (`monitoring.enrich.service`) among the fail-mode triggers beside the directly raised errors, and `test_a_missing_unit_value_is_a_budget_failure_not_a_stale_value` asserts the rail's fail mode answers 200.
+- **Edited.** 4c: Deviation 8, C5 step 3 and test.
+
+### 26. The tier-limit boundary
+
+- **Finding.** C5's `test_the_candidate_counts_in_its_own_aggregates` said "at the limit minus one centavo allows; at the limit blocks", but B2 fires on `month_in.value > limit.amount` (its test: exactly 750 → None) and spec §12.2 says the sum "must not exceed the limit".
+- **Decision.** At the limit allows; one unit over blocks. The test says so and cites B2.
+- **Edited.** 4c: C5 tests.
 
 ## Open for the product owner
 
 Execution proceeds on the plans' defaults; a different answer becomes a follow-up task. Collected from the three plans' "Open questions" and from the findings above:
 
 1. **The currency rule (4a Q1; finding 8).** Only `MXN` and `USD` are accepted; a USD amount is brought to pesos at the prior banking day's FIX, since `UnitService` converts from pesos only and the FIX has no weekend value; other currencies are a field error. Is that the launch rule, or should other currencies park until a rate source exists?
-2. **Opt-in webhooks (4a Q2; finding 7).** `monitoring.transaction_processed.v1` and `monitoring.decision_issued.v1` are staff-only (never delivered) because the platform has no per-endpoint opt-in and the spec's cut list drops the delivery first. Confirm, or ask for the opt-in as a platform task.
+2. **Opt-in webhooks (4a Q2; finding 7).** `monitoring.transaction_processed.v1` and `monitoring.decision_issued.v1` are staff-only (never delivered) because the platform has no per-endpoint opt-in and the delivery is last on the spec's cut list. Confirm, or ask for the opt-in as a platform task.
 3. **Jurisdiction lists (4b Q1, Q2).** `TAX_HAVEN` is empty (no source named; a template naming it is a load error) and `BORDER_ZONE_MX` defaults to the six border states as ISO 3166-2 codes, marked `UNVERIFIED`; the customs definition (the 20 km strip) would need admin-area codes the transaction's `geo_admin_area` carries.
 4. **December 2026 fixtures (4a Q3, 4c Q4; finding 19).** The exit demo and 4b's goldens use the week of 7 to 13 December 2026 with test-local unit rows; the seed files on `main` cover December 2025 to January 2026, and 12 December 2026 is a Saturday, so the FIX rule crosses a weekend, not a holiday. Either accept that, or move the demo to a week with a weekday holiday (1 January 2027 is a Friday), or verify and seed the 2026 values and holidays on `main`.
 5. **Counterparty purge versus the compliance record (4c Q3).** Retention deletes an orphaned counterparty with its subject and findings, including dispositions an MLRO made (on the admin engine, since dispositions are append-only for the app role); parties are redacted instead. Confirm deletion, or ask for redaction of dispositioned counterparties.
