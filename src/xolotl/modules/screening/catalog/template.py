@@ -1,9 +1,10 @@
 """The private-list template: reading a CSV or XLSX upload and validating its rows.
 
-SP-03 spec §7. A file is read whole, then every row is checked; any failure rejects
-the upload with ``PrivateListInvalidError`` carrying each row error located as
-``("row", <file row>, <column>)`` (or ``("file",)`` for the file itself) with a fixed
-message per code. A cell's value never reaches an error, a message or a log line.
+SP-03 spec §7. A file is read row by row (stopping past the row limit), then every
+row is checked; any failure rejects the upload with ``PrivateListInvalidError``
+carrying each row error located as ``("row", <file row>, <column>)`` (or
+``("file",)`` for the file itself) with a fixed message per code. A cell's value
+never reaches an error, a message or a log line.
 
 Mapping choices (plan Deviation 5): ``source_ref`` is ``"clave <clave>"`` or empty,
 never a row number; ``observaciones`` stays in the sealed upload and never enters an
@@ -17,7 +18,8 @@ import io
 import re
 import unicodedata
 import zipfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
+import zlib
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import StrEnum
@@ -60,6 +62,8 @@ REQUIRED_COLUMNS: tuple[str, ...] = ("clave", "tipo")
 CSV_TYPE = "text/csv"
 XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_REPORTED_ERRORS = 200
+# The widest XLSX row read: the template, with room for blank and stray columns.
+MAX_XLSX_COLUMNS = 2 * len(TEMPLATE_COLUMNS)
 
 
 class TemplateError(StrEnum):
@@ -83,7 +87,7 @@ MESSAGES: Mapping[TemplateError, str] = {
     TemplateError.EMPTY_FILE: "the file has no data rows",
     TemplateError.UNREADABLE_FILE: "the file cannot be read as the template",
     TemplateError.MISSING_COLUMN: "a required column (clave or tipo) is missing",
-    TemplateError.UNKNOWN_COLUMN: "the file has a column outside the template",
+    TemplateError.UNKNOWN_COLUMN: "a column is outside the template or repeated",
     TemplateError.TOO_MANY_ROWS: "the file has more rows than allowed",
     TemplateError.REQUIRED: "a required value is missing",
     TemplateError.INVALID_TYPE: "tipo must be PF or PM",
@@ -103,14 +107,30 @@ _FULL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$", re.ASCII)
 _COUNTRY = re.compile(r"^[A-Z]{2}$", re.ASCII)
 _NOT_ALNUM = re.compile(r"[^0-9A-Z]")
 _FILE_LOC: tuple[str | int, ...] = ("file",)
+_XLSX_ERRORS = (
+    InvalidFileException,
+    zipfile.BadZipFile,
+    zlib.error,
+    # The XML parsers' ParseError (ElementTree's and lxml's) is a SyntaxError.
+    SyntaxError,
+    EOFError,
+    KeyError,
+    ValueError,
+    OSError,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class TemplateRow:
-    """One data row: ``number`` is the 1-based file row (the header is row 1)."""
+    """One data row: ``number`` is the 1-based file row (the header is row 1).
+
+    ``stray_column`` is the 1-based number of the row's first non-blank cell under
+    no template column (past the header or under a blank header cell), if any.
+    """
 
     number: int
     cells: Mapping[str, str]
+    stray_column: int | None = None
 
     def cell(self, column: str) -> str:
         """Give a cell, trimmed, or the empty string when the column is absent.
@@ -137,7 +157,7 @@ def _file_error(code: TemplateError) -> PrivateListInvalidError:
 # ---- reading -------------------------------------------------------------------------
 
 
-def _csv_records(data: bytes) -> list[list[str]]:
+def _csv_records(data: bytes) -> Generator[list[str]]:
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -145,7 +165,7 @@ def _csv_records(data: bytes) -> list[list[str]]:
     first_line = text.split("\n", 1)[0]
     delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
     try:
-        return list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
+        yield from csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
     except csv.Error:
         raise _file_error(TemplateError.UNREADABLE_FILE) from None
 
@@ -164,19 +184,23 @@ def _xlsx_cell(value: object) -> str:
     return str(value)
 
 
-def _xlsx_records(data: bytes) -> list[list[str]]:
+def _xlsx_records(data: bytes) -> Generator[list[str]]:
+    # A read-only workbook parses its sheet lazily, so a corrupt sheet fails while
+    # rows are read; and it pads each row to the sheet's declared width, which the
+    # file controls, so the width read is capped.
     try:
         book = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    except (InvalidFileException, zipfile.BadZipFile, KeyError, OSError, ValueError):
+    except _XLSX_ERRORS:
         raise _file_error(TemplateError.UNREADABLE_FILE) from None
     try:
-        if not book.worksheets:
+        sheets = book.worksheets
+        if not sheets:
             raise _file_error(TemplateError.EMPTY_FILE)
-        sheet = book.worksheets[0]
-        return [
-            [_xlsx_cell(value) for value in row]
-            for row in sheet.iter_rows(values_only=True)
-        ]
+        rows = sheets[0].iter_rows(values_only=True, max_col=MAX_XLSX_COLUMNS)
+        for row in rows:
+            yield [_xlsx_cell(value) for value in row]
+    except _XLSX_ERRORS:
+        raise _file_error(TemplateError.UNREADABLE_FILE) from None
     finally:
         book.close()
 
@@ -201,45 +225,57 @@ def read_template(
     A CSV is UTF-8 (a BOM is tolerated) with a comma or semicolon delimiter chosen
     from the header line; an XLSX is read from its first sheet, dates as ISO text.
     Header names are trimmed and lower-cased; blank header cells and blank rows are
-    skipped, and cells are trimmed.
+    skipped, and cells are trimmed. Rows are read one at a time and reading stops
+    at the first data row past ``max_rows``; an XLSX row is read up to
+    ``MAX_XLSX_COLUMNS`` cells.
 
     Returns:
         The data rows in file order.
 
     Raises:
         PrivateListInvalidError: When the file cannot be read, has no data row,
-            lacks ``clave`` or ``tipo``, has a column outside the template or more
-            than ``max_rows`` data rows; the one error is located at ``("file",)``.
+            lacks ``clave`` or ``tipo``, has a column outside the template or
+            repeated, or more than ``max_rows`` data rows; the one error is located
+            at ``("file",)``.
 
     """
     records = _xlsx_records(data) if content_type == XLSX_TYPE else _csv_records(data)
-    numbered = [
-        (number, record)
-        for number, record in enumerate(records, start=1)
-        if any(cell.strip() for cell in record)
-    ]
-    if not numbered:
+    names: list[str] | None = None
+    rows: list[TemplateRow] = []
+    try:
+        for number, record in enumerate(records, start=1):
+            if not any(cell.strip() for cell in record):
+                continue
+            if names is None:
+                names = _header(record)
+            elif len(rows) == max_rows:
+                code = TemplateError.TOO_MANY_ROWS
+                raise PrivateListInvalidError(MESSAGES[code], errors=_file_items(code))
+            else:
+                rows.append(_template_row(number, names, record))
+    finally:
+        records.close()
+    if not rows:
         code = TemplateError.EMPTY_FILE
         raise PrivateListInvalidError(MESSAGES[code], errors=_file_items(code))
-    (_, header_record), body = numbered[0], numbered[1:]
-    names = _header(header_record)
-    if not body:
-        code = TemplateError.EMPTY_FILE
-        raise PrivateListInvalidError(MESSAGES[code], errors=_file_items(code))
-    if len(body) > max_rows:
-        code = TemplateError.TOO_MANY_ROWS
-        raise PrivateListInvalidError(MESSAGES[code], errors=_file_items(code))
-    return [
-        TemplateRow(
-            number=number,
-            cells={
-                name: cell.strip()
-                for name, cell in zip(names, record, strict=False)
-                if name
-            },
-        )
-        for number, record in body
-    ]
+    return rows
+
+
+def _template_row(
+    number: int, names: Sequence[str], record: Sequence[str]
+) -> TemplateRow:
+    cells = {
+        name: cell.strip() for name, cell in zip(names, record, strict=False) if name
+    }
+    stray = next(
+        (
+            column
+            for column, cell in enumerate(record, start=1)
+            if cell.strip() and (column > len(names) or not names[column - 1])
+        ),
+        None,
+    )
+    return TemplateRow(number=number, cells=cells, stray_column=stray)
 
 
 # ---- validating ----------------------------------------------------------------------
@@ -317,7 +353,12 @@ class _Row:
         )
 
     def company_name(self) -> EntryName | None:
-        for column in ("nombre_completo", "nombres", "primer_apellido"):
+        for column in (
+            "nombre_completo",
+            "nombres",
+            "primer_apellido",
+            "segundo_apellido",
+        ):
             if self.cell(column):
                 self.fail(column, TemplateError.NAME_AMBIGUOUS)
                 return None
@@ -460,6 +501,14 @@ def rows_to_entries(
     seen: set[str] = set()
     for row in rows:
         checks = _Row(row)
+        if row.stray_column is not None:
+            # A value outside the template would be silently dropped; it is
+            # located by its column number, as it has no template name.
+            checks.errors.append(
+                _item(
+                    ("row", row.number, row.stray_column), TemplateError.UNKNOWN_COLUMN
+                )
+            )
         # A repeated clave is refused even when its first row failed; a keyed tag
         # is known only once the row's name is.
         clave = row.cell("clave")

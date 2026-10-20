@@ -23,8 +23,10 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import cast
 from uuid import UUID
 
+from psycopg.errors import UniqueViolation
 from sqlalchemy import Text, insert, literal, select, update
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from xolotl.modules.screening.catalog.models import (
@@ -84,6 +86,7 @@ def create_private_list(
     Raises:
         ValidationFailedError: When the code, the kind or the title is not allowed.
         PrivateListExistsError: When the tenant already has a list with the code.
+        IntegrityError: When another constraint refuses the list.
 
     """
     if list_code == LPB_CODE:
@@ -102,11 +105,6 @@ def create_private_list(
     if not title.strip():
         msg = "the title is required"
         raise ValidationFailedError(msg)
-    existing = s.scalar(
-        select(PrivateList.id).where(PrivateList.list_code == list_code)
-    )
-    if existing is not None:
-        raise PrivateListExistsError
     ctx = bound_context(s)
     private_list = PrivateList(
         tenant_id=ctx.require_tenant_id(),
@@ -116,8 +114,15 @@ def create_private_list(
         title=title.strip(),
         created_by=ctx.actor_id,
     )
-    s.add(private_list)
-    s.flush()
+    # The unique (tenant_id, list_code) decides between concurrent creations; the
+    # savepoint keeps the caller's transaction usable when it refuses this one.
+    try:
+        with s.begin_nested():
+            s.add(private_list)
+    except IntegrityError as exc:
+        if isinstance(exc.orig, UniqueViolation):
+            raise PrivateListExistsError from None
+        raise
     _ = record(
         s,
         AuditEvent(
@@ -169,7 +174,10 @@ def upload_private_version(
             ``private_list_max_mb`` MiB or of another content type.
 
     """
-    private_list = s.scalar(select(PrivateList).where(PrivateList.id == list_id))
+    # The lock serialises uploads to one list, so each reads the version it follows.
+    private_list = s.scalar(
+        select(PrivateList).where(PrivateList.id == list_id).with_for_update()
+    )
     if private_list is None:
         msg = "private list not found"
         raise NotFoundError(msg)

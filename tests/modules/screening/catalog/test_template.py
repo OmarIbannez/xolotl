@@ -2,6 +2,10 @@
 
 import csv
 import io
+import re
+import tracemalloc
+import zipfile
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
@@ -111,6 +115,11 @@ PM = {"clave": "K1", "tipo": "PM", "razon_social": "Empresa Sintetica SA"}
         ({**PF, "nombres": "Uno"}, "nombre_completo", TemplateError.NAME_AMBIGUOUS),
         ({**PF, "razon_social": "Otra"}, "razon_social", TemplateError.NAME_AMBIGUOUS),
         ({**PM, "nombres": "Uno"}, "nombres", TemplateError.NAME_AMBIGUOUS),
+        (
+            {**PM, "segundo_apellido": "Dos"},
+            "segundo_apellido",
+            TemplateError.NAME_AMBIGUOUS,
+        ),
         ({**PM, "razon_social": ""}, "razon_social", TemplateError.REQUIRED),
         (
             {**PF, "fecha_nacimiento": "1980-02-30"},
@@ -288,3 +297,96 @@ def test_an_xlsx_with_dates_and_numbers_reads_as_text():
         "fecha_nacimiento": "1980",
         "fecha_alta": "2024-05-01",
     }
+
+
+def _xlsx(*rows: list[str]) -> bytes:
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    for row in rows:
+        sheet.append(row)
+    out = io.BytesIO()
+    book.save(out)
+    return out.getvalue()
+
+
+def _with_sheet(data: bytes, change: Callable[[bytes], bytes]) -> bytes:
+    # The workbook with its first sheet's XML replaced by change(xml).
+    out = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(data)) as source, zipfile.ZipFile(out, "w") as z:
+        for name in source.namelist():
+            content = source.read(name)
+            if name.endswith("sheet1.xml"):
+                content = change(content)
+            z.writestr(name, content)
+    return out.getvalue()
+
+
+def test_a_truncated_xlsx_sheet_is_unreadable_not_a_crash():
+    data = _with_sheet(
+        (PRIVATE / "lpb_v1.xlsx").read_bytes(), lambda xml: xml[: len(xml) // 2]
+    )
+    error = _file_error(data, XLSX_TYPE, max_rows=MAX_ROWS)
+    assert [(e.loc, e.type) for e in error.errors] == [
+        (("file",), TemplateError.UNREADABLE_FILE.value)
+    ]
+
+
+def test_a_forged_xlsx_width_is_capped_and_extra_rows_stop_the_read():
+    # The sheet claims 16,384 columns; padding every row to that width would take
+    # tens of MB for these 200 rows.
+    header = ["clave", "tipo", "nombre_completo"]
+    body = [[f"K{n}", "PF", f"Nombre {n}"] for n in range(200)]
+    data = _with_sheet(
+        _xlsx(header, *body),
+        lambda xml: re.sub(
+            rb'<dimension ref="[^"]*"', b'<dimension ref="A1:XFD1048576"', xml
+        ),
+    )
+    error = _file_error(data, XLSX_TYPE, max_rows=3)
+    assert [(e.loc, e.type) for e in error.errors] == [
+        (("file",), TemplateError.TOO_MANY_ROWS.value)
+    ]
+    tracemalloc.start()
+    try:
+        rows = read_template(data, XLSX_TYPE, max_rows=MAX_ROWS)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 5 * 1024 * 1024
+    assert len(rows) == 200
+    assert rows[0].cells == {"clave": "K0", "tipo": "PF", "nombre_completo": "Nombre 0"}
+
+
+def test_reading_stops_at_the_first_row_past_the_limit():
+    # A row after the limit is never read: here it would be unreadable.
+    data = b"clave,tipo\nK1,PF\nK2,PF\n" + b'"' + b"x" * 200_000 + b'",PF\n'
+    error = _file_error(data, max_rows=1)
+    assert [e.type for e in error.errors] == [TemplateError.TOO_MANY_ROWS.value]
+
+
+def test_a_repeated_header_is_an_unknown_column():
+    error = _file_error(b"clave,tipo,clave\nK1,PF,K2\n")
+    assert [(e.type, e.msg) for e in error.errors] == [
+        (
+            TemplateError.UNKNOWN_COLUMN.value,
+            "a column is outside the template or repeated",
+        )
+    ]
+
+
+def test_a_value_outside_the_header_is_a_row_error_without_the_value():
+    data = (
+        b"clave,tipo,,nombre_completo\n"
+        b"K1,PF,,Uno Dos\n"
+        b"K2,PF,,Tres Cuatro,valor-perdido\n"
+        b"K3,PF,valor-oculto,Cinco Seis\n"
+    )
+    rows = read_template(data, CSV_TYPE, max_rows=5)
+    assert [r.stray_column for r in rows] == [None, 5, 3]
+    error = _invalid(rows)
+    assert [(e.loc, e.type) for e in error.errors] == [
+        (("row", 3, 5), TemplateError.UNKNOWN_COLUMN.value),
+        (("row", 4, 3), TemplateError.UNKNOWN_COLUMN.value),
+    ]
+    assert "valor" not in repr(error.errors) + error.detail

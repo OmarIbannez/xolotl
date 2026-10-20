@@ -1,6 +1,7 @@
 """Private lists: creation, encrypted versions with deltas, audit, event, isolation."""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 from uuid import UUID
 
@@ -203,6 +204,37 @@ def test_create_mx_lpb_once_and_internal_lists_by_slug(tenant):
         if e.action == "private_list.created"
     ]
     assert created[0] == {"list_code": LPB, "list_kind": "BLOCKED"}
+
+
+def test_a_refused_duplicate_leaves_the_session_usable(tenant):
+    _ = _lpb(tenant)
+    with _mlro(tenant) as s:
+        with pytest.raises(PrivateListExistsError):
+            _ = create_private_list(s, list_code=LPB, title="otra", list_kind=None)
+        later = create_private_list(
+            s, list_code="INTERNAL_A", title="A", list_kind=None
+        )
+        assert later.list_kind is ListKind.INTERNAL
+    with _mlro(tenant) as s:
+        assert sorted(s.scalars(select(PrivateList.list_code))) == ["INTERNAL_A", LPB]
+
+
+def test_concurrent_uploads_to_one_list_take_turns(tenant, store):
+    list_id = _lpb(tenant)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with _mlro(tenant) as s:
+            first = upload_private_version(
+                s, store, list_id=list_id, data=V1, content_type=CSV_TYPE
+            ).seq
+            waiting = pool.submit(_upload, tenant, store, list_id, V2)
+            done, _ = wait([waiting], timeout=0.5)
+            assert not done  # it waits for the list lock this upload holds
+        second = waiting.result(timeout=15).seq
+    assert (first, second) == (1, 2)
+    assert [(v.seq, v.status) for v in _versions(tenant)] == [
+        (1, VersionStatus.SUPERSEDED),
+        (2, VersionStatus.ACTIVE),
+    ]
 
 
 def test_an_upload_creates_an_active_version_with_all_added(tenant, store):
