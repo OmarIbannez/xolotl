@@ -17,10 +17,11 @@ from xolotl.modules.screening.catalog.subscriptions import (
     reconcile_subscriptions,
     remind_lpb_missing,
 )
+from xolotl.modules.screening.events import PRIVATE_LIST_VERSION_ACTIVATED
 from xolotl.platform import clock
 from xolotl.platform.calendar import MEXICO_CITY
 from xolotl.platform.db import SessionFactory
-from xolotl.platform.events import Notifier
+from xolotl.platform.events import Notifier, register_staff_only
 from xolotl.platform.jobs import Job, register_job_handler
 
 LISTS_POLL_KIND = "lists.poll"
@@ -56,10 +57,14 @@ def register_lists(
 ) -> ListsPollJob:
     """Build the ``lists.poll`` job and register it as that kind's handler.
 
+    Also marks ``private_list.version_activated.v1`` staff-only, so no webhook ever
+    carries a private-list version (marking it again is harmless).
+
     Returns:
         The job, whose ``run`` is now the handler.
 
     """
     job = ListsPollJob(session_factory=session_factory, notifier=notifier)
     register_job_handler(LISTS_POLL_KIND, job.run)
+    register_staff_only(PRIVATE_LIST_VERSION_ACTIVATED)
     return job
