@@ -373,7 +373,17 @@ def test_an_xlsx_unpacking_past_the_ceiling_is_refused_before_it_is_parsed(
     source = zipfile.ZipFile(io.BytesIO(_xlsx(["clave", "tipo"], ["K1", "PM"])))
     with source, zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         for name in source.namelist():
+            if name in {"xl/sharedStrings.xml", "[Content_Types].xml"}:
+                continue
             z.writestr(name, source.read(name))
+        types = source.read("[Content_Types].xml").decode()
+        shared = (
+            '<Override PartName="/xl/sharedStrings.xml" ContentType="application/'
+            'vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+        )
+        z.writestr(
+            "[Content_Types].xml", types.replace("</Types>", shared + "</Types>")
+        )
         z.writestr("xl/sharedStrings.xml", strings)
     data = out.getvalue()
     assert len(data) < 1024 * 1024 < len(strings) // XLSX_MAX_EXPANSION
