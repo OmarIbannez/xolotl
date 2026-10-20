@@ -6,12 +6,21 @@ without any import having a side effect. A subscription is a ``(event type,
 consumer)`` pair: the consumer name is what the dispatcher records in
 ``event_consumption`` to make redelivery a no-op, so one consumer holds at most one
 handler for any given event type.
+
+Some event types are staff-only (FR-SC-013, PRV-303): they tell staff what a screening
+found, and a customer who heard of it could be tipped off. A module marks such a type
+with ``register_staff_only`` at composition time. The ``webhooks`` consumer never fans
+one out, not even to an endpoint that subscribes to ``"*"``, and creating an endpoint
+that names one is refused with ``EVENT_TYPE_NOT_DELIVERABLE``
+(``require_deliverable``). In-process subscribers receive them like any other type.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from typing import ClassVar
 
 from sqlalchemy.orm import Session
 
+from xolotl.platform.errors import ValidationFailedError
 from xolotl.platform.events.event import Event
 
 Handler = Callable[[Session, Event], None]
@@ -21,6 +30,14 @@ WILDCARD = "*"
 # (event type, consumer) -> handler. Dict order is registration order, and replacing
 # a key keeps its place.
 _subscriptions: dict[tuple[str, str], Handler] = {}
+
+# Event types webhooks never deliver.
+_staff_only: set[str] = set()
+
+
+class EventTypeNotDeliverableError(ValidationFailedError):
+    default_code: ClassVar[str] = "EVENT_TYPE_NOT_DELIVERABLE"
+    default_detail: ClassVar[str] = "event type is not deliverable to webhooks"
 
 
 def register_subscriber(event_type: str, handler: Handler, *, consumer: str) -> None:
@@ -80,3 +97,43 @@ def consumers() -> frozenset[str]:
 def reset_subscribers() -> None:
     """Forget every subscription (tests)."""
     _subscriptions.clear()
+
+
+def register_staff_only(event_type: str) -> None:
+    """Mark ``event_type`` as staff-only: webhooks never deliver it.
+
+    Marking a type again is harmless, so composing the application twice is too.
+
+    Raises:
+        ValueError: When ``event_type`` is ``"*"`` or blank. A wildcard cannot be
+            staff-only, or no event would reach any webhook.
+
+    """
+    if not event_type.strip() or event_type == WILDCARD:
+        msg = f"{event_type!r} cannot be a staff-only event type"
+        raise ValueError(msg)
+    _staff_only.add(event_type)
+
+
+def is_staff_only(event_type: str) -> bool:
+    """Tell whether ``event_type`` is staff-only.
+
+    Returns:
+        True when a module marked it with ``register_staff_only``.
+
+    """
+    return event_type in _staff_only
+
+
+def require_deliverable(event_types: Iterable[str]) -> None:
+    """Refuse a list of event types that names a staff-only one.
+
+    Raises:
+        EventTypeNotDeliverableError: Naming the first staff-only type, in sorted
+            order (422).
+
+    """
+    for event_type in sorted(set(event_types)):
+        if is_staff_only(event_type):
+            msg = f"{event_type} is staff-only"
+            raise EventTypeNotDeliverableError(msg)

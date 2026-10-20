@@ -15,6 +15,7 @@ from xolotl.platform.errors import (
     ValidationFailedError,
     XolotlError,
 )
+from xolotl.platform.events.registry import EventTypeNotDeliverableError
 from xolotl.platform.policy.errors import (
     PackImmutableError,
     PackValidationError,
@@ -41,6 +42,7 @@ from xolotl.platform.units.errors import (
         (IdempotencyConflictError, 422, "IDEMPOTENCY_KEY_REUSED"),
         (IdempotencyInProgressError, 409, "IDEMPOTENCY_IN_PROGRESS"),
         (ValidationFailedError, 422, "VALIDATION_FAILED"),
+        (EventTypeNotDeliverableError, 422, "EVENT_TYPE_NOT_DELIVERABLE"),
         (UnitValueMissingError, 503, "UNIT_VALUE_MISSING"),
         (UnitSourceError, 503, "UNIT_SOURCE_UNAVAILABLE"),
         (UnverifiedValueError, 422, "UNVERIFIED_VALUE"),
