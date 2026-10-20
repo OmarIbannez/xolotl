@@ -17,6 +17,7 @@ CHAIN = [
     "0007_connectors",
     "0008_party",
     "0009_lists",
+    "0010_screening",
 ]
 
 

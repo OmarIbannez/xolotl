@@ -13,6 +13,7 @@ NATURALLY_KEYED = frozenset({
     "event_consumption",
     "idempotency_key",
     "private_list_entry_delta",
+    "screening_list_set_member",
     "workflow_step",
 })
 
