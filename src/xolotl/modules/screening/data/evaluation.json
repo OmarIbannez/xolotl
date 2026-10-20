@@ -1,0 +1,67 @@
+{
+  "alerts_per_1000_negatives": "0.0000",
+  "corpus_pairs": 20294,
+  "floors": [
+    {
+      "floor": "0.9800",
+      "list_kind": "FISCAL",
+      "met": true,
+      "metric": "recall",
+      "value": "0.9839"
+    },
+    {
+      "floor": "0.9950",
+      "list_kind": "FISCAL",
+      "met": true,
+      "metric": "retrieval_recall",
+      "value": "1.0000"
+    },
+    {
+      "floor": "0.9800",
+      "list_kind": "SANCTION",
+      "met": true,
+      "metric": "precision_at_alert",
+      "value": "0.9855"
+    },
+    {
+      "floor": "0.9800",
+      "list_kind": "SANCTION",
+      "met": true,
+      "metric": "recall",
+      "value": "0.9862"
+    },
+    {
+      "floor": "0.9950",
+      "list_kind": "SANCTION",
+      "met": true,
+      "metric": "retrieval_recall",
+      "value": "0.9978"
+    },
+    {
+      "floor": "2.0000",
+      "list_kind": "ALL",
+      "met": true,
+      "metric": "alerts_per_1000_negatives",
+      "value": "0.0000"
+    }
+  ],
+  "generated_at": "2026-10-20T16:55:38.839371Z",
+  "hard_negatives": 520,
+  "kinds": [
+    {
+      "list_kind": "FISCAL",
+      "pairs": 2666,
+      "precision_alert": null,
+      "recall_review": "0.9839",
+      "retrieval_recall": "1.0000"
+    },
+    {
+      "list_kind": "SANCTION",
+      "pairs": 17628,
+      "precision_alert": "0.9855",
+      "recall_review": "0.9862",
+      "retrieval_recall": "0.9978"
+    }
+  ],
+  "matcher_version": "2.1.0"
+}

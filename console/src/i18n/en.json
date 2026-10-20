@@ -47,6 +47,7 @@
     "matches": "Matches",
     "lists": "Lists",
     "privateLists": "Private lists",
+    "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check"
   },
   "header": {
@@ -1238,6 +1239,42 @@
       "revokeDescription": "The record will alert again on the next screening. The revocation is recorded in the audit log.",
       "revokePending": "Revoking…",
       "revoked": "Whitelist revoked."
+    },
+    "evaluation": {
+      "title": "Matcher evaluation",
+      "description": "How the matcher finds the listed people of the evaluation corpus: recall per list kind and every floor this build must meet.",
+      "empty": "This build ships no evaluation report.",
+      "matcherVersion": "Matcher version",
+      "generatedAt": "Generated",
+      "corpusPairs": "Corpus pairs",
+      "hardNegatives": "Hard negatives",
+      "kind": {
+        "SANCTION": "Sanctions",
+        "FISCAL": "Tax (69-B)",
+        "ALL": "All"
+      },
+      "metric": {
+        "recall": "Recall (review or above)",
+        "retrieval_recall": "Retrieval recall",
+        "precision_at_alert": "Precision at alert",
+        "alerts_per_1000_negatives": "Alerts per 1,000 negatives"
+      },
+      "kinds": {
+        "title": "By list kind",
+        "kind": "List kind",
+        "pairs": "Pairs",
+        "empty": "The report has no list kinds."
+      },
+      "floors": {
+        "title": "Floors",
+        "metric": "Metric",
+        "floor": "Floor",
+        "value": "Value",
+        "result": "Result",
+        "met": "Met",
+        "below": "Below",
+        "empty": "The report has no floors."
+      }
     },
     "subjectStatus": {
       "CLEAR": "Clear",

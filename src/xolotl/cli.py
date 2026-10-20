@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from xolotl.app import build_key_provider, build_object_store, build_worker
 from xolotl.modules.party.retention import RetentionSweeper
+from xolotl.modules.screening import evaluation_report
 from xolotl.modules.screening.catalog import (
     SOURCES_FILE,
     HttpListFetcher,
@@ -116,6 +117,11 @@ lists_app = typer.Typer(no_args_is_help=True, help="Shared sanctions lists")
 app.add_typer(lists_app, name="lists")
 screening_app = typer.Typer(no_args_is_help=True, help="Screening")
 app.add_typer(screening_app, name="screening")
+
+# The library's evaluation corpus in a source checkout; absent from the image.
+EVALUATION_CORPUS = (
+    Path(__file__).resolve().parents[2] / "tests" / "modules" / "screening" / "corpus"
+)
 
 _IRREVERSIBLE = (
     "irreversible: everything encrypted for the tenant becomes unreadable for good"
@@ -1228,3 +1234,71 @@ def screening_replay(
         typer.echo(line)
     if not report.identical:
         raise typer.Exit(code=1)
+
+
+def _ratio(value: Decimal | None) -> str:
+    return "-" if value is None else str(value)
+
+
+def _eval_lines(report: evaluation_report.EvaluationReportResponse) -> list[str]:
+    lines = [
+        (
+            f"corpus {report.corpus_pairs} pairs, {report.hard_negatives} hard "
+            f"negatives, matcher {report.matcher_version}"
+        )
+    ]
+    for kind in report.kinds:
+        lines.extend((
+            f"{kind.list_kind} pairs {kind.pairs}",
+            f"{kind.list_kind} recall_review {kind.recall_review}",
+            f"{kind.list_kind} precision_alert {_ratio(kind.precision_alert)}",
+            f"{kind.list_kind} retrieval_recall {kind.retrieval_recall}",
+        ))
+    negatives = (
+        evaluation_report.ALL_KINDS,
+        evaluation_report.NEGATIVE_ALERTS_METRIC,
+        str(report.alerts_per_1000_negatives),
+    )
+    lines.append(" ".join(negatives))
+    lines.extend(
+        f"FLOOR {f.metric} {f.list_kind} {f.floor} {f.value} "
+        + ("OK" if f.met else "BELOW")
+        for f in report.floors
+    )
+    return lines
+
+
+@screening_app.command("eval")
+def screening_eval(
+    *,
+    corpus: Annotated[
+        Path, typer.Option("--corpus", help="The evaluation corpus directory")
+    ] = EVALUATION_CORPUS,
+    write: Annotated[
+        bool,
+        typer.Option("--write", help="Write the report the build ships"),
+    ] = False,
+) -> None:
+    """Evaluate the matcher on the corpus and check its floors (FR-SC-014).
+
+    Raises:
+        Exit: With code 1 when the corpus is missing or a floor is not met.
+
+    """
+    with _cli_errors():
+        report = evaluation_report.evaluate_corpus(corpus, generated_at=clock.now())
+    for line in _eval_lines(report):
+        typer.echo(line)
+    if not all(floor.met for floor in report.floors):
+        if write:
+            typer.echo(
+                "error: FLOOR_BELOW: refusing to write a report below a floor",
+                err=True,
+            )
+        raise typer.Exit(code=1)
+    if write:
+        target = evaluation_report.SHIPPED_REPORT
+        _ = target.write_text(
+            evaluation_report.canonical_json(report), encoding="utf-8"
+        )
+        typer.echo(f"wrote {target}")

@@ -1103,6 +1103,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/screening/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Screening Evaluation */
+        get: operations["get_screening_evaluation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -1970,6 +1987,39 @@ export interface components {
          * @enum {string}
          */
         EntityType: "PERSON" | "ORGANIZATION" | "VESSEL" | "AIRCRAFT" | "OTHER";
+        /** EvaluationReportResponse */
+        EvaluationReportResponse: {
+            /** Matcher Version */
+            matcher_version: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Corpus Pairs */
+            corpus_pairs: number;
+            /** Hard Negatives */
+            hard_negatives: number;
+            /** Alerts Per 1000 Negatives */
+            alerts_per_1000_negatives: string;
+            /** Kinds */
+            kinds: components["schemas"]["ListKindMetrics"][];
+            /** Floors */
+            floors: components["schemas"]["Floor"][];
+        };
+        /** Floor */
+        Floor: {
+            /** Metric */
+            metric: string;
+            /** List Kind */
+            list_kind: string;
+            /** Floor */
+            floor: string;
+            /** Value */
+            value: string;
+            /** Met */
+            met: boolean;
+        };
         /** GovernancePolicy */
         GovernancePolicy: {
             committee_required: components["schemas"]["Provenanced_bool_"];
@@ -2133,6 +2183,19 @@ export interface components {
          * @enum {string}
          */
         ListKind: "SANCTION" | "FISCAL" | "BLOCKED" | "PEP" | "INTERNAL";
+        /** ListKindMetrics */
+        ListKindMetrics: {
+            /** List Kind */
+            list_kind: string;
+            /** Pairs */
+            pairs: number;
+            /** Recall Review */
+            recall_review: string;
+            /** Precision Alert */
+            precision_alert: string | null;
+            /** Retrieval Recall */
+            retrieval_recall: string;
+        };
         /**
          * ListOverview
          * @description A subscribed list with its active version and freshness.
@@ -6327,6 +6390,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_screening_evaluation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationReportResponse"];
                 };
             };
         };
