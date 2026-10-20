@@ -1,12 +1,16 @@
-"""The Node version that builds the console is one exact literal, in two files.
+"""Toolchain pins: the console's Node version and the perf tests' exclusion.
 
 The image (``ARG NODE_VERSION`` in the Dockerfile) and CI (``setup-node`` in the
 ``console`` job) cannot share a file, so this keeps them equal and exact: a floating
 ``22`` would let the image and the job drift apart, and a version below the floor
 cannot run the console's tests.
+
+The ``perf`` tests are measurements, not gates (SP-03 spec §15): the default run,
+and so ``make ci``, deselects them, and ``make perf`` runs them by hand.
 """
 
 import re
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -44,3 +48,15 @@ def test_the_node_version_is_exact_and_not_below_the_floor():
 
 def test_ci_uses_the_same_node_version_as_the_image():
     assert _ci_node_versions() == [_dockerfile_node_version()]
+
+
+def test_perf_tests_are_excluded_by_default():
+    pytest_ini = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pytest"][
+        "ini_options"
+    ]
+    addopts: list[str] = pytest_ini["addopts"]
+    assert addopts[addopts.index("-m") + 1] == "not perf"
+    assert any(m.startswith("perf:") for m in pytest_ini["markers"])
+    makefile = (ROOT / "Makefile").read_text()
+    assert "uv run pytest tests/perf -m perf --no-cov -q" in makefile
+    assert ".perf/" in (ROOT / ".gitignore").read_text().splitlines()

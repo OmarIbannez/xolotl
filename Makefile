@@ -1,4 +1,4 @@
-.PHONY: install lint format types vulture importlint test ci
+.PHONY: install lint format types vulture importlint test ci perf
 
 install:
 	uv sync
@@ -23,6 +23,11 @@ importlint:
 
 test:
 	uv run pytest
+
+# The perf measurements (SP-03 spec §15): run by hand, never by ci. Results go to
+# .perf/sp03.json.
+perf:
+	uv run pytest tests/perf -m perf --no-cov -q
 
 # Runs every gate and reports every failure instead of stopping at the first.
 ci:

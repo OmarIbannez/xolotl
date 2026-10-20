@@ -485,7 +485,13 @@ it.
 make ci        # ruff, ty, basedpyright, vulture, import-linter, pytest (coverage >= 90)
 make test      # pytest only; needs Docker for the Postgres testcontainer
 make format    # ruff --fix and ruff format
+make perf      # the perf measurements; not in CI (SP-11 gates them under load)
 ```
+
+Performance tests: `make perf` runs `tests/perf` (forward screen p95 at 50,000
+entries, a list delta and a periodic re-screen of a 10,000-party base) and
+appends the numbers to `.perf/sp03.json`. They carry the `perf` marker, which the
+default run deselects, so they are not in CI; SP-11 gates them under load.
 
 Tests run against a real Postgres 17 container with real commits; set
 `XOLOTL_TEST_DATABASE_ADMIN_URL` to reuse an existing server instead. Point it at
