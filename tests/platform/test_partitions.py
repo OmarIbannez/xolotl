@@ -1,5 +1,6 @@
 """The generic monthly-partition helper and its registry (SP-04 spec §2)."""
 
+import multiprocessing
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,7 @@ from datetime import date
 import pytest
 from sqlalchemy import Engine, text
 
+from tests.platform.fresh_process_support import tables_registered_after_importing
 from xolotl.platform import clock, migrate, partitions
 from xolotl.platform.audit.partitions import IMMUTABLE_FUNCTION
 from xolotl.platform.db import APP_ROLE
@@ -73,16 +75,57 @@ def _present(admin_engine: Engine, names: list[str]) -> list[str]:
 
 def test_audit_event_is_registered_with_its_truncate_guard():
     assert IMMUTABLE_FUNCTION == "audit_event_immutable"
-    assert partitioned_tables()[0] == PartitionedTable(
-        "audit_event", "at", "audit_event_immutable"
+    assert (
+        PartitionedTable("audit_event", "at", "audit_event_immutable")
+        in partitioned_tables()
     )
 
 
-def test_registering_a_table_twice_keeps_one_entry(monkeypatch):
+@pytest.mark.parametrize("module", ["xolotl.app", "xolotl.cli"])
+def test_a_fresh_process_registers_audit_event(module: str):
+    # The worker and the API never import xolotl.models, so the daily partition
+    # job relies on the platform's own imports registering audit_event.
+    with multiprocessing.get_context("spawn").Pool(1) as pool:
+        tables = pool.apply(tables_registered_after_importing, (module,))
+    assert "audit_event" in tables
+
+
+def test_registering_an_identical_spec_twice_keeps_one_entry(monkeypatch):
     _isolate_registry(monkeypatch)
     before = partitioned_tables()
-    register_partitioned_table(PartitionedTable("audit_event", "at", "x"))
+    register_partitioned_table(
+        PartitionedTable("audit_event", "at", "audit_event_immutable")
+    )
     assert partitioned_tables() == before
+
+
+def test_a_conflicting_registration_raises(monkeypatch):
+    _isolate_registry(monkeypatch)
+    with pytest.raises(ValueError, match="already registered"):
+        register_partitioned_table(PartitionedTable("audit_event", "at", "x"))
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        PartitionedTable("Bad", "at"),
+        PartitionedTable("t; DROP TABLE x", "at"),
+        PartitionedTable("t", "at)"),
+        PartitionedTable("t", "at", "guard()"),
+    ],
+)
+def test_registration_rejects_names_that_are_not_plain_identifiers(
+    monkeypatch, spec: PartitionedTable
+):
+    _isolate_registry(monkeypatch)
+    with pytest.raises(ValueError, match="plain lower-case identifier"):
+        register_partitioned_table(spec)
+    assert spec not in partitioned_tables()
+
+
+def test_ensure_partitions_rejects_an_unregistered_table(admin_engine: Engine):
+    with admin_engine.begin() as conn, pytest.raises(ValueError, match="registered"):
+        _ = ensure_partitions(conn, table="unregistered", months_ahead=0)
 
 
 def test_partition_names_follow_the_table():

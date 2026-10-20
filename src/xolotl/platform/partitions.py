@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 LOCK_TIMEOUT = "5s"
 _DECEMBER = 12
 _MONTH_SUFFIX = re.compile(r"_y\d{4}m\d{2}")
+# Table, column and guard names are interpolated into DDL, so they are restricted
+# to plain lower-case identifiers when registered.
+_IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]*")
 _TURN_SQL = text("SELECT pg_advisory_xact_lock(hashtext(:key)::bigint)")
 _LOCK_TIMEOUT_SQL = text("SELECT current_setting('lock_timeout')")
 _SET_LOCK_TIMEOUT_SQL = text("SELECT set_config('lock_timeout', :value, true)")
@@ -63,8 +66,21 @@ _REGISTRY: dict[str, PartitionedTable] = {}
 
 
 def register_partitioned_table(spec: PartitionedTable) -> None:
-    """Add ``spec`` to the registry; a table already registered keeps its entry."""
-    _ = _REGISTRY.setdefault(spec.table, spec)
+    """Add ``spec`` to the registry; registering an identical spec again is a no-op.
+
+    Raises:
+        ValueError: When a name is not a plain lower-case identifier, or the table
+            is already registered with a different column or guard.
+
+    """
+    for name in (spec.table, spec.column, spec.truncate_guard):
+        if name is not None and not _IDENTIFIER.fullmatch(name):
+            msg = f"{name!r} is not a plain lower-case identifier"
+            raise ValueError(msg)
+    existing = _REGISTRY.setdefault(spec.table, spec)
+    if existing != spec:
+        msg = f"{spec.table} is already registered as {existing}"
+        raise ValueError(msg)
 
 
 def partitioned_tables() -> tuple[PartitionedTable, ...]:
@@ -155,10 +171,15 @@ def ensure_partitions(
     Returns:
         The partitions created in this call and the ones skipped, by SQLSTATE.
 
+    Raises:
+        ValueError: When ``table`` is not registered, so its guard is unknown.
+
     """
-    _ = conn.execute(_TURN_SQL, {"key": f"{table}_partitions"})
     spec = _REGISTRY.get(table)
-    guard = spec.truncate_guard if spec is not None else None
+    if spec is None:
+        msg = f"{table} is not a registered partitioned table"
+        raise ValueError(msg)
+    _ = conn.execute(_TURN_SQL, {"key": f"{table}_partitions"})
     callers_timeout = cast("str", conn.scalar(_LOCK_TIMEOUT_SQL))
     created: list[str] = []
     skipped: dict[str, str] = {}
@@ -173,7 +194,11 @@ def ensure_partitions(
         )
         if exists is None:
             skipped_by = _create_partition(
-                conn, table, month, callers_timeout=callers_timeout, guard=guard
+                conn,
+                table,
+                month,
+                callers_timeout=callers_timeout,
+                guard=spec.truncate_guard,
             )
             if skipped_by is None:
                 created.append(name)
