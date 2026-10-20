@@ -1,5 +1,6 @@
 """Normalizers and the character rules of both regimes (no database)."""
 
+import re
 import string
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -232,3 +233,27 @@ def test_amount_raises_only_field_errors(value):
     except ReportFieldError:
         return
     assert not text.startswith("-")
+
+
+def test_aviso_descriptions_keep_only_the_schema_punctuation():
+    assert n.aviso_description(
+        "; Cliente: Peña — monto $1,500.00 (MXN)!", field="d", max_length=3000
+    ) == ("CLIENTE: PEÑA MONTO $1,500.00 MXN")
+    assert not n.aviso_description(" ;;; ", field="d", max_length=3000)
+
+
+@given(st.text())
+def test_aviso_descriptions_match_the_xsd_pattern(value):
+    try:
+        cleaned = n.aviso_description(value, field="d", max_length=100)
+    except ReportFieldError:
+        return
+    assert not cleaned or re.fullmatch(r"[A-ZÑ\d'$\-][A-ZÑ\d ,\.:/'$\-]*", cleaned)
+
+
+def test_aviso_descriptions_are_refused_not_cut_when_too_long():
+    with pytest.raises(ReportFieldError, match="longer than 100"):
+        _ = n.aviso_description(
+            "x" * 101, field="descripcion_activo_virtual", max_length=100
+        )
+    assert n.aviso_description("'Coin", field="d", max_length=100) == "COIN"

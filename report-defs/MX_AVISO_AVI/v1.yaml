@@ -1,0 +1,24 @@
+# Aviso de actividad vulnerable, fr. XVI activos virtuales, in the current SAT
+# format (avi.xsd). One informe per month and filer; zero avisos is the informe
+# en ceros. Valid until the 2027 formats become mandatory on 2027-06-01 (DOF
+# 24-09-2026); modificatorios of old-format avisos stay possible in this format
+# until 2027-06-30, which the version selector of SP-05 has to honour.
+code: MX_AVISO_AVI
+version: 1
+jurisdiction: MX
+regulator: UIF via SAT (SPPLD)
+sources: [AVI_XSD, AVI_EXAMPLE, AVI_FILE_RULES]
+serializer: XML_XSD
+encoding: utf-8
+encoding_confidence: VERIFIED
+zero_report_rule: REQUIRED
+correction_rule: MODIFICATORIO
+valid_from: 2020-04-02
+valid_to: 2027-05-31
+activity: AVI
+namespace: http://www.uif.shcp.gob.mx/recepcion/avi
+xsd: xsd/avi.xsd
+xsd_sha256: 984d0a31483c7f9ac47c74204505b5dbd2920590476afec979f1942460b964e3
+# "EL TAMAÑO MÁXIMO PERMITIDO DE UN XML ES DE 2 MB" (inst_excel.pdf). Read as
+# 2,000,000 bytes, the stricter of the decimal and binary readings.
+size_limit_bytes: 2000000

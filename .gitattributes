@@ -1,2 +1,4 @@
-# List fixtures are byte-exact copies of official files (CRLF, DOS EOF byte).
+# Golden files are compared byte for byte: never convert their line endings.
+tests/modules/reporting/serializers/golden/** -text
+# Official list samples are kept byte for byte (encoding and line endings matter).
 tests/modules/screening/fixtures/** -text

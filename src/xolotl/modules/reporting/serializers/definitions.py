@@ -7,18 +7,20 @@ report kinds share one column table. Code tables live under
 settle is marked ``UNVERIFIED`` in the file, not guessed in code.
 """
 
+import re
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import Annotated, ClassVar, Literal, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from xolotl.platform.enums import Confidence
 from xolotl.platform.errors import ValidationFailedError
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
+_VERSION_FILE = re.compile(r"v([1-9][0-9]*)\.yaml")
 
 
 class DefinitionError(ValidationFailedError):
@@ -38,6 +40,8 @@ class ZeroReportRule(StrEnum):
 
 class CorrectionRule(StrEnum):
     UNSUPPORTED = "UNSUPPORTED"
+    # One aviso modificatorio per accepted aviso (LFPIORPI formats resolution).
+    MODIFICATORIO = "MODIFICATORIO"
 
 
 class ColumnKind(StrEnum):
@@ -92,8 +96,8 @@ class DelimitedLayout(BaseModel):
     empty_report_columns: tuple[int, ...]
 
 
-class ReportDefinition(BaseModel):
-    """One report code at one version."""
+class _DefinitionBase(BaseModel):
+    """What every report definition declares, whatever its serializer family."""
 
     model_config: ClassVar[ConfigDict] = _STRICT
 
@@ -102,17 +106,46 @@ class ReportDefinition(BaseModel):
     jurisdiction: str
     regulator: str
     sources: tuple[str, ...]
-    serializer: SerializerFamily
     encoding: str
     encoding_confidence: Confidence
     zero_report_rule: ZeroReportRule
     correction_rule: CorrectionRule
     valid_from: date
     valid_to: date | None = None
+
+
+class DelimitedDefinition(_DefinitionBase):
+    """A delimited text report rendered from a shared column layout."""
+
+    serializer: Literal[SerializerFamily.DELIMITED]
     report_type: str
     # The 24-hour report takes a legend that heads column 40 (D14).
     legend_required: bool = False
     layout: str
+
+
+class XmlDefinition(_DefinitionBase):
+    """An XML report validated against a vendored XSD.
+
+    ``xsd`` is the schema path relative to the definition's directory, with its
+    SHA-256; both are ``None`` for a version whose official schema is not yet
+    published, which then refuses to serialize.
+    """
+
+    serializer: Literal[SerializerFamily.XML_XSD]
+    activity: str
+    namespace: str
+    xsd: str | None
+    xsd_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    size_limit_bytes: int = Field(ge=1)
+
+
+type ReportDefinition = Annotated[
+    DelimitedDefinition | XmlDefinition, Field(discriminator="serializer")
+]
+_DEFINITION: TypeAdapter[DelimitedDefinition | XmlDefinition] = TypeAdapter(
+    ReportDefinition
+)
 
 
 class CodeTable(BaseModel):
@@ -146,11 +179,13 @@ def _validate[M: BaseModel](model: type[M], path: Path) -> M:
         raise DefinitionError(msg) from exc
 
 
-def load_definition(defs_dir: Path, code: str, version: int) -> ReportDefinition:
+def load_definition(
+    defs_dir: Path, code: str, version: int
+) -> DelimitedDefinition | XmlDefinition:
     """Read ``<defs_dir>/<code>/v<version>.yaml``.
 
     Returns:
-        The validated definition.
+        The validated definition of its serializer family.
 
     Raises:
         DefinitionError: The file is missing, malformed, or names another code or
@@ -158,9 +193,81 @@ def load_definition(defs_dir: Path, code: str, version: int) -> ReportDefinition
 
     """
     path = defs_dir / code / f"v{version}.yaml"
-    definition = _validate(ReportDefinition, path)
+    raw = _read_mapping(path)
+    try:
+        definition = _DEFINITION.validate_python(raw)
+    except ValidationError as exc:
+        msg = f"{path.name}: {exc.error_count()} validation errors"
+        raise DefinitionError(msg) from exc
     if (definition.code, definition.version) != (code, version):
         msg = f"{path.name}: declares {definition.code} v{definition.version}"
+        raise DefinitionError(msg)
+    return definition
+
+
+def select_definition(
+    defs_dir: Path, code: str, on: date
+) -> DelimitedDefinition | XmlDefinition:
+    """Pick the version of ``code`` in force on ``on`` (NFR-RR-005).
+
+    Versions may overlap during a transition; the highest version in force wins.
+    Every version file is read, so a malformed one fails the selection whatever
+    the date: a broken definition must not be skipped silently.
+
+    Returns:
+        The selected definition.
+
+    Raises:
+        DefinitionError: No version of ``code`` is in force on ``on``.
+
+    """
+    versions = sorted({
+        int(match.group(1))
+        for path in (defs_dir / code).glob("v*.yaml")
+        if (match := _VERSION_FILE.fullmatch(path.name))
+    })
+    in_force = [
+        definition
+        for version in versions
+        if (definition := load_definition(defs_dir, code, version)).valid_from <= on
+        and (definition.valid_to is None or on <= definition.valid_to)
+    ]
+    if not in_force:
+        msg = f"{code}: no version in force on {on.isoformat()}"
+        raise DefinitionError(msg)
+    return max(in_force, key=lambda definition: definition.version)
+
+
+def load_delimited(defs_dir: Path, code: str, version: int) -> DelimitedDefinition:
+    """Read a definition that must be of the ``DELIMITED`` family.
+
+    Returns:
+        The validated definition.
+
+    Raises:
+        DefinitionError: The file is invalid or of another family.
+
+    """
+    definition = load_definition(defs_dir, code, version)
+    if not isinstance(definition, DelimitedDefinition):
+        msg = f"{code} v{version} is not a DELIMITED definition"
+        raise DefinitionError(msg)
+    return definition
+
+
+def load_xml(defs_dir: Path, code: str, version: int) -> XmlDefinition:
+    """Read a definition that must be of the ``XML_XSD`` family.
+
+    Returns:
+        The validated definition.
+
+    Raises:
+        DefinitionError: The file is invalid or of another family.
+
+    """
+    definition = load_definition(defs_dir, code, version)
+    if not isinstance(definition, XmlDefinition):
+        msg = f"{code} v{version} is not an XML_XSD definition"
         raise DefinitionError(msg)
     return definition
 
