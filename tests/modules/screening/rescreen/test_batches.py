@@ -11,6 +11,8 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from tests.helpers import new_tenant
 from tests.modules.party.route_support import machine_headers
@@ -24,11 +26,13 @@ from xolotl.modules.screening.rescreen.batches import (
     lock_batch,
     open_batch,
     page_already_done,
+    page_job,
 )
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.enums import Role
 from xolotl.platform.errors import NotFoundError
 from xolotl.platform.ids import uuid7
+from xolotl.platform.jobs.queue import Job
 
 BATCHES = f"{SCREENING}/batches"
 VERSION = "0192f000-0000-7000-8000-000000000001"
@@ -107,6 +111,40 @@ def test_a_failed_batch_resumes_from_its_cursor(tenant: CreatedTenant):
         200,
     )
     assert batch.total == 10
+
+
+def test_a_flush_error_on_the_last_attempt_fails_the_batch(tenant: CreatedTenant):
+    batch_id = _open(tenant, BatchKind.LIST_DELTA, VERSION)
+    assert batch_id is not None
+
+    def handler(s: Session, job: Job) -> None:
+        s.add(
+            ScreeningBatch(
+                tenant_id=job.tenant_id,
+                kind=BatchKind.LIST_DELTA,
+                ref=VERSION,
+                status=BatchStatus.RUNNING,
+            )
+        )
+
+    job = Job(
+        id=uuid7(),
+        tenant_id=tenant.tenant_id,
+        kind="screening.list_delta",
+        key=None,
+        payload={"batch_id": str(batch_id)},
+        attempts=3,
+        max_attempts=3,
+        lock_token=uuid7(),
+    )
+    with job_session(tenant) as s, pytest.raises(IntegrityError):
+        page_job(handler)(s, job)
+
+    batch = _batch(tenant, batch_id)
+    assert (batch.status, batch.last_error) == (
+        BatchStatus.FAILED,
+        "JOB_FAILED:IntegrityError",
+    )
 
 
 def test_the_cursor_never_moves_backwards(tenant: CreatedTenant):
