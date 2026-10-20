@@ -66,3 +66,23 @@ forbidden_modules =
     xolotl.modules.party.models
 ignore_imports =
     xolotl.modules.party.service -> xolotl.modules.party.models
+
+[importlinter:contract:monitoring-core-is-pure]
+name = the monitoring core imports no database, web framework or other module (SP-04 spec section 2)
+type = forbidden
+source_modules =
+    xolotl.modules.monitoring.txn.schema
+    xolotl.modules.screening.counterparty.schema
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    xolotl.platform
+    xolotl.modules.party
+    xolotl.modules.screening.engine
+    xolotl.modules.screening.catalog
+    xolotl.modules.tenants
+    xolotl.modules.reporting
+ignore_imports =
+    xolotl.modules.monitoring.txn.schema -> xolotl.modules.party.schemas
+    xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.schemas
+    xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.enums
