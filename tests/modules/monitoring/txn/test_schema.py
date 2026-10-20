@@ -133,13 +133,68 @@ def test_the_hash_ignores_how_an_amount_or_an_instant_is_written() -> None:
         ({"x": 1}, "x", FieldErrorCode.INVALID),
         ({"currency": "EUR"}, "currency", FieldErrorCode.INVALID),
         ({"currency": "mxn"}, "currency", FieldErrorCode.INVALID),
-        ({"device": {"geo_country": "MEX"}}, "device.geo_country", "INVALID"),
+        (
+            {"device": {"geo_country": "MEX"}},
+            "device.geo_country",
+            FieldErrorCode.INVALID,
+        ),
+        ({"amount": "1e30"}, "amount", FieldErrorCode.OUT_OF_RANGE),
+        ({"amount": "1E+26"}, "amount", FieldErrorCode.OUT_OF_RANGE),
+        (
+            {"amount": "99999999999999999999999999.99"},
+            "amount",
+            FieldErrorCode.OUT_OF_RANGE,
+        ),
+        ({"amount": "10000000000000000.00"}, "amount", FieldErrorCode.OUT_OF_RANGE),
+        ({"fee_amount": "1e30"}, "fee_amount", FieldErrorCode.OUT_OF_RANGE),
+        ({"fee_amount": "-0.01"}, "fee_amount", FieldErrorCode.OUT_OF_RANGE),
+        ({"fee_amount": "1.001"}, "fee_amount", FieldErrorCode.OUT_OF_RANGE),
     ],
 )
 def test_each_rule_reports_its_field_and_code(
     overrides: dict[str, object], field: str, code: str
 ) -> None:
     assert codes(parse(item(**overrides))) == [(field, code)]
+
+
+def test_the_largest_amount_fits_a_bigint_of_minor_units() -> None:
+    largest = valid(parse(item(amount="9999999999999999.99")))
+    assert amount_minor(largest.amount) == 999_999_999_999_999_999
+    assert amount_minor(largest.amount) < 2**63 - 1
+
+
+def test_the_hash_ignores_how_a_fee_is_written() -> None:
+    plain = valid(parse(item(fee_amount="4")))
+    spelled = valid(parse(item(fee_amount="4.00")))
+    assert plain.fee_amount == Decimal("4.00")
+    assert content_hash(spelled) == content_hash(plain)
+    assert content_hash(plain) != content_hash(valid(parse(item())))
+
+
+def test_the_hash_ignores_how_a_crypto_quantity_or_an_fx_rate_is_written() -> None:
+    def crypto(qty: str) -> TransactionInput:
+        context = {"network": "ETH", "asset_code": "USDT", "asset_qty": qty}
+        return valid(parse(item(instrument="CRYPTO", crypto=context)))
+
+    def fx(rate: str) -> TransactionInput:
+        context = {
+            "from_ccy": "USD",
+            "to_ccy": "MXN",
+            "rate": rate,
+            "from_amount_minor": 10000,
+            "to_amount_minor": 185000,
+        }
+        return valid(parse(item(instrument="FX", fx=context)))
+
+    assert content_hash(crypto("1.5")) == content_hash(crypto("1.50"))
+    assert content_hash(crypto("10")) == content_hash(crypto("10.000"))
+    assert content_hash(crypto("10")) != content_hash(crypto("1"))
+    ten = crypto("1E+1").crypto
+    assert ten is not None
+    assert str(ten.asset_qty) == "10"
+    assert content_hash(fx("18.5")) == content_hash(fx("18.500"))
+    assert content_hash(fx("18")) == content_hash(fx("18.00"))
+    assert content_hash(fx("18.5")) != content_hash(fx("18.05"))
 
 
 def test_up_to_the_future_allowance_is_accepted() -> None:

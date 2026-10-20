@@ -37,6 +37,27 @@ from xolotl.modules.screening.counterparty.schema import (
 )
 
 _CENT = Decimal("0.01")
+_PII: dict[str, JsonValue] = {"pii": True}
+# An amount has at most 18 digits, two of them decimals, so its minor units fit
+# the ``bigint`` ``amount_minor`` column (spec §5.2): 10**18 - 1 < 2**63 - 1.
+_AMOUNT_DIGITS = 18
+# A crypto quantity or an FX rate keeps at most 28 digits, the default decimal
+# context's precision, so normalising it never rounds.
+_QUANTITY_DIGITS = 28
+
+
+def _canonical(value: Decimal) -> Decimal:
+    """Drop trailing zeros so ``1.5`` and ``1.50`` (or ``10`` and ``10.0``) agree.
+
+    An integral value is rebuilt from its ``int`` so it stays ``10``, not the
+    exponent form ``1E+1`` that ``normalize`` gives.
+
+    Returns:
+        The same number in one canonical spelling.
+
+    """
+    normal = value.normalize()
+    return Decimal(int(normal)) if normal == normal.to_integral_value() else normal
 
 
 class Direction(StrEnum):
@@ -95,23 +116,33 @@ class CryptoContext(BaseModel):
 
     network: str
     tx_hash: str | None = None
-    address: str | None = None
+    address: str | None = Field(default=None, json_schema_extra=_PII)
     self_custody: bool | None = None
     asset_code: str
-    asset_qty: Decimal = Field(gt=0)
+    asset_qty: Decimal = Field(gt=0, max_digits=_QUANTITY_DIGITS)
+
+    @field_validator("asset_qty")
+    @classmethod
+    def _canonical_qty(cls, value: Decimal) -> Decimal:
+        return _canonical(value)
 
 
 class FxContext(BaseModel):
     from_ccy: str
     to_ccy: str
-    rate: Decimal = Field(gt=0)
+    rate: Decimal = Field(gt=0, max_digits=_QUANTITY_DIGITS)
     from_amount_minor: int
     to_amount_minor: int
 
+    @field_validator("rate")
+    @classmethod
+    def _canonical_rate(cls, value: Decimal) -> Decimal:
+        return _canonical(value)
+
 
 class DeviceContext(BaseModel):
-    device_id: str | None = None
-    ip: str | None = None
+    device_id: str | None = Field(default=None, json_schema_extra=_PII)
+    ip: str | None = Field(default=None, json_schema_extra=_PII)
     geo_country: CountryCode | None = None
     geo_admin_area: str | None = None
 
@@ -120,7 +151,9 @@ class TransactionInput(BaseModel):
     """One submitted transaction; ``raw`` carries whatever else the client sent.
 
     ``occurred_at`` is kept in UTC and the amounts with exactly two decimal
-    places, so two spellings of one transaction share a content hash.
+    places, so two spellings of one transaction share a content hash. The amounts
+    are bounded to 18 digits before they are quantized, so the quantize never
+    overflows the decimal context and ``amount_minor`` fits a ``bigint``.
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
@@ -132,7 +165,7 @@ class TransactionInput(BaseModel):
     direction: Direction
     rail: Rail
     instrument: Instrument
-    amount: Decimal = Field(gt=0, decimal_places=2)
+    amount: Decimal = Field(gt=0, max_digits=_AMOUNT_DIGITS, decimal_places=2)
     currency: str = Field(pattern=r"^[A-Z]{3}$")
     counterparty: CounterpartyInput | None = None
     channel: Channel = Channel.OTHER
@@ -140,15 +173,21 @@ class TransactionInput(BaseModel):
     crypto: CryptoContext | None = None
     fx: FxContext | None = None
     purpose_code: str | None = None
-    fee_amount: Decimal | None = Field(default=None, ge=0, decimal_places=2)
-    raw: dict[str, JsonValue] = Field(default_factory=dict[str, JsonValue])
+    fee_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=_AMOUNT_DIGITS, decimal_places=2
+    )
+    raw: dict[str, JsonValue] = Field(
+        default_factory=dict[str, JsonValue], json_schema_extra=_PII
+    )
 
     @field_validator("occurred_at")
     @classmethod
     def _in_utc(cls, value: datetime) -> datetime:
         return value.astimezone(UTC)
 
-    @field_validator("amount", "fee_amount")
+    # An "after" validator: it runs once the field's bounds have passed, so it
+    # never sees a value too large to quantize.
+    @field_validator("amount", "fee_amount", mode="after")
     @classmethod
     def _in_cents(cls, value: Decimal | None) -> Decimal | None:
         return None if value is None else value.quantize(_CENT)
@@ -305,6 +344,15 @@ def validate_batch(
 
 def content_hash(item: TransactionInput) -> bytes:
     """Hash the item's canonical JSON with SHA-256; idempotent re-sends compare it.
+
+    The hash covers the whole ``model_dump(mode="json")``, defaults included,
+    with sorted keys. Only these fields are canonicalised by the schema, so their
+    spelling does not matter: ``occurred_at`` (converted to UTC), ``amount`` and
+    ``fee_amount`` (quantized to cents), ``crypto.asset_qty`` and ``fx.rate``
+    (trailing zeros dropped). Every other value hashes as sent, so a re-send that
+    spells one differently is an ``EXTERNAL_ID_CONFLICT``, not a duplicate.
+    Adding a field to ``TransactionInput`` (or a model it nests), even with a
+    default, changes every item's hash: stored hashes then no longer match.
 
     Returns:
         The 32-byte digest.
