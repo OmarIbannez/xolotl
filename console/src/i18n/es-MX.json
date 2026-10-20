@@ -44,6 +44,7 @@
     "units": "Unidades",
     "calendar": "Calendario",
     "parties": "Personas",
+    "matches": "Coincidencias",
     "lists": "Listas",
     "privateLists": "Listas privadas"
   },
@@ -1043,6 +1044,200 @@
       "empty": "La versión activa no tiene registros."
     }
   },
+  "screening": {
+    "matches": {
+      "title": "Coincidencias",
+      "description": "Hallazgos abiertos contra las listas, primero las alertas. Abre uno para ver la explicación y decidir.",
+      "tabs": {
+        "label": "Banda",
+        "ALERT": "Alertas",
+        "LOW_CONFIDENCE": "Baja confianza"
+      },
+      "empty": "No hay coincidencias con estos filtros.",
+      "filters": {
+        "status": "Estado",
+        "statusAll": "Todos los estados",
+        "listKind": "Clase de lista",
+        "listKindAll": "Todas las clases",
+        "listCode": "Código de lista",
+        "listCodePlaceholder": "Por ejemplo, MX_LPB",
+        "apply": "Filtrar",
+        "age": "Antigüedad",
+        "ageAny": "Cualquiera",
+        "age1": "Más de 1 día",
+        "age7": "Más de 7 días",
+        "age30": "Más de 30 días"
+      },
+      "table": {
+        "label": "Coincidencias",
+        "subject": "Sujeto",
+        "party": "Cliente",
+        "adHoc": "Consulta ad hoc",
+        "list": "Lista",
+        "band": "Banda",
+        "score": "Puntaje",
+        "status": "Estado",
+        "createdAt": "Creada"
+      }
+    },
+    "band": {
+      "ALERT": "Alerta",
+      "LOW_CONFIDENCE": "Baja confianza",
+      "AUTO_DISCARDED": "Descartada automáticamente",
+      "WHITELISTED": "En lista blanca"
+    },
+    "status": {
+      "OPEN": "Abierta",
+      "ESCALATED": "Escalada",
+      "FALSE_POSITIVE": "Falso positivo",
+      "TRUE_MATCH": "Coincidencia confirmada",
+      "DELISTED": "Dada de baja",
+      "SUPERSEDED": "Reemplazada"
+    },
+    "suggested": {
+      "DELISTED": "Sugerencia: el registro salió de la lista"
+    },
+    "match": {
+      "title": "Detalle de coincidencia",
+      "back": "Coincidencias",
+      "summary": "Resumen",
+      "subject": "Sujeto",
+      "entry": "Registro de la lista",
+      "privateEntry": "Este registro es de una lista privada: se muestra solo al revelar.",
+      "noEntry": "El registro ya no está disponible.",
+      "kind": "Origen",
+      "kinds": {
+        "PARTY": "Cliente",
+        "AD_HOC": "Consulta ad hoc"
+      },
+      "entityType": "Tipo",
+      "initials": "Iniciales",
+      "identifiers": "Identificadores",
+      "openParty": "Ver cliente",
+      "list": "Lista",
+      "score": "Puntaje",
+      "band": "Banda",
+      "status": "Estado",
+      "createdAt": "Creada",
+      "updatedAt": "Actualizada",
+      "explanation": {
+        "title": "Explicación",
+        "description": "Cómo se alinearon los nombres en el resultado más reciente.",
+        "label": "Tokens alineados",
+        "query": "Token del sujeto",
+        "entry": "Token del registro",
+        "kind": "Tipo de coincidencia",
+        "similarity": "Similitud",
+        "weight": "Peso",
+        "empty": "Ningún token se alineó.",
+        "unmatchedQuery": "Tokens del sujeto sin pareja",
+        "unmatchedEntry": "Tokens del registro sin pareja",
+        "none": "Ninguno",
+        "nameScore": "Puntaje del nombre",
+        "kinds": {
+          "EXACT": "Exacta",
+          "PHONETIC": "Fonética",
+          "NICKNAME": "Hipocorístico",
+          "INITIAL": "Inicial",
+          "FUZZY": "Aproximada"
+        }
+      },
+      "qualifiers": {
+        "title": "Calificadores",
+        "label": "Calificadores",
+        "attribute": "Atributo",
+        "outcome": "Resultado",
+        "adjustment": "Ajuste",
+        "empty": "No se evaluaron calificadores.",
+        "attributes": {
+          "BIRTH_DATE": "Fecha de nacimiento",
+          "NATIONALITY": "Nacionalidad",
+          "COUNTRY": "País",
+          "GENDER": "Sexo",
+          "ENTITY_TYPE": "Tipo de entidad",
+          "IDENTIFIER": "Identificador"
+        },
+        "outcomes": {
+          "MATCH": "Coincide",
+          "PARTIAL": "Coincide en parte",
+          "CONFLICT": "Contradice",
+          "ABSENT": "Sin dato"
+        }
+      },
+      "rules": {
+        "title": "Reglas aplicadas",
+        "empty": "No se aplicó ninguna regla.",
+        "codes": {
+          "ID_MATCH_FLOOR": "Un identificador coincide: el puntaje sube al mínimo de alerta.",
+          "ID_CONFLICT_CAP": "Un identificador contradice: el puntaje queda topado.",
+          "IDENTIFIER_ONLY_LIST": "Lista que se compara solo por identificador.",
+          "ENTITY_TYPE_MISMATCH": "El tipo de entidad no coincide."
+        }
+      },
+      "thresholds": "Puntaje y umbrales",
+      "alertThreshold": "Umbral de alerta",
+      "reviewThreshold": "Umbral de revisión",
+      "versionSeq": "Versión de la lista",
+      "matcherVersion": "Versión del comparador",
+      "history": "Historial de resultados",
+      "historyLabel": "Resultados de cada revisión",
+      "run": "Revisión",
+      "timeline": "Decisiones",
+      "timelineEmpty": "Aún no hay decisiones.",
+      "decidedBy": "Decidió",
+      "system": "Sistema",
+      "staffMember": "Personal"
+    },
+    "decision": {
+      "FALSE_POSITIVE": "Falso positivo",
+      "POSSIBLE_TRUE_MATCH": "Posible coincidencia (escalar)",
+      "TRUE_MATCH": "Coincidencia confirmada",
+      "DELISTED": "Salió de la lista",
+      "SUPERSEDED": "Reemplazada por el sistema"
+    },
+    "blocked": {
+      "STATE": "El estado actual no admite esta decisión.",
+      "ROLE_REQUIRED": "Tu rol no puede tomar esta decisión.",
+      "SAME_REVIEWER": "La debe tomar una persona distinta de quien escaló.",
+      "NOT_DELISTED": "El registro no tiene sugerencia de baja."
+    },
+    "disposition": {
+      "title": "Decidir",
+      "description": "Elige una decisión y explica por qué. Las decisiones bloqueadas indican el motivo.",
+      "decisions": "Decisiones",
+      "rationale": "Justificación",
+      "rationaleHint": "Entre 10 y 2000 caracteres.",
+      "rationaleShort": "Escribe al menos 10 caracteres.",
+      "rationaleLong": "Usa 2000 caracteres como máximo.",
+      "chooseDecision": "Elige una decisión.",
+      "submit": "Registrar decisión",
+      "submitting": "Registrando…",
+      "confirmTrueMatch": "¿Confirmar la coincidencia?",
+      "confirmTrueMatchDescription": "Confirmar la coincidencia es definitivo y activa el procedimiento de la política. No se puede deshacer desde la consola.",
+      "done": "Decisión registrada.",
+      "refusedReasons": "Motivos del rechazo:",
+      "noneAllowed": "No hay decisiones disponibles para ti en este hallazgo."
+    },
+    "reveal": {
+      "title": "Datos personales",
+      "button": "Revelar",
+      "running": "Revelando…",
+      "hide": "Ocultar",
+      "notice": "Esta consulta quedó registrada en la auditoría.",
+      "names": "Nombres del sujeto",
+      "birthDate": "Fecha de nacimiento",
+      "identifiers": "Identificadores",
+      "privateEntry": "Registro de la lista privada",
+      "rationales": "Justificaciones",
+      "empty": "No hay datos personales que mostrar."
+    },
+    "whitelist": {
+      "revoke": "Revocar lista blanca",
+      "revokeDescription": "El registro volverá a generar alertas en la próxima revisión. La revocación queda en la auditoría.",
+      "revokePending": "Revocando…",
+      "revoked": "Lista blanca revocada."
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -1084,6 +1279,8 @@
     "LIST_FORMAT_INVALID": "El archivo de la lista no tiene el formato esperado.",
     "LIST_CODE_UNSUPPORTED": "Todavía no se puede leer esta lista.",
     "PRIVATE_LIST_INVALID": "El archivo tiene filas que no siguen la plantilla; no se cargó nada.",
-    "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código."
+    "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código.",
+    "DISPOSITION_NOT_ALLOWED": "Esta decisión no está permitida para este hallazgo.",
+    "SCREENING_INDEX_UNAVAILABLE": "La revisión contra listas aún no está lista. Intenta de nuevo en unos minutos."
   }
 }

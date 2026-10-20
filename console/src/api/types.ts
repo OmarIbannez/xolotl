@@ -120,6 +120,24 @@ export type PrivateListVersionResponse = Schemas['PrivateListVersionResponse']
 /** One private-list entry, decrypted: personal data, shown only behind an audited reveal. */
 export type PrivateListEntryResponse = Schemas['PrivateListEntryResponse']
 
+/** One finding of the screening queue (staff only). */
+export type MatchSummary = Schemas['MatchSummary']
+/** A finding's staff detail: the subject masked, the explanations, and the current user's actions. */
+export type MatchDetail = Schemas['MatchDetail']
+/** The plaintext of `GET /v1/screening/matches/{id}/reveal`: audited as `VIEW_PII`. Never cache it. */
+export type MatchReveal = Schemas['MatchReveal']
+export type HitView = Schemas['HitView']
+export type MaskedSubject = Schemas['MaskedSubject']
+export type HitHistoryItem = Schemas['HitHistoryItem']
+export type DispositionView = Schemas['DispositionView']
+export type DispositionRequest = Schemas['DispositionRequest']
+export type DispositionResponse = Schemas['DispositionResponse']
+export type MatchStatus = Schemas['MatchStatus']
+export type HitBand = Schemas['HitBand']
+export type Decision = Schemas['Decision']
+export type BlockedReason = Schemas['BlockedReason']
+export type Page_MatchSummary_ = Schemas['Page_MatchSummary_']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.
@@ -140,4 +158,6 @@ export interface ProblemDetails {
   /** Stable UPPER_SNAKE code, for example `UNAUTHENTICATED` or `ROLE_FORBIDDEN`. */
   code: string
   errors?: ProblemFieldError[]
+  /** Why a refused screening disposition was refused (`DISPOSITION_NOT_ALLOWED` only). */
+  blocked_reasons?: string[]
 }
