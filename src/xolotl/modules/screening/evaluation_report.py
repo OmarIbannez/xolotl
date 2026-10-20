@@ -96,19 +96,27 @@ def evaluate_corpus(
 ) -> EvaluationReportResponse:
     """Evaluate the corpus at ``corpus_dir`` against its floors.
 
-    ``corpus_dir`` holds ``floors.yaml`` and ``hard_negatives.csv``; the fixtures the
-    true pairs are generated from are in ``../fixtures``, as the library lays them out.
-    Whether a floor is met is the library's ``check_floors`` verdict.
+    ``corpus_dir`` must be a directory named ``corpus`` holding ``floors.yaml`` and
+    ``hard_negatives.csv``, with the fixtures the true pairs are generated from in a
+    sibling ``fixtures`` directory: the library's ``load_corpus`` reads
+    ``corpus/hard_negatives.csv`` and ``fixtures`` relative to the parent. Whether a
+    floor is met is the library's ``check_floors`` verdict.
 
     Returns:
         The report, with one floor row per floor and the hard-negative ceiling.
 
     Raises:
-        NotFoundError: there is no corpus at ``corpus_dir``.
+        NotFoundError: ``corpus_dir`` is not laid out as the library expects.
 
     """
     floors_file = corpus_dir / "floors.yaml"
-    if not floors_file.is_file():
+    laid_out = (
+        corpus_dir.name == "corpus"
+        and floors_file.is_file()
+        and (corpus_dir / "hard_negatives.csv").is_file()
+        and (corpus_dir.parent / "fixtures").is_dir()
+    )
+    if not laid_out:
         msg = f"no evaluation corpus at {corpus_dir}"
         raise NotFoundError(msg)
     floors = load_floors(floors_file)

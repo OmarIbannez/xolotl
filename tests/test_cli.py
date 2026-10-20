@@ -2,6 +2,7 @@ import base64
 import getpass
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -83,6 +84,26 @@ from xolotl.platform.storage.local import LocalFsObjectStore
 from xolotl.platform.units.banxico import BASE_URL as BANXICO_BASE_URL
 
 runner = CliRunner()
+pytestmark = pytest.mark.usefixtures("_restore_logging")
+
+
+@pytest.fixture
+def _restore_logging() -> Generator[None]:
+    """Keep each test's logging setup from leaking into the next.
+
+    ``configure_logging`` leaves a stream handler bound to a CliRunner stream that
+    is closed once its test ends.
+
+    Yields:
+        Nothing; the root logger's handlers and level are restored afterwards.
+
+    """
+    root = logging.getLogger()
+    handlers, level = list(root.handlers), root.level
+    yield
+    root.handlers[:] = handlers
+    root.setLevel(level)
+
 
 # One key has more than one base64 spelling: the last character of the public key
 # carries two unused bits, so this decodes to the same 32 bytes (the settings
@@ -1883,10 +1904,8 @@ def test_screening_eval_below_a_floor_exits_1_and_refuses_to_write(
         app, ["screening", "eval", "--corpus", str(corpus), "--write"]
     )
     assert written.exit_code == 1
-    # The last line: the library's parsers log INFO lines, and a handler an earlier
-    # test configured may still write to stderr.
-    assert written.stderr.splitlines()[-1] == (
-        "error: FLOOR_BELOW: refusing to write a report below a floor"
+    assert written.stderr == (
+        "error: FLOOR_BELOW: refusing to write a report below a floor\n"
     )
     assert not target.exists()
 
@@ -1898,3 +1917,13 @@ def test_screening_eval_without_a_corpus_says_so(tmp_path: Path):
 
     assert result.exit_code == 1
     assert result.stderr == f"error: NOT_FOUND: no evaluation corpus at {missing}\n"
+
+
+def test_screening_eval_refuses_a_corpus_dir_not_named_corpus(tmp_path: Path):
+    corpus = _corpus_slice(tmp_path / "screening")
+    renamed = corpus.rename(corpus.with_name("slice"))
+
+    result = runner.invoke(app, ["screening", "eval", "--corpus", str(renamed)])
+
+    assert result.exit_code == 1
+    assert result.stderr == f"error: NOT_FOUND: no evaluation corpus at {renamed}\n"

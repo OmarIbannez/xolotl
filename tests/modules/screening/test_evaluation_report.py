@@ -6,6 +6,7 @@ every floor and stay in its canonical form, so a regenerated report diffs cleanl
 """
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -21,6 +22,7 @@ from xolotl.modules.screening.evaluation_report import (
     load_shipped_report,
 )
 from xolotl.modules.screening.matching import MATCHER_VERSION
+from xolotl.modules.screening.matching.evaluation import load_floors
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.enums import Role
 
@@ -38,6 +40,17 @@ def test_the_shipped_report_meets_every_floor():
     assert [f for f in report.floors if not f.met] == []
     assert {k.list_kind for k in report.kinds} == {"SANCTION", "FISCAL"}
     assert sum(k.pairs for k in report.kinds) == report.corpus_pairs
+
+
+def test_the_shipped_report_meets_the_floors_the_corpus_sets_now():
+    floors = load_floors(Path(__file__).parent / "corpus" / "floors.yaml")
+    rows = {(f.list_kind, f.metric): f for f in load_shipped_report().floors}
+
+    for kind, metrics in floors.floors.items():
+        for metric, floor in metrics.items():
+            assert rows[kind, metric].value >= Decimal(str(floor)), (kind, metric)
+    negatives = rows["ALL", "alerts_per_1000_negatives"]
+    assert negatives.value <= Decimal(str(floors.max_alerts_per_1000_negatives))
 
 
 def test_the_report_is_valid_canonical_json():
