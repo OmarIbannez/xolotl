@@ -154,7 +154,10 @@ def page_job(handler: JobHandler) -> JobHandler:
     raises as it is. On the last one, the page's work is rolled back, the batch is
     marked ``FAILED`` (``JOB_FAILED:<exception class>``, no message, which could
     carry row values) and committed, and the error is raised again for the runner
-    to record on the job.
+    to record on the job. The handler's changes are flushed inside the try, so a
+    flush error on the last attempt takes the same path. A failure at commit time,
+    like a worker dying on the last attempt (the reaper dead-letters the job without
+    calling the handler), still leaves the batch ``RUNNING``.
 
     Returns:
         The wrapped handler.
@@ -164,6 +167,7 @@ def page_job(handler: JobHandler) -> JobHandler:
     def run(s: Session, job: Job) -> None:
         try:
             handler(s, job)
+            s.flush()
         except Exception as error:
             if job.attempts < job.max_attempts:
                 raise

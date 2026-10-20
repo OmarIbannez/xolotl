@@ -33,6 +33,14 @@ periodic run. The entry is logged at WARNING (``screening.delta_entry_overflow``
 list code and entry key only), the count travels with the page payloads
 (``overflow``), and the completed batch records it as ``OVERFLOW:<n>`` in
 ``last_error`` while staying ``COMPLETED``.
+
+Resuming a failed batch: when a page's last attempt fails, the batch is marked
+``FAILED`` and keeps its cursor. The operator path to resume it is to replay the
+``lists.version_published.v1`` event for consumer ``screening`` (the bus replay);
+the next open of the same ``(kind, ref)`` reopens the batch and starts at its
+cursor. F4's ``screening rescreen`` CLI does not reopen ``LIST_DELTA`` batches, as
+it takes ``PERIODIC`` and ``REINDEX`` only. Pages left unscreened otherwise fall to
+the next periodic run.
 """
 
 import logging
