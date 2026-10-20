@@ -114,9 +114,11 @@ driver is added.
 | `XOLOTL_PRIVATE_LIST_MAX_MB` | `20` | Largest private-list upload, in MB (1 to 200). |
 | `XOLOTL_PRIVATE_LIST_MAX_ROWS` | `100000` | Most rows in one private-list upload. |
 | `XOLOTL_RETENTION_PURGE_CRON` | `0 3 * * *` | When the daily party retention sweep runs (UTC). |
+| `XOLOTL_SCREENING_DELTA_BATCH` | `200` | Added and changed list entries each list-delta re-screen job handles in one transaction (1 or more). |
 | `XOLOTL_SCREENING_INDEX_REFRESH_SECONDS` | `30` | How often each process checks for newer active list versions and reloads its in-memory screening index, in seconds (1 or more). |
 | `XOLOTL_SCREENING_INDEX_WARM` | `true` | Load the screening index on a background thread when the API or `xolotl worker` starts; `false` loads it synchronously on the first screen instead (the test suite does). |
 | `XOLOTL_SCREENING_PRIVATE_SHARDS` | `64` | How many tenants' private-list indexes each process keeps in memory; the least recently used is dropped beyond it (1 or more). |
+| `XOLOTL_SCREENING_RESCREEN_BATCH` | `500` | Parties each periodic, private-list or re-index re-screen job handles in one transaction (1 or more). |
 | `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
 | `XOLOTL_UNITS_FETCH_CRON` | `0 18 * * 1-5` | Daily UDI and FIX fetch, America/Mexico_City. |
 
@@ -400,6 +402,7 @@ responses: an API client sees the subject's status only (`CLEAR`, `PENDING_REVIE
 | `GET /v1/screening/matches/{id}/reveal` | staff | the subject's names and identifiers, a private entry and the rationales; one `VIEW_PII` per group |
 | `POST /v1/screening/matches/{id}/dispositions` | staff, not `AUDITOR_RO` | a decision under the four-eyes rules; a refusal is 409 `DISPOSITION_NOT_ALLOWED` with `blocked_reasons` |
 | `DELETE /v1/screening/whitelist/{id}` | MLRO | revoke a false-positive whitelist row |
+| `GET /v1/screening/batches` | staff | re-screen batches newest first (filters `kind`, `status`): progress counts, `total`, start and finish times |
 
 ## Screening
 

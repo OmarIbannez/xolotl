@@ -23,12 +23,15 @@ from xolotl.modules.screening.catalog.models import ListEntryRow, PrivateListEnt
 from xolotl.modules.screening.catalog.private import private_entry_of
 from xolotl.modules.screening.engine.enums import (
     OPEN_MATCH_STATUSES,
+    BatchKind,
+    BatchStatus,
     HitBand,
     MatchStatus,
     RunMode,
     TriggerType,
 )
 from xolotl.modules.screening.engine.models import (
+    ScreeningBatch,
     ScreeningHit,
     ScreeningListSetMember,
     ScreeningMatch,
@@ -53,6 +56,7 @@ from xolotl.modules.screening.review.models import (
     ScreeningWhitelist,
 )
 from xolotl.modules.screening.schemas import (
+    BatchResponse,
     CheckResponse,
     CheckStaffResponse,
     DispositionView,
@@ -366,6 +370,45 @@ def matches_query(
     if created_before is not None:
         query = query.where(ScreeningMatch.created_at < created_before)
     return query
+
+
+def batches_query(
+    *, kind: BatchKind | None, status: BatchStatus | None
+) -> Select[ScreeningBatch]:
+    """Select the tenant's re-screen batches that pass the filters.
+
+    Returns:
+        The statement, unordered; the caller paginates it.
+
+    """
+    query = select(ScreeningBatch)
+    if kind is not None:
+        query = query.where(ScreeningBatch.kind == kind)
+    if status is not None:
+        query = query.where(ScreeningBatch.status == status)
+    return query
+
+
+def batch_response(batch: ScreeningBatch) -> BatchResponse:
+    """Describe a batch's progress.
+
+    Returns:
+        The response model.
+
+    """
+    return BatchResponse(
+        id=batch.id,
+        kind=batch.kind,
+        ref=batch.ref,
+        status=batch.status,
+        total=batch.total,
+        done=batch.done,
+        runs=batch.runs,
+        new_matches=batch.new_matches,
+        started_at=batch.started_at,
+        finished_at=batch.finished_at,
+        last_error=batch.last_error,
+    )
 
 
 def _match(s: Session, match_id: UUID) -> ScreeningMatch:

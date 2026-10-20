@@ -27,6 +27,7 @@ from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.screening.composition import register_screening
 from xolotl.modules.screening.engine.holder import get_index_holder
+from xolotl.modules.screening.rescreen import register_rescreen
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
@@ -169,6 +170,9 @@ def wire_platform(
     _ = register_screening(
         session_factory=session_factory, settings=settings, queue=queue
     )
+    # The re-screen batches: list deltas, private-list versions, periodic and
+    # re-index walks.
+    register_rescreen(queue=queue)
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
