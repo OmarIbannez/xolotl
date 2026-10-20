@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from typing import ClassVar
 
 from xolotl.modules.screening.engine.enums import BlockedReason
-from xolotl.platform.errors import DomainError, ValidationFailedError
+from xolotl.platform.errors import DomainError, ValidationFailedError, XolotlError
 
 
 class ListMassRemovalError(DomainError):
@@ -52,3 +52,15 @@ class DispositionNotAllowedError(DomainError):
     def __init__(self, reasons: Sequence[BlockedReason] = ()) -> None:
         super().__init__()
         self.blocked_reasons: tuple[str, ...] = tuple(r.value for r in reasons)
+
+
+class ScreeningIndexUnavailableError(XolotlError):
+    """The process has not loaded the screening index, or lacks a required version.
+
+    Answered while the index warms up at start-up, and when a screen needs a list
+    version that a forced refresh could not find. Retrying later succeeds.
+    """
+
+    status: ClassVar[int] = 503
+    default_code: ClassVar[str] = "SCREENING_INDEX_UNAVAILABLE"
+    default_detail: ClassVar[str] = "the screening index is loading"

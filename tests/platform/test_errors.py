@@ -7,6 +7,7 @@ from xolotl.modules.screening.errors import (
     ListMassRemovalError,
     PrivateListExistsError,
     PrivateListInvalidError,
+    ScreeningIndexUnavailableError,
 )
 from xolotl.platform.connectors import NoRouteError
 from xolotl.platform.enums import ActorType, Role
@@ -66,6 +67,7 @@ from xolotl.platform.units.errors import (
         (PrivateListInvalidError, 422, "PRIVATE_LIST_INVALID"),
         (PrivateListExistsError, 409, "PRIVATE_LIST_EXISTS"),
         (DispositionNotAllowedError, 409, "DISPOSITION_NOT_ALLOWED"),
+        (ScreeningIndexUnavailableError, 503, "SCREENING_INDEX_UNAVAILABLE"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
