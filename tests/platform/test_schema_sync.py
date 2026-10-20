@@ -9,7 +9,12 @@ from xolotl.platform.tenancy.registry import SHARED_TABLES
 
 # Tables keyed by a natural composite key carry no ``id``: nothing references them
 # through ``(tenant_id, id)``, so they have no such unique.
-NATURALLY_KEYED = frozenset({"event_consumption", "idempotency_key", "workflow_step"})
+NATURALLY_KEYED = frozenset({
+    "event_consumption",
+    "idempotency_key",
+    "private_list_entry_delta",
+    "workflow_step",
+})
 
 
 def _include_name(name: str | None, type_: str, _parent_names: object) -> bool:

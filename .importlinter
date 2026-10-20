@@ -34,6 +34,14 @@ forbidden_modules =
 ignore_imports =
     xolotl.modules.screening.lists.** -> xolotl.platform.errors
 
+[importlinter:contract:screening-catalog-is-party-free]
+name = the list catalog never imports the party module
+type = forbidden
+source_modules =
+    xolotl.modules.screening.catalog
+forbidden_modules =
+    xolotl.modules.party
+
 [importlinter:contract:screening-lists-never-imports-matching]
 name = screening.lists never imports screening.matching
 type = forbidden

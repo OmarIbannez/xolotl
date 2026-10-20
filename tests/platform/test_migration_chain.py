@@ -16,6 +16,7 @@ CHAIN = [
     "0006_policy_units_calendar",
     "0007_connectors",
     "0008_party",
+    "0009_lists",
 ]
 
 

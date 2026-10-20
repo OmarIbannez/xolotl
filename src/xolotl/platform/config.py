@@ -4,6 +4,7 @@ import base64
 import hashlib
 import os
 import socket
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import ClassVar, Literal, Self
@@ -121,6 +122,21 @@ class Settings(BaseSettings):
     units_fetch_cron: str = "0 18 * * 1-5"
     # Daily party retention sweep (five-field cron, evaluated in UTC).
     retention_purge_cron: str = "0 3 * * *"
+    # Network fetching of the shared sanctions lists; unset means only in prod (dev,
+    # test and CI load files with `xolotl lists load-file`). Code reads
+    # lists_fetching.
+    lists_fetch_enabled: bool | None = None
+    # Per-tenant lists.poll job, five-field cron, evaluated in UTC.
+    lists_poll_cron: str = "* * * * *"
+    # Per HTTP request of a list download, in seconds.
+    lists_fetch_timeout_seconds: int = Field(default=120, ge=5, le=600)
+    # A larger list download is refused.
+    lists_max_file_mb: int = Field(default=300, ge=1, le=2048)
+    # A new list version removing more than this share of entries is refused.
+    lists_max_removal_ratio: Decimal = Field(default=Decimal("0.20"), gt=0, le=1)
+    # Upload limits of a tenant's private list.
+    private_list_max_mb: int = Field(default=20, ge=1, le=200)
+    private_list_max_rows: int = Field(default=100000, ge=1)
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -140,7 +156,7 @@ class Settings(BaseSettings):
         _ = _decode_master_key(value.get_secret_value())
         return value
 
-    @field_validator("units_fetch_cron", "retention_purge_cron")
+    @field_validator("units_fetch_cron", "retention_purge_cron", "lists_poll_cron")
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:
         if not croniter.is_valid(value):
@@ -222,6 +238,19 @@ class Settings(BaseSettings):
             )
             raise ValueError(msg)
         return self
+
+    @property
+    def lists_fetching(self) -> bool:
+        """Whether the poll job fetches shared lists over the network.
+
+        Returns:
+            ``XOLOTL_LISTS_FETCH_ENABLED`` when it is set, else whether
+            ``XOLOTL_ENV`` is ``prod``.
+
+        """
+        if self.lists_fetch_enabled is None:
+            return self.env == "prod"
+        return self.lists_fetch_enabled
 
     @property
     def master_key_bytes(self) -> bytes:
