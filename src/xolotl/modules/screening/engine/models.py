@@ -281,6 +281,7 @@ class ScreeningHit(TenantTableMixin, Base):
         tenant_fk("match_id", "screening_match"),
         CheckConstraint(ONE_ENTRY_CHECK, name="one_entry"),
         Index("ix_screening_hit_match", "tenant_id", "match_id"),
+        Index("ix_screening_hit_run", "tenant_id", "run_id"),
     )
 
     run_id: Mapped[UUID] = mapped_column(Uuid)
