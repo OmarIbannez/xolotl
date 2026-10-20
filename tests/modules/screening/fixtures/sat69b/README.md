@@ -1,0 +1,6 @@
+# SAT Article 69-B CFF list (trimmed)
+
+- Source: http://omawww.sat.gob.mx/cifras_sat/Documents/Listado_Completo_69-B.csv ("Listado completo de contribuyentes (Artículo 69-B del CFF)", SAT datos abiertos).
+- Retrieved: 2026-10-19 (preamble: "Información actualizada al 31 de diciembre de 2025"), 4566277 bytes, SHA-256 `54b95d41c9ca0ea1296f2885d1234e58a562620e76ac2437d2521fc2bbf36685`; Windows-1252, CRLF, two preamble rows then the header; 14,234 rows: 14,143 rows for 14,054 distinct RFCs plus 91 court-suppressed rows (RFC `XXXXXXXXXXXX`).
+- Trimmed to the two preamble rows, the header and 31 data rows copied byte for byte, chosen to cover: all four statuses (Presunto, Definitivo, Desvirtuado, Sentencia Favorable) for companies (12-character RFC) and people (13); RFCs with two proceedings (Definitivo plus Sentencia Favorable, Definitivo twice, Presunto plus Sentencia Favorable), one of them spelled with and without an accent; a name followed by a "// En cumplimiento…" annotation, a name with "// ANTES <former name>", and a quoted name that spans several lines; a clearing publication given as a date range; one court-suppressed row.
+- Personal data: only what the SAT itself publishes in this list (names and RFCs of listed taxpayers).

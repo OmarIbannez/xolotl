@@ -124,3 +124,61 @@ RELATED_ACCOUNT = F41Related(
     paternal_surname="Pérez",
     maternal_surname="Ñañez",
 )
+
+HEADER_ROI = F41Header(
+    period=date(2027, 4, 9), supervisor_key="40-002", entity_key="90-123"
+)
+
+ROI_OPERATION = F41Operation(
+    locality="09014001",
+    operation_type="01",
+    instrument="03",
+    account="1000000001",
+    amount=Decimal(1480000),
+    currency="MXN",
+    operation_date=date(2027, 3, 28),
+    detection_date=date(2027, 3, 29),
+    subject=MARIA,
+    description=(
+        "Alerta generada el 29/03/2027. Del 01/03/2027 al 28/03/2027 la clienta "
+        "recibió 14 transferencias de terceros; perfil declarado: empleada."
+    ),
+    reasons=(
+        "Monto acumulado inconsistente con el perfil transaccional; "
+        "dispersión inmediata a cuentas de terceros."
+    ),
+    related=(
+        RELATED_ACCOUNT,
+        F41Related(first_names="Raúl", paternal_surname="Ortiz", maternal_surname=""),
+    ),
+)
+
+EMPLOYEE = F41Subject(
+    person_type=PersonType.FISICA,
+    nationality="MX",
+    first_names="Patricia",
+    paternal_surname="Robles",
+    maternal_surname="Peña",
+    rfc="ROPA780702K78",
+    curp="ROPA780702MJCDRN01",
+    birth_or_incorporation=date(1978, 7, 2),
+    address="Calle Morelos 8, CP 45050",
+    neighbourhood="Zapopan Centro",
+    city_code="14120001",
+    economic_activity="9999999",
+)
+
+ROIP_OPERATION = F41Operation(
+    locality="14120001",
+    branch="GDL02",
+    operation_type="01",
+    instrument="01",
+    account="0",
+    amount=Decimal(0),
+    currency="MXN",
+    operation_date=date(2027, 4, 1),
+    detection_date=date(2027, 4, 2),
+    subject=EMPLOYEE,
+    description="Conducta: la empleada omitió registrar depósitos en efectivo.",
+    reasons="Posible participación en ocultamiento de operaciones (art. 400 Bis).",
+)

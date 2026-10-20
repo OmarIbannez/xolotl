@@ -1,0 +1,7 @@
+# FCDO UK Sanctions List (trimmed)
+
+- Source: https://sanctionslist.fcdo.gov.uk/docs/UK-Sanctions-List.xml, linked from https://www.gov.uk/government/publications/the-uk-sanctions-list. Field meanings: https://www.gov.uk/guidance/format-guide-for-the-uk-sanctions-list. This is the single UK list since 28 January 2026; OFSI's consolidated list is closed.
+- Retrieved: 2026-10-19 (`DateGenerated` 16/10/2026), 22051514 bytes, SHA-256 `8e71e2237d0dee3191d433f94ba6cec65ec76b5f0f3e9d2e42b4f3f992682281`; 6,408 designations (4,058 individuals, 1,667 entities, 683 ships).
+- Trimmed to 30 designations copied verbatim (no element edited), chosen to cover: Cyrillic, Arabic and Chinese non-Latin names; primary name variations and low and good quality aliases; `dd/mm/yyyy`, `dd/mm/1970`, `00/00/1975` and year-only birth dates; a designation whose first primary name record is empty (BEL0174) and one with two primary names (AFG0038); passports and national identifiers; entities with free-text business registration numbers; ships with IMO numbers with and without the `IMO` prefix and their flags; UK-style country names ("DPRK", "Kosovo", "Congo (Democratic Republic)", "The Gambia"); `UK|UN` designation sources; upper- and lower-case genders.
+- Left out on purpose: RUS2701, whose birth date `15/08/19yy` is dropped with a warning (covered by a synthetic test), so the fixture parses without warnings.
+- Personal data: only what the FCDO itself publishes in this list.

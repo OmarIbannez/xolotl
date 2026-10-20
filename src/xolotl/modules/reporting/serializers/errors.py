@@ -24,3 +24,13 @@ class ZeroReportNotAllowedError(ValidationFailedError):
 
     def __init__(self, code: str) -> None:
         super().__init__(f"{code} has no empty report")
+
+
+class CorrectionUnsupportedError(ValidationFailedError):
+    """The definition has no correction mechanism (Formato 41, D14)."""
+
+    default_code: ClassVar[str] = "CORRECTION_UNSUPPORTED"
+    default_detail: ClassVar[str] = "this report kind has no correction mechanism"
+
+    def __init__(self, code: str) -> None:
+        super().__init__(f"{code} has no correction mechanism")

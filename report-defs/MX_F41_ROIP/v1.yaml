@@ -1,0 +1,15 @@
+# Reporte de Operaciones Internas Preocupantes (Formato 41, tipo 3). The subject
+# columns 18 to 22 hold the employee, agent or director being reported.
+code: MX_F41_ROIP
+version: 1
+jurisdiction: MX
+regulator: UIF via CNBV (SITI PLD/FT)
+sources: [F41_RESOLUTION]
+serializer: DELIMITED
+encoding: ascii
+encoding_confidence: UNVERIFIED
+zero_report_rule: NOT_ALLOWED
+correction_rule: UNSUPPORTED
+valid_from: 2013-09-30
+report_type: "3"
+layout: MX_F41.v1
