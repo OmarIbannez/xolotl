@@ -58,7 +58,7 @@ This plan builds those defaults and does not reopen them.
 - **`screen()` takes `batch_id`**, also from 3b's E5, written to `screening_run.batch_id`. 3c does not modify `screen()` (reconciliation finding 2).
 - **Trigram filter.** The blocking query uses `norm_name % :folded` after `SET LOCAL pg_trgm.similarity_threshold = 0.4`, not `similarity(norm_name, :folded) >= 0.4` as spec §10.2 writes it. The two predicates select the same rows, but only `%` is served by the `ix_pni_trgm` GIN index. The phonetic predicate is one `phonetic_keys @> CAST(:k AS text[])` per key set, OR-ed together, which `ix_pni_phonetic` serves.
 - **Identifier blocking goes through `parties_query`.** It uses `parties_query(s, id_type=..., value=...)`, the party module's blind-index lookup, for each `RFC`, `CURP` and `PASSPORT` identifier of the entry. A value that fails the party validator raises `IdentifierInvalidError`. The entry is still blocked by name, and the failure is logged at DEBUG with the list code and entry key only. Lists publish malformed RFCs, so this is routine and not a warning.
-- **Overflow:** an entry whose candidate union exceeds 5,000 parties (`BLOCKING_CAP`) is not screened in the delta. Instead it is logged at WARNING (`screening.delta_entry_overflow`, list code and entry key) and counted in `screening_batch.last_error` as `OVERFLOW:<n>`, with the batch still `COMPLETED`. The next periodic run covers it (spec §10.2).
+- **Overflow:** an entry whose candidate union exceeds 5,000 parties (`BLOCKING_CAP`) has its name candidates left out of the delta; its RFC, CURP and passport matches are still screened (product owner, 2026-10-20). The entry is logged at WARNING (`screening.delta_entry_overflow`, list code and entry key) and counted in `screening_batch.last_error` as `OVERFLOW:<n>`, with the batch still `COMPLETED`. The next periodic run covers it (spec §10.2).
 - **The evaluation report is a committed file.** `xolotl screening eval --write` writes `src/xolotl/modules/screening/data/evaluation.json`. A test fails when its `matcher_version` differs from `MATCHER_VERSION`, so a matcher change cannot ship with a stale report. The CLI reads the corpus from `tests/modules/screening/corpus/` by default (`--corpus` overrides it). It is a build-time tool and is refused cleanly when the corpus is absent, for example in the container image.
 - **Perf tests are marked and excluded.** They carry `@pytest.mark.perf` and are excluded from the default run by `-m "not perf"` in `addopts`. They run by hand with `make perf`, which overrides the marker. They assert functional outcomes and the spec's budgets, and write their measurements to `.perf/sp03.json` (gitignored). CI never runs them (spec §15: "recorded, not gating"). If the library's perf test registered the `perf` marker first, F7 reuses it.
 - **Purge redaction marks the hit.** Redaction replaces the query-side strings of `features` with `""`: `query_name`, each `alignment[].query` and `unmatched_query` (emptied). It adds `"redacted": true`. Entry-side tokens, scores, bands, kinds, weights, qualifier outcomes, rules and `entry_ref` stay. Qualifier `detail` strings are masked by the library already, so they stay as stored. Redaction is idempotent.
@@ -226,7 +226,7 @@ _ID_TYPES = {IdType.RFC: IdentifierType.RFC, IdType.CURP: IdentifierType.CURP, I
 class BlockedEntry:
     entry_key: str
     party_ids: frozenset[UUID]
-    overflow: bool                       # union exceeded BLOCKING_CAP; party_ids is empty then
+    overflow: bool                       # union exceeded BLOCKING_CAP; party_ids then holds only the identifier matches
 
 def reverse_candidates(s: Session, entries: Sequence[ListEntry], *, idf: IdfTable) -> list[BlockedEntry]
     # under the caller's tenant session: SET LOCAL pg_trgm.similarity_threshold = 0.4 once;
@@ -237,7 +237,7 @@ def reverse_candidates(s: Session, entries: Sequence[ListEntry], *, idf: IdfTabl
     #     WHERE (phonetic_keys @> :k1 OR phonetic_keys @> :k2 …) OR norm_name % :folded
     #     LIMIT BLOCKING_CAP + 1
     # plus, per RFC/CURP/PASSPORT identifier, parties_query(s, id_type=…, value=identifier.normalized, status=ACTIVE)
-    # union per entry; overflow when > BLOCKING_CAP
+    # union per entry; overflow when > BLOCKING_CAP, keeping only the identifier matches
 ```
 
 - [ ] **Step 1: Write the failing tests** (`test_blocking.py`, parties created with 2c's `create_party` and indexed with 3b's `index_party_names`):
@@ -301,7 +301,7 @@ Before step 4 the handler calls `get_index_holder().shared(s, require={list_code
   - `test_pages_chain_until_the_delta_is_done`: `screening_delta_batch = 2` with five changed entries gives three jobs, cursor `"5"`, `COMPLETED`.
   - `test_a_redelivered_page_changes_nothing`: running the same page job again after its commit adds no run, hit, finding or count.
   - `test_the_version_event_opens_one_batch_and_enqueues_page_one`: dispatching `lists.version_published.v1` (`initial: false`) creates the `LIST_DELTA` batch with ref `version_id` and one `screening.list_delta` job; redelivering the event adds neither.
-  - `test_an_overflowing_entry_is_left_to_the_periodic_run`: `BLOCKING_CAP` patched, `last_error == "OVERFLOW:1"`, the batch `COMPLETED`.
+  - `test_an_overflowing_entry_is_left_to_the_periodic_run`: `BLOCKING_CAP` patched, `last_error == "OVERFLOW:1"`, the batch `COMPLETED`; a party matching the overflowing entry by RFC is still screened against it.
   - `test_purged_parties_are_skipped`.
   - `test_the_catch_up_reaches_the_job_through_the_worker`: 3a's `lists.poll` is enqueued and the runner and bus are drained. The delta findings exist, which proves the event hand-over from 3a's catch-up to this consumer end to end.
 - [ ] **Step 2: Run to verify failure.**

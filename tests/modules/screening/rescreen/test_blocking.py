@@ -295,6 +295,18 @@ def test_more_than_the_cap_marks_the_entry_overflow(
     assert found == BlockedEntry("E-1", frozenset(), overflow=True)
 
 
+def test_an_overflowing_entry_keeps_its_identifier_matches(
+    engine: Engine, tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(blocking, "BLOCKING_CAP", 3)
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        for second in ("Nava", "Nieto", "Olmos", "Pardo"):
+            _ = _add(s, _person(f"Ulises Quintanilla {second}"))
+        party_id = _add(s, _person("Carlos Sánchez Gil", rfc="SAGC800101AB8"))
+        found = _blocked(s, _entry("Ulises Quintanilla", rfc="SAGC800101AB8"))
+    assert found == BlockedEntry("E-1", frozenset({party_id}), overflow=True)
+
+
 def test_blocking_never_crosses_tenants(engine: Engine, tenant: CreatedTenant):
     other = new_tenant("beta", "admin@beta.mx")
     with staff_session(other.tenant_id, other.admin_user_id) as s:
