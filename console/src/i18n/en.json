@@ -1302,8 +1302,7 @@
       "score": "Score",
       "finding": "Finding",
       "openFinding": "Open finding",
-      "noFinding": "No finding",
-      "empty": "No results against the lists."
+      "noFinding": "No finding"
     }
   },
   "forbidden": {

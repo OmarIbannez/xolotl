@@ -43,6 +43,12 @@ describe('PartyScreeningCard', () => {
     expect(screen.getByText(text.status.OPEN)).toBeTruthy()
   })
 
+  it('says so when a screened party has no open findings', async () => {
+    setup(['ANALYST'], partyScreening({ open_finding_count: 0, findings: [] }))
+
+    expect(await screen.findByText(text.party.findingsEmpty)).toBeTruthy()
+  })
+
   it('check now posts the party id and shows the hits', async () => {
     const { user, fakeApi, queryClient } = setup(['ANALYST'], neverScreened())
     await screen.findByText(text.party.never)

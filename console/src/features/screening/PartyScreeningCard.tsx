@@ -81,7 +81,7 @@ export function PartyScreeningCard({ partyId }: { partyId: string }) {
             ]}
           />
         )}
-        {staff && staff.findings.length > 0 && (
+        {staff && view.status !== null && (
           <section className="space-y-2">
             <h3 className="text-sm font-medium">{t('screening.party.findings')}</h3>
             <Findings findings={staff.findings} />
@@ -117,7 +117,7 @@ export function PartyScreeningCard({ partyId }: { partyId: string }) {
               {t('screening.party.result')}
               <SubjectStatusBadge status={result.status} />
             </h3>
-            {isStaffCheck(result) && <HitList hits={result.hits} empty={t('screening.hits.empty')} />}
+            {isStaffCheck(result) && <HitList hits={result.hits} empty={t('screening.check.noHits')} />}
           </section>
         )}
       </CardContent>

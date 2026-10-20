@@ -1302,8 +1302,7 @@
       "score": "Puntaje",
       "finding": "Hallazgo",
       "openFinding": "Ver hallazgo",
-      "noFinding": "Sin hallazgo",
-      "empty": "Sin resultados contra las listas."
+      "noFinding": "Sin hallazgo"
     }
   },
   "forbidden": {

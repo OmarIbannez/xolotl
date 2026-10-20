@@ -14,6 +14,13 @@ export const MAX_IDENTIFIERS = 10
 /** The API's bound on `lists`. */
 const MAX_LISTS = 20
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/** Whether `text` (already `YYYY-MM-DD`) is a real calendar date: it survives a round trip. */
+function isCalendarDate(text: string): boolean {
+  const date = new Date(`${text}T00:00:00Z`)
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(text)
+}
+
 const COUNTRY = /^[A-Z]{2}$/
 
 export const ENTITY_TYPES = ['PERSON', 'ORGANIZATION'] as const
@@ -43,7 +50,7 @@ export const checkSchema = z.object({
   givenNames: personText,
   firstSurname: personText,
   secondSurname: personText,
-  birthDate: z.union([z.literal(''), z.string().regex(ISO_DATE, msgKey('dateFormat'))]),
+  birthDate: z.union([z.literal(''), z.string().regex(ISO_DATE, msgKey('dateFormat')).refine(isCalendarDate, msgKey('dateFormat'))]),
   gender: z.enum(['', ...GENDERS]),
   nationalities: countries,
   countries,

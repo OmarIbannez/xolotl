@@ -78,6 +78,11 @@ describe('checkSchema and toCheckRequest', () => {
     })
   })
 
+  it('rejects a birth date that is not a calendar date', () => {
+    expect(problems({ ...PERSON, birthDate: '2024-02-30' })).toEqual({ birthDate: esMX.validation.dateFormat })
+    expect(problems({ ...PERSON, birthDate: '2024-02-29' })).toEqual({})
+  })
+
   it('takes at most three names and ten identifiers', () => {
     const four = Array.from({ length: 4 }, () => ({ value: 'Ana' }))
     const eleven = Array.from({ length: 11 }, () => ({ idType: 'RFC' as const, value: 'X' }))
