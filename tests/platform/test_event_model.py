@@ -474,6 +474,12 @@ def test_model_partial_index_predicates_are_the_specs():
         ("job", "job_dedup"): "key IS NOT NULL AND status IN ('PENDING','RUNNING')",
         ("workflow_signal", "ix_workflow_signal_pending"): "consumed_at IS NULL",
         ("unit_value", "ix_unit_value_lookup"): "superseded_by IS NULL",
+        ("list_entry", "ux_list_entry_current"): "to_seq IS NULL",
+        ("list_version", "ux_list_version_active"): "status = 'ACTIVE'",
+        ("private_list_entry", "ux_private_list_entry_current"): "to_seq IS NULL",
+        ("private_list_version", "ux_private_list_version_active"): (
+            "status = 'ACTIVE'"
+        ),
     }
 
 
