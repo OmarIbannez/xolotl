@@ -3,8 +3,8 @@
 Checks, runs and party views are shared: API keys with ``screening:read`` /
 ``screening:write`` get status fields only (FR-SC-013), staff the full typed
 explanation. The match queue, its detail, the reveal and dispositions are staff only;
-revoking a whitelist row is the MLRO's. Re-screen batch progress is staff only (spec
-§12). Another tenant's rows are ``NOT_FOUND``
+revoking a whitelist row is the MLRO's. Re-screen batch progress and the shipped
+evaluation report are staff only (spec §12). Another tenant's rows are ``NOT_FOUND``
 (row-level security). Routes hold no business rule.
 """
 
@@ -26,6 +26,10 @@ from xolotl.modules.screening.engine.enums import (
 )
 from xolotl.modules.screening.engine.models import ScreeningBatch, ScreeningMatch
 from xolotl.modules.screening.enums import ListKind
+from xolotl.modules.screening.evaluation_report import (
+    EvaluationReportResponse,
+    load_shipped_report,
+)
 from xolotl.modules.screening.review.dispositions import disposition_match
 from xolotl.modules.screening.review.whitelist import revoke_whitelist
 from xolotl.modules.screening.schemas import (
@@ -176,3 +180,8 @@ def list_screening_batches(
     return Page(
         items=[api.batch_response(row) for row in rows], next_cursor=next_cursor
     )
+
+
+@router.get("/evaluation")
+def get_screening_evaluation(_staff: ScreeningStaff) -> EvaluationReportResponse:
+    return load_shipped_report()

@@ -47,6 +47,7 @@
     "matches": "Coincidencias",
     "lists": "Listas",
     "privateLists": "Listas privadas",
+    "screeningEvaluation": "Evaluación del motor",
     "screeningCheck": "Consulta ad hoc"
   },
   "header": {
@@ -1238,6 +1239,42 @@
       "revokeDescription": "El registro volverá a generar alertas en la próxima revisión. La revocación queda en la auditoría.",
       "revokePending": "Revocando…",
       "revoked": "Lista blanca revocada."
+    },
+    "evaluation": {
+      "title": "Evaluación del motor",
+      "description": "Cómo encuentra el motor a las personas listadas en el corpus de evaluación: cobertura por clase de lista y cada umbral que la versión debe cumplir.",
+      "empty": "Esta versión no incluye un reporte de evaluación.",
+      "matcherVersion": "Versión del motor",
+      "generatedAt": "Generado",
+      "corpusPairs": "Pares del corpus",
+      "hardNegatives": "Negativos difíciles",
+      "kind": {
+        "SANCTION": "Sanciones",
+        "FISCAL": "Fiscal (69-B)",
+        "ALL": "Todas"
+      },
+      "metric": {
+        "recall": "Cobertura (revisión o más)",
+        "retrieval_recall": "Cobertura de candidatos",
+        "precision_at_alert": "Precisión en alerta",
+        "alerts_per_1000_negatives": "Alertas por 1,000 negativos"
+      },
+      "kinds": {
+        "title": "Por clase de lista",
+        "kind": "Clase de lista",
+        "pairs": "Pares",
+        "empty": "El reporte no tiene clases de lista."
+      },
+      "floors": {
+        "title": "Umbrales",
+        "metric": "Métrica",
+        "floor": "Umbral",
+        "value": "Valor",
+        "result": "Resultado",
+        "met": "Cumple",
+        "below": "Por debajo",
+        "empty": "El reporte no tiene umbrales."
+      }
     },
     "subjectStatus": {
       "CLEAR": "Sin coincidencias",

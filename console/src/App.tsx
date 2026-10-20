@@ -65,6 +65,11 @@ const router = createBrowserRouter([
                     lazy: () =>
                       import('@/features/screening/MatchPage').then((m) => ({ Component: m.MatchPage })),
                   },
+                  {
+                    path: '/screening/evaluation',
+                    lazy: () =>
+                      import('@/features/screening/EvaluationPage').then((m) => ({ Component: m.EvaluationPage })),
+                  },
                 ],
               },
               {
