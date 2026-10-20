@@ -266,6 +266,7 @@ def test_a_screen_requiring_the_new_version_waits_for_the_rebuild(
     factory.armed = True
     rebuild, rebuilt = _screen_in_thread(holder, "screen-a")
     waiter_read = clock.read_by["screen-b"] = threading.Event()
+    waiter = None
     try:
         assert factory.entered.wait(timeout=WAIT)
         # The waiter has taken the old shard and found it lacking before the swap,
@@ -275,7 +276,9 @@ def test_a_screen_requiring_the_new_version_waits_for_the_rebuild(
     finally:
         factory.release.set()
         rebuild.join(timeout=WAIT)
-    waiter.join(timeout=WAIT)
+        if waiter is not None:
+            waiter.join(timeout=WAIT)
+    assert waiter is not None
     assert not rebuild.is_alive()
     assert not waiter.is_alive()
     assert len(rebuilt) == 1
