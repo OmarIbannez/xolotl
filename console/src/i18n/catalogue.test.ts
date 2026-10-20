@@ -44,6 +44,8 @@ const SAME_IN_BOTH = new Set([
   'parties.identifierType.CUIT',
   'parties.identifierType.RUT',
   'parties.identifierType.NIT',
+  'lists.idType.RFC', // identifier acronyms on list entries, as parties.identifierType
+  'lists.idType.CURP',
 ])
 
 describe('translation catalogues', () => {
@@ -90,6 +92,10 @@ describe('translation catalogues', () => {
       'IDENTIFIER_EXISTS',
       'IDENTIFIER_INVALID',
       'OBJECT_CORRUPT',
+      'LIST_MANDATORY',
+      'LIST_MASS_REMOVAL',
+      'LIST_FORMAT_INVALID',
+      'LIST_CODE_UNSUPPORTED',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

@@ -812,6 +812,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Lists */
+        get: operations["list_lists"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lists/{code}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List List Versions */
+        get: operations["list_list_versions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lists/{code}/versions/{version_id}/delta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Version Delta */
+        get: operations["list_version_delta"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lists/{code}/entries/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get List Entry */
+        get: operations["get_list_entry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lists/subscriptions/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Set List Subscription */
+        patch: operations["set_list_subscription"];
+        trace?: never;
+    };
+    "/v1/private-lists": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Private Lists */
+        get: operations["list_private_lists"];
+        put?: never;
+        /** Create Private List Endpoint */
+        post: operations["create_private_list_endpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/private-lists/{list_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Private List Versions */
+        get: operations["list_private_list_versions"];
+        put?: never;
+        /** Upload Private List Version */
+        post: operations["upload_private_list_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/private-lists/{list_id}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Private List Entries */
+        get: operations["list_private_list_entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -1355,6 +1493,25 @@ export interface components {
          * @enum {string}
          */
         DeliveryStatus: "PENDING" | "DELIVERED" | "DEAD";
+        /**
+         * DeltaChange
+         * @enum {string}
+         */
+        DeltaChange: "ADDED" | "CHANGED" | "REMOVED";
+        /** DeltaRowResponse */
+        DeltaRowResponse: {
+            /** Source Entry Key */
+            source_entry_key: string;
+            change: components["schemas"]["DeltaChange"];
+            /** Prev Entry Id */
+            prev_entry_id: string | null;
+            /** New Entry Id */
+            new_entry_id: string | null;
+            /** Prev Name */
+            prev_name: string | null;
+            /** New Name */
+            new_name: string | null;
+        };
         /** DocumentResponse */
         DocumentResponse: {
             /**
@@ -1455,6 +1612,11 @@ export interface components {
          * @enum {string}
          */
         EndpointStatus: "ACTIVE" | "DISABLED";
+        /**
+         * EntityType
+         * @enum {string}
+         */
+        EntityType: "PERSON" | "ORGANIZATION" | "VESSEL" | "AIRCRAFT" | "OTHER";
         /** GovernancePolicy */
         GovernancePolicy: {
             committee_required: components["schemas"]["Provenanced_bool_"];
@@ -1544,6 +1706,109 @@ export interface components {
         LegalHoldRequest: {
             /** Legal Hold */
             legal_hold: boolean;
+        };
+        /** ListEntryResponse */
+        ListEntryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** List Code */
+            list_code: string;
+            /** Source Entry Key */
+            source_entry_key: string;
+            /** From Seq */
+            from_seq: number;
+            /** To Seq */
+            to_seq: number | null;
+            /** Entry */
+            entry: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /**
+         * ListKind
+         * @enum {string}
+         */
+        ListKind: "SANCTION" | "FISCAL" | "BLOCKED" | "PEP" | "INTERNAL";
+        /**
+         * ListOverview
+         * @description A subscribed list with its active version and freshness.
+         */
+        ListOverview: {
+            /** Code */
+            code: string;
+            list_kind: components["schemas"]["ListKind"];
+            /** Title */
+            title: string;
+            /** Jurisdiction */
+            jurisdiction: string;
+            requirement: components["schemas"]["ListRequirement"];
+            /** Enabled */
+            enabled: boolean;
+            /** Active Seq */
+            active_seq: number | null;
+            /** Published At */
+            published_at: string | null;
+            /** Fetched At */
+            fetched_at: string | null;
+            /** Entry Count */
+            entry_count: number | null;
+            /** Stale */
+            stale: boolean;
+            /** Failing */
+            failing: boolean;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Success At */
+            last_success_at: string | null;
+        };
+        /** ListOverviewResponse */
+        ListOverviewResponse: {
+            /** Items */
+            items: components["schemas"]["ListOverview"][];
+        };
+        /**
+         * ListRequirement
+         * @enum {string}
+         */
+        ListRequirement: "MANDATORY" | "RECOMMENDED";
+        /** ListVersionResponse */
+        ListVersionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Seq */
+            seq: number;
+            status: components["schemas"]["VersionStatus"];
+            /** Published At */
+            published_at: string | null;
+            /** Source Version */
+            source_version: string | null;
+            /** Parser Version */
+            parser_version: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /** Loaded By */
+            loaded_by: string;
+            /** File Sha256 */
+            file_sha256: string;
+            /** File Size */
+            file_size: number;
+            /** Entry Count */
+            entry_count: number;
+            /** Added */
+            added: number;
+            /** Changed */
+            changed: number;
+            /** Removed */
+            removed: number;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -1781,6 +2046,20 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[DeltaRowResponse] */
+        Page_DeltaRowResponse_: {
+            /** Items */
+            items: components["schemas"]["DeltaRowResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[ListVersionResponse] */
+        Page_ListVersionResponse_: {
+            /** Items */
+            items: components["schemas"]["ListVersionResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[NotificationResponse] */
         Page_NotificationResponse_: {
             /** Items */
@@ -1806,6 +2085,27 @@ export interface components {
         Page_PartyResponse_: {
             /** Items */
             items: components["schemas"]["PartyResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[PrivateListEntryResponse] */
+        Page_PrivateListEntryResponse_: {
+            /** Items */
+            items: components["schemas"]["PrivateListEntryResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[PrivateListResponse] */
+        Page_PrivateListResponse_: {
+            /** Items */
+            items: components["schemas"]["PrivateListResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[PrivateListVersionResponse] */
+        Page_PrivateListVersionResponse_: {
+            /** Items */
+            items: components["schemas"]["PrivateListVersionResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -2128,6 +2428,78 @@ export interface components {
         };
         "PlainDecimal-Input": number | string;
         "PlainDecimal-Output": string;
+        /** PrivateListCreate */
+        PrivateListCreate: {
+            /** List Code */
+            list_code: string;
+            /** Title */
+            title: string;
+            list_kind?: components["schemas"]["ListKind"] | null;
+        };
+        /** PrivateListEntryResponse */
+        PrivateListEntryResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Source Entry Key */
+            source_entry_key: string;
+            entity_type: components["schemas"]["EntityType"];
+            /** Entry */
+            entry: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /** PrivateListResponse */
+        PrivateListResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** List Code */
+            list_code: string;
+            list_kind: components["schemas"]["ListKind"];
+            /** Title */
+            title: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            active_version: components["schemas"]["PrivateListVersionResponse"] | null;
+        };
+        /** PrivateListVersionResponse */
+        PrivateListVersionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Seq */
+            seq: number;
+            status: components["schemas"]["VersionStatus"];
+            /** Uploaded By */
+            uploaded_by: string;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Content Type */
+            content_type: string;
+            /** File Size */
+            file_size: number;
+            /** Entry Count */
+            entry_count: number;
+            /** Added */
+            added: number;
+            /** Changed */
+            changed: number;
+            /** Removed */
+            removed: number;
+        };
         /** Provenanced[ConversionRule] */
         Provenanced_ConversionRule_: {
             value: components["schemas"]["ConversionRule"];
@@ -2507,6 +2879,11 @@ export interface components {
          * @enum {string}
          */
         StaffStatus: "ACTIVE" | "DISABLED";
+        /** SubscriptionUpdate */
+        SubscriptionUpdate: {
+            /** Enabled */
+            enabled: boolean;
+        };
         /**
          * TenantEnv
          * @enum {string}
@@ -2816,6 +3193,11 @@ export interface components {
             /** Context */
             ctx?: Record<string, never>;
         };
+        /**
+         * VersionStatus
+         * @enum {string}
+         */
+        VersionStatus: "ACTIVE" | "SUPERSEDED";
         /** WebhookDeliveryResponse */
         WebhookDeliveryResponse: {
             /**
@@ -4643,6 +5025,331 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerRelationshipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_lists: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOverviewResponse"];
+                };
+            };
+        };
+    };
+    list_list_versions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ListVersionResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_version_delta: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                code: string;
+                version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_DeltaRowResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_list_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListEntryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_list_subscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubscriptionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_private_lists: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PrivateListResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_private_list_endpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivateListCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_private_list_versions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                list_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PrivateListVersionResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_private_list_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                list_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "text/csv": string;
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateListVersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_private_list_entries: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                list_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_PrivateListEntryResponse_"];
                 };
             };
             /** @description Validation Error */

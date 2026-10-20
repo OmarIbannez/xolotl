@@ -16,6 +16,9 @@ export const ACCESS = {
   parties: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
   partiesWrite: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
   legalHold: ['MLRO'],
+  // Every staff role reads the list catalogue; only ADMIN turns a recommended list on or off.
+  lists: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
+  listsAdmin: ['ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */

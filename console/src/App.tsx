@@ -95,6 +95,23 @@ const router = createBrowserRouter([
                   import('@/features/policy/PolicyPage').then((m) => ({ Component: m.PolicyPage })),
               },
               {
+                element: <RequireRole roles={ACCESS.lists} />,
+                children: [
+                  {
+                    path: '/lists',
+                    lazy: () =>
+                      import('@/features/lists/ListsPage').then((m) => ({ Component: m.ListsPage })),
+                  },
+                  {
+                    path: '/lists/:code',
+                    lazy: () =>
+                      import('@/features/lists/ListVersionsPage').then((m) => ({
+                        Component: m.ListVersionsPage,
+                      })),
+                  },
+                ],
+              },
+              {
                 // Unit values and the calendar are reference data every signed-in role reads.
                 path: '/units',
                 lazy: () =>

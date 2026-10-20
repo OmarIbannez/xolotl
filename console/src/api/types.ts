@@ -100,6 +100,19 @@ export type MaskedContact = Schemas['MaskedContact']
 export type AddressResponse = Schemas['AddressResponse']
 export type PartyRelationshipResponse = Schemas['PartyRelationshipResponse']
 
+export type ListOverview = Schemas['ListOverview']
+export type ListOverviewResponse = Schemas['ListOverviewResponse']
+export type ListVersionResponse = Schemas['ListVersionResponse']
+export type ListVersionPage = Schemas['Page_ListVersionResponse_']
+export type DeltaRowResponse = Schemas['DeltaRowResponse']
+export type DeltaPage = Schemas['Page_DeltaRowResponse_']
+/** One list entry as the library serializes it (`ListEntry.canonical_json`): public list data. */
+export type ListEntryResponse = Schemas['ListEntryResponse']
+export type ListKind = Schemas['ListKind']
+export type ListRequirement = Schemas['ListRequirement']
+export type DeltaChange = Schemas['DeltaChange']
+export type VersionStatus = Schemas['VersionStatus']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.
