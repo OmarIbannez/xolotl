@@ -5,8 +5,8 @@ The tenants service publishes ``tenant.created.v1``, ``staff.created.v1``,
 itself, and ``POST /v1/ping`` publishes ``test.ping.v1``. Every event is keyed by the
 entity's id (the ping by the actor's) and its data holds ids and codes, never
 personal data or secrets (program spec D8). Creating a tenant also schedules the
-platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep, and
-the weekday ``units.fetch`` in Mexico City.
+platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep,
+the weekday ``units.fetch`` in Mexico City and the ``lists.poll`` every minute.
 """
 
 import json
@@ -107,6 +107,7 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
         for row in schedules
     ] == [
         ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", {}, True),
+        ("lists.poll", "* * * * *", "UTC", "lists.poll", {}, True),
         (
             "party.retention_sweep",
             "0 3 * * *",
@@ -127,7 +128,8 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     ]
     # The first run is the next slot, never the current one.
     daily = {"units.fetch", "party.retention_sweep"}
-    hourly = [row for row in schedules if row.name not in daily]
+    hourly = [row for row in schedules if row.name not in {*daily, "lists.poll"}]
+    poll = next(row for row in schedules if row.name == "lists.poll")
     (units,) = [row for row in schedules if row.name == "units.fetch"]
     sweep = next(row for row in schedules if row.name == "party.retention_sweep")
     slots = {next_slot("0 * * * *", "UTC", after=moment) for moment in (before, after)}
@@ -139,6 +141,10 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     # A daily 03:00 UTC slot is never the next full hour.
     assert sweep.next_run_at in {
         next_slot("0 3 * * *", "UTC", after=m) for m in (before, after)
+    }
+    # The lists poll runs every minute.
+    assert poll.next_run_at in {
+        next_slot("* * * * *", "UTC", after=m) for m in (before, after)
     }
     assert all(row.last_run_at is None for row in schedules)
 
@@ -295,6 +301,7 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
             names = list(s.scalars(select(JobSchedule.name).order_by(JobSchedule.name)))
         assert names == [
             "idempotency.purge",
+            "lists.poll",
             "party.retention_sweep",
             "units.fetch",
             "workflow.sweep",
