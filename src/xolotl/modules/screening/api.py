@@ -390,7 +390,7 @@ def _masked(s: Session, subject: ScreeningSubject) -> MaskedSubject:
         kind=subject.kind,
         party_id=subject.party_id,
         entity_type=query.entity_type.value,
-        initials=initials(*query.names),
+        initials=initials(query.names[0]) if query.names else "",
         identifiers=[
             f"{i.id_type.value} {mask_identifier(i.normalized)}"
             for i in query.identifiers

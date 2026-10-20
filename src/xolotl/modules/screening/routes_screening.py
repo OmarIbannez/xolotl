@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Response
+from fastapi import Depends, Query, Response
 from sqlalchemy import select
 
 from xolotl.modules.screening import api
@@ -81,7 +81,7 @@ def list_matches(
     page: PageDep,
     status: MatchStatus | None = None,
     band: HitBand | None = None,
-    list_code: str | None = None,
+    list_code: Annotated[str | None, Query(max_length=100)] = None,
     list_kind: ListKind | None = None,
     created_before: datetime | None = None,
 ) -> Page[MatchSummary]:
