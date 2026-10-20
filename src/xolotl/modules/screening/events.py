@@ -24,6 +24,9 @@ MATCH_DISPOSITIONED = "screening.match_dispositioned.v1"
 TRUE_MATCH_CONFIRMED = "screening.true_match_confirmed.v1"
 MATCH_DELISTING_SUGGESTED = "screening.match_delisting_suggested.v1"
 PRIVATE_LIST_VERSION_ACTIVATED = "private_list.version_activated.v1"
+# One per tenant per shared list version handed to re-screening (the catch-up of
+# ``lists.poll``); webhook-safe.
+LISTS_VERSION_PUBLISHED = "lists.version_published.v1"
 
 STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (
     PRIVATE_LIST_VERSION_ACTIVATED,

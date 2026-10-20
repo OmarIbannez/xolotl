@@ -20,6 +20,7 @@ from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
 from xolotl.modules.party import routes_relationships as party_relationship_routes
 from xolotl.modules.party.retention import register_party
+from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
@@ -141,6 +142,9 @@ def wire_platform(
         ),
         notifier=InAppNotifier(),
     )
+    # The per-minute lists.poll job: subscriptions from the effective policy, the
+    # catch-up events, and the stale-source and missing-LPB notices.
+    _ = register_lists(session_factory=session_factory, notifier=InAppNotifier())
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
