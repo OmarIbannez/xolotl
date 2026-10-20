@@ -68,6 +68,16 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.screeningCheck} />,
+                children: [
+                  {
+                    path: '/screening/check',
+                    lazy: () =>
+                      import('@/features/screening/CheckPage').then((m) => ({ Component: m.CheckPage })),
+                  },
+                ],
+              },
+              {
                 element: <RequireRole roles={ACCESS.apiKeys} />,
                 children: [
                   {

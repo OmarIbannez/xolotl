@@ -6,6 +6,7 @@ import type { Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
+import { neverScreened } from '@/features/screening/fixtures'
 import { fullStaffView, party, pii, RFC, staffView } from './fixtures'
 import { PartyPage } from './PartyPage'
 
@@ -22,6 +23,7 @@ function setup(roles: Role[] = ['ANALYST'], extra: Parameters<typeof renderApp>[
       routes: {
         'GET /v1/parties/p1': () => json(staffView()),
         'GET /v1/parties/p1/pii': () => json(pii()),
+        'GET /v1/screening/parties/p1': () => json(neverScreened()),
         ...extra.routes,
       },
     },
@@ -174,5 +176,21 @@ describe('PartyPage: the attribute edit', () => {
 
     await waitFor(() => expect(fakeApi.calls('PATCH /v1/parties/p1')).toHaveLength(1))
     expect(await fakeApi.calls('PATCH /v1/parties/p1')[0]?.json()).toEqual({ organization: { trade_name: null } })
+  })
+})
+
+describe('PartyPage: the screening card', () => {
+  it('shows the party screening, with "check now" for a writer only', async () => {
+    setup(['ANALYST'])
+
+    expect(await screen.findByText(esMX.screening.party.never)).toBeTruthy()
+    expect(screen.getByRole('button', { name: esMX.screening.party.checkNow })).toBeTruthy()
+  })
+
+  it('shows AUDITOR_RO the screening without "check now"', async () => {
+    setup(['AUDITOR_RO'])
+
+    expect(await screen.findByText(esMX.screening.party.never)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: esMX.screening.party.checkNow })).toBeNull()
   })
 })

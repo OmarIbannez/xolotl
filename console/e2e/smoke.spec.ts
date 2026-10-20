@@ -239,6 +239,16 @@ test('a new tenant administrator signs in, secures the account and works in the 
     expect(((await audit.json()) as { items: { action: string }[] }).items.length).toBeGreaterThan(0)
   })
 
+  await test.step('an ad hoc check returns a status', async () => {
+    // The smoke stack may have no lists loaded, so only the status is asserted, never the hits.
+    await page.getByRole('link', { name: es.nav.screeningCheck, exact: true }).click()
+    await expect(page.getByRole('heading', { name: es.screening.check.title, level: 1 })).toBeVisible()
+    await page.getByLabel(say(es.screening.check.name, { n: '1' }), { exact: true }).fill('Ana María Pérez Gómez')
+    await page.getByRole('button', { name: es.screening.check.submit, exact: true }).click()
+    const statuses = Object.values(es.screening.subjectStatus)
+    await expect(page.getByText(new RegExp(`^(${statuses.join('|')})$`))).toBeVisible()
+  })
+
   await test.step('the audit chain verifies, after a reload on a deep link', async () => {
     await page.goto('/audit') // a fresh load of a console route: the API serves the console's page
     await expect(page.getByRole('heading', { name: es.audit.title, level: 1 })).toBeVisible()
