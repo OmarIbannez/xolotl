@@ -1,0 +1,11 @@
+clave,tipo,nombre_completo,nombres,primer_apellido,segundo_apellido,razon_social,alias,fecha_nacimiento,rfc,curp,nacionalidad,otro_identificador,fecha_alta,observaciones
+BAD-1,PX,Teodomiro Cuauhtlequetzqui,,,,,,,,,,,,
+BAD-2,PF,Anacleta Xochiquetzalli,Anacleta,Xochiquetzalli,,,,,,,,,,
+BAD-3,PF,Eustaquio Tezcatlipocatl,,,,,,1980-13-45,,,,,,
+BAD-4,PF,Filomena Chalchiuhtlicue,,,,,,,ZZZZ999999ZZZ,,,,,
+BAD-5,PF,Gumersindo Huitzilopochtzin,,,,,,,,NOTACURP1234567890,,,,
+BAD-6,PF,Hermenegilda Coyolxauhqui,,,,,,,FCO010203XY7,,,,,
+BAD-7,PF,Isidoro Tonatiuhcatl,,,,,,,,,MEXICO,,,
+BAD-8,PM,,,,,,,,,,,,,secreto de la empresa
+BAD-9,PF,Jacinta Mictlantecuhtli,,,,,,,,,,,ayer,
+BAD-1,PF,Leocadio Quetzalpapalotl,,,,,,,,,,,,
