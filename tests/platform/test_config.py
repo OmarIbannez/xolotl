@@ -2,6 +2,7 @@ import base64
 import os
 import socket
 import traceback
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
@@ -252,6 +253,12 @@ def test_env_example_is_a_valid_configuration():
         "units_fetch_cron",
         "connector_mode_default",
         "retention_purge_cron",
+        "lists_poll_cron",
+        "lists_fetch_timeout_seconds",
+        "lists_max_file_mb",
+        "lists_max_removal_ratio",
+        "private_list_max_mb",
+        "private_list_max_rows",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -582,4 +589,62 @@ def test_retention_purge_cron_defaults_and_reads_its_variable(monkeypatch):
 def test_retention_purge_cron_must_be_a_cron_expression(monkeypatch):
     monkeypatch.setenv("XOLOTL_RETENTION_PURGE_CRON", "every night")
     with pytest.raises(ValidationError, match="RETENTION_PURGE_CRON"):
+        _ = make_settings()
+
+
+def test_list_settings_default_to_the_spec_values():
+    s = make_settings()
+    assert s.lists_poll_cron == "* * * * *"
+    assert s.lists_fetch_timeout_seconds == 120
+    assert s.lists_max_file_mb == 300
+    assert s.lists_max_removal_ratio == Decimal("0.20")
+    assert s.private_list_max_mb == 20
+    assert s.private_list_max_rows == 100000
+    assert s.lists_fetch_enabled is None
+
+
+@pytest.mark.parametrize(
+    ("env", "enabled", "expected"),
+    [
+        ("dev", None, False),
+        ("test", None, False),
+        ("prod", None, True),
+        ("dev", "true", True),
+        ("prod", "false", False),
+    ],
+)
+def test_list_fetching_follows_the_environment_unless_set(
+    monkeypatch, env, enabled, expected
+):
+    if env == "prod":
+        _prod(monkeypatch)
+    else:
+        monkeypatch.setenv("XOLOTL_ENV", env)
+    if enabled is not None:
+        monkeypatch.setenv("XOLOTL_LISTS_FETCH_ENABLED", enabled)
+    assert make_settings().lists_fetching is expected
+
+
+def test_the_poll_cron_is_validated(monkeypatch):
+    monkeypatch.setenv("XOLOTL_LISTS_POLL_CRON", "every minute")
+    with pytest.raises(ValidationError, match="lists_poll_cron"):
+        _ = make_settings()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("XOLOTL_LISTS_FETCH_TIMEOUT_SECONDS", "4"),
+        ("XOLOTL_LISTS_FETCH_TIMEOUT_SECONDS", "601"),
+        ("XOLOTL_LISTS_MAX_FILE_MB", "0"),
+        ("XOLOTL_LISTS_MAX_FILE_MB", "2049"),
+        ("XOLOTL_LISTS_MAX_REMOVAL_RATIO", "0"),
+        ("XOLOTL_LISTS_MAX_REMOVAL_RATIO", "1.5"),
+        ("XOLOTL_PRIVATE_LIST_MAX_MB", "201"),
+        ("XOLOTL_PRIVATE_LIST_MAX_ROWS", "0"),
+    ],
+)
+def test_list_limits_reject_nonsense(monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError, match=name.removeprefix("XOLOTL_").lower()):
         _ = make_settings()

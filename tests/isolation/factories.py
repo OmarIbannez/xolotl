@@ -5,10 +5,12 @@ any parent rows it needs) and flushes. Later modules append their factories
 here when they add tables, and list them in ``register_all``.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from xolotl.modules.party.enums import (
@@ -32,6 +34,21 @@ from xolotl.modules.party.models import (
     PartyRelationship,
     Person,
     VerificationCheck,
+)
+from xolotl.modules.screening.catalog.models import (
+    ListSource,
+    PrivateList,
+    PrivateListEntryDelta,
+    PrivateListEntryRow,
+    PrivateListVersion,
+    TenantListSubscription,
+)
+from xolotl.modules.screening.enums import (
+    DeltaChange,
+    ListKind,
+    ListRequirement,
+    SourceFormat,
+    VersionStatus,
 )
 from xolotl.modules.tenants.models import (
     ApiKey,
@@ -598,6 +615,141 @@ def customer_relationship(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def _list_source_code() -> str:
+    """Insert the UN list source through the owner engine, unless it exists.
+
+    The application role may not insert into the shared ``list_source``, so the
+    parent of a subscription is created by the owner engine, in its own committed
+    transaction, as ``_pack_version_id`` does.
+
+    Returns:
+        The source's code, ``UN_CONSOLIDATED``.
+
+    """
+    code = "UN_CONSOLIDATED"
+    engine = get_admin_engine()
+    try:
+        with engine.begin() as conn:
+            _ = conn.execute(
+                insert(ListSource)
+                .values(
+                    code=code,
+                    list_kind=ListKind.SANCTION,
+                    title="UN Security Council Consolidated List",
+                    jurisdiction="UN",
+                    format=SourceFormat.UN_XML,
+                    url="https://lists.test/un.xml",
+                    poll_interval=timedelta(minutes=15),
+                )
+                .on_conflict_do_nothing()
+            )
+    finally:
+        engine.dispose()
+    return code
+
+
+def tenant_list_subscription(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        TenantListSubscription(
+            tenant_id=tenant_id,
+            list_code=_list_source_code(),
+            requirement=ListRequirement.MANDATORY,
+        )
+    )
+    session.flush()
+
+
+def _private_list(session: Session, tenant_id: UUID) -> PrivateList:
+    # The tenant's one MX_LPB list, created on first use, so that a version and an
+    # entry built for one factory (the delta's) belong to the same list. The private
+    # tables hold real ciphertext, so the bare tenant gets its keys with the list.
+    existing = session.scalar(
+        select(PrivateList).where(
+            PrivateList.tenant_id == tenant_id, PrivateList.list_code == "MX_LPB"
+        )
+    )
+    if existing is not None:
+        return existing
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
+    row = PrivateList(
+        tenant_id=tenant_id,
+        list_code="MX_LPB",
+        list_kind=ListKind.BLOCKED,
+        title="Lista de personas bloqueadas",
+        created_by="staff:test",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def private_list(session: Session, tenant_id: UUID) -> None:
+    _ = _private_list(session, tenant_id)
+
+
+def _private_list_version(session: Session, tenant_id: UUID) -> PrivateListVersion:
+    parent = _private_list(session, tenant_id)
+    version_id = uuid7()
+    row = PrivateListVersion(
+        tenant_id=tenant_id,
+        id=version_id,
+        list_id=parent.id,
+        seq=1,
+        status=VersionStatus.ACTIVE,
+        uploaded_by="staff:test",
+        file_sha256=b"\x00" * 32,
+        file_size=1,
+        content_type="text/csv",
+        storage_key=f"private-lists/{parent.id}/{version_id}",
+        entry_count=1,
+        added=1,
+        changed=0,
+        removed=0,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def private_list_version(session: Session, tenant_id: UUID) -> None:
+    _ = _private_list_version(session, tenant_id)
+
+
+def _private_list_entry(session: Session, tenant_id: UUID) -> PrivateListEntryRow:
+    parent = _private_list(session, tenant_id)
+    row = PrivateListEntryRow(
+        tenant_id=tenant_id,
+        list_id=parent.id,
+        source_entry_key=f"clave {uuid7().hex[:8]}",
+        content_tag=b"\x00" * 32,
+        entity_type="PERSON",
+        entry=encrypt_json({"k": "v"}, tenant_id=tenant_id, session=session),
+        from_seq=1,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def private_list_entry(session: Session, tenant_id: UUID) -> None:
+    _ = _private_list_entry(session, tenant_id)
+
+
+def private_list_entry_delta(session: Session, tenant_id: UUID) -> None:
+    version = _private_list_version(session, tenant_id)
+    entry = _private_list_entry(session, tenant_id)
+    session.add(
+        PrivateListEntryDelta(
+            tenant_id=tenant_id,
+            version_id=version.id,
+            source_entry_key=entry.source_entry_key,
+            change=DeltaChange.ADDED,
+            new_entry_id=entry.id,
+        )
+    )
+    session.flush()
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -633,3 +785,8 @@ def register_all() -> None:
     register_isolation_factory("party_relationship", party_relationship)
     register_isolation_factory("document", document)
     register_isolation_factory("customer_relationship", customer_relationship)
+    register_isolation_factory("tenant_list_subscription", tenant_list_subscription)
+    register_isolation_factory("private_list", private_list)
+    register_isolation_factory("private_list_version", private_list_version)
+    register_isolation_factory("private_list_entry", private_list_entry)
+    register_isolation_factory("private_list_entry_delta", private_list_entry_delta)

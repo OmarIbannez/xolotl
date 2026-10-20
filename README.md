@@ -102,10 +102,17 @@ driver is added.
 | `XOLOTL_BANXICO_TOKEN` | unset | Banxico SIE token; unset runs the fetcher in demo mode from the seed files, refused when `XOLOTL_ENV=prod`. |
 | `XOLOTL_CONNECTOR_MODE_DEFAULT` | `SANDBOX` | Connector mode of a PROD tenant when a call names none. SANDBOX tenants always use mocks. The Render blueprint sets LIVE. |
 | `XOLOTL_DATABASE_CONNECT_TIMEOUT_SECONDS` | `10` | libpq's connect timeout, in seconds (2 to 300; libpq treats less than 2 as 2), for every connection the application and the CLI open. A database that cannot be reached fails `serve` and the `db` commands in one line, `error: cannot connect to the database: ...`, once it expires, instead of hanging. |
+| `XOLOTL_LISTS_FETCH_ENABLED` | unset | Network fetching of the shared sanctions lists by the `lists.poll` job. Unset means true only when `XOLOTL_ENV=prod`; elsewhere load files with `xolotl lists load-file`. |
+| `XOLOTL_LISTS_FETCH_TIMEOUT_SECONDS` | `120` | Timeout of one list download request, in seconds (5 to 600). |
+| `XOLOTL_LISTS_MAX_FILE_MB` | `300` | Larger list downloads are refused (1 to 2048). |
+| `XOLOTL_LISTS_MAX_REMOVAL_RATIO` | `0.20` | A new list version that removes more than this share of the previous version's entries is refused (the mass-removal guard). |
+| `XOLOTL_LISTS_POLL_CRON` | `* * * * *` | When the per-tenant `lists.poll` job runs (UTC). |
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
 | `XOLOTL_PACKS_DIR` | `./policy-packs` | Pack, unit seed and holiday sources; the Docker image sets `/app/policy-packs`. |
+| `XOLOTL_PRIVATE_LIST_MAX_MB` | `20` | Largest private-list upload, in MB (1 to 200). |
+| `XOLOTL_PRIVATE_LIST_MAX_ROWS` | `100000` | Most rows in one private-list upload. |
 | `XOLOTL_RETENTION_PURGE_CRON` | `0 3 * * *` | When the daily party retention sweep runs (UTC). |
 | `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
 | `XOLOTL_UNITS_FETCH_CRON` | `0 18 * * 1-5` | Daily UDI and FIX fetch, America/Mexico_City. |

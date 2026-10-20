@@ -7,6 +7,7 @@ module adds its ``models`` import here when it creates its first table.
 from sqlalchemy import MetaData
 
 from xolotl.modules.party import models as party_models
+from xolotl.modules.screening.catalog import models as screening_catalog_models
 from xolotl.modules.tenants import models as tenants_models
 from xolotl.platform.api import models as api_models
 from xolotl.platform.audit import models as audit_models
@@ -31,6 +32,7 @@ __all__ = [
     "metadata",
     "party_models",
     "policy_models",
+    "screening_catalog_models",
     "tenants_models",
     "units_models",
     "workflows_models",
