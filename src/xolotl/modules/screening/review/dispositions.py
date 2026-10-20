@@ -26,7 +26,11 @@ from xolotl.modules.screening.events import (
     TRUE_MATCH_CONFIRMED,
     publish_screening_event,
 )
-from xolotl.modules.screening.review.actions import escalated_by, evaluate_actions
+from xolotl.modules.screening.review.actions import (
+    answers_escalation,
+    escalated_by,
+    evaluate_actions,
+)
 from xolotl.modules.screening.review.models import MatchDisposition
 from xolotl.modules.screening.review.whitelist import whitelist_entry
 from xolotl.platform import clock
@@ -109,9 +113,7 @@ def disposition_match(
     )
     if decision not in actions.allowed:
         raise DispositionNotAllowedError(actions.blocked[decision])
-    answers = decision is Decision.TRUE_MATCH or (
-        decision is Decision.FALSE_POSITIVE and match.status is MatchStatus.ESCALATED
-    )
+    answers = answers_escalation(decision, match.status)
     policy = policy_for_run(s)
     disposition = MatchDisposition(
         tenant_id=match.tenant_id,

@@ -16,7 +16,12 @@ from tests.helpers import (
     staff_session,
     system_ctx,
 )
-from tests.modules.screening.review.support import add_staff, assign_itf, party_finding
+from tests.modules.screening.review.support import (
+    add_finding,
+    add_staff,
+    assign_itf,
+    party_finding,
+)
 from xolotl.modules.screening.engine.enums import (
     BlockedReason,
     DecidedByType,
@@ -26,6 +31,8 @@ from xolotl.modules.screening.engine.enums import (
     SuggestedDisposition,
 )
 from xolotl.modules.screening.engine.models import ScreeningMatch, ScreeningSubject
+from xolotl.modules.screening.engine.queries import AdHocSubjectInput
+from xolotl.modules.screening.engine.subjects import create_ad_hoc_subject
 from xolotl.modules.screening.errors import DispositionNotAllowedError
 from xolotl.modules.screening.events import (
     MATCH_DISPOSITIONED,
@@ -146,6 +153,34 @@ def test_an_analyst_escalates_and_a_senior_confirms_a_true_match(
         },
     ]
     assert all(e.policy_snapshot_id is not None for e in dispositioned)
+
+
+def test_a_true_match_on_an_ad_hoc_subject_of_an_unmapped_list(
+    engine: Engine, tenant: CreatedTenant, itf: None
+):
+    # The ITF pack maps no INTERNAL_* list to a playbook action, and an ad hoc
+    # subject has no party: the event says both plainly.
+    analyst = add_staff(tenant, Role.ANALYST)
+    senior = add_staff(tenant, Role.SENIOR_ANALYST)
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        subject = create_ad_hoc_subject(
+            s,
+            AdHocSubjectInput(type="ORGANIZATION", names=["Acme Servicios SA de CV"]),
+        )
+        match = add_finding(s, subject, list_code="INTERNAL_RIESGO")
+        subject_id, match_id = subject.id, match.id
+
+    _ = _decide(tenant, analyst, Role.ANALYST, match_id, Decision.POSSIBLE_TRUE_MATCH)
+    _ = _decide(tenant, senior, Role.SENIOR_ANALYST, match_id, Decision.TRUE_MATCH)
+
+    (confirmed,) = _events(tenant.tenant_id, TRUE_MATCH_CONFIRMED)
+    assert confirmed.data == {
+        "match_id": str(match_id),
+        "subject_id": str(subject_id),
+        "party_id": None,
+        "list_code": "INTERNAL_RIESGO",
+        "on_true_match": None,
+    }
 
 
 def test_the_escalating_user_cannot_confirm(

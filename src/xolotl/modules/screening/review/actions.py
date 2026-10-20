@@ -50,8 +50,16 @@ class ActionSet:
     blocked: Mapping[Decision, tuple[BlockedReason, ...]]
 
 
-def _answers_escalation(decision: Decision, status: MatchStatus) -> bool:
-    # The two-person decisions: they answer an escalation (Deviation 11).
+def answers_escalation(decision: Decision, status: MatchStatus) -> bool:
+    """Tell whether a decision answers an escalation (Deviation 11).
+
+    These are the two-person decisions: confirming a true match, and clearing an
+    escalated finding as a false positive.
+
+    Returns:
+        True when ``decision``, taken from ``status``, answers an escalation.
+
+    """
     return decision is Decision.TRUE_MATCH or (
         decision is Decision.FALSE_POSITIVE and status is MatchStatus.ESCALATED
     )
@@ -81,7 +89,7 @@ def _reasons(
     if not roles & _required_roles(decision, match.status):
         reasons.append(BlockedReason.ROLE_REQUIRED)
     if (
-        _answers_escalation(decision, match.status)
+        answers_escalation(decision, match.status)
         and escalated_by is not None
         and escalated_by == user_id
     ):

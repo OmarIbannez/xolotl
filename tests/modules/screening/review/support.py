@@ -1,7 +1,8 @@
 """Builders for the review tests: staff users, policies and hand-made findings.
 
 The review tests do not need ``screen()``: a finding is built with the models, with a
-private ``MX_LPB`` entry of its own, keyed uniquely.
+private entry of its own (``MX_LPB`` unless a test names an ``INTERNAL_*`` list), keyed
+uniquely.
 """
 
 from datetime import date
@@ -78,13 +79,17 @@ def add_staff(tenant: CreatedTenant, *roles: Role) -> UUID:
         return user.id
 
 
-def _entry(s: Session, tenant_id: UUID) -> PrivateListEntryRow:
-    parent = s.scalar(select(PrivateList).where(PrivateList.list_code == "MX_LPB"))
+def _kind(list_code: str) -> ListKind:
+    return ListKind.BLOCKED if list_code == "MX_LPB" else ListKind.INTERNAL
+
+
+def _entry(s: Session, tenant_id: UUID, list_code: str) -> PrivateListEntryRow:
+    parent = s.scalar(select(PrivateList).where(PrivateList.list_code == list_code))
     if parent is None:
         parent = PrivateList(
             tenant_id=tenant_id,
-            list_code="MX_LPB",
-            list_kind=ListKind.BLOCKED,
+            list_code=list_code,
+            list_kind=_kind(list_code),
             title="Lista de personas bloqueadas",
             created_by="staff:test",
         )
@@ -110,8 +115,9 @@ def add_finding(
     *,
     status: MatchStatus = MatchStatus.OPEN,
     suggested: SuggestedDisposition | None = None,
+    list_code: str = "MX_LPB",
 ) -> ScreeningMatch:
-    """Add a finding of a new private ``MX_LPB`` entry, from a run of its own.
+    """Add a finding of a new private entry of ``list_code``, from a run of its own.
 
     Returns:
         The finding, flushed.
@@ -143,12 +149,12 @@ def add_finding(
     )
     s.add(run)
     s.flush()
-    entry = _entry(s, tenant_id)
+    entry = _entry(s, tenant_id, list_code)
     match = ScreeningMatch(
         tenant_id=tenant_id,
         subject_id=subject.id,
-        list_code="MX_LPB",
-        list_kind=ListKind.BLOCKED,
+        list_code=list_code,
+        list_kind=_kind(list_code),
         private_list_entry_id=entry.id,
         source_entry_key=entry.source_entry_key,
         entry_content_hash=entry.content_tag,
