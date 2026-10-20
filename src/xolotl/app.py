@@ -27,7 +27,10 @@ from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.screening.composition import register_screening
 from xolotl.modules.screening.engine.holder import get_index_holder
-from xolotl.modules.screening.rescreen import register_rescreen
+from xolotl.modules.screening.rescreen import (
+    ensure_screening_index,
+    register_rescreen,
+)
 from xolotl.modules.tenants import (
     routes_api_keys,
     routes_auth,
@@ -190,22 +193,26 @@ def worker_loop(services: PlatformServices, settings: Settings) -> Worker:
     """Build the worker loop over a process's platform services.
 
     As it starts, the loop declares every tenant's platform schedules again, so a
-    tenant created before one of them existed gets it too.
+    tenant created before one of them existed gets it too, and then opens a
+    re-index batch for every tenant whose screening name index is stale.
 
     Returns:
         The loop, ticking every ``XOLOTL_WORKER_TICK_SECONDS``.
 
     """
 
-    def declare_platform_schedules() -> int:
-        return ensure_platform_schedules(services.session_factory, services.queue)
+    def start_up() -> tuple[int, int]:
+        return (
+            ensure_platform_schedules(services.session_factory, services.queue),
+            ensure_screening_index(services.session_factory, services.queue),
+        )
 
     return Worker(
         bus=services.bus,
         runner=services.job_runner,
         scheduler=services.scheduler,
         tick_seconds=settings.worker_tick_seconds,
-        on_start=declare_platform_schedules,
+        on_start=start_up,
     )
 
 

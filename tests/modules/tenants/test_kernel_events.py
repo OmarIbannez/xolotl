@@ -6,7 +6,8 @@ itself, and ``POST /v1/ping`` publishes ``test.ping.v1``. Every event is keyed b
 entity's id (the ping by the actor's) and its data holds ids and codes, never
 personal data or secrets (program spec D8). Creating a tenant also schedules the
 platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep,
-the weekday ``units.fetch`` in Mexico City and the ``lists.poll`` every minute.
+the weekday ``units.fetch`` in Mexico City, the ``lists.poll`` every minute and the
+monthly ``screening.periodic_rescreen`` in Mexico City.
 """
 
 import json
@@ -117,6 +118,14 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
             True,
         ),
         (
+            "screening.periodic_rescreen",
+            "0 2 1 * *",
+            "America/Mexico_City",
+            "screening.periodic_rescreen",
+            {},
+            True,
+        ),
+        (
             "units.fetch",
             "0 18 * * 1-5",
             "America/Mexico_City",
@@ -127,11 +136,14 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
         ("workflow.sweep", "0 * * * *", "UTC", "workflow.sweep", {}, True),
     ]
     # The first run is the next slot, never the current one.
-    daily = {"units.fetch", "party.retention_sweep"}
+    daily = {"units.fetch", "party.retention_sweep", "screening.periodic_rescreen"}
     hourly = [row for row in schedules if row.name not in {*daily, "lists.poll"}]
     poll = next(row for row in schedules if row.name == "lists.poll")
     (units,) = [row for row in schedules if row.name == "units.fetch"]
     sweep = next(row for row in schedules if row.name == "party.retention_sweep")
+    monthly = next(
+        row for row in schedules if row.name == "screening.periodic_rescreen"
+    )
     slots = {next_slot("0 * * * *", "UTC", after=moment) for moment in (before, after)}
     assert {row.next_run_at for row in hourly} <= slots
     assert units.next_run_at in {
@@ -141,6 +153,10 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     # A daily 03:00 UTC slot is never the next full hour.
     assert sweep.next_run_at in {
         next_slot("0 3 * * *", "UTC", after=m) for m in (before, after)
+    }
+    # The monthly re-screen runs at 02:00 on the 1st in Mexico City.
+    assert monthly.next_run_at in {
+        next_slot("0 2 1 * *", "America/Mexico_City", after=m) for m in (before, after)
     }
     # The lists poll runs every minute.
     assert poll.next_run_at in {
@@ -303,6 +319,7 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
             "idempotency.purge",
             "lists.poll",
             "party.retention_sweep",
+            "screening.periodic_rescreen",
             "units.fetch",
             "workflow.sweep",
         ]

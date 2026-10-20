@@ -117,6 +117,7 @@ driver is added.
 | `XOLOTL_SCREENING_DELTA_BATCH` | `200` | Added and changed list entries each list-delta re-screen job handles in one transaction (1 or more). |
 | `XOLOTL_SCREENING_INDEX_REFRESH_SECONDS` | `30` | How often each process checks for newer active list versions and reloads its in-memory screening index, in seconds (1 or more). |
 | `XOLOTL_SCREENING_INDEX_WARM` | `true` | Load the screening index on a background thread when the API or `xolotl worker` starts; `false` loads it synchronously on the first screen instead (the test suite does). |
+| `XOLOTL_SCREENING_PERIODIC_CRON` | `0 2 1 * *` | When each tenant's monthly full re-screen of its parties against every list starts, as a five-field cron in `America/Mexico_City`. |
 | `XOLOTL_SCREENING_PRIVATE_SHARDS` | `64` | How many tenants' private-list indexes each process keeps in memory; the least recently used is dropped beyond it (1 or more). |
 | `XOLOTL_SCREENING_RESCREEN_BATCH` | `500` | Parties each periodic, private-list or re-index re-screen job handles in one transaction (1 or more). |
 | `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
@@ -413,7 +414,18 @@ or `DATA_CHANGE`); the job skips when a later run already covered the event.
 ```bash
 uv run xolotl screening check --tenant acme --party <party_id>   # screen one party now
 uv run xolotl screening replay <run_id> --tenant acme             # re-score a run's hits
+uv run xolotl screening rescreen --tenant acme [--kind REINDEX]  # start a full re-screen
 ```
+
+Whole-base re-screens walk the tenant's `ACTIVE` parties in id order,
+`XOLOTL_SCREENING_RESCREEN_BATCH` per job, under a batch whose progress
+`GET /v1/screening/batches` shows. A new private-list version re-screens every party
+against that version's entries (`PRIVATE_LIST`); a subscription's first version of a
+shared list and the monthly `screening.periodic_rescreen` schedule
+(`XOLOTL_SCREENING_PERIODIC_CRON`) re-screen every party against the full list set
+(`PERIODIC`); and the worker, as it starts, opens a `REINDEX` batch when a party's name
+index was built by another matcher version or is missing. `screening rescreen` starts a
+`PERIODIC` (or `REINDEX`) batch by hand; the worker runs it.
 
 `screening replay` rebuilds the subject's query, the scoring IDF of the run's exact list
 versions and the scoring configuration of its policy snapshot, prints one line per hit

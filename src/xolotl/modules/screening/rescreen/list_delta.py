@@ -1,7 +1,9 @@
 """Re-screen the parties near a shared list's delta (SP-03 spec §10.2, FR-SC-003).
 
 Consumer ``screening`` receives ``lists.version_published.v1`` for each version a
-tenant's subscription is handed (3a's catch-up). For a delta (``initial`` false) it
+tenant's subscription is handed (3a's catch-up). A subscription's first version
+(``initial`` true) is no delta: it opens the ``PERIODIC`` batch ``initial:<code>``,
+which walks every party against the full list set (``walkers``). For a delta it
 opens the tenant's ``LIST_DELTA`` batch of the version (ref the version id, total
 ``added + changed + removed``) and enqueues its first page, all in the dispatcher's
 transaction, so a redelivered event finds both already there. A batch that failed
@@ -75,6 +77,7 @@ from xolotl.modules.screening.rescreen.batches import (
 )
 from xolotl.modules.screening.rescreen.blocking import reverse_candidates
 from xolotl.modules.screening.rescreen.delisting import suggest_delisting
+from xolotl.modules.screening.rescreen.walkers import open_periodic
 from xolotl.platform.config import get_settings
 from xolotl.platform.events import Event, Handler
 from xolotl.platform.jobs.queue import Job, JobHandler, PostgresJobQueue
@@ -123,6 +126,13 @@ def on_list_version_published(queue: PostgresJobQueue) -> Handler:
         data = event.data
         if data.get("initial") is True:
             # A subscription's first version is a full walk, not a delta.
+            code = str(data["list_code"])
+            open_periodic(
+                s,
+                queue,
+                ref=f"initial:{code}",
+                require_versions={code: _int(data["seq"])},
+            )
             return
         total = sum(_int(data[field]) for field in ("added", "changed", "removed"))
         version_id = str(data["version_id"])

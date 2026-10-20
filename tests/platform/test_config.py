@@ -264,6 +264,7 @@ def test_env_example_is_a_valid_configuration():
         "screening_index_warm",
         "screening_delta_batch",
         "screening_rescreen_batch",
+        "screening_periodic_cron",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -611,6 +612,7 @@ def test_list_settings_default_to_the_spec_values():
     assert s.screening_index_warm is True
     assert s.screening_delta_batch == 200
     assert s.screening_rescreen_batch == 500
+    assert s.screening_periodic_cron == "0 2 1 * *"
 
 
 @pytest.mark.parametrize(
@@ -638,6 +640,12 @@ def test_list_fetching_follows_the_environment_unless_set(
 def test_the_poll_cron_is_validated(monkeypatch):
     monkeypatch.setenv("XOLOTL_LISTS_POLL_CRON", "every minute")
     with pytest.raises(ValidationError, match="lists_poll_cron"):
+        _ = make_settings()
+
+
+def test_the_periodic_rescreen_cron_is_validated(monkeypatch):
+    monkeypatch.setenv("XOLOTL_SCREENING_PERIODIC_CRON", "monthly")
+    with pytest.raises(ValidationError, match="SCREENING_PERIODIC_CRON"):
         _ = make_settings()
 
 

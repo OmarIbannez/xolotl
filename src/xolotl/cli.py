@@ -36,7 +36,7 @@ from xolotl.modules.screening.catalog import (
     read_sources,
     seed_list_sources,
 )
-from xolotl.modules.screening.engine.enums import RunMode, TriggerType
+from xolotl.modules.screening.engine.enums import BatchKind, RunMode, TriggerType
 from xolotl.modules.screening.engine.holder import (
     ScreeningIndexHolder,
     get_index_holder,
@@ -48,6 +48,7 @@ from xolotl.modules.screening.engine.subjects import subject_for_party
 from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.screening.errors import ListMassRemovalError
 from xolotl.modules.screening.lists import ListFormatError
+from xolotl.modules.screening.rescreen.walkers import start_rescreen
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import Tenant
 from xolotl.platform import clock, migrate
@@ -67,8 +68,9 @@ from xolotl.platform.db import (
     tenant_session,
 )
 from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
-from xolotl.platform.errors import NotFoundError, XolotlError
+from xolotl.platform.errors import NotFoundError, ValidationFailedError, XolotlError
 from xolotl.platform.events import InAppNotifier
+from xolotl.platform.jobs import PostgresJobQueue
 from xolotl.platform.logging import configure_logging
 from xolotl.platform.policy import (
     PolicyPack,
@@ -1228,3 +1230,34 @@ def screening_replay(
         typer.echo(line)
     if not report.identical:
         raise typer.Exit(code=1)
+
+
+@screening_app.command("rescreen")
+def screening_rescreen(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    kind: Annotated[
+        str, typer.Option("--kind", help="PERIODIC or REINDEX")
+    ] = "PERIODIC",
+) -> None:
+    """Start a full re-screen of the tenant's parties; the worker runs it.
+
+    Raises:
+        ValidationFailedError: For a kind other than PERIODIC or REINDEX.
+
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        try:
+            batch_kind = BatchKind(kind.strip().upper())
+        except ValueError:
+            msg = "kind must be PERIODIC or REINDEX"
+            raise ValidationFailedError(msg) from None
+        tenant_id, slug = _resolve_tenant(actor, tenant)
+        factory = get_sessionmaker()
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            batch_id = start_rescreen(s, PostgresJobQueue(factory), kind=batch_kind)
+    if batch_id is None:
+        typer.echo("nothing to do")
+        return
+    typer.echo(f"batch {batch_id} started for tenant {slug}")

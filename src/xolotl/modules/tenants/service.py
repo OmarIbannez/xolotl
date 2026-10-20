@@ -110,6 +110,9 @@ RETENTION_SWEEP_SCHEDULE = "party.retention_sweep"
 # The screening catalog's poll of the shared lists, on XOLOTL_LISTS_POLL_CRON in UTC
 # (a literal: this module never imports the screening module).
 LISTS_POLL_SCHEDULE = "lists.poll"
+# The screening module's monthly full re-screen, on XOLOTL_SCREENING_PERIODIC_CRON in
+# Mexico City, named by its job kind (a literal, as above).
+SCREENING_PERIODIC_SCHEDULE = "screening.periodic_rescreen"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -236,7 +239,9 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
 
     The hourly ones run in UTC; ``units.fetch`` runs on ``XOLOTL_UNITS_FETCH_CRON``
     in Mexico City, ``party.retention_sweep`` on ``XOLOTL_RETENTION_PURGE_CRON`` in
-    UTC and ``lists.poll`` on ``XOLOTL_LISTS_POLL_CRON`` in UTC.
+    UTC, ``lists.poll`` on ``XOLOTL_LISTS_POLL_CRON`` in UTC and the monthly
+    ``screening.periodic_rescreen`` on ``XOLOTL_SCREENING_PERIODIC_CRON`` in Mexico
+    City.
 
     Each schedule is named after the job it runs. ``schedule`` is an upsert on the
     tenant and the name that keeps the next slot of an unchanged schedule, so
@@ -266,6 +271,14 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
         cron=get_settings().lists_poll_cron,
         tz="UTC",
         kind=LISTS_POLL_SCHEDULE,
+        payload={},
+    )
+    _ = queue.schedule(
+        s,
+        name=SCREENING_PERIODIC_SCHEDULE,
+        cron=get_settings().screening_periodic_cron,
+        tz=UNITS_FETCH_TZ,
+        kind=SCREENING_PERIODIC_SCHEDULE,
         payload={},
     )
 

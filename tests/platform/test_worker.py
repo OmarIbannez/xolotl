@@ -648,12 +648,17 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
 
     with tenant_session(system_ctx(created.tenant_id)) as s:
         keys = set(s.scalars(select(IdempotencyKey.key)))
-        jobs = {row.kind: row.status for row in s.scalars(select(JobRow))}
+        rows = s.scalars(select(JobRow)).all()
+    # The scheduled jobs carry {}; the monthly one queued the first page of its
+    # batch, which a later tick runs.
+    jobs = {row.kind: row.status for row in rows if row.payload == {}}
     assert keys == {"live"}
     assert jobs == {
         PURGE_KIND: JobStatus.DONE,
         LISTS_POLL_KIND: JobStatus.DONE,
         "party.retention_sweep": JobStatus.DONE,
+        # Every slot was made due, the monthly one too.
+        "screening.periodic_rescreen": JobStatus.DONE,
         UNITS_FETCH_KIND: JobStatus.DONE,
         SWEEP_KIND: JobStatus.DONE,
     }
@@ -720,6 +725,13 @@ PLATFORM_SCHEDULES = [
     ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", True),
     ("lists.poll", "* * * * *", "UTC", "lists.poll", True),
     ("party.retention_sweep", "0 3 * * *", "UTC", "party.retention_sweep", True),
+    (
+        "screening.periodic_rescreen",
+        "0 2 1 * *",
+        "America/Mexico_City",
+        "screening.periodic_rescreen",
+        True,
+    ),
     ("units.fetch", "0 18 * * 1-5", "America/Mexico_City", "units.fetch", True),
     ("workflow.sweep", "0 * * * *", "UTC", "workflow.sweep", True),
 ]

@@ -20,7 +20,7 @@ import respx
 import uvicorn
 from psycopg import sql
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, event, make_url, text
+from sqlalchemy import Engine, create_engine, event, make_url, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
@@ -57,12 +57,19 @@ from xolotl.modules.party.schemas import (
     PartyCreateRequest,
     PersonInput,
 )
+from xolotl.modules.screening.engine.enums import BatchKind, BatchStatus
 from xolotl.modules.screening.engine.holder import set_index_holder
+from xolotl.modules.screening.engine.models import ScreeningBatch
 from xolotl.modules.screening.lists import (
     EntityType,
     EntryName,
     ListEntry,
     NameQuality,
+)
+from xolotl.modules.screening.rescreen import register_rescreen
+from xolotl.modules.screening.rescreen.walkers import (
+    PERIODIC_RESCREEN_KIND,
+    REINDEX_KIND,
 )
 from xolotl.modules.tenants import service
 from xolotl.platform import clock, db, migrate
@@ -75,7 +82,9 @@ from xolotl.platform.crypto import (
     set_key_provider,
 )
 from xolotl.platform.enums import KeyPurpose
+from xolotl.platform.events.registry import reset_subscribers
 from xolotl.platform.ids import uuid7
+from xolotl.platform.jobs import JobRunner, PostgresJobQueue
 from xolotl.platform.storage.local import LocalFsObjectStore
 from xolotl.platform.units.banxico import BASE_URL as BANXICO_BASE_URL
 
@@ -1781,3 +1790,77 @@ def test_screening_check_and_replay(admin_engine: Engine, tmp_path: Path):
         assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
     finally:
         set_index_holder(None)
+
+
+def test_screening_rescreen_help_needs_no_database():
+    result = runner.invoke(
+        app,
+        ["screening", "rescreen", "--help"],
+        env={"COLUMNS": "200", "TERM": "dumb", "NO_COLOR": "1"},
+    )
+    assert result.exit_code == 0
+    assert "--tenant" in result.stdout
+    assert "PERIODIC or REINDEX" in result.stdout
+
+
+def _rescreen_batches(tenant_id: UUID) -> list[ScreeningBatch]:
+    with db.tenant_session(system_ctx(tenant_id)) as s:
+        return list(
+            s.scalars(
+                select(ScreeningBatch).order_by(
+                    ScreeningBatch.started_at, ScreeningBatch.id
+                )
+            )
+        )
+
+
+def test_screening_rescreen_starts_a_batch_for_the_worker(engine: Engine):
+    created = new_tenant()
+    factory = db.get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    reset_subscribers()
+    try:
+        register_rescreen(queue=queue)
+        started = runner.invoke(app, ["screening", "rescreen", "--tenant", "acme"])
+        assert started.exit_code == 0, started.output
+        (periodic,) = _rescreen_batches(created.tenant_id)
+        assert started.stdout == f"batch {periodic.id} started for tenant acme\n"
+        assert (periodic.kind, periodic.ref[:7]) == (BatchKind.PERIODIC, "manual:")
+
+        reindex = runner.invoke(
+            app, ["screening", "rescreen", "--tenant", "acme", "--kind", "REINDEX"]
+        )
+        assert reindex.exit_code == 0, reindex.output
+        batch = _rescreen_batches(created.tenant_id)[1]
+        assert reindex.stdout == f"batch {batch.id} started for tenant acme\n"
+        # The worker walks both; with no party each completes on its first page.
+        walker = JobRunner(
+            queue,
+            factory,
+            worker_id="w-cli",
+            kinds=[PERIODIC_RESCREEN_KIND, REINDEX_KIND],
+        )
+        assert walker.run_once() == 2
+        assert {b.status for b in _rescreen_batches(created.tenant_id)} == {
+            BatchStatus.COMPLETED
+        }
+
+        again = runner.invoke(
+            app, ["screening", "rescreen", "--tenant", "acme", "--kind", "REINDEX"]
+        )
+        assert again.exit_code == 0, again.output
+        assert again.stdout == "nothing to do\n"
+
+        wrong = runner.invoke(
+            app, ["screening", "rescreen", "--tenant", "acme", "--kind", "DELTA"]
+        )
+        assert wrong.exit_code == 1
+        assert wrong.stderr == (
+            "error: VALIDATION_FAILED: kind must be PERIODIC or REINDEX\n"
+        )
+
+        unknown = runner.invoke(app, ["screening", "rescreen", "--tenant", "nope"])
+        assert unknown.exit_code == 1
+        assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
+    finally:
+        reset_subscribers()

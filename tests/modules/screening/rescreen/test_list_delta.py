@@ -324,7 +324,9 @@ def _matches(tenant: CreatedTenant) -> list[ScreeningMatch]:
 
 def _batch(tenant: CreatedTenant) -> ScreeningBatch:
     with _job(tenant) as s:
-        return s.scalars(select(ScreeningBatch)).one()
+        return s.scalars(
+            select(ScreeningBatch).where(ScreeningBatch.kind == BatchKind.LIST_DELTA)
+        ).one()
 
 
 def _delta_runs(tenant: CreatedTenant) -> list[ScreeningRun]:
@@ -402,7 +404,9 @@ def _counts(tenant: CreatedTenant) -> tuple[int, ...]:
             s.scalar(select(func.count()).select_from(model)) or 0
             for model in (ScreeningRun, ScreeningHit, ScreeningMatch)
         )
-        batch = s.scalars(select(ScreeningBatch)).one()
+        batch = s.scalars(
+            select(ScreeningBatch).where(ScreeningBatch.kind == BatchKind.LIST_DELTA)
+        ).one()
         return (runs, hits, matches, batch.done, batch.runs, batch.new_matches)
 
 

@@ -7,6 +7,7 @@ has passed is skipped. Batches are opened by ``(kind, ref)`` (``batches.py``), s
 redelivered event or a second schedule tick finds the batch it already opened.
 """
 
+from xolotl.modules.screening.rescreen.walkers import ensure_screening_index
 from xolotl.modules.screening.rescreen.wiring import register_rescreen
 
-__all__ = ["register_rescreen"]
+__all__ = ["ensure_screening_index", "register_rescreen"]
