@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
@@ -57,6 +58,7 @@ from xolotl.modules.party.schemas import (
     PartyCreateRequest,
     PersonInput,
 )
+from xolotl.modules.screening import evaluation_report
 from xolotl.modules.screening.engine.holder import set_index_holder
 from xolotl.modules.screening.lists import (
     EntityType,
@@ -64,6 +66,7 @@ from xolotl.modules.screening.lists import (
     ListEntry,
     NameQuality,
 )
+from xolotl.modules.screening.matching import MATCHER_VERSION
 from xolotl.modules.tenants import service
 from xolotl.platform import clock, db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
@@ -1781,3 +1784,115 @@ def test_screening_check_and_replay(admin_engine: Engine, tmp_path: Path):
         assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
     finally:
         set_index_holder(None)
+
+
+SCREENING_TESTS = Path(__file__).parent / "modules" / "screening"
+
+
+def _corpus_slice(root: Path, *, recall_floor: str = "0.98") -> Path:
+    """Write a small evaluation corpus under ``root``.
+
+    It holds the library's fixtures, one generated pair per entry with a fixed seed
+    and the first 20 hard negatives.
+
+    Returns:
+        The corpus directory to pass to ``--corpus``.
+
+    """
+    _ = shutil.copytree(SCREENING_TESTS / "fixtures", root / "fixtures")
+    corpus = root / "corpus"
+    corpus.mkdir()
+    negatives = (SCREENING_TESTS / "corpus" / "hard_negatives.csv").read_text(
+        encoding="utf-8"
+    )
+    rows = [line for line in negatives.splitlines() if not line.startswith("#")]
+    _ = (corpus / "hard_negatives.csv").write_text(
+        "\n".join(rows[:21]) + "\n", encoding="utf-8"
+    )
+    floors = [
+        "seed: 7",
+        "per_entry: 1",
+        "min_pairs: 1",
+        "min_hard_negatives: 1",
+        "top_k: 50",
+        'thresholds: {alert: "0.70", review: "0.55"}',
+        "floors:",
+        f"  SANCTION: {{recall: {recall_floor}, retrieval_recall: 0.995}}",
+        "  FISCAL: {recall: 0.98}",
+        "max_alerts_per_1000_negatives: 2.0",
+    ]
+    _ = (corpus / "floors.yaml").write_text("\n".join(floors) + "\n", encoding="utf-8")
+    return corpus
+
+
+def test_screening_eval_reports_every_kind_and_floor(tmp_path: Path, monkeypatch):
+    target = tmp_path / "evaluation.json"
+    monkeypatch.setattr(evaluation_report, "SHIPPED_REPORT", target)
+    corpus = _corpus_slice(tmp_path / "screening")
+
+    result = runner.invoke(app, ["screening", "eval", "--corpus", str(corpus)])
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert lines[0].startswith("corpus ")
+    assert "SANCTION recall_review 1.0000" in lines
+    assert "FISCAL precision_alert -" in lines
+    assert "ALL alerts_per_1000_negatives 0.0000" in lines
+    assert [line for line in lines if line.startswith("FLOOR ")] == [
+        "FLOOR recall FISCAL 0.9800 1.0000 OK",
+        "FLOOR recall SANCTION 0.9800 1.0000 OK",
+        "FLOOR retrieval_recall SANCTION 0.9950 1.0000 OK",
+        "FLOOR alerts_per_1000_negatives ALL 2.0000 0.0000 OK",
+    ]
+    assert not target.exists()
+
+
+def test_screening_eval_write_writes_the_canonical_report(tmp_path: Path, monkeypatch):
+    target = tmp_path / "evaluation.json"
+    monkeypatch.setattr(evaluation_report, "SHIPPED_REPORT", target)
+    now = datetime(2026, 10, 20, 9, 30, tzinfo=UTC)
+    monkeypatch.setattr(clock, "now", lambda: now)
+    corpus = _corpus_slice(tmp_path / "screening")
+
+    result = runner.invoke(
+        app, ["screening", "eval", "--corpus", str(corpus), "--write"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines()[-1] == f"wrote {target}"
+    written = target.read_text(encoding="utf-8")
+    report = evaluation_report.EvaluationReportResponse.model_validate_json(written)
+    assert evaluation_report.canonical_json(report) == written
+    assert report.generated_at == now
+    assert report.matcher_version == MATCHER_VERSION
+    assert all(floor.met for floor in report.floors)
+
+
+def test_screening_eval_below_a_floor_exits_1_and_refuses_to_write(
+    tmp_path: Path, monkeypatch
+):
+    target = tmp_path / "evaluation.json"
+    monkeypatch.setattr(evaluation_report, "SHIPPED_REPORT", target)
+    corpus = _corpus_slice(tmp_path / "screening", recall_floor="1.5")
+
+    checked = runner.invoke(app, ["screening", "eval", "--corpus", str(corpus)])
+    assert checked.exit_code == 1
+    assert "FLOOR recall SANCTION 1.5000 1.0000 BELOW" in checked.stdout.splitlines()
+
+    written = runner.invoke(
+        app, ["screening", "eval", "--corpus", str(corpus), "--write"]
+    )
+    assert written.exit_code == 1
+    assert written.stderr == (
+        "error: FLOOR_BELOW: refusing to write a report below a floor\n"
+    )
+    assert not target.exists()
+
+
+def test_screening_eval_without_a_corpus_says_so(tmp_path: Path):
+    missing = tmp_path / "nowhere"
+
+    result = runner.invoke(app, ["screening", "eval", "--corpus", str(missing)])
+
+    assert result.exit_code == 1
+    assert result.stderr == f"error: NOT_FOUND: no evaluation corpus at {missing}\n"

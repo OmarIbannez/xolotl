@@ -403,6 +403,7 @@ responses: an API client sees the subject's status only (`CLEAR`, `PENDING_REVIE
 | `POST /v1/screening/matches/{id}/dispositions` | staff, not `AUDITOR_RO` | a decision under the four-eyes rules; a refusal is 409 `DISPOSITION_NOT_ALLOWED` with `blocked_reasons` |
 | `DELETE /v1/screening/whitelist/{id}` | MLRO | revoke a false-positive whitelist row |
 | `GET /v1/screening/batches` | staff | re-screen batches newest first (filters `kind`, `status`): progress counts, `total`, start and finish times |
+| `GET /v1/screening/evaluation` | staff | the matcher's evaluation report shipped with the build: recall, precision at `ALERT` and retrieval recall per list kind, the hard-negative alert rate and each floor; 404 when the build ships none |
 
 ## Screening
 
@@ -420,6 +421,19 @@ versions and the scoring configuration of its policy snapshot, prints one line p
 (stored and replayed score and band) and ends with `identical` (exit 0), or `subject
 changed` or `N differences` (exit 1). A run scored by another matcher version is
 refused with `MATCHER_VERSION_MISMATCH`.
+
+### Screening evaluation
+
+`uv run xolotl screening eval` runs the screening library's corpus
+(`tests/modules/screening/corpus/`, or `--corpus PATH`) through the matcher and prints
+recall, precision at `ALERT` and retrieval recall per list kind, the alert rate on the
+hard negatives, and one `FLOOR <metric> <kind> <floor> <value> OK|BELOW` line per floor
+of `corpus/floors.yaml`; it exits 1 when a floor is below. `uv run xolotl screening eval
+--write` also writes `src/xolotl/modules/screening/data/evaluation.json` (refused below
+a floor), the report `GET /v1/screening/evaluation` and the console's Evaluación page
+serve. Commit that file. A matcher change that bumps `MATCHER_VERSION` must regenerate
+it in the same PR: a test fails while the committed report names another version. The
+corpus is not in the container image, so the command only runs from a source checkout.
 
 ## Connectors
 
