@@ -160,9 +160,9 @@ def test_seed_files_have_the_pinned_shape():
     assert [(r.valid_from, r.valid_to, r.confidence) for r in uma] == [
         (date(2024, 2, 1), date(2025, 1, 31), Confidence.VERIFIED),
         (date(2025, 2, 1), date(2026, 1, 31), Confidence.VERIFIED),
-        (date(2026, 2, 1), date(2027, 1, 31), Confidence.UNVERIFIED),
+        (date(2026, 2, 1), date(2027, 1, 31), Confidence.VERIFIED),
     ]
-    assert [str(r.value) for r in uma[:2]] == ["108.57", "113.14"]
+    assert [str(r.value) for r in uma] == ["108.57", "113.14", "117.31"]
     assert all(r.value > 0 for r in uma)
 
     udi = read_seed_file(SEEDS / "UDI.seed.yaml")
@@ -190,13 +190,31 @@ def test_seed_files_have_the_pinned_shape():
         assert {r.quote_ccy for r in rows} == {UNITS[spec].quote_ccy}
 
 
-def test_seed_source_refuses_unverified_rows():
+def _seeds_with_unverified_uma_2026(directory: Path) -> Path:
+    """Copy the committed seeds into ``directory``, UMA 2026 marked UNVERIFIED.
+
+    Returns:
+        ``directory``, which now holds the copies.
+
+    """
+    for seed in SEEDS.glob("*.yaml"):
+        text_ = seed.read_text(encoding="utf-8")
+        if seed.name == "UMA.yaml":
+            row = next(line for line in text_.splitlines() if "2026-02-01" in line)
+            flipped = row.replace("confidence: VERIFIED", "confidence: UNVERIFIED")
+            text_ = text_.replace(row, flipped)
+        _ = (directory / seed.name).write_text(text_, encoding="utf-8")
+    return directory
+
+
+def test_seed_source_refuses_unverified_rows(tmp_path: Path):
+    seeds = _seeds_with_unverified_uma_2026(tmp_path)
     with pytest.raises(UnverifiedValueError, match="UMA 2026-02-01") as caught:
-        _ = SeedFileSource(SEEDS).fetch("UMA", date(2024, 1, 1), date(2027, 12, 31))
+        _ = SeedFileSource(seeds).fetch("UMA", date(2024, 1, 1), date(2027, 12, 31))
     assert caught.value.code == "UNVERIFIED_VALUE"
     with pytest.raises(UnverifiedValueError, match="UMA 2026-02-01"):
-        _ = SeedFileSource(SEEDS).latest_available("UMA")
-    source = SeedFileSource(SEEDS, allow_unverified=True)
+        _ = SeedFileSource(seeds).latest_available("UMA")
+    source = SeedFileSource(seeds, allow_unverified=True)
     assert len(source.fetch("UMA", date(2024, 1, 1), date(2027, 12, 31))) == 3
     latest = source.latest_available("UDI")
     assert latest is not None
@@ -207,8 +225,16 @@ def test_seed_source_refuses_unverified_rows():
         date(2026, 1, 11),
         date(2026, 1, 12),
     ]
-    verified = SeedFileSource(SEEDS).fetch("UMA", date(2024, 1, 1), date(2025, 12, 31))
+    verified = SeedFileSource(seeds).fetch("UMA", date(2024, 1, 1), date(2025, 12, 31))
     assert [r.valid_from for r in verified] == [date(2024, 2, 1), date(2025, 2, 1)]
+
+
+def test_the_committed_seeds_hold_no_unverified_rows():
+    source = SeedFileSource(SEEDS)
+    assert len(source.fetch("UMA", date(2024, 1, 1), date(2027, 12, 31))) == 3
+    latest = source.latest_available("UMA")
+    assert latest is not None
+    assert latest.valid_from == date(2026, 2, 1)
 
 
 _HEADER = (

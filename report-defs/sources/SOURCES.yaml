@@ -1,0 +1,40 @@
+# Official documents the report definitions are built from (FR-RR-019).
+# Every definition cites these by key. A document that could not be obtained is
+# listed with status UNAVAILABLE and no file; nothing is guessed from it.
+sources:
+  F41_RESOLUTION:
+    title: >-
+      Resolución por la que se expide el formato oficial para el reporte de
+      operaciones relevantes, inusuales y preocupantes (DOF 14-12-2004, reformed
+      18-05-2005, 25-10-2010, 08-06-2012 and 01-08-2013), Anexos 1 to 4
+    url: https://www.gob.mx/cms/uploads/attachment/file/618089/Formato_41_Campos_Compilado.pdf
+    retrieved: 2026-10-19
+    file: Formato_41_Campos_Compilado.pdf
+    sha256: a19c25d6f16a91801102f6714fec93f3145705610cf6a5df56c2aaf9e3927675
+    status: VERIFIED
+    note: >-
+      The UIF copy at pld.hacienda.gob.mx/work/models/uif/librerias/documentos/
+      formatos/Formato_41_Campos_Compilado.pdf returned 404 on 2026-10-19; this is
+      the gob.mx mirror of the same compiled resolution.
+  AVI_EXAMPLE:
+    title: Ejemplo de aviso XML, Activos Virtuales
+    url: https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/ejemplosxml/ejemplo_avi.xml
+    retrieved: 2026-10-19
+    file: ejemplo_avi.xml
+    sha256: 0c48fc0df4d8a304acf31cfc44952b5da3b8a441fe90594ce1ac62655f8cf1f3
+    status: VERIFIED
+  AVI_MODIFICATORIO:
+    title: Instructivo para presentar un aviso modificatorio
+    url: https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/inst_modificatorio.pdf
+    retrieved: 2026-10-19
+    file: inst_modificatorio.pdf
+    sha256: c5d1c86f55469f136387cd8769727572fe3c62589e6d71f8912038e01826840d
+    status: VERIFIED
+  AVI2_XSD:
+    title: Esquema XML de avisos 2027 (Anexo 16, DOF 24-09-2026), Activos Virtuales
+    url: https://www.pld.hacienda.gob.mx/work/models/PLD/documentos/xsd/avi2.xsd
+    retrieved: 2026-10-19
+    status: UNAVAILABLE
+    note: >-
+      Linked from https://sppld.sat.gob.mx/pld/interiores/activos.html but the XSD,
+      ejemplo_avi2.xml and avi2.zip all returned 404 on 2026-10-19.

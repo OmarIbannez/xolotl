@@ -1,4 +1,6 @@
 # Valores diarios anuales de la UMA. Rigen del 1 de febrero al 31 de enero siguiente.
+# Cada valor se cotejó el 2026-10-19 con el aviso del INEGI en el DOF (dof.gob.mx,
+# nota_detalle.php, códigos 5714085, 5746930 y 5778072).
 unit_code: UMA
 quote_ccy: MXN
 source: INEGI_DOF
@@ -6,7 +8,7 @@ legal_basis: "Ley para Determinar el Valor de la Unidad de Medida y Actualizaci�
 confidence: VERIFIED
 verified_as_of: 2026-10-18
 values:
-  - {valid_from: 2024-02-01, valid_to: 2025-01-31, value: "108.57", legal_basis: "INEGI, DOF de enero de 2024 (completar el día de la publicación): UMA diaria 2024 = 108.57", confidence: VERIFIED, verified_as_of: 2024-01-10}
-  - {valid_from: 2025-02-01, valid_to: 2026-01-31, value: "113.14", legal_basis: "INEGI, DOF de enero de 2025 (completar el día de la publicación): UMA diaria 2025 = 113.14", confidence: VERIFIED, verified_as_of: 2025-01-10}
-  # The 2026 value is the figure INEGI published in January 2026 (inegi.org.mx/temas/uma and the DOF): copied, never computed from inflation. UNVERIFIED until the compliance review (spec §13).
-  - {valid_from: 2026-02-01, valid_to: 2027-01-31, value: "117.31", legal_basis: "INEGI, DOF de enero de 2026: UMA diaria 2026 (cita pendiente, §13)", confidence: UNVERIFIED, verified_as_of: 2026-10-18}
+  - {valid_from: 2024-02-01, valid_to: 2025-01-31, value: "108.57", legal_basis: "INEGI, Unidad de Medida y Actualización, DOF 2024-01-10: UMA diaria 2024 = 108.57", confidence: VERIFIED, verified_as_of: 2024-01-10}
+  - {valid_from: 2025-02-01, valid_to: 2026-01-31, value: "113.14", legal_basis: "INEGI, Unidad de Medida y Actualización, DOF 2025-01-10: UMA diaria 2025 = 113.14", confidence: VERIFIED, verified_as_of: 2025-01-10}
+  # The 2026 value is the figure INEGI published in the DOF on 2026-01-09 (dated 8 January 2026): copied, never computed from inflation.
+  - {valid_from: 2026-02-01, valid_to: 2027-01-31, value: "117.31", legal_basis: "INEGI, Unidad de Medida y Actualización, DOF 2026-01-09: UMA diaria 2026 = 117.31", confidence: VERIFIED, verified_as_of: 2026-10-19}

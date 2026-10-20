@@ -25,6 +25,7 @@ name = the screening library imports only platform errors and enums (SP-03 spec 
 type = forbidden
 source_modules =
     xolotl.modules.screening.lists
+    xolotl.modules.screening.matching
 forbidden_modules =
     sqlalchemy
     fastapi
@@ -32,3 +33,11 @@ forbidden_modules =
     xolotl.platform
 ignore_imports =
     xolotl.modules.screening.lists.** -> xolotl.platform.errors
+
+[importlinter:contract:screening-lists-never-imports-matching]
+name = screening.lists never imports screening.matching
+type = forbidden
+source_modules =
+    xolotl.modules.screening.lists
+forbidden_modules =
+    xolotl.modules.screening.matching

@@ -35,6 +35,9 @@ scopes:
   CNBV:
     source: "CNBV, disposiciones anuales de días de cierre (DOF)"
     days:
+      # 2026 rows checked on 2026-10-19 against the DOF text of 2025-12-10 (Disposiciones de
+      # carácter general que señalan los días del año 2026 ..., art. 1, fr. I-IX; dof.gob.mx
+      # nota_detalle.php?codigo=5775684): 12 December 2026 is a Saturday, so no row.
       - {day: 2025-01-01, name: "Año Nuevo", basis: "CNBV 2025"}
       - {day: 2025-02-03, name: "Día de la Constitución", basis: "CNBV 2025"}
       - {day: 2025-03-17, name: "Natalicio de Benito Juárez", basis: "CNBV 2025"}

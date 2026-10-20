@@ -4,7 +4,6 @@ import { Controller, useForm, useWatch, type FieldErrors } from 'react-hook-form
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ApiError, hasProblemCode, isApiError } from '@/api/errors'
 import { fieldProblems } from '@/api/field-errors'
 import type { IdentifierType } from '@/api/types'
 import { Field } from '@/components/common/Field'
@@ -26,6 +25,7 @@ import {
   type PersonFormValues,
 } from './form'
 import { useCreateParty } from './queries'
+import { identifierRefusal, withLeafFields } from './sub-forms'
 
 type PartyType = PartyValues['partyType']
 const PARTY_TYPES: readonly PartyType[] = ['PERSON', 'ORGANIZATION']
@@ -33,31 +33,6 @@ const SERVER_FIELDS = Object.keys(FORM_FIELD_OF) as (keyof typeof FORM_FIELD_OF)
 
 /** Every field of either kind, so one error lookup serves both forms. */
 type AnyPartyFields = Omit<PersonFormValues, 'partyType'> & Omit<OrganizationFormValues, 'partyType'>
-
-/**
- * The API reports a field of the person or the organisation at `['body', 'person', 'given_names']`;
- * `fieldProblems` reads `['body', <field>]`. Keep the last name in the path so those reach their input.
- */
-function withLeafFields(error: unknown): unknown {
-  if (!isApiError(error)) return error
-  return new ApiError({
-    status: error.status,
-    code: error.code,
-    detail: error.detail,
-    requestId: error.requestId,
-    errors: error.errors.map((problem) => {
-      const leaf = problem.loc.findLast((part) => typeof part === 'string')
-      return problem.loc[0] === 'body' && leaf !== undefined ? { ...problem, loc: ['body', leaf] } : problem
-    }),
-  })
-}
-
-/** The message a refused identifier gets, instead of the generic one for its status. */
-function identifierRefusal(error: unknown, t: ReturnType<typeof useTranslation>['t']) {
-  if (hasProblemCode(error, 'IDENTIFIER_EXISTS')) return { status: 409, message: t('parties.create.identifierExists') }
-  if (hasProblemCode(error, 'IDENTIFIER_INVALID')) return { status: 422, message: t('parties.create.identifierInvalid') }
-  return undefined
-}
 
 /**
  * The form that registers a person or an organisation with one identifier. Like the other create
