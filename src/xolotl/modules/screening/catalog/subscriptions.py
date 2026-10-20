@@ -60,11 +60,14 @@ class ReconcileReport:
     removed: tuple[str, ...]
 
 
-def _screening_policy(s: Session, today: date) -> ScreeningPolicy | None:
+def _screening_policy(
+    s: Session, today: date, *, log: bool = True
+) -> ScreeningPolicy | None:
     try:
         return effective_policy(s, on=today, product=None).screening
     except PolicyNotAssignedError:
-        logger.info("lists poll: no policy")
+        if log:
+            logger.info("lists poll: no policy")
         return None
 
 
@@ -240,7 +243,8 @@ def check_staleness(s: Session, notifier: Notifier, *, now: datetime) -> list[st
     """Notify ADMIN and MLRO once per stale episode of each subscribed source.
 
     A stale source of an enabled subscription with no ``stale_notified_at`` is
-    notified and flagged; a fresh one has its flag cleared, ending the episode.
+    notified and flagged; a fresh source has the flag of every subscription to it
+    cleared, enabled or not, ending the episode (spec §6.4).
 
     Returns:
         The codes notified by this call.
@@ -249,7 +253,6 @@ def check_staleness(s: Session, notifier: Notifier, *, now: datetime) -> list[st
     rows = s.execute(
         select(TenantListSubscription, ListSource)
         .join(ListSource, ListSource.code == TenantListSubscription.list_code)
-        .where(TenantListSubscription.enabled)
         .order_by(TenantListSubscription.list_code)
     ).all()
     notified: list[str] = []
@@ -258,7 +261,7 @@ def check_staleness(s: Session, notifier: Notifier, *, now: datetime) -> list[st
             if subscription.stale_notified_at is not None:
                 subscription.stale_notified_at = None
             continue
-        if subscription.stale_notified_at is not None:
+        if not subscription.enabled or subscription.stale_notified_at is not None:
             continue
         last = source.last_success_at
         for role in _NOTIFIED:
@@ -290,7 +293,9 @@ def remind_lpb_missing(s: Session, notifier: Notifier, *, now: datetime) -> bool
     """
     mexico_city = ZoneInfo(MEXICO_CITY)
     today = now.astimezone(mexico_city).date()
-    screening = _screening_policy(s, today)
+    # reconcile_subscriptions, earlier in the same poll, already logged a missing
+    # policy.
+    screening = _screening_policy(s, today, log=False)
     if screening is None or LPB_CODE not in {
         item.value for item in screening.mandatory_lists
     }:

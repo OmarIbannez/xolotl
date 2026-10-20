@@ -18,6 +18,7 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import sessionmaker
 
 from tests.helpers import new_tenant, platform_ctx, system_ctx
+from tests.isolation import factories
 from tests.modules.screening.catalog.support import (
     assign_tenant_wide,
     make_version,
@@ -325,6 +326,26 @@ def test_a_disabled_subscription_is_never_reported_stale(
     assert _check_staleness(itf_tenant.tenant_id) == []
 
 
+def test_a_fresh_source_clears_the_flag_of_a_disabled_subscription(
+    itf_tenant: CreatedTenant, admin_engine: Engine
+):
+    _ = _reconcile(itf_tenant.tenant_id)
+    _set_success(admin_engine, NOW)
+    _set_success(admin_engine, None, "OFAC_SDN")
+    assert _check_staleness(itf_tenant.tenant_id) == ["OFAC_SDN"]
+    # Switched off mid-episode, then the source recovers: the episode still ends.
+    _set_enabled(itf_tenant.tenant_id, "OFAC_SDN", enabled=False)
+    _set_success(admin_engine, NOW, "OFAC_SDN")
+    assert _check_staleness(itf_tenant.tenant_id) == []
+    with tenant_session(system_ctx(itf_tenant.tenant_id)) as s:
+        flag = s.scalar(
+            select(TenantListSubscription.stale_notified_at).where(
+                TenantListSubscription.list_code == "OFAC_SDN"
+            )
+        )
+    assert flag is None
+
+
 def test_a_fresh_source_is_not_stale_at_twice_its_interval():
     source = ListSource(
         code="UN_CONSOLIDATED",
@@ -355,6 +376,15 @@ def test_a_missing_lpb_is_reminded_once_a_day(
     _ = frozen.advance(timedelta(hours=7, minutes=1))  # 00:01 the next day
     assert _remind(itf_tenant.tenant_id) is True
     assert len(_notices(itf_tenant.tenant_id, LPB_MISSING_TEMPLATE)) == 4
+
+
+def test_an_active_lpb_version_suppresses_the_reminder(
+    itf_tenant: CreatedTenant,
+):
+    with tenant_session(system_ctx(itf_tenant.tenant_id)) as s:
+        factories.private_list_version(s, itf_tenant.tenant_id)
+    assert _remind(itf_tenant.tenant_id) is False
+    assert _notices(itf_tenant.tenant_id, LPB_MISSING_TEMPLATE) == []
 
 
 def test_no_lpb_reminder_without_a_policy(
