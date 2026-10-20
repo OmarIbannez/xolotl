@@ -9,7 +9,7 @@ import { ACCESS } from './access'
 import { RequireRole } from './guards'
 import { AuthContext } from './use-auth'
 
-/** The admin pages, the parties area, the lists and the private lists behind the guards the console's routes use. */
+/** The admin pages, the parties area, the lists, the private lists and the screening queue behind the guards the console's routes use. */
 function visit(path: string, roles: Role[]) {
   render(
     <AuthContext value={makeAuth(makeUser({ roles }))}>
@@ -34,6 +34,10 @@ function visit(path: string, roles: Role[]) {
           <Route element={<RequireRole roles={ACCESS.privateLists} />}>
             <Route path="/private-lists" element={<p>page of private lists</p>} />
             <Route path="/private-lists/:listId" element={<p>page of a private list</p>} />
+          </Route>
+          <Route element={<RequireRole roles={ACCESS.screening} />}>
+            <Route path="/screening/matches" element={<p>page of matches</p>} />
+            <Route path="/screening/matches/:matchId" element={<p>page of a match</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -140,6 +144,30 @@ describe('the private lists are for MLRO and ADMIN only', () => {
     ['/private-lists/l1', 'AUDITOR_RO'],
   ] as const)('shows "no access" at %s to %s', (path, role) => {
     visit(path, [role])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+    expect(screen.queryByText(/page of/)).toBeNull()
+  })
+})
+
+describe('the screening queue and its findings are open to every staff role', () => {
+  it.each([
+    ['/screening/matches', 'page of matches', 'ANALYST'],
+    ['/screening/matches', 'page of matches', 'SENIOR_ANALYST'],
+    ['/screening/matches', 'page of matches', 'MLRO'],
+    ['/screening/matches', 'page of matches', 'AUDITOR_RO'],
+    ['/screening/matches', 'page of matches', 'ADMIN'],
+    ['/screening/matches/m1', 'page of a match', 'ANALYST'],
+    ['/screening/matches/m1', 'page of a match', 'AUDITOR_RO'],
+  ] as const)('lets a user open %s as %s', (path, page, role) => {
+    visit(path, [role])
+
+    expect(screen.getByText(page)).toBeTruthy()
+    expect(screen.queryByText(esMX.forbidden.title)).toBeNull()
+  })
+
+  it.each(['/screening/matches', '/screening/matches/m1'])('shows "no access" at %s to a user with no role', (path) => {
+    visit(path, [])
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
     expect(screen.queryByText(/page of/)).toBeNull()

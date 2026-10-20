@@ -98,6 +98,8 @@ describe('translation catalogues', () => {
       'LIST_CODE_UNSUPPORTED',
       'PRIVATE_LIST_INVALID',
       'PRIVATE_LIST_EXISTS',
+      'DISPOSITION_NOT_ALLOWED',
+      'SCREENING_INDEX_UNAVAILABLE',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

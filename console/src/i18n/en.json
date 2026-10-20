@@ -44,6 +44,7 @@
     "units": "Units",
     "calendar": "Calendar",
     "parties": "Parties",
+    "matches": "Matches",
     "lists": "Lists",
     "privateLists": "Private lists"
   },
@@ -1043,6 +1044,200 @@
       "empty": "The active version has no entries."
     }
   },
+  "screening": {
+    "matches": {
+      "title": "Matches",
+      "description": "Open findings against the lists, alerts first. Open one to see the explanation and decide.",
+      "tabs": {
+        "label": "Band",
+        "ALERT": "Alerts",
+        "LOW_CONFIDENCE": "Low confidence"
+      },
+      "empty": "No matches with these filters.",
+      "filters": {
+        "status": "Status",
+        "statusAll": "All statuses",
+        "listKind": "List kind",
+        "listKindAll": "All kinds",
+        "listCode": "List code",
+        "listCodePlaceholder": "For example, MX_LPB",
+        "apply": "Filter",
+        "age": "Age",
+        "ageAny": "Any",
+        "age1": "Older than 1 day",
+        "age7": "Older than 7 days",
+        "age30": "Older than 30 days"
+      },
+      "table": {
+        "label": "Matches",
+        "subject": "Subject",
+        "party": "Customer",
+        "adHoc": "Ad hoc check",
+        "list": "List",
+        "band": "Band",
+        "score": "Score",
+        "status": "Status",
+        "createdAt": "Created"
+      }
+    },
+    "band": {
+      "ALERT": "Alert",
+      "LOW_CONFIDENCE": "Low confidence",
+      "AUTO_DISCARDED": "Discarded automatically",
+      "WHITELISTED": "Whitelisted"
+    },
+    "status": {
+      "OPEN": "Open",
+      "ESCALATED": "Escalated",
+      "FALSE_POSITIVE": "False positive",
+      "TRUE_MATCH": "Confirmed match",
+      "DELISTED": "Delisted",
+      "SUPERSEDED": "Superseded"
+    },
+    "suggested": {
+      "DELISTED": "Suggested: the record left the list"
+    },
+    "match": {
+      "title": "Match detail",
+      "back": "Matches",
+      "summary": "Summary",
+      "subject": "Subject",
+      "entry": "List record",
+      "privateEntry": "This record belongs to a private list: it is shown only when revealed.",
+      "noEntry": "The record is no longer available.",
+      "kind": "Origin",
+      "kinds": {
+        "PARTY": "Customer",
+        "AD_HOC": "Ad hoc check"
+      },
+      "entityType": "Type",
+      "initials": "Initials",
+      "identifiers": "Identifiers",
+      "openParty": "Open customer",
+      "list": "List",
+      "score": "Score",
+      "band": "Band",
+      "status": "Status",
+      "createdAt": "Created",
+      "updatedAt": "Updated",
+      "explanation": {
+        "title": "Explanation",
+        "description": "How the names lined up in the latest result.",
+        "label": "Aligned tokens",
+        "query": "Subject token",
+        "entry": "Record token",
+        "kind": "Match type",
+        "similarity": "Similarity",
+        "weight": "Weight",
+        "empty": "No token lined up.",
+        "unmatchedQuery": "Unmatched subject tokens",
+        "unmatchedEntry": "Unmatched record tokens",
+        "none": "None",
+        "nameScore": "Name score",
+        "kinds": {
+          "EXACT": "Exact",
+          "PHONETIC": "Phonetic",
+          "NICKNAME": "Nickname",
+          "INITIAL": "Initial",
+          "FUZZY": "Approximate"
+        }
+      },
+      "qualifiers": {
+        "title": "Qualifiers",
+        "label": "Qualifiers",
+        "attribute": "Attribute",
+        "outcome": "Outcome",
+        "adjustment": "Adjustment",
+        "empty": "No qualifier was evaluated.",
+        "attributes": {
+          "BIRTH_DATE": "Date of birth",
+          "NATIONALITY": "Nationality",
+          "COUNTRY": "Country",
+          "GENDER": "Gender",
+          "ENTITY_TYPE": "Entity type",
+          "IDENTIFIER": "Identifier"
+        },
+        "outcomes": {
+          "MATCH": "Matches",
+          "PARTIAL": "Partly matches",
+          "CONFLICT": "Conflicts",
+          "ABSENT": "No data"
+        }
+      },
+      "rules": {
+        "title": "Rules applied",
+        "empty": "No rule was applied.",
+        "codes": {
+          "ID_MATCH_FLOOR": "An identifier matches: the score is raised to the identifier floor.",
+          "ID_CONFLICT_CAP": "An identifier conflicts: the score is capped.",
+          "IDENTIFIER_ONLY_LIST": "A list compared by identifier only.",
+          "ENTITY_TYPE_MISMATCH": "The entity type does not match."
+        }
+      },
+      "thresholds": "Score and thresholds",
+      "alertThreshold": "Alert threshold",
+      "reviewThreshold": "Review threshold",
+      "versionSeq": "List version",
+      "matcherVersion": "Matcher version",
+      "history": "Result history",
+      "historyLabel": "Results of each screening",
+      "run": "Screening",
+      "timeline": "Decisions",
+      "timelineEmpty": "No decisions yet.",
+      "decidedBy": "Decided by",
+      "system": "System",
+      "staffMember": "Staff"
+    },
+    "decision": {
+      "FALSE_POSITIVE": "False positive",
+      "POSSIBLE_TRUE_MATCH": "Possible match (escalate)",
+      "TRUE_MATCH": "Confirmed match",
+      "DELISTED": "Left the list",
+      "SUPERSEDED": "Superseded by the system"
+    },
+    "blocked": {
+      "STATE": "The current status does not allow this decision.",
+      "ROLE_REQUIRED": "Your role cannot take this decision.",
+      "SAME_REVIEWER": "It must be taken by someone other than whoever escalated.",
+      "NOT_DELISTED": "The record has no delisting suggestion."
+    },
+    "disposition": {
+      "title": "Decide",
+      "description": "Choose a decision and explain why. Blocked decisions say why.",
+      "decisions": "Decisions",
+      "rationale": "Rationale",
+      "rationaleHint": "Between 10 and 2000 characters.",
+      "rationaleShort": "Write at least 10 characters.",
+      "rationaleLong": "Use 2000 characters at most.",
+      "chooseDecision": "Choose a decision.",
+      "submit": "Record decision",
+      "submitting": "Recording…",
+      "confirmTrueMatch": "Confirm the match?",
+      "confirmTrueMatchDescription": "Confirming the match is final and starts the policy's procedure. It cannot be undone from the console.",
+      "done": "Decision recorded.",
+      "refusedReasons": "Why it was refused:",
+      "noneAllowed": "No decisions are available to you on this finding."
+    },
+    "reveal": {
+      "title": "Personal data",
+      "button": "Reveal",
+      "running": "Revealing…",
+      "hide": "Hide",
+      "notice": "This view was recorded in the audit log.",
+      "names": "Subject names",
+      "birthDate": "Date of birth",
+      "identifiers": "Identifiers",
+      "privateEntry": "Private list record",
+      "rationales": "Rationales",
+      "empty": "There is no personal data to show."
+    },
+    "whitelist": {
+      "revoke": "Revoke whitelist",
+      "revokeDescription": "The record will alert again on the next screening. The revocation is recorded in the audit log.",
+      "revokePending": "Revoking…",
+      "revoked": "Whitelist revoked."
+    }
+  },
   "forbidden": {
     "title": "No access",
     "body": "Your role does not allow viewing this section."
@@ -1084,6 +1279,8 @@
     "LIST_FORMAT_INVALID": "The list file is not in the expected format.",
     "LIST_CODE_UNSUPPORTED": "This list cannot be read yet.",
     "PRIVATE_LIST_INVALID": "The file has rows that do not follow the template; nothing was loaded.",
-    "PRIVATE_LIST_EXISTS": "A private list with this code already exists."
+    "PRIVATE_LIST_EXISTS": "A private list with this code already exists.",
+    "DISPOSITION_NOT_ALLOWED": "This decision is not allowed on this finding.",
+    "SCREENING_INDEX_UNAVAILABLE": "Screening is not ready yet. Try again in a few minutes."
   }
 }

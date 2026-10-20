@@ -196,6 +196,19 @@ describe('problem+json errors', () => {
     expect(error).toMatchObject({ status: 422, code: 'VALIDATION_FAILED', errors })
   })
 
+  it('keeps the blocked reasons of a refused disposition, and none elsewhere', async () => {
+    const refused = fakeFetch(() =>
+      problem(409, 'DISPOSITION_NOT_ALLOWED', { blocked_reasons: ['SAME_REVIEWER', 'ROLE_REQUIRED', 7] }),
+    )
+    const forbidden = fakeFetch(() => problem(403, 'ROLE_FORBIDDEN'))
+
+    const error = await api.GET('/tenants/me', { baseUrl: BASE_URL, fetch: refused.fetch }).catch((e: unknown) => e)
+    const other = await api.GET('/tenants/me', { baseUrl: BASE_URL, fetch: forbidden.fetch }).catch((e: unknown) => e)
+
+    expect(error).toMatchObject({ code: 'DISPOSITION_NOT_ALLOWED', blockedReasons: ['SAME_REVIEWER', 'ROLE_REQUIRED'] })
+    expect(other).toMatchObject({ code: 'ROLE_FORBIDDEN', blockedReasons: [] })
+  })
+
   it('falls back to HTTP_<status> when the body is not a problem document', async () => {
     const { fetch } = fakeFetch(
       () => new Response('<html>Bad gateway</html>', { status: 502, statusText: 'Bad Gateway', headers: { 'content-type': 'text/html' } }),

@@ -53,6 +53,21 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.screening} />,
+                children: [
+                  {
+                    path: '/screening/matches',
+                    lazy: () =>
+                      import('@/features/screening/MatchesPage').then((m) => ({ Component: m.MatchesPage })),
+                  },
+                  {
+                    path: '/screening/matches/:matchId',
+                    lazy: () =>
+                      import('@/features/screening/MatchPage').then((m) => ({ Component: m.MatchPage })),
+                  },
+                ],
+              },
+              {
                 element: <RequireRole roles={ACCESS.apiKeys} />,
                 children: [
                   {

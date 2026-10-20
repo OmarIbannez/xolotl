@@ -14,6 +14,8 @@ export class ApiError extends Error {
   readonly errors: readonly ProblemFieldError[]
   /** `X-Request-Id` of the failed call, to quote to support. */
   readonly requestId: string | undefined
+  /** Why a refused screening disposition was refused (`DISPOSITION_NOT_ALLOWED`); empty otherwise. */
+  readonly blockedReasons: readonly string[]
 
   constructor(init: {
     status: number
@@ -21,6 +23,7 @@ export class ApiError extends Error {
     detail: string
     errors?: readonly ProblemFieldError[]
     requestId?: string | undefined
+    blockedReasons?: readonly string[]
   }) {
     super(init.detail)
     this.name = 'ApiError'
@@ -29,6 +32,7 @@ export class ApiError extends Error {
     this.detail = init.detail
     this.errors = init.errors ?? []
     this.requestId = init.requestId
+    this.blockedReasons = init.blockedReasons ?? []
   }
 }
 
@@ -43,6 +47,10 @@ export function hasProblemCode(value: unknown, code: string): value is ApiError 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
+}
+
+function parseStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
 function parseFieldErrors(value: unknown): ProblemFieldError[] {
@@ -76,6 +84,7 @@ export async function problemFromResponse(response: Response): Promise<ApiError>
       detail: typeof body.detail === 'string' ? body.detail : response.statusText,
       errors: parseFieldErrors(body.errors),
       requestId,
+      blockedReasons: parseStrings(body.blocked_reasons),
     })
   }
   const detail =
