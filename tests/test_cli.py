@@ -57,9 +57,21 @@ from xolotl.modules.party.schemas import (
     PartyCreateRequest,
     PersonInput,
 )
-from xolotl.modules.screening.engine.enums import BatchKind, BatchStatus
-from xolotl.modules.screening.engine.holder import set_index_holder
-from xolotl.modules.screening.engine.models import ScreeningBatch
+from xolotl.modules.screening.engine.enums import (
+    BatchKind,
+    BatchStatus,
+    RunMode,
+    TriggerType,
+)
+from xolotl.modules.screening.engine.holder import (
+    ScreeningIndexHolder,
+    set_index_holder,
+)
+from xolotl.modules.screening.engine.models import (
+    ScreeningBatch,
+    ScreeningRun,
+    ScreeningSubject,
+)
 from xolotl.modules.screening.lists import (
     EntityType,
     EntryName,
@@ -1858,9 +1870,81 @@ def test_screening_rescreen_starts_a_batch_for_the_worker(engine: Engine):
         assert wrong.stderr == (
             "error: VALIDATION_FAILED: kind must be PERIODIC or REINDEX\n"
         )
+        # A batch kind a person cannot start is refused as well.
+        private = runner.invoke(
+            app, ["screening", "rescreen", "--tenant", "acme", "--kind", "PRIVATE_LIST"]
+        )
+        assert private.exit_code == 1
+        assert private.stderr == (
+            "error: VALIDATION_FAILED: kind must be PERIODIC or REINDEX\n"
+        )
 
         unknown = runner.invoke(app, ["screening", "rescreen", "--tenant", "nope"])
         assert unknown.exit_code == 1
         assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
     finally:
         reset_subscribers()
+
+
+def test_screening_rescreen_runs_carry_the_cli_user(admin_engine: Engine):
+    created = new_tenant()
+    seed_sources(admin_engine)
+    assign_itf(created, admin_engine)
+    factory = db.get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    reset_subscribers()
+    set_index_holder(None)
+    try:
+        register_rescreen(queue=queue)
+        with staff_session(created.tenant_id, created.admin_user_id) as s:
+            party = party_service.create_party(
+                s,
+                PartyCreateRequest(
+                    party_type=PartyType.PERSON,
+                    person=PersonInput(
+                        given_names="Juan Carlos",
+                        first_surname="Pérez",
+                        second_surname="Gómez",
+                    ),
+                ),
+            )
+        for kind in ("PERIODIC", "REINDEX"):
+            started = runner.invoke(
+                app, ["screening", "rescreen", "--tenant", "acme", "--kind", kind]
+            )
+            assert started.exit_code == 0, started.output
+        # The worker screens with the holder it wires as it starts.
+        settings = get_settings()
+        set_index_holder(
+            ScreeningIndexHolder(
+                factory,
+                refresh_seconds=settings.screening_index_refresh_seconds,
+                private_shards=settings.screening_private_shards,
+            )
+        )
+        walker = JobRunner(
+            queue,
+            factory,
+            worker_id="w-cli",
+            kinds=[PERIODIC_RESCREEN_KIND, REINDEX_KIND],
+        )
+        assert walker.run_once() == 2
+
+        with db.tenant_session(system_ctx(created.tenant_id)) as s:
+            runs = s.execute(
+                select(
+                    ScreeningRun.mode,
+                    ScreeningRun.trigger_type,
+                    ScreeningRun.trigger_ref,
+                )
+                .join(ScreeningSubject, ScreeningRun.subject_id == ScreeningSubject.id)
+                .where(ScreeningSubject.party_id == party.id)
+                .order_by(ScreeningRun.mode)
+            ).all()
+        assert [tuple(r) for r in runs] == [
+            (RunMode.PERIODIC, TriggerType.CLI, ACTOR),
+            (RunMode.REINDEX, TriggerType.CLI, ACTOR),
+        ]
+    finally:
+        reset_subscribers()
+        set_index_holder(None)

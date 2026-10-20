@@ -31,7 +31,10 @@ its cursor. Purged and merged parties are not walked.
   index holds a row of another matcher version or lacks an ``ACTIVE`` party's
   ``LEGAL`` row. Pages re-index each party's names and screen it (``mode=REINDEX``).
 
-Jobs are system activity: runs carry ``trigger_type = JOB`` and the job id.
+Jobs are system activity: runs carry ``trigger_type = JOB`` and the job id. A walk
+that ``screening rescreen`` started runs as its ``cli:<user>``: every page of it
+carries ``trigger_type`` and ``trigger_ref`` (the actor id) and its runs carry
+``trigger_type = CLI`` and that ref.
 """
 
 from collections.abc import Callable
@@ -96,6 +99,17 @@ _WALK_KINDS = {
 }
 
 type ScreenOne = Callable[[UUID], RunResult]
+
+
+def _page_trigger(job: Job) -> tuple[Trigger, dict[str, JsonValue]]:
+    # Who the page's runs are for: the person a ``screening rescreen`` page carries,
+    # passed on to the next page; otherwise the job itself.
+    raw = job.payload.get("trigger_type")
+    if raw is None:
+        return Trigger(TriggerType.JOB, str(job.id)), {}
+    ref = str(job.payload["trigger_ref"])
+    trigger = Trigger(TriggerType(str(raw)), ref)
+    return trigger, {"trigger_type": trigger.type.value, "trigger_ref": ref}
 
 
 def active_party_count(s: Session) -> int:
@@ -363,8 +377,11 @@ def handle_periodic_rescreen(queue: PostgresJobQueue) -> JobHandler:
         if page is None:
             return
         batch, after = page
-        trigger = Trigger(TriggerType.JOB, str(job.id))
+        trigger, carried = _page_trigger(job)
         required = _required(job.payload)
+        extra: dict[str, JsonValue] = {**carried}
+        if required is not None:
+            extra["require_versions"] = {**required}
 
         def screen_one(party_id: UUID) -> RunResult:
             return screen(
@@ -383,7 +400,7 @@ def handle_periodic_rescreen(queue: PostgresJobQueue) -> JobHandler:
             kind=PERIODIC_RESCREEN_KIND,
             after=after,
             screen_one=screen_one,
-            extra=None if required is None else {"require_versions": {**required}},
+            extra=extra,
         )
 
     page = page_job(walk)
@@ -413,7 +430,7 @@ def handle_reindex(queue: PostgresJobQueue) -> JobHandler:
         if page is None:
             return
         batch, after = page
-        trigger = Trigger(TriggerType.JOB, str(job.id))
+        trigger, carried = _page_trigger(job)
 
         def screen_one(party_id: UUID) -> RunResult:
             _ = index_party_names(s, party_id)
@@ -426,7 +443,13 @@ def handle_reindex(queue: PostgresJobQueue) -> JobHandler:
             )
 
         _walk_page(
-            s, queue, batch, kind=REINDEX_KIND, after=after, screen_one=screen_one
+            s,
+            queue,
+            batch,
+            kind=REINDEX_KIND,
+            after=after,
+            screen_one=screen_one,
+            extra=carried,
         )
 
     return page_job(run)
@@ -492,13 +515,15 @@ def ensure_screening_index(
 
 
 def start_rescreen(
-    s: Session, queue: PostgresJobQueue, *, kind: BatchKind
+    s: Session, queue: PostgresJobQueue, *, kind: BatchKind, trigger: Trigger
 ) -> UUID | None:
     """Start a full re-screen of the session tenant's parties (``screening rescreen``).
 
     ``PERIODIC`` opens a batch of its own (ref ``manual:<UTC timestamp>``), apart
     from the month's; ``REINDEX`` opens the batch of ``MATCHER_VERSION``, or
-    resumes it. The worker walks it.
+    resumes it. The worker walks it; the page this enqueues, and each page after
+    it, carries ``trigger`` (the CLI's ``cli:<user>``), so the walk's runs do too.
+    A ``REINDEX`` page already queued keeps the trigger it was queued with.
 
     Returns:
         The batch id, or None when the ``REINDEX`` batch is already complete.
@@ -514,5 +539,9 @@ def start_rescreen(
     else:
         msg = "kind must be PERIODIC or REINDEX"
         raise ValidationFailedError(msg)
-    opened = _open_walk(s, queue, kind=kind, ref=ref)
+    extra: dict[str, JsonValue] = {
+        "trigger_type": trigger.type.value,
+        "trigger_ref": trigger.ref,
+    }
+    opened = _open_walk(s, queue, kind=kind, ref=ref, extra=extra)
     return None if opened is None else opened[0].id

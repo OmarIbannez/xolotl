@@ -1256,7 +1256,12 @@ def screening_rescreen(
         tenant_id, slug = _resolve_tenant(actor, tenant)
         factory = get_sessionmaker()
         with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
-            batch_id = start_rescreen(s, PostgresJobQueue(factory), kind=batch_kind)
+            batch_id = start_rescreen(
+                s,
+                PostgresJobQueue(factory),
+                kind=batch_kind,
+                trigger=Trigger(TriggerType.CLI, actor),
+            )
     if batch_id is None:
         typer.echo("nothing to do")
         return

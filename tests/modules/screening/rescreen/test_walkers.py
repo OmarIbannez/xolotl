@@ -453,6 +453,14 @@ def test_the_activation_event_opens_one_private_list_batch(wired: Wired):
     assert [b.id for b in _batches(wired.tenant, BatchKind.PRIVATE_LIST)] == [batch.id]
     assert [j.id for j in _jobs(wired.tenant, PRIVATE_LIST_RESCREEN_KIND)] == [page.id]
 
+    # Once the batch is complete, a replayed event leaves it alone.
+    _ = _drain(wired)
+    assert _replay(wired, PRIVATE_LIST_VERSION_ACTIVATED) == 1
+
+    (done,) = _batches(wired.tenant, BatchKind.PRIVATE_LIST)
+    assert (done.id, done.status) == (batch.id, BatchStatus.COMPLETED)
+    assert [j.id for j in _jobs(wired.tenant, PRIVATE_LIST_RESCREEN_KIND)] == [page.id]
+
 
 # ---- periodic walks ----------------------------------------------------------------
 
@@ -682,6 +690,87 @@ def test_a_failed_walk_resumes_from_its_cursor_when_reopened(
     assert {p: len(rs) for p, rs in runs.items()} == dict.fromkeys(parties, 1)
 
 
+def _redeliver(wired: Wired, row: JobRow) -> None:
+    """Hand a page's job to its handler again, as a redelivery would."""
+    job = Job(
+        id=row.id,
+        tenant_id=row.tenant_id,
+        kind=row.kind,
+        key=row.key,
+        payload=row.payload,
+        attempts=row.attempts + 1,
+        max_attempts=row.max_attempts,
+        lock_token=uuid4(),
+    )
+    with _job(wired.tenant) as s:
+        job_handler(row.kind)(s, job)
+
+
+def _replay_page_one(wired: Wired, kind: str, batch_kind: BatchKind, mode: RunMode):
+    """Redeliver a running batch's walked first page; assert it changes nothing."""
+    (before,) = _batches(wired.tenant, batch_kind)
+    assert before.status is BatchStatus.RUNNING
+    jobs = _jobs(wired.tenant, kind)
+    (first,) = [j for j in jobs if j.key == f"{kind}:{before.id}:start"]
+    assert first.status is JobStatus.DONE
+    runs = sum(len(r) for r in _runs(wired.tenant, mode).values())
+    assert runs == 2
+
+    _redeliver(wired, first)
+
+    (after,) = _batches(wired.tenant, batch_kind)
+    assert (after.status, after.done, after.runs, after.cursor) == (
+        BatchStatus.RUNNING,
+        before.done,
+        before.runs,
+        before.cursor,
+    )
+    assert sum(len(r) for r in _runs(wired.tenant, mode).values()) == runs
+    assert [j.id for j in _jobs(wired.tenant, kind)] == [j.id for j in jobs]
+
+
+@pytest.mark.usefixtures("two_per_page")
+def test_a_redelivered_first_periodic_page_of_a_running_batch_is_skipped(
+    wired: Wired,
+):
+    _ = _add(wired.tenant, JUAN, ROSA, FAR)
+    _dispatch(wired)
+    _ = _periodic(wired)
+    assert wired.runner.run_once(limit=2) == 2  # the {} job and page one
+
+    _replay_page_one(
+        wired, PERIODIC_RESCREEN_KIND, BatchKind.PERIODIC, RunMode.PERIODIC
+    )
+
+
+@pytest.mark.usefixtures("two_per_page")
+def test_a_redelivered_first_private_list_page_of_a_running_batch_is_skipped(
+    wired: Wired,
+):
+    _ = _add(wired.tenant, JUAN, ROSA, FAR)
+    _dispatch(wired)
+    _ = _private(wired, _entry(LPB, "L1", JUAN))
+    assert wired.runner.run_once(limit=1) == 1
+
+    _replay_page_one(
+        wired, PRIVATE_LIST_RESCREEN_KIND, BatchKind.PRIVATE_LIST, RunMode.PRIVATE_LIST
+    )
+
+
+@pytest.mark.usefixtures("two_per_page")
+def test_a_redelivered_first_reindex_page_of_a_running_batch_is_skipped(
+    wired: Wired,
+):
+    _ = _add(wired.tenant, JUAN, ROSA, FAR)
+    _dispatch(wired)
+    with _job(wired.tenant) as s:
+        _ = s.execute(update(PartyNameIndex).values(matcher_version="1.0.0"))
+    assert ensure_screening_index(get_sessionmaker(), wired.queue) == 1
+    assert wired.runner.run_once(limit=1) == 1
+
+    _replay_page_one(wired, REINDEX_KIND, BatchKind.REINDEX, RunMode.REINDEX)
+
+
 @pytest.mark.usefixtures("two_per_page")
 def test_a_redelivered_walker_page_changes_nothing(wired: Wired):
     _ = _add(wired.tenant, JUAN, ROSA, FAR)
@@ -692,18 +781,7 @@ def test_a_redelivered_walker_page_changes_nothing(wired: Wired):
     runs = sum(len(r) for r in _runs(wired.tenant, RunMode.PERIODIC).values())
 
     for row in [j for j in _jobs(wired.tenant, PERIODIC_RESCREEN_KIND) if j.payload]:
-        job = Job(
-            id=row.id,
-            tenant_id=row.tenant_id,
-            kind=row.kind,
-            key=row.key,
-            payload=row.payload,
-            attempts=row.attempts + 1,
-            max_attempts=row.max_attempts,
-            lock_token=uuid4(),
-        )
-        with _job(wired.tenant) as s:
-            job_handler(PERIODIC_RESCREEN_KIND)(s, job)
+        _redeliver(wired, row)
 
     (after,) = _batches(wired.tenant, BatchKind.PERIODIC)
     assert (after.done, after.runs, after.cursor) == (
@@ -712,6 +790,39 @@ def test_a_redelivered_walker_page_changes_nothing(wired: Wired):
         before.cursor,
     )
     assert sum(len(r) for r in _runs(wired.tenant, RunMode.PERIODIC).values()) == runs
+
+
+@pytest.mark.usefixtures("two_per_page")
+def test_a_manual_rescreen_carries_its_cli_trigger_on_every_page(wired: Wired):
+    parties = sorted(_add(wired.tenant, JUAN, ROSA, FAR))
+    _dispatch(wired)
+    cli = Trigger(TriggerType.CLI, "cli:tester")
+    with _job(wired.tenant) as s:
+        batch_id = walkers.start_rescreen(
+            s, wired.queue, kind=BatchKind.PERIODIC, trigger=cli
+        )
+    _ = _drain(wired)
+
+    (batch,) = _batches(wired.tenant, BatchKind.PERIODIC)
+    assert (batch.id, batch.status, batch.runs) == (
+        batch_id,
+        BatchStatus.COMPLETED,
+        3,
+    )
+    pages = _jobs(wired.tenant, PERIODIC_RESCREEN_KIND)
+    assert [j.payload for j in pages] == [
+        {
+            "batch_id": str(batch.id),
+            "trigger_type": "CLI",
+            "trigger_ref": "cli:tester",
+            "after_party_id": after,
+        }
+        for after in (None, str(parties[1]))
+    ]
+    runs = _runs(wired.tenant, RunMode.PERIODIC)
+    assert {
+        (r.trigger_type, r.trigger_ref) for each in runs.values() for r in each
+    } == {(TriggerType.CLI, "cli:tester")}
 
 
 # ---- re-index ----------------------------------------------------------------------
