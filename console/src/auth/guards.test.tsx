@@ -9,7 +9,7 @@ import { ACCESS } from './access'
 import { RequireRole } from './guards'
 import { AuthContext } from './use-auth'
 
-/** The admin pages, the parties area, the lists, the private lists and the screening queue behind the guards the console's routes use. */
+/** The admin pages, the parties area, the lists, the private lists, the screening queue and the ad hoc check behind the guards the console's routes use. */
 function visit(path: string, roles: Role[]) {
   render(
     <AuthContext value={makeAuth(makeUser({ roles }))}>
@@ -38,6 +38,9 @@ function visit(path: string, roles: Role[]) {
           <Route element={<RequireRole roles={ACCESS.screening} />}>
             <Route path="/screening/matches" element={<p>page of matches</p>} />
             <Route path="/screening/matches/:matchId" element={<p>page of a match</p>} />
+          </Route>
+          <Route element={<RequireRole roles={ACCESS.screeningCheck} />}>
+            <Route path="/screening/check" element={<p>page of the ad hoc check</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -168,6 +171,21 @@ describe('the screening queue and its findings are open to every staff role', ()
 
   it.each(['/screening/matches', '/screening/matches/m1'])('shows "no access" at %s to a user with no role', (path) => {
     visit(path, [])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+    expect(screen.queryByText(/page of/)).toBeNull()
+  })
+})
+
+describe('the ad hoc check is open to every role that writes', () => {
+  it.each(['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'] as const)('lets %s open it', (role) => {
+    visit('/screening/check', [role])
+
+    expect(screen.getByText('page of the ad hoc check')).toBeTruthy()
+  })
+
+  it.each([[['AUDITOR_RO']], [[]]] as const)('shows "no access" to %j', (roles) => {
+    visit('/screening/check', [...roles])
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
     expect(screen.queryByText(/page of/)).toBeNull()

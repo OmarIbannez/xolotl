@@ -1,4 +1,11 @@
-import type { HitView, MatchDetail, MatchReveal, MatchSummary } from '@/api/types'
+import type {
+  CheckStaffResponse,
+  HitView,
+  MatchDetail,
+  MatchReveal,
+  MatchSummary,
+  PartyScreeningStaffResponse,
+} from '@/api/types'
 
 /** A finding as the queue lists it: an alert on OFAC SDN for a customer. */
 export function matchSummary(overrides: Partial<MatchSummary> = {}): MatchSummary {
@@ -108,6 +115,39 @@ export function matchReveal(overrides: Partial<MatchReveal> = {}): MatchReveal {
     identifiers: [{ id_type: 'RFC', value: 'PELJ760510AB8' }],
     private_entry: null,
     rationales: {},
+    ...overrides,
+  }
+}
+
+/** A screened party with one open alert, as staff see it. */
+export function partyScreening(overrides: Partial<PartyScreeningStaffResponse> = {}): PartyScreeningStaffResponse {
+  return {
+    party_id: 'p1',
+    status: 'PENDING_REVIEW',
+    last_screened_at: '2026-10-20T08:00:00Z',
+    lists_covered: ['OFAC_SDN', 'MX_LPB'],
+    open_finding_count: 1,
+    findings: [matchSummary()],
+    ...overrides,
+  }
+}
+
+/** A party never screened: no status, no run, no lists, no findings. */
+export function neverScreened(): PartyScreeningStaffResponse {
+  return partyScreening({ status: null, last_screened_at: null, lists_covered: [], open_finding_count: 0, findings: [] })
+}
+
+/** The staff answer of a check with one alert (with its finding) and one discarded hit. */
+export function checkResult(overrides: Partial<CheckStaffResponse> = {}): CheckStaffResponse {
+  return {
+    run_id: 'r3',
+    subject_id: 's1',
+    status: 'PENDING_REVIEW',
+    screened_at: '2026-10-20T09:00:00Z',
+    hits: [
+      hit({ id: 'h3', match_id: 'm1' }),
+      hit({ id: 'h4', list_code: 'UN_CONSOLIDATED', band: 'AUTO_DISCARDED', score: '0.4100', match_id: null }),
+    ],
     ...overrides,
   }
 }

@@ -6,6 +6,7 @@ import type { PartyStaffResponse, Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
+import { neverScreened } from '@/features/screening/fixtures'
 import { fullStaffView, OTHER_PARTY, relationship, RFC, staffView } from './fixtures'
 import { PartyPage } from './PartyPage'
 
@@ -17,7 +18,14 @@ function setup(roles: Role[] = ['ANALYST'], view: PartyStaffResponse = fullStaff
     <Routes>
       <Route path="/parties/:partyId" element={<PartyPage />} />
     </Routes>,
-    { path: '/parties/p1', me: makeMe({ roles }), routes: { 'GET /v1/parties/p1': () => json(view) } },
+    {
+      path: '/parties/p1',
+      me: makeMe({ roles }),
+      routes: {
+        'GET /v1/parties/p1': () => json(view),
+        'GET /v1/screening/parties/p1': () => json(neverScreened()),
+      },
+    },
   )
 }
 
