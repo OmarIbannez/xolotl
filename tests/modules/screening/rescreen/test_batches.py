@@ -95,7 +95,10 @@ def test_a_failed_batch_resumes_from_its_cursor(tenant: CreatedTenant):
         batch.status = BatchStatus.FAILED
         batch.last_error = "JOB_FAILED"
 
-    assert _open(tenant, BatchKind.LIST_DELTA, VERSION) == batch_id
+    with job_session(tenant) as s:
+        reopened = open_batch(s, kind=BatchKind.LIST_DELTA, ref=VERSION, total=99)
+        assert reopened is not None
+        assert reopened.id == batch_id
     batch = _batch(tenant, batch_id)
     assert (batch.status, batch.cursor, batch.last_error, batch.done) == (
         BatchStatus.RUNNING,
@@ -103,6 +106,7 @@ def test_a_failed_batch_resumes_from_its_cursor(tenant: CreatedTenant):
         None,
         200,
     )
+    assert batch.total == 10
 
 
 def test_the_cursor_never_moves_backwards(tenant: CreatedTenant):

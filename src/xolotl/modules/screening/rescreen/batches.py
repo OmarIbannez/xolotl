@@ -34,7 +34,9 @@ def open_batch(
 ) -> ScreeningBatch | None:
     """Open the tenant's batch of ``(kind, ref)``, or find the one already open.
 
-    ``total`` is kept from the first open; a resumed batch keeps its counts.
+    ``total`` is kept from the first open; a resumed batch keeps its counts. A resumed
+    (previously ``FAILED``) batch's next page starts at ``batch.cursor``, so callers
+    must enqueue from the cursor, not from page one.
 
     Returns:
         The locked batch, ``RUNNING``; None when it is already ``COMPLETED``.
@@ -83,7 +85,8 @@ def lock_batch(s: Session, batch_id: UUID) -> ScreeningBatch:
         .execution_options(populate_existing=True)
     ).one_or_none()
     if batch is None:
-        raise NotFoundError
+        msg = f"no screening batch {batch_id}"
+        raise NotFoundError(msg)
     return batch
 
 

@@ -11,7 +11,8 @@ the first time it gets the suggestion, and never again.
 from collections.abc import Collection
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import any_, update
+from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.orm import Session
 
 from xolotl.modules.screening.engine.enums import MatchStatus, SuggestedDisposition
@@ -45,7 +46,7 @@ def suggest_delisting(
         update(ScreeningMatch)
         .where(
             ScreeningMatch.list_code == list_code,
-            ScreeningMatch.source_entry_key.in_(list(entry_keys)),
+            ScreeningMatch.source_entry_key == any_(array(list(entry_keys))),
             ScreeningMatch.status.in_(_SUGGESTIBLE),
             ScreeningMatch.suggested_disposition.is_distinct_from(
                 SuggestedDisposition.DELISTED
