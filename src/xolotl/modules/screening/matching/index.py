@@ -28,7 +28,11 @@ from xolotl.modules.screening.matching.phonetic import phonetic_key
 from xolotl.modules.screening.matching.query import NameQuery, compatible, query_names
 
 RARE_WEIGHT = 0.6
-_MAX_SETS = 64
+STOP_KEY_POSTINGS = 1_000
+_AFFIX = 3
+_AFFIX_MIN = 4
+_DELETION_MIN = 3
+_MAX_SETS = 128
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +40,47 @@ class BlockingPlan:
     key_sets: tuple[tuple[str, ...], ...]
 
 
-def _alternatives(token: Token) -> tuple[str, ...]:
-    keys = {token.phonetic} | {phonetic_key(v) for v in nickname_variants(token.folded)}
+def _deletions(key: str) -> set[str]:
+    if len(key) < _DELETION_MIN or not key.isascii():
+        return set()
+    return {key[:i] + key[i + 1 :] for i in range(len(key))}
+
+
+def token_keys(token: Token) -> frozenset[str]:
+    """List the blocking keys a name token is filed under.
+
+    The phonetic key; its one-letter deletions (so any single-letter edit of a rare
+    token still meets the entry: both sides hold the deletions, as in SymSpell);
+    and a three-letter prefix and suffix key for ASCII tokens of four letters or
+    more, so a typo that rewrites the phonetic key (Prelasa against Prelala) still
+    meets through the untouched end of the word.
+
+    Returns:
+        The keys; ``party_name_index.phonetic_keys`` stores the same set.
+
+    """
+    keys = {token.phonetic} | _deletions(token.phonetic)
+    folded = token.folded
+    if folded.isascii() and len(folded) >= _AFFIX_MIN:
+        keys.update((f"p:{folded[:_AFFIX]}", f"s:{folded[-_AFFIX:]}"))
+    return frozenset(keys)
+
+
+def name_keys(name: NormalizedName) -> frozenset[str]:
+    """Collect the blocking keys of every token of a name.
+
+    Returns:
+        The union of ``token_keys`` over the name's tokens.
+
+    """
+    return frozenset(key for token in name.tokens for key in token_keys(token))
+
+
+def _alternatives(token: Token, *, loose: bool) -> tuple[str, ...]:
+    # Rare tokens block alone, so they may use every key; pairs of common tokens use
+    # the phonetic key and nickname variants only, or the pairs would multiply.
+    keys = set(token_keys(token)) if loose else {token.phonetic}
+    keys |= {phonetic_key(v) for v in nickname_variants(token.folded)}
     return tuple(sorted(keys))
 
 
@@ -52,13 +95,15 @@ def blocking_plan(name: NormalizedName, idf: IdfTable) -> BlockingPlan:
     tokens = [t for t in name.tokens if t.role in WEIGHTED_ROLES] or list(name.tokens)
     sets: set[tuple[str, ...]] = set()
     if len(tokens) == 1:
-        sets.update((key,) for key in _alternatives(tokens[0]))
+        sets.update((key,) for key in _alternatives(tokens[0], loose=True))
     rare = [t for t in tokens if idf.weight(t.folded) >= RARE_WEIGHT]
     common = [t for t in tokens if idf.weight(t.folded) < RARE_WEIGHT]
     for token in rare:
-        sets.update((key,) for key in _alternatives(token))
+        sets.update((key,) for key in _alternatives(token, loose=True))
     for first, second in combinations(common, 2):
-        pairs = product(_alternatives(first), _alternatives(second))
+        pairs = product(
+            _alternatives(first, loose=False), _alternatives(second, loose=False)
+        )
         sets.update(tuple(sorted(set(keys))) for keys in pairs)
     return BlockingPlan(key_sets=tuple(sorted(sets))[:_MAX_SETS])
 
@@ -78,7 +123,7 @@ class Candidate:
 
 def _entry_keys(entry: ListEntry) -> frozenset[str]:
     return frozenset(
-        token.phonetic for name, _quality in entry_names(entry) for token in name.tokens
+        key for name, _quality in entry_names(entry) for key in name_keys(name)
     )
 
 
@@ -167,6 +212,10 @@ class MemoryIndex:
             hits: set[int] = set()
             for key_set in plan.key_sets:
                 first, *rest = (self._postings.get(k, frozenset()) for k in key_set)
+                if not rest and len(first) > STOP_KEY_POSTINGS:
+                    # A single key held by thousands of entries ("p:moh") names
+                    # no one; its token still counts through the other keys.
+                    continue
                 hits.update(first.intersection(*rest))
             for position in hits:
                 indexed = self._entries[position]
@@ -177,7 +226,9 @@ class MemoryIndex:
                 shared = sum(
                     self._idf.weight(t.folded)
                     for t in weighted
-                    if not self._keys[position].isdisjoint(_alternatives(t))
+                    if not self._keys[position].isdisjoint(
+                        _alternatives(t, loose=False)
+                    )
                 )
                 overlap[position] = max(overlap.get(position, 0.0), shared)
         return sorted(overlap, key=lambda p: (-overlap[p], p))

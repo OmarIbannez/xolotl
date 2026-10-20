@@ -11,7 +11,8 @@
   by position: the last two content tokens are surnames when there are three or
   more (Spanish naming: "Juan de la Cruz Pérez"), the last one when there are two.
 - Organizations: runs of single letters are joined ("S. A. de C. V." becomes
-  "sa de cv"); a legal form at the end is tagged and canonicalized; generic words
+  "sa de cv"); a legal form at the end (or, failing that, the start) is tagged and
+  canonicalized; generic words
   (grupo, company, international…) are tagged.
 - Letters with no deterministic transliteration (Arabic, Han…) are kept as they are
   and their tokens are ``UNKNOWN``.
@@ -28,7 +29,7 @@ from xolotl.modules.screening.lists import EntityType
 from xolotl.modules.screening.matching.phonetic import phonetic_key
 from xolotl.modules.screening.matching.tables import legal_forms, word_tables
 
-MATCHER_VERSION = "2.0.0"
+MATCHER_VERSION = "2.1.0"
 
 
 class TokenRole(StrEnum):
@@ -70,7 +71,6 @@ _CYRILLIC = str.maketrans({
 _JOINERS = re.compile(r"['\u2019\u2018`\u00b4.]")
 _SEPARATORS = re.compile(r"[^\w]+|_")
 _PERSON_SURNAMES_FROM = 3
-_NO_FORM = 0
 
 
 def _fold(piece: str) -> str:
@@ -204,23 +204,29 @@ def _join_initials(pieces: list[str]) -> list[str]:
     return joined
 
 
-def _legal_form_length(folded: list[str]) -> tuple[int, str | None]:
-    for sequence, code in legal_forms():
-        size = len(sequence)
-        if size < len(folded) and tuple(folded[-size:]) == sequence:
-            return size, code
-    return _NO_FORM, None
+def _legal_form_span(folded: list[str]) -> tuple[range, str | None]:
+    # A legal form ends the name ("Acme SA de CV"), or starts it as some registries
+    # write it ("LLC Synesis"); the end wins when both match.
+    for at_end in (True, False):
+        for sequence, code in legal_forms():
+            size = len(sequence)
+            if size >= len(folded):
+                continue
+            if at_end and tuple(folded[-size:]) == sequence:
+                return range(len(folded) - size, len(folded)), code
+            if not at_end and tuple(folded[:size]) == sequence:
+                return range(size), code
+    return range(0), None
 
 
 def _organization(text: str) -> tuple[list[Token], str | None]:
     words = word_tables()
     pieces = _join_initials(_pieces(text))
     folded = [_fold(p) for p in pieces]
-    size, form = _legal_form_length(folded)
-    cut = len(pieces) - size
+    span, form = _legal_form_span(folded)
     tokens: list[Token] = []
     for index, (piece, f) in enumerate(zip(pieces, folded, strict=True)):
-        if index >= cut:
+        if index in span:
             role = TokenRole.LEGAL_FORM
         elif f in words.particles:
             role = TokenRole.PARTICLE

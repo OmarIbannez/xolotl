@@ -15,6 +15,8 @@ from xolotl.modules.screening.matching.index import (
     IndexedEntry,
     MemoryIndex,
     blocking_plan,
+    name_keys,
+    token_keys,
 )
 from xolotl.modules.screening.matching.nicknames import are_nicknames
 from xolotl.modules.screening.matching.normalize import (
@@ -63,7 +65,9 @@ __all__ = [
     "are_nicknames",
     "band_for",
     "blocking_plan",
+    "name_keys",
     "normalize_name",
     "phonetic_key",
     "score",
+    "token_keys",
 ]

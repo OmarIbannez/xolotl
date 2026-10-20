@@ -58,7 +58,10 @@ DROP_WEIGHT = {TokenRole.SURNAME: 0.3, TokenRole.GIVEN: 0.5, TokenRole.UNKNOWN: 
 NICKNAME_SIMILARITY = 0.95
 PHONETIC_SIMILARITY = 0.9
 INITIAL_SIMILARITY = 0.8
-FUZZY_FLOOR = 0.85
+FUZZY_FLOOR = 0.82
+# A leftover token is a misspelt weightless word at this Jaro-Winkler similarity.
+ABSORB_FLOOR = 0.75
+SHORT_PHONETIC_SIMILARITY = 0.85
 # Aligned weight at which a match carries full information, and the factor applied
 # to a match carrying none.
 INFO_FULL = 1.5
@@ -222,13 +225,28 @@ def compare_tokens(query: Token, entry: Token) -> tuple[MatchKind, float] | None
     if are_nicknames(query.folded, entry.folded):
         return MatchKind.NICKNAME, NICKNAME_SIMILARITY
     fuzzy = JaroWinkler.similarity(query.folded, entry.folded)
-    if len(query.phonetic) > 1 and query.phonetic == entry.phonetic:
-        return MatchKind.PHONETIC, max(PHONETIC_SIMILARITY, fuzzy)
+    phonetic = _phonetic_match(query, entry, fuzzy)
+    if phonetic is not None:
+        return phonetic
     short, long_ = sorted((query.folded, entry.folded), key=len)
     if len(short) == 1 and long_.startswith(short):
         return MatchKind.INITIAL, INITIAL_SIMILARITY
     if fuzzy >= FUZZY_FLOOR:
         return MatchKind.FUZZY, fuzzy
+    return None
+
+
+def _phonetic_match(
+    query: Token, entry: Token, fuzzy: float
+) -> tuple[MatchKind, float] | None:
+    if query.phonetic != entry.phonetic:
+        return None
+    if len(query.phonetic) > 1:
+        return MatchKind.PHONETIC, max(PHONETIC_SIMILARITY, fuzzy)
+    # One-sound keys ("su" and "zu", "ho" and "o") only count between tokens whose
+    # lengths differ by one letter at most.
+    if abs(len(query.folded) - len(entry.folded)) <= 1:
+        return MatchKind.PHONETIC, max(SHORT_PHONETIC_SIMILARITY, fuzzy)
     return None
 
 
@@ -279,6 +297,35 @@ def _unaligned_weight(
     return total
 
 
+def _loosely(token: Token, other: Token) -> tuple[MatchKind, float] | None:
+    similarity = JaroWinkler.similarity(token.folded, other.folded)
+    return (MatchKind.FUZZY, similarity) if similarity >= ABSORB_FLOOR else None
+
+
+def _absorb(
+    tokens: list[Token], used: set[int], others: NormalizedName
+) -> list[TokenAlignment]:
+    # A weighted token left over that resembles a weightless word on the other side
+    # ("corporatino" against "corporation", "sr" against "sa") is a misspelling of a
+    # word that carries no weight; it costs nothing either.
+    weightless = [t for t in others.tokens if t.role not in WEIGHTED_ROLES]
+    absorbed: list[TokenAlignment] = []
+    for index, token in enumerate(tokens):
+        if index in used:
+            continue
+        for other in weightless:
+            found = compare_tokens(token, other) or _loosely(token, other)
+            if found is not None:
+                used.add(index)
+                absorbed.append(
+                    TokenAlignment(
+                        token.folded, other.folded, found[0], found[1], 0.0, other.role
+                    )
+                )
+                break
+    return absorbed
+
+
 def _pair_score(
     query: NormalizedName, entry: NormalizedName, idf: IdfTable
 ) -> _PairResult:
@@ -287,6 +334,10 @@ def _pair_score(
     used_q = {c[0] for c in chosen}
     used_e = {c[1] for c in chosen}
     shorter_done = len(chosen) == min(len(q_tokens), len(e_tokens))
+    absorbed = _absorb(q_tokens, used_q, entry) + [
+        TokenAlignment(a.entry, a.query, a.kind, a.similarity, a.weight, a.role)
+        for a in _absorb(e_tokens, used_e, query)
+    ]
     aligned_weight = sum(c[4] for c in chosen)
     aligned_value = sum(c[3] * c[4] for c in chosen)
     denominator = (
@@ -296,19 +347,20 @@ def _pair_score(
     )
     raw = aligned_value / denominator if denominator > 0 else 0.0
     information = INFO_BASE + (1 - INFO_BASE) * min(1.0, aligned_value / INFO_FULL)
+    aligned = [
+        TokenAlignment(
+            query=q_tokens[qi].folded,
+            entry=e_tokens[ei].folded,
+            kind=kind,
+            similarity=similarity,
+            weight=weight,
+            role=e_tokens[ei].role,
+        )
+        for qi, ei, kind, similarity, weight in sorted(chosen)
+    ]
     return _PairResult(
         score=raw * information,
-        alignment=tuple(
-            TokenAlignment(
-                query=q_tokens[qi].folded,
-                entry=e_tokens[ei].folded,
-                kind=kind,
-                similarity=similarity,
-                weight=weight,
-                role=e_tokens[ei].role,
-            )
-            for qi, ei, kind, similarity, weight in sorted(chosen)
-        ),
+        alignment=tuple(aligned + absorbed),
         unmatched_query=tuple(
             t.folded for i, t in enumerate(q_tokens) if i not in used_q
         ),

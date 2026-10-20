@@ -87,7 +87,8 @@ class EntryName:
 @dataclass(frozen=True, slots=True)
 class EntryIdentifier:
     id_type: IdType; value: str                 # value as published
-    normalized: str                             # upper-case alphanumerics per id_type (the scorer compares this)
+    normalized: str                             # upper-case alphanumerics per id_type (the scorer compares this);
+                                                # DIGITAL_CURRENCY_ADDRESS keeps its case (addresses are case-sensitive)
     country: str | None = None                  # ISO 3166-1 alpha-2
     label: str | None = None                    # source label, e.g. "Cedula No.", "R.F.C."; network for wallets
 @dataclass(frozen=True, slots=True)
@@ -140,12 +141,12 @@ Source formats fixed by this spec (the library confirms each against the current
 - `OFAC_SDN`: the Sanctions List Service **SDN enhanced XML** (D22: enhanced XML primary; the legacy CSV parser is kept for fixtures and as a fallback format), because it carries structured identifiers, dates with precision and digital-currency addresses that the CSV flattens.
 - `EU_FSF`: the EU Financial Sanctions Files consolidated XML (version 1.1 schema).
 - `UK_FCDO`: the FCDO **UK Sanctions List** XML (OFSI's separate consolidated list was withdrawn in early 2026; the parser targets the FCDO file).
-- `MX_SAT_69B`: SAT's `Listado_Completo_69-B.csv` (Windows-1252, preamble lines before the header); `entry_key` is the RFC, `entity_type` is inferred from RFC length (12 organization, 13 person), `status` from the "Situación del contribuyente" column.
+- `MX_SAT_69B`: SAT's `Listado_Completo_69-B.csv` (Windows-1252, preamble lines before the header); `entry_key` is the RFC, `entity_type` is inferred from RFC length (12 organization, 13 person), `status` from the "Situación del contribuyente" column. The file has one row per proceeding, so an RFC can appear on several rows: they merge into one entry with the most severe status (`DEFINITIVO` > `PRESUNTO` > `SENTENCIA_FAVORABLE` > `DESVIRTUADO`), screenable while any proceeding keeps it listed; court-suppressed `XXXXXXXXXXXX` rows are skipped (library T3).
 
 ### 4.2 Matching: query, normalization, index, score, bands
 
 ```python
-MATCHER_VERSION: str                            # e.g. "2.0.0"; stored on every run and on party_name_index rows
+MATCHER_VERSION: str                            # "2.1.0" as tuned by the corpus (library T6); stored on every run and on party_name_index rows
 
 class TokenRole(StrEnum): GIVEN = "GIVEN"; SURNAME = "SURNAME"; PARTICLE = "PARTICLE"; LEGAL_FORM = "LEGAL_FORM"; GENERIC = "GENERIC"; UNKNOWN = "UNKNOWN"
 @dataclass(frozen=True, slots=True)
@@ -171,8 +172,11 @@ class NameQuery:
     def fingerprint(self) -> bytes: ...         # sha256 of canonical JSON; stored on the run for replay
 
 @dataclass(frozen=True, slots=True)
-class BlockingPlan: key_sets: tuple[tuple[str, ...], ...]  # a subject is a candidate if its phonetic keys contain ANY one set
+class BlockingPlan: key_sets: tuple[tuple[str, ...], ...]  # a subject is a candidate if its keys contain ANY one set
 def blocking_plan(name: NormalizedName, idf: IdfTable) -> BlockingPlan   # rare token alone, or two common tokens together
+def token_keys(token: Token) -> frozenset[str]   # phonetic key, its one-letter deletions, "p:"/"s:" 3-letter prefix and suffix
+def name_keys(name: NormalizedName) -> frozenset[str]   # union of token_keys: what party_name_index.phonetic_keys stores
+    # (library T6: blocking keys are not only Token.phonetic values; a single key held by over 1,000 entries never retrieves alone)
 
 class IdfTable:                                 # token weights from the list corpus plus data/surnames_mx.csv
     @classmethod
@@ -218,6 +222,7 @@ class Band(StrEnum): ALERT = "ALERT"; LOW_CONFIDENCE = "LOW_CONFIDENCE"; AUTO_DI
 @dataclass(frozen=True, slots=True)
 class BandThresholds: alert: Decimal; review: Decimal
 def band_for(result: MatchScore, thresholds: BandThresholds) -> Band
+    # IDENTIFIER_ONLY_LIST without ID_MATCH_FLOOR -> LOW_CONFIDENCE at most (the alert threshold is policy, so the cap lives here);
     # ID_CONFLICT_CAP applied and the uncapped name score would have reached `review` -> AUTO_DISCARDED (logged as a hit);
     # otherwise score >= alert -> ALERT; >= review -> LOW_CONFIDENCE; else BELOW_CUTOFF
 ```
@@ -226,7 +231,7 @@ Scoring rules the library implements (values tuned by the corpus, then frozen pe
 
 ### 4.3 Evaluation corpus and the CI floor
 
-Corpus under `tests/modules/screening/corpus/`: seed entries from the trimmed fixtures, a deterministic perturbation generator (dropped maternal surname, order swap, accent loss, common letter substitutions, nicknames, initials, particle changes, typos, truncation at 60 characters) producing at least 20,000 labelled pairs (`TS-03 §10`), and at least 500 hand-labelled hard negatives (very common Mexican names that must not alert). `xolotl screening eval` (library function `evaluate(corpus) -> EvaluationReport`, CLI in 3c) reports per list kind: recall at `LOW_CONFIDENCE`-or-above, precision at `ALERT`, candidate retrieval recall at the production `top_k`, and alerts per 1,000 hard negatives. Floors in `corpus/floors.yaml`: sanctions recall **≥ 0.98** (`FR-SC-004`), retrieval recall **≥ 0.995** (`NFR-SC-006`), precision at `ALERT` set by the library from its first honest measurement. CI fails below a floor; a floor may only be raised in a library PR, and lowering one needs the product owner's written approval in the PR.
+Corpus under `tests/modules/screening/corpus/`: seed entries from the trimmed fixtures, a deterministic perturbation generator (dropped maternal surname, order swap, accent loss, common letter substitutions, nicknames, initials, particle changes, typos, truncation at 60 characters) producing at least 20,000 labelled pairs (`TS-03 §10`), and at least 500 hand-labelled hard negatives (very common Mexican names that must not alert). `xolotl screening eval` (library function `evaluate(corpus) -> EvaluationReport`, CLI in 3c) reports per list kind: recall at `LOW_CONFIDENCE`-or-above, precision at `ALERT`, candidate retrieval recall at the production `top_k`, and alerts per 1,000 hard negatives. Floors in `corpus/floors.yaml`: sanctions recall **≥ 0.98** (`FR-SC-004`), retrieval recall **≥ 0.995** (`NFR-SC-006`), precision at `ALERT` set by the library from its first honest measurement. CI fails below a floor; a floor may only be raised in a library PR, and lowering one needs the product owner's written approval in the PR. Library interface (T6, `matching/evaluation.py`): `load_corpus(root, floors) -> Corpus` (`entries`, `pairs: tuple[CorpusPair]` with `query: NameQuery`, `list_code`, `entry_key`, `perturbations`, `hard_negatives`, `entry_for(pair)`), `generate_pairs(entries, *, per_entry, seed)`, `perturb`, `load_floors(path) -> Floors`, `evaluate(corpus, *, thresholds, config=None, top_k=50) -> EvaluationReport` (`to_json()` with `matcher_version`), and `check_floors(report, floors) -> list[FloorFailure]`. The hard negatives are synthetic (frequent given names and the `data/surnames_mx.csv` surnames), negative by construction rather than hand-labelled. Non-gating latency tests carry the `perf` pytest marker, deselected by default (`uv run pytest -m perf --no-cov`).
 
 ## 5. Tables
 

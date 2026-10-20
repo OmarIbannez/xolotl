@@ -30,7 +30,7 @@ def _org(text, entity_type=EntityType.ORGANIZATION):
 
 
 def test_matcher_version():
-    assert MATCHER_VERSION == "2.0.0"
+    assert MATCHER_VERSION == "2.1.0"
 
 
 @pytest.mark.parametrize(
@@ -110,6 +110,8 @@ def test_structured_fields_decide_person_roles():
         ("S.A.", "sa", [U], None),
         ("Al-Qaida", "al qaida", [P, U], None),
         ("I.B.M. Corp", "ibm corp", [U, L], "CORP"),
+        # Some registries put the legal form first.
+        ("LLC Synesis", "llc synesis", [L, U], "LLC"),
     ],
 )
 def test_organization_names(text, folded, roles, form):
