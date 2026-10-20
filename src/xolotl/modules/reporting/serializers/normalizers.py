@@ -37,6 +37,7 @@ _CASFIM_DIGITS = re.compile(r"^(?:[0-9]{6}|[0-9]{8})$")
 _CASFIM_LENGTH = 6
 _MAX_INTEGER_DIGITS = 14
 _ENYE = "Ñ"
+_DESCRIPTION_JUNK = re.compile(r"[^A-ZÑ0-9 ,.:/'$\-]")
 _CONTROL_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn"})
 
 
@@ -95,6 +96,31 @@ def aviso_text(value: str | None) -> str:
         for ch in upper
     )
     return _collapse(kept.upper())
+
+
+def aviso_description(value: str | None, *, field: str, max_length: int) -> str:
+    """Fit free text to the aviso description fields' character set.
+
+    ``descripcion_alerta``, ``descripcion_modificacion`` and
+    ``descripcion_activo_virtual`` allow letters, Ñ, digits, spaces and
+    ``, . : / ' $ -`` only, and may not start with a space or ``, . : /``. Other
+    characters become spaces after :func:`aviso_text`. Narrative is never cut:
+    text longer than ``max_length`` is refused so a person shortens it.
+
+    Returns:
+        The text, collapsed and trimmed, ``""`` when nothing is left.
+
+    Raises:
+        ReportFieldError: The cleaned text is longer than ``max_length``.
+
+    """
+    kept = _DESCRIPTION_JUNK.sub(" ", aviso_text(value))
+    # A leading apostrophe is allowed by some description patterns and not by
+    # others; dropping it everywhere keeps one rule.
+    cleaned = _collapse(kept).lstrip(",.:/' ")
+    if len(cleaned) > max_length:
+        raise ReportFieldError(field, f"longer than {max_length} characters")
+    return cleaned
 
 
 def fit(value: str, width: int) -> tuple[str, bool]:

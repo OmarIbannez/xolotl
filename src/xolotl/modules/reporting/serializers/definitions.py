@@ -7,6 +7,7 @@ report kinds share one column table. Code tables live under
 settle is marked ``UNVERIFIED`` in the file, not guessed in code.
 """
 
+import re
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
@@ -19,6 +20,7 @@ from xolotl.platform.enums import Confidence
 from xolotl.platform.errors import ValidationFailedError
 
 _STRICT = ConfigDict(frozen=True, extra="forbid")
+_VERSION_FILE = re.compile(r"v([1-9][0-9]*)\.yaml")
 
 
 class DefinitionError(ValidationFailedError):
@@ -201,6 +203,39 @@ def load_definition(
         msg = f"{path.name}: declares {definition.code} v{definition.version}"
         raise DefinitionError(msg)
     return definition
+
+
+def select_definition(
+    defs_dir: Path, code: str, on: date
+) -> DelimitedDefinition | XmlDefinition:
+    """Pick the version of ``code`` in force on ``on`` (NFR-RR-005).
+
+    Versions may overlap during a transition; the highest version in force wins.
+    Every version file is read, so a malformed one fails the selection whatever
+    the date: a broken definition must not be skipped silently.
+
+    Returns:
+        The selected definition.
+
+    Raises:
+        DefinitionError: No version of ``code`` is in force on ``on``.
+
+    """
+    versions = sorted({
+        int(match.group(1))
+        for path in (defs_dir / code).glob("v*.yaml")
+        if (match := _VERSION_FILE.fullmatch(path.name))
+    })
+    in_force = [
+        definition
+        for version in versions
+        if (definition := load_definition(defs_dir, code, version)).valid_from <= on
+        and (definition.valid_to is None or on <= definition.valid_to)
+    ]
+    if not in_force:
+        msg = f"{code}: no version in force on {on.isoformat()}"
+        raise DefinitionError(msg)
+    return max(in_force, key=lambda definition: definition.version)
 
 
 def load_delimited(defs_dir: Path, code: str, version: int) -> DelimitedDefinition:

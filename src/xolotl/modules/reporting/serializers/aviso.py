@@ -13,6 +13,7 @@ files, each with the same ``mes_reportado`` and ``sujeto_obligado``.
 """
 
 import hashlib
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -25,10 +26,12 @@ from lxml import etree
 
 from xolotl.modules.reporting.serializers import normalizers as norm
 from xolotl.modules.reporting.serializers.definitions import (
+    CorrectionRule,
     XmlDefinition,
     ZeroReportRule,
 )
 from xolotl.modules.reporting.serializers.errors import (
+    CorrectionUnsupportedError,
     ReportFieldError,
     ZeroReportNotAllowedError,
 )
@@ -36,6 +39,11 @@ from xolotl.modules.reporting.serializers.result import SerializedReport
 from xolotl.platform.errors import ValidationFailedError
 
 _MAX_ERRORS = 10
+# Maximum lengths of the XSD's description types.
+_LONG_TEXT = 3000
+_ASSET_TEXT = 100
+# folio_modificacion_type, ASCII digits only.
+_FOLIO = re.compile(r"[2-9][0-9]{3}-[1-9][0-9]{0,8}")
 
 
 class SchemaInvalidError(ValidationFailedError):
@@ -282,6 +290,19 @@ class Operations:
 
 
 @dataclass(frozen=True, slots=True)
+class Modificatorio:
+    """The correction of an accepted aviso: its folio and what changed.
+
+    ``folio`` is the acuse folio of the original aviso (``AAAA-n``). SAT accepts
+    one modificatorio per aviso within 30 days of the acuse, and none for an
+    informe en ceros; checking the window needs filing state and is SP-05's.
+    """
+
+    folio: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class Aviso:
     reference: str
     alert_type: str
@@ -290,6 +311,7 @@ class Aviso:
     priority: Priority = Priority.NORMAL
     alert_description: str | None = None
     beneficial_owners: tuple[Person, ...] = ()
+    modificatorio: Modificatorio | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,9 +325,16 @@ class ObligatedSubject:
 
 @dataclass(frozen=True, slots=True)
 class AvisoInforme:
+    """One month of avisos for one filer; with no aviso, the informe en ceros.
+
+    ``exempt`` marks an informe en ceros filed because the month's operations
+    were exempt from avisos (RCG Art. 27 Bis); it is refused with avisos.
+    """
+
     month: date
     subject: ObligatedSubject
     avisos: tuple[Aviso, ...] = field(default_factory=tuple[Aviso, ...])
+    exempt: bool = False
 
 
 # ---- Rendering --------------------------------------------------------------------
@@ -334,6 +363,12 @@ def _leaf(tag: str, value: str | None) -> Node | None:
 
 def _t(value: str | None) -> str | None:
     return None if value is None else norm.aviso_text(value)
+
+
+def _desc(value: str | None, field: str, max_length: int) -> str | None:
+    if value is None:
+        return None
+    return norm.aviso_description(value, field=field, max_length=max_length)
 
 
 def _date(value: date | None) -> str | None:
@@ -489,7 +524,10 @@ def _asset(asset: VirtualAsset) -> Node:
     return _n(
         "activo_virtual",
         _leaf("activo_virtual_operado", asset.code),
-        _leaf("descripcion_activo_virtual", _t(asset.description)),
+        _leaf(
+            "descripcion_activo_virtual",
+            _desc(asset.description, "descripcion_activo_virtual", _ASSET_TEXT),
+        ),
         _leaf("tipo_cambio_mn", _money(asset.rate_mxn, "tipo_cambio_mn")),
         _leaf(
             "cantidad_activo_virtual",
@@ -617,6 +655,24 @@ def _operations(ops: Operations) -> Node:
     )
 
 
+def _modificatorio(correction: Modificatorio | None) -> Node | None:
+    if correction is None:
+        return None
+    folio = correction.folio.strip()
+    if not _FOLIO.fullmatch(folio):
+        where = "folio_modificacion"
+        raise ReportFieldError(where, "must be the acuse folio AAAA-n")
+    description = _desc(correction.description, "descripcion_modificacion", _LONG_TEXT)
+    if not description:
+        where = "descripcion_modificacion"
+        raise ReportFieldError(where, "is required")
+    return _n(
+        "modificatorio",
+        _leaf("folio_modificacion", folio),
+        _leaf("descripcion_modificacion", description),
+    )
+
+
 def _aviso(aviso: Aviso, number: int) -> Node:
     if aviso.operations.is_empty:
         # The position, not the reference: a reference is free text.
@@ -626,10 +682,14 @@ def _aviso(aviso: Aviso, number: int) -> Node:
         "aviso",
         _leaf("referencia_aviso", _t(aviso.reference)),
         _leaf("prioridad", aviso.priority.value),
+        _modificatorio(aviso.modificatorio),
         _n(
             "alerta",
             _leaf("tipo_alerta", aviso.alert_type),
-            _leaf("descripcion_alerta", _t(aviso.alert_description)),
+            _leaf(
+                "descripcion_alerta",
+                _desc(aviso.alert_description, "descripcion_alerta", _LONG_TEXT),
+            ),
         ),
         _n(
             "operaciones_persona",
@@ -660,6 +720,7 @@ def _archivo(
                 ),
                 _leaf("clave_sujeto_obligado", norm.rfc(subject.rfc)),
                 _leaf("clave_actividad", definition.activity),
+                _leaf("exento", "1" if informe.exempt else None),
                 _leaf("dominio_plataforma", _t(subject.platform_domain)),
             ),
             *avisos,
@@ -808,6 +869,15 @@ def _fit(
     return _fit(render, batch[:middle], limit) + _fit(render, batch[middle:], limit)
 
 
+def _check_informe(definition: XmlDefinition, informe: AvisoInforme) -> None:
+    if informe.exempt and informe.avisos:
+        where = "exento"
+        raise ReportFieldError(where, "only an informe en ceros is exempt")
+    corrected = [aviso.reference for aviso in informe.avisos if aviso.modificatorio]
+    if corrected and definition.correction_rule is not CorrectionRule.MODIFICATORIO:
+        raise CorrectionUnsupportedError(definition.code)
+
+
 def serialize_aviso(
     defs_dir: Path, definition: XmlDefinition, informe: AvisoInforme
 ) -> SerializedReport:
@@ -828,6 +898,7 @@ def serialize_aviso(
 
     """
     schema = load_schema(defs_dir, definition)
+    _check_informe(definition, informe)
     if (
         not informe.avisos
         and definition.zero_report_rule is not ZeroReportRule.REQUIRED
