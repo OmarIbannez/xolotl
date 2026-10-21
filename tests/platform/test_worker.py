@@ -30,7 +30,8 @@ from tests.platform.jobs_support import eventually, unique_kind
 from xolotl import worker as worker_module
 from xolotl.app import build_app, build_worker, wire_platform
 from xolotl.cli import app as cli
-from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
+from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND, PROCESS_KIND
+from xolotl.modules.monitoring.process.job import ProcessJob
 from xolotl.modules.monitoring.txn.files import IngestFileJob
 from xolotl.modules.screening.catalog.poll import LISTS_POLL_KIND, ListsPollJob
 from xolotl.modules.screening.rescreen.party_events import (
@@ -611,6 +612,7 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     assert lists_poll.fetching is False
     assert job_handler(SCREEN_PARTY_KIND) is screen_party_job
     assert SCREENING_CONSUMER in consumers()
+    assert isinstance(getattr(job_handler(PROCESS_KIND), "__self__", None), ProcessJob)
     assert isinstance(
         getattr(job_handler(INGEST_FILE_KIND), "__self__", None), IngestFileJob
     )

@@ -127,6 +127,7 @@ source_modules =
     xolotl.modules.monitoring.rules.definitions
     xolotl.modules.monitoring.rules.render
     xolotl.modules.monitoring.rules.library
+    xolotl.modules.monitoring.rules.kinds
 forbidden_modules =
     sqlalchemy
     fastapi
@@ -144,4 +145,7 @@ ignore_imports =
     xolotl.modules.monitoring.rules.definitions -> xolotl.platform.policy.jurisdictions
     xolotl.modules.monitoring.rules.definitions -> xolotl.platform.units.rules
     xolotl.modules.monitoring.rules.library -> xolotl.platform.errors
+    xolotl.modules.monitoring.rules.kinds -> xolotl.platform.policy.jurisdictions
+    xolotl.modules.monitoring.rules.kinds -> xolotl.platform.policy.resolver
+    xolotl.modules.monitoring.aggregates.windows -> xolotl.platform.policy.durations
     xolotl.modules.monitoring.txn.schema -> xolotl.modules.screening.counterparty.schema
