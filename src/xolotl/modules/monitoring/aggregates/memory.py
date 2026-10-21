@@ -101,15 +101,12 @@ def _later_accumulator(
     series: _Series, start: datetime, end: datetime
 ) -> BucketRow | None:
     # The earliest, as the Postgres store orders it.
-    return min(
-        (
-            row
-            for row in series.values()
-            if row.bucket_kind is BucketKind.ACCUM and start < row.bucket_start < end
-        ),
-        key=lambda row: row.bucket_start,
-        default=None,
-    )
+    later = [
+        row
+        for row in series.values()
+        if row.bucket_kind is BucketKind.ACCUM and start < row.bucket_start < end
+    ]
+    return min(later, key=lambda row: row.bucket_start) if later else None
 
 
 class MemoryAggregateStore:
