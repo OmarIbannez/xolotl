@@ -9,6 +9,8 @@ importing ``monitoring.txn.models`` registers ``transaction``.
 from sqlalchemy import MetaData
 
 from xolotl.modules.monitoring.aggregates import models as monitoring_aggregates_models
+from xolotl.modules.monitoring.captures import models as monitoring_captures_models
+from xolotl.modules.monitoring.rules import models as monitoring_rules_models
 from xolotl.modules.monitoring.txn import models as monitoring_txn_models
 from xolotl.modules.party import models as party_models
 from xolotl.modules.screening.catalog import models as screening_catalog_models
@@ -42,6 +44,8 @@ __all__ = [
     "jobs_models",
     "metadata",
     "monitoring_aggregates_models",
+    "monitoring_captures_models",
+    "monitoring_rules_models",
     "monitoring_txn_models",
     "party_models",
     "policy_models",
