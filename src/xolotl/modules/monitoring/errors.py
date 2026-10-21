@@ -86,3 +86,10 @@ class FileInvalidError(ValidationFailedError):
 
     default_code: ClassVar[str] = "TRANSACTION_FILE_INVALID"
     default_detail: ClassVar[str] = "the file cannot be read as transactions"
+
+
+class BackfillRangeInvalidError(ValidationFailedError):
+    """A backfill range starts after it ends, or ends after today."""
+
+    default_code: ClassVar[str] = "BACKFILL_RANGE_INVALID"
+    default_detail: ClassVar[str] = "the backfill range is not valid"

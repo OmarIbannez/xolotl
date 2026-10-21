@@ -913,6 +913,8 @@ Depends on: A5, A9. Console: no. Branch `sp04a-a10-transactions-api`.
 
 Note from A2: add the ignore line `xolotl.modules.screening.counterparty.views -> xolotl.modules.screening.counterparty.models` to the `monitoring-boundaries` contract in `.importlinter` in this task.
 
+Note from A9: the sweep keeps a row's `transaction_parked` entry when it sets the row `RECEIVED` again, so parking it again counts the attempt (Deviation 10). A `transaction_parked` row therefore does not mean the transaction is parked: `list_parked_transactions` filters `transaction.status = 'PARKED'` (joining the parked row for its reason, unit, date and attempts), `staff_view` joins the parked row only when the transaction's `status` is `PARKED` (else `parked` is None), and `MonitoringStatus.parked` counts `transaction.status = 'PARKED'`, not `transaction_parked` rows. A12's parked tab reads that list, so it needs nothing of its own.
+
 Note from A5: `upload_file` adds and flushes the `transaction_file` row before it stores the sealed object, so two concurrent uploads of the same new file meet on the unique `(tenant_id, sha256)` index and the loser raises `IntegrityError` before writing anything. The upload endpoint maps that `IntegrityError` to the existing row (read it again in a fresh transaction) and answers `200` with it, as for a file uploaded earlier.
 
 **Files:**

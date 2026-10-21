@@ -22,7 +22,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from xolotl.app import build_key_provider, build_object_store, build_worker
 from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
+from xolotl.modules.monitoring.process.backfill import (
+    BackfillJob,
+    backfill_payload,
+    request_backfill,
+)
 from xolotl.modules.monitoring.process.job import ProcessReport, process_party
+from xolotl.modules.monitoring.process.partitions import (
+    describe,
+    maintain_partitions,
+)
+from xolotl.modules.monitoring.process.sweep import sweep
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_library
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
@@ -137,6 +147,8 @@ screening_app = typer.Typer(no_args_is_help=True, help="Screening")
 app.add_typer(screening_app, name="screening")
 monitoring_app = typer.Typer(no_args_is_help=True, help="Transaction monitoring")
 app.add_typer(monitoring_app, name="monitoring")
+partitions_app = typer.Typer(no_args_is_help=True, help="Monthly table partitions")
+monitoring_app.add_typer(partitions_app, name="partitions")
 rules_app = typer.Typer(
     no_args_is_help=True, help="Monitoring rule templates and tenant rules"
 )
@@ -1461,6 +1473,88 @@ def monitoring_process(
                 actor=actor,
             )
             typer.echo(_drain_line(party_id, report))
+
+
+@monitoring_app.command("sweep")
+def monitoring_sweep(
+    *, tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")]
+) -> None:
+    """Run the monitoring sweep for a tenant now, as the per-minute job does.
+
+    Enqueues the parties whose received rows wait, un-parks the rows whose unit
+    value or policy arrived and notifies ADMIN and MLRO of rows parked too long.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        queue = PostgresJobQueue(get_sessionmaker())
+        with tenant_session(TenantContext.system(tenant_id, actor)) as s:
+            report = sweep(s, queue=queue, notifier=InAppNotifier(), now=clock.now())
+    retries = "policy retry" if report.policy_retried == 1 else "policy retries"
+    line = (
+        f"sweep: {report.enqueued} enqueued, {report.unparked} unparked, "
+        f"{report.policy_retried} {retries}"
+    )
+    if report.notified:
+        line += ", notified"
+    typer.echo(line)
+
+
+@monitoring_app.command("backfill")
+def monitoring_backfill(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    from_: Annotated[
+        datetime,
+        typer.Option("--from", formats=["%Y-%m-%d"], help="First day, Mexico City"),
+    ],
+    to: Annotated[
+        datetime,
+        typer.Option("--to", formats=["%Y-%m-%d"], help="Last day, included"),
+    ],
+    party: Annotated[
+        UUID | None, typer.Option("--party", help="One party's id; by default all")
+    ] = None,
+) -> None:
+    """Request a backfill of the held rows in a range of days and run it here.
+
+    The request is audited and its job queued as the API does; this process then
+    runs it, so a worker that claims the queued job later finds nothing left.
+    """
+    actor = _cli_actor()
+    settings = get_settings()
+    with _cli_errors():
+        _ensure_key_provider()
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        factory = get_sessionmaker()
+        queue = PostgresJobQueue(factory)
+        payload = backfill_payload(from_=from_.date(), to=to.date(), party_id=party)
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            job_id = request_backfill(
+                s,
+                from_=from_.date(),
+                to=to.date(),
+                party_id=party,
+                queue=queue,
+            )
+        job = BackfillJob(session_factory=factory, queue=queue, settings=settings)
+        report = job.backfill(tenant_id, payload, job=None, actor=actor)
+    parties = "party" if report.parties == 1 else "parties"
+    rows = _plural(report.processed, "row")
+    typer.echo(f"backfill {job_id}: {rows} processed for {report.parties} {parties}")
+
+
+@partitions_app.command("ensure")
+def monitoring_partitions_ensure() -> None:
+    """Create this month's and the next months' partitions of every table now.
+
+    The daily ``monitoring.partitions`` job does the same, as ``db upgrade`` does.
+    """
+    reports = maintain_partitions(
+        months_ahead=get_settings().monitoring_partition_months_ahead
+    )
+    for table, report in reports.items():
+        typer.echo(describe(table, report))
 
 
 _FILE_TYPES_BY_SUFFIX: dict[str, str] = {
