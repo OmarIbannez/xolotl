@@ -7,7 +7,9 @@ One ``ScreeningIndexHolder`` per process (API and worker) wraps the library's
   an ``ACTIVE`` version, read in one ``REPEATABLE READ`` snapshot. It is warmed in a
   background thread at start-up, and checked for newer versions at most every
   ``SCREENING_INDEX_REFRESH_SECONDS`` (at once when a screen requires a version the
-  shard lacks); a rebuilt shard is swapped in whole.
+  shard lacks); a rebuilt shard is swapped in whole. The rows are streamed, and a
+  rebuild lets go of the old shard before it reads the new one, so the process never
+  holds two (the 512 MB service could not): screens wait for the rebuild meanwhile.
 - a **private shard** per tenant holds its active private versions' entries,
   decrypted in that tenant's session. It is keyed by the tenant and its active
   version ids, so a new version is a new key, and the shards live in an LRU of
@@ -16,6 +18,7 @@ One ``ScreeningIndexHolder`` per process (API and worker) wraps the library's
   (Deviation 2) and kept in an LRU of 16 by the list set's content hash.
 """
 
+import ctypes
 import logging
 import threading
 import time
@@ -23,21 +26,21 @@ from collections import OrderedDict
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from xolotl.modules.screening.catalog.models import (
-    ListEntryRow,
     ListSource,
     ListVersion,
     PrivateListEntryRow,
 )
 from xolotl.modules.screening.catalog.private import active_private_versions
 from xolotl.modules.screening.engine.entries import (
+    current_shared_entries,
     indexed_private_entry,
-    indexed_shared_entry,
 )
 from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.screening.errors import ScreeningIndexUnavailableError
@@ -67,7 +70,8 @@ class SharedShard:
     # Every shared screenable entry, built with blocking_idf.
     index: MemoryIndex
     blocking_idf: IdfTable
-    # By list code, for the per-list-set scoring IDF.
+    # By list code, for the per-list-set scoring IDF: the entry objects the index
+    # holds, not copies of them.
     entries: Mapping[str, tuple[ListEntry, ...]]
 
 
@@ -91,6 +95,18 @@ def _lacks(shard: SharedShard, require: Mapping[str, int] | None) -> bool:
         (held := shard.versions.get(code)) is None or held.seq < seq
         for code, seq in require.items()
     )
+
+
+def _trim_heap() -> None:
+    # A shard build frees most of what it allocates (rows, JSON, normalisation), but
+    # glibc keeps the freed heap pages, so the process would stay at the build's
+    # peak; malloc_trim hands them back to the system. Other C libraries have no
+    # such call, and nothing is done.
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+    except OSError:
+        return
+    _ = cast("int", libc.malloc_trim(0))
 
 
 def _signature(versions: Mapping[str, HeldVersion]) -> dict[str, tuple[UUID, int]]:
@@ -170,34 +186,48 @@ class ScreeningIndexHolder:
         if shard is None:
             if self._warming:
                 raise ScreeningIndexUnavailableError
-            shard = self._refresh(s, None, wait=True)
+            seen, wait = None, True
         else:
             due = self._monotonic() - self._checked_at >= self._refresh_seconds
-            missing = _lacks(shard, require)
-            if due or missing:
-                shard = self._refresh(s, shard, wait=missing)
+            wait = _lacks(shard, require)
+            if not (due or wait):
+                return shard
+            seen = shard.versions
+            # A rebuild frees the shard it replaces before it reads the new one, which
+            # it cannot while this frame still holds it.
+            del shard
+        shard = self._refresh(s, seen, wait=wait)
         if _lacks(shard, require):
             raise ScreeningIndexUnavailableError
         return shard
 
     def _refresh(
-        self, s: Session, seen: SharedShard | None, *, wait: bool
+        self, s: Session, seen: Mapping[str, HeldVersion] | None, *, wait: bool
     ) -> SharedShard:
-        # Without wait, a screen that finds another one rebuilding keeps using the
-        # shard it has until the swap; with no shard yet there is nothing to keep.
-        if seen is None or wait:
+        # ``seen`` is the versions of the shard the caller found (they name it without
+        # keeping it alive). Without wait, a screen that finds another one rebuilding
+        # keeps using the shard that is still installed; once the rebuild has let go
+        # of it, there is none to keep, and the screen waits for the new one.
+        if not wait and not self._lock.acquire(blocking=False):
+            if (installed := self._shared) is not None:
+                return installed
+            wait = True
+        if wait:
             _ = self._lock.acquire()
-        elif not self._lock.acquire(blocking=False):
-            return seen
         try:
             current = self._shared
-            if current is not None and current is not seen:
+            if current is not None and current.versions is not seen:
                 # Another screen swapped in a new shard while this one waited.
                 return current
             active = self._active_signature(s)
             self._checked_at = self._monotonic()
             if current is not None and _signature(current.versions) == active:
                 return current
+            # Let go of the old shard first: building the new one beside it would
+            # hold two shards at once. Screens arriving meanwhile wait on the lock;
+            # one already screening keeps the old shard alive until it is done.
+            self._shared = None
+            del current
             return self._install(self._load_shared())
         finally:
             self._lock.release()
@@ -229,6 +259,7 @@ class ScreeningIndexHolder:
         finally:
             session.rollback()
             session.close()
+            _trim_heap()
 
     @staticmethod
     def _read_shared(s: Session) -> SharedShard:
@@ -245,18 +276,7 @@ class ScreeningIndexHolder:
                 .where(ListVersion.status == VersionStatus.ACTIVE)
             )
         }
-        # The current rows of a list with an active version are that version's
-        # members (3a's construction).
-        rows = s.scalars(
-            select(ListEntryRow)
-            .where(
-                ListEntryRow.list_code.in_(versions),
-                ListEntryRow.to_seq.is_(None),
-                ListEntryRow.screenable,
-            )
-            .order_by(ListEntryRow.list_code, ListEntryRow.id)
-        )
-        indexed = [indexed_shared_entry(row) for row in rows]
+        indexed = list(current_shared_entries(s, versions))
         entries: dict[str, list[ListEntry]] = {}
         for item in indexed:
             entries.setdefault(item.shard, []).append(item.entry)
