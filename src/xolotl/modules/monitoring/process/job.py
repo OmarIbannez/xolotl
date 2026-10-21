@@ -21,6 +21,13 @@ row had to wait for the party's lock, because another drain held it. One gap
 remains: another drain that runs entirely between two of this drain's row
 transactions, on rows outside this page, is not seen until the next page, so a
 row of this page behind one of those may go unflagged.
+
+The tenant's declarations are read once per page too, but each row transaction,
+right after the party's lock, holds the tenant's aggregate epoch lock shared and
+checks their cheap version (``declarations_version``), reading them again when it
+changed. An ``agg_backfill`` start holds that lock exclusively, so every row is
+either committed before the start's cutoff, and walked by the backfill, or sees
+the new declaration and adds itself to it (A9).
 """
 
 from dataclasses import dataclass, field
@@ -30,6 +37,11 @@ from uuid import UUID
 from sqlalchemy import Select, delete, func, select, text
 from sqlalchemy.orm import Session
 
+from xolotl.modules.monitoring.aggregates.backfill import (
+    DeclarationsVersion,
+    declarations_version,
+    share_aggregate_epoch,
+)
 from xolotl.modules.monitoring.aggregates.declarations import AggregateDeclaration
 from xolotl.modules.monitoring.aggregates.postgres import (
     PostgresAggregateStore,
@@ -83,11 +95,15 @@ type HookDeclarations = dict[UUID, tuple[AggregateDeclaration, ...]]
 
 @dataclass(frozen=True, slots=True)
 class ProcessReport:
-    """What one drain did; ``stopped_at`` is the ``PARKED`` row that ended it."""
+    """What one drain did; ``stopped_at`` is the ``PARKED`` row that ended it.
+
+    ``lease_lost`` is set when a refused heartbeat stopped the drain.
+    """
 
     processed: int
     parked: int
     stopped_at: UUID | None
+    lease_lost: bool = False
 
 
 def latest_processed_at(session: Session, party_id: UUID) -> datetime | None:
@@ -158,8 +174,9 @@ class DrainState:
     """What one drain carries from row to row.
 
     ``declarations``, ``complete`` and ``latest`` are read again for each page,
-    ``latest`` also after a wait for the party's lock; the snapshots and the
-    hooks' declarations are kept for the whole drain.
+    ``latest`` also after a wait for the party's lock and ``declarations`` also
+    when a row sees their ``version`` changed; the snapshots and the hooks'
+    declarations are kept for the whole drain.
     """
 
     queue: PostgresJobQueue
@@ -167,6 +184,7 @@ class DrainState:
     cache: SnapshotCache = field(default_factory=dict)
     hooked: HookDeclarations = field(default_factory=dict)
     declarations: list[AggregateDeclaration] = field(default_factory=list)
+    version: DeclarationsVersion | None = None
     complete: frozenset[str] = frozenset()
     latest: datetime | None = None
     processed: int = 0
@@ -373,6 +391,9 @@ def _page(
                 holidays=load_holidays(s, country="MX", scope=HolidayScope.BANXICO),
             )
         # A declaration activated or backfilled mid-drain applies from here on.
+        # The version first: a declaration added in between is read again by the
+        # next row, never missed.
+        drain.version = declarations_version(s)
         drain.declarations = load_declarations(s)
         drain.complete = backfilled_ids(s)
         drain.latest = latest_processed_at(s, party_id)
@@ -407,7 +428,9 @@ def _drain_row(
     The party's lock comes first, then the row's: another drain of the party
     finishes its row before this one reads the row's status. When the party's
     lock had to be waited for, the party's latest processed instant is read
-    again, since the other drain may have processed rows past it.
+    again, since the other drain may have processed rows past it. The tenant's
+    aggregate epoch lock is then held shared, and the declarations are read again
+    if their version changed since the page read them.
 
     Returns:
         The row's id when the drain stops at it (it is ``PARKED``), else None.
@@ -416,6 +439,10 @@ def _drain_row(
     occurred_at, row_id = key
     if lock_party(s, tenant_id, party_id):
         drain.latest = latest_processed_at(s, party_id)
+    share_aggregate_epoch(s, tenant_id)
+    if (version := declarations_version(s)) != drain.version:
+        drain.version = version
+        drain.declarations = load_declarations(s)
     row = s.get(
         Transaction,
         (tenant_id, occurred_at, row_id),
@@ -502,7 +529,7 @@ def process_party(
         if not keys:
             return ProcessReport(drain.processed, drain.parked, None)
         if job is not None and not queue.heartbeat(job, lease=lease):
-            return ProcessReport(drain.processed, drain.parked, None)
+            return ProcessReport(drain.processed, drain.parked, None, lease_lost=True)
 
 
 class ProcessJob:

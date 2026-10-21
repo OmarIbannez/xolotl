@@ -229,6 +229,10 @@ class BackfillJob:
                 actor=actor,
             )
             processed += report.processed
+            if report.lease_lost:
+                # Another run owns the job now; the parties left are its, or the
+                # sweep's once their rows have waited.
+                break
         return BackfillReport(
             released=released, parties=len(parties), processed=processed
         )

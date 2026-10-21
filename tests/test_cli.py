@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn
 from uuid import UUID
@@ -59,7 +59,11 @@ from xolotl.cli import app
 from xolotl.modules.monitoring.enums import FileStatus, TransactionStatus
 from xolotl.modules.monitoring.process.job import process_party
 from xolotl.modules.monitoring.txn import files
-from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
+from xolotl.modules.monitoring.txn.models import (
+    Transaction,
+    TransactionFile,
+    TransactionParked,
+)
 from xolotl.modules.party import documents
 from xolotl.modules.party import service as party_service
 from xolotl.modules.party.enums import (
@@ -2403,9 +2407,13 @@ def test_monitoring_sweep_reports_counts(
         )
         assert report.parked == 1
     monitoring_support.load_missing_values(admin_engine)
-    # The ingest's jobs ran and lost the race: nothing is pending any more.
+    # The ingest's jobs ran and lost the race: nothing is pending any more. The
+    # rows were parked a day ago, past the six hours that call for the notice.
     with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
         _ = s.execute(update(JobRow).values(status=JobStatus.DONE))
+        _ = s.execute(
+            update(TransactionParked).values(parked_at=clock.now() - timedelta(days=1))
+        )
 
     result = runner.invoke(app, ["monitoring", "sweep", "--tenant", tenant.slug])
 

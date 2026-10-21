@@ -3,12 +3,14 @@
 import logging
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 import pytest
 from sqlalchemy import Engine, func, select, update
+from sqlalchemy.orm import sessionmaker
 
-from tests.helpers import staff_session, system_ctx
+from tests.helpers import platform_ctx, staff_session, system_ctx
 from tests.modules.monitoring.support import (
     add_customer,
     declare,
@@ -51,7 +53,7 @@ from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import get_sessionmaker, tenant_session
-from xolotl.platform.enums import JobStatus
+from xolotl.platform.enums import Confidence, JobStatus
 from xolotl.platform.events import InAppNotifier
 from xolotl.platform.events.models import Notification
 from xolotl.platform.jobs.models import JobRow
@@ -61,6 +63,7 @@ from xolotl.platform.jobs.scheduler import Scheduler
 from xolotl.platform.policy import assign_pack
 from xolotl.platform.policy.models import TenantPackAssignment
 from xolotl.platform.services import PlatformServices
+from xolotl.platform.units import UnitValue, upsert_value
 
 DAY = datetime(2026, 1, 20, 12, 0, tzinfo=UTC)
 RECEIVED = datetime(2026, 1, 21, 5, 0, tzinfo=UTC)
@@ -287,6 +290,29 @@ def _buckets(tenant: CreatedTenant, party_id: UUID) -> list[tuple[object, ...]]:
         ]
 
 
+def _load_values_of_the_23rd(admin_engine: Engine) -> None:
+    # The fixture has no value on or after the 22nd; the 23rd gets both.
+    owner = sessionmaker(bind=admin_engine, expire_on_commit=False)
+    with tenant_session(platform_ctx(), factory=owner) as s:
+        for code, on, value in (
+            ("UDI", date(2026, 1, 23), "8.640000"),
+            ("USD_MXN_FIX", date(2026, 1, 22), "17.900000"),
+        ):
+            _ = upsert_value(
+                s,
+                UnitValue(
+                    unit_code=code,
+                    valid_from=on,
+                    valid_to=on,
+                    value=Decimal(value),
+                    quote_ccy="MXN",
+                    source="fixture",
+                    confidence=Confidence.VERIFIED,
+                ),
+                fetched_at=datetime(2026, 1, 23, tzinfo=UTC),
+            )
+
+
 def test_an_unparked_row_processes_before_the_rows_behind_it(
     tenant: CreatedTenant,
     customer: CustomerRelationship,
@@ -297,15 +323,28 @@ def test_an_unparked_row_processes_before_the_rows_behind_it(
     services: PlatformServices,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    # Review Focus 3: park on a missing UDI, two rows wait behind it, the value
-    # arrives, the sweep un-parks, the drain takes the three in order.
+    # Review Focus 3: a row parks on a missing UDI; two later rows, of a day whose
+    # UDI exists, wait behind it; the value arrives, the sweep un-parks, and the
+    # drain takes the three in order.
+    _load_values_of_the_23rd(admin_engine)
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
         _ = declare(s, CASH_SUM_P7D, queue=queue)
-    received = MISSING + timedelta(hours=3)
-    stream = [_item(n, MISSING + timedelta(hours=n - 1)) for n in (1, 2, 3)]
-    ids = _ingest(tenant, queue, monkeypatch, stream, now=received)
+    later = datetime(2026, 1, 23, 12, tzinfo=UTC)
+    received = later + timedelta(hours=3)
+    (parked_id,) = _ingest(
+        tenant, queue, monkeypatch, [_item(1, MISSING)], now=received
+    )
     first = _drain(tenant, customer.party_id, queue, monkeypatch, now=received)
-    assert first == ProcessReport(processed=0, parked=1, stopped_at=ids[0])
+    assert first == ProcessReport(processed=0, parked=1, stopped_at=parked_id)
+    behind = [_item(n, later + timedelta(hours=n - 2)) for n in (2, 3)]
+    _ = _ingest(tenant, queue, monkeypatch, behind, now=received)
+    blocked = _drain(tenant, customer.party_id, queue, monkeypatch, now=received)
+    assert blocked == ProcessReport(processed=0, parked=0, stopped_at=parked_id)
+    assert [row.status for row in _rows(tenant, customer.party_id)] == [
+        TransactionStatus.PARKED,
+        TransactionStatus.RECEIVED,
+        TransactionStatus.RECEIVED,
+    ]
     _settle_processing(tenant)
     # Nothing moves while the value is missing.
     idle = _sweep(tenant, queue, monkeypatch, now=received + timedelta(minutes=1))
@@ -328,9 +367,12 @@ def test_an_unparked_row_processes_before_the_rows_behind_it(
     assert not any(row.late for row in rows)
     # The same stream for a party that never parked gives the same buckets.
     twin = [
-        _item(n, MISSING + timedelta(hours=n - 1), customer_ref="cust-2")
-        | {"external_id": f"tx-b{n}"}
-        for n in (1, 2, 3)
+        _item(1, MISSING, customer_ref="cust-2") | {"external_id": "tx-b1"},
+        *(
+            _item(n, later + timedelta(hours=n - 2), customer_ref="cust-2")
+            | {"external_id": f"tx-b{n}"}
+            for n in (2, 3)
+        ),
     ]
     _ = _ingest(tenant, queue, monkeypatch, twin, now=received)
     assert run_processing(services, tenant.tenant_id) >= 1
@@ -446,6 +488,41 @@ def test_parked_over_six_hours_notifies_admin_and_mlro_once_a_day(
     assert len(_notices(tenant)) == 4
 
 
+def test_a_policy_row_parked_seven_times_notifies_though_its_parked_at_is_new(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    itf_tenant: UUID,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    before = datetime(2026, 1, 1, 2, tzinfo=UTC)
+    _ = _ingest(
+        tenant, queue, monkeypatch, [_item(1, before)], now=before + timedelta(hours=1)
+    )
+    # Parked after the fixture's assignment, so the sweep does not retry it.
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assigned_at = s.scalar(select(func.max(TenantPackAssignment.created_at)))
+    assert assigned_at is not None
+    parked_at = assigned_at + timedelta(milliseconds=1)
+    assert _drain(tenant, customer.party_id, queue, monkeypatch, now=parked_at).parked
+
+    def parked_times(attempts: int) -> None:
+        with tenant_session(system_ctx(tenant.tenant_id)) as s:
+            _ = s.execute(update(TransactionParked).values(attempts=attempts))
+
+    # Each hourly retry parks it again with a new parked_at: the count ages it.
+    parked_times(6)
+    soon = _sweep(tenant, queue, monkeypatch, now=parked_at + timedelta(minutes=5))
+    assert soon.notified is False
+    parked_times(7)
+    told = _sweep(tenant, queue, monkeypatch, now=parked_at + timedelta(minutes=6))
+    assert told.notified is True
+    assert all(
+        notice.data == {"parked_count": 1, "oldest_parked_at": parked_at.isoformat()}
+        for notice in _notices(tenant)
+    )
+
+
 def test_the_sweep_job_runs_through_the_runner_on_its_schedule(
     tenant: CreatedTenant,
     customer: CustomerRelationship,
@@ -501,6 +578,89 @@ def test_an_incomplete_declaration_with_no_live_backfill_is_enqueued_again(
             )
         ).all()
     assert list(live) == [f"agg_backfill:{agg_id}"]
+
+
+def _backfill_jobs(tenant: CreatedTenant) -> list[JobRow]:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        return list(
+            s.scalars(
+                select(JobRow)
+                .where(JobRow.kind == AGG_BACKFILL_KIND)
+                .order_by(JobRow.created_at)
+            )
+        )
+
+
+def _kill_backfills(tenant: CreatedTenant, *, at: datetime) -> None:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        _ = s.execute(
+            update(JobRow)
+            .where(
+                JobRow.kind == AGG_BACKFILL_KIND,
+                JobRow.status == JobStatus.PENDING,
+            )
+            # The queue stamps created_at from its own clock: move it with ``at``.
+            .values(
+                status=JobStatus.DEAD,
+                created_at=at - timedelta(minutes=1),
+                finished_at=at,
+            )
+        )
+
+
+def test_a_backfill_that_keeps_dying_is_retried_hourly_and_logged_daily(
+    tenant: CreatedTenant,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    # 18:00 in Mexico City on the 22nd.
+    died = datetime(2026, 1, 23, tzinfo=UTC)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        (agg_id,) = ensure_declarations(s, [CASH_SUM_P7D], queue=queue)
+    _kill_backfills(tenant, at=died)
+    # Within the hour after it died, the sweep leaves it.
+    soon = _sweep(tenant, queue, monkeypatch, now=died + timedelta(minutes=30))
+    assert soon.backfills == 0
+    with caplog.at_level(logging.WARNING):
+        retried = _sweep(tenant, queue, monkeypatch, now=died + timedelta(minutes=61))
+    assert retried.backfills == 1
+    # One death is not yet worth a warning.
+    assert not [r for r in caplog.records if "keeps dying" in r.message]
+    _kill_backfills(tenant, at=died + timedelta(minutes=62))
+    with caplog.at_level(logging.WARNING):
+        again = _sweep(tenant, queue, monkeypatch, now=died + timedelta(hours=2))
+        assert again.backfills == 0
+        # Two deaths: the first enqueue of the next Mexico City day (01:00 on the
+        # 23rd) warns, with ids only; later ones that day do not.
+        third = _sweep(tenant, queue, monkeypatch, now=died + timedelta(hours=7))
+        assert third.backfills == 1
+        _kill_backfills(tenant, at=died + timedelta(hours=7))
+        fourth = _sweep(tenant, queue, monkeypatch, now=died + timedelta(hours=9))
+        assert fourth.backfills == 1
+    warnings = [r for r in caplog.records if "keeps dying" in r.message]
+    assert [
+        (getattr(r, "agg_id", None), getattr(r, "deaths", None)) for r in warnings
+    ] == [(agg_id, 2)]
+
+
+def test_a_deferred_backfills_follow_up_counts_as_its_live_job(
+    tenant: CreatedTenant,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        (agg_id,) = ensure_declarations(s, [CASH_SUM_P7D], queue=queue)
+    _kill_backfills(tenant, at=clock.now() - timedelta(hours=2))
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        _ = queue.enqueue(
+            s,
+            kind=AGG_BACKFILL_KIND,
+            payload={"agg_id": agg_id, "deferrals": 1},
+            key=f"agg_backfill:{agg_id}:after:x",
+        )
+    assert _sweep(tenant, queue, monkeypatch, now=clock.now()).backfills == 0
+    assert len(_backfill_jobs(tenant)) == 2
 
 
 def test_a_file_left_processing_with_no_live_job_is_reported(

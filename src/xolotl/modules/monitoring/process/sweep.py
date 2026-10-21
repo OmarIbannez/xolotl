@@ -14,8 +14,9 @@ Per tenant, the sweep
    ``PARKED_ALERT_AGE`` ago waits (Deviation 11);
 5. enqueues the backfill of every declaration still incomplete with no live
    ``monitoring.agg_backfill`` job (a backfill that went ``DEAD``, or a late split
-   whose enqueue a running backfill deduplicated), and logs every transactions file
-   left ``PROCESSING`` with no live ``monitoring.ingest_file`` job.
+   whose enqueue a running backfill deduplicated), unless one went ``DEAD`` within
+   ``DEAD_BACKFILL_BACKOFF``, and logs every transactions file left
+   ``PROCESSING`` with no live ``monitoring.ingest_file`` job.
 
 An un-parked row keeps its ``transaction_parked`` entry: parking it again counts the
 attempt (Deviation 10), so every reader of parked rows joins ``status = PARKED``.
@@ -72,6 +73,13 @@ PARKED_TEMPLATE = "monitoring.parked"
 RECEIVED_AGE = timedelta(seconds=30)
 PARKED_ALERT_AGE = timedelta(hours=6)
 POLICY_RETRY = timedelta(hours=1)
+# A policy row is parked again at each hourly retry, so its seventh park means it
+# has waited over ``PARKED_ALERT_AGE``.
+POLICY_ALERT_ATTEMPTS = 7
+# A backfill that went DEAD is enqueued again at most this often.
+DEAD_BACKFILL_BACKOFF = timedelta(hours=1)
+# From this many deaths a re-enqueued backfill is logged, once a day.
+DEAD_BACKFILL_WARN = 2
 _NOTIFIED = (Role.ADMIN, Role.MLRO)
 _PENDING = (TransactionStatus.RECEIVED, TransactionStatus.PARKED)
 _LIVE = (JobStatus.PENDING, JobStatus.RUNNING)
@@ -133,12 +141,11 @@ def _parties_to_wake(session: Session, *, cutoff: datetime) -> list[UUID]:
     )
     parties = anchor.union_all(select(following).where(anchor.c.party_id.is_not(None)))
     party_id = type_coerce(parties.c.party_id, Uuid())
-    # By ``occurred_at`` alone, which the index answers; of two pending rows at one
-    # instant either may be taken, at worst one needless or one deferred enqueue.
+    # In the drain's order, so the head is the row a drain would take first.
     head = (
         select(Transaction.status)
         .where(Transaction.party_id == party_id, pending)
-        .order_by(Transaction.occurred_at)
+        .order_by(Transaction.occurred_at, Transaction.id)
         .limit(1)
         .scalar_subquery()
     )
@@ -249,26 +256,36 @@ def _policies_to_retry(session: Session, *, now: datetime) -> list[UUID]:
 def _notify_parked(session: Session, notifier: Notifier, *, now: datetime) -> bool:
     """Tell ADMIN and MLRO, once a Mexico City day, that rows have waited too long.
 
-    A row counts once it was received over ``PARKED_ALERT_AGE`` ago and is still
-    ``PARKED``: a policy retry parks a row again every hour with a new
-    ``parked_at``, so ``parked_at`` alone would never age past six hours.
+    A ``PARKED`` row is overdue once it was parked over ``PARKED_ALERT_AGE`` ago,
+    or, for ``POLICY_NOT_ASSIGNED``, once it has been parked
+    ``POLICY_ALERT_ATTEMPTS`` times: a policy retry parks a row again every hour
+    with a new ``parked_at``, so its ``parked_at`` never ages past six hours. The
+    notice's ``oldest_parked_at`` is the earliest ``parked_at`` among the overdue
+    rows (for a policy row, its latest park).
 
     Returns:
         Whether the notices were written.
 
     """
-    overdue = session.scalar(
-        select(Transaction.id)
+    # The earliest ``parked_at`` among the overdue rows; None when there are none.
+    oldest = session.scalar(
+        select(func.min(TransactionParked.parked_at))
+        .select_from(Transaction)
+        .join(TransactionParked, _parked_join())
         .where(
             Transaction.status == TransactionStatus.PARKED,
-            Transaction.received_at < now - PARKED_ALERT_AGE,
+            or_(
+                TransactionParked.parked_at < now - PARKED_ALERT_AGE,
+                and_(
+                    TransactionParked.reason == ParkReason.POLICY_NOT_ASSIGNED,
+                    TransactionParked.attempts >= POLICY_ALERT_ATTEMPTS,
+                ),
+            ),
         )
-        .limit(1)
     )
-    if overdue is None:
+    if oldest is None:
         return False
-    zone = ZoneInfo(MEXICO_CITY)
-    midnight = datetime.combine(now.astimezone(zone).date(), time(0), tzinfo=zone)
+    midnight = _mexico_city_midnight(now)
     told = session.scalar(
         select(Notification.id)
         .where(
@@ -279,14 +296,11 @@ def _notify_parked(session: Session, notifier: Notifier, *, now: datetime) -> bo
     )
     if told is not None:
         return False
-    summary = session.execute(
-        select(func.count(), func.min(TransactionParked.parked_at))
+    count = session.scalar(
+        select(func.count())
         .select_from(Transaction)
-        .join(TransactionParked, _parked_join())
         .where(Transaction.status == TransactionStatus.PARKED)
-    ).one()
-    # Every PARKED row has its entry (``park_row`` writes both), so a minimum exists.
-    count, oldest = summary
+    )
     for role in _NOTIFIED:
         _ = notifier.notify(
             session,
@@ -306,25 +320,58 @@ def _no_live_job(kind: str, key: ColumnElement[str]) -> ColumnElement[bool]:
     )
 
 
-def _requeue_backfills(session: Session, queue: PostgresJobQueue) -> int:
+def _mexico_city_midnight(now: datetime) -> datetime:
+    zone = ZoneInfo(MEXICO_CITY)
+    return datetime.combine(now.astimezone(zone).date(), time(0), tzinfo=zone)
+
+
+def _requeue_backfills(
+    session: Session, queue: PostgresJobQueue, *, now: datetime
+) -> int:
     """Enqueue the backfill of each incomplete declaration no live job walks.
+
+    A job counts for a declaration by its payload's ``agg_id``, so a deferred
+    run's follow-up (keyed apart) counts too. A declaration whose backfill went
+    ``DEAD`` within ``DEAD_BACKFILL_BACKOFF`` waits, so a backfill that fails every
+    time is retried hourly, not every minute; once it has died twice, the first
+    enqueue of each Mexico City day logs a warning with its ``agg_id``.
 
     Returns:
         How many backfills were enqueued.
 
     """
+    payload_agg_id = type_coerce(
+        func.jsonb_extract_path_text(JobRow.payload, "agg_id"), Text()
+    )
+    for_declaration = and_(
+        JobRow.kind == AGG_BACKFILL_KIND, payload_agg_id == AggDeclaration.agg_id
+    )
     stranded = session.scalars(
         select(AggDeclaration.agg_id)
         .where(
             AggDeclaration.backfilled_through.is_(None),
-            _no_live_job(
-                AGG_BACKFILL_KIND, literal("agg_backfill:") + AggDeclaration.agg_id
-            ),
+            ~exists().where(for_declaration, JobRow.status.in_(_LIVE)),
         )
         .order_by(AggDeclaration.agg_id)
     ).all()
+    midnight = _mexico_city_midnight(now)
     created = 0
     for agg_id in stranded:
+        dead = JobRow.status == JobStatus.DEAD
+        deaths, last_death, today = session.execute(
+            select(
+                func.count().filter(dead),
+                func.max(JobRow.finished_at).filter(dead),
+                func.count().filter(JobRow.created_at >= midnight),
+            ).where(JobRow.kind == AGG_BACKFILL_KIND, payload_agg_id == agg_id)
+        ).one()
+        if last_death is not None and last_death > now - DEAD_BACKFILL_BACKOFF:
+            continue
+        if deaths >= DEAD_BACKFILL_WARN and today == 0:
+            logger.warning(
+                "aggregate backfill keeps dying; enqueued again",
+                extra={"agg_id": agg_id, "deaths": deaths},
+            )
         job_id = queue.enqueue(
             session,
             kind=AGG_BACKFILL_KIND,
@@ -365,7 +412,7 @@ def sweep(
     retried = _policies_to_retry(session, now=now)
     enqueued = enqueue_processing(session, queue, [*waiting, *unparked, *retried])
     notified = _notify_parked(session, notifier, now=now)
-    backfills = _requeue_backfills(session, queue)
+    backfills = _requeue_backfills(session, queue, now=now)
     files = _stranded_files(session)
     if files:
         logger.warning(

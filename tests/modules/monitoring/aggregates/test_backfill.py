@@ -22,6 +22,7 @@ from xolotl.modules.monitoring.aggregates import backfill as backfill_module
 from xolotl.modules.monitoring.aggregates.backfill import (
     AggBackfillJob,
     history_start,
+    share_aggregate_epoch,
 )
 from xolotl.modules.monitoring.aggregates.declarations import (
     AggregateDeclaration,
@@ -44,6 +45,7 @@ from xolotl.modules.monitoring.aggregates.store import (
 )
 from xolotl.modules.monitoring.enums import BucketKind
 from xolotl.modules.monitoring.kinds import AGG_BACKFILL_KIND
+from xolotl.modules.monitoring.process import job as job_module
 from xolotl.modules.monitoring.process.job import process_party
 from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import KeyKind
@@ -53,6 +55,7 @@ from xolotl.platform import clock
 from xolotl.platform.config import Settings, get_settings
 from xolotl.platform.db import get_sessionmaker, tenant_session
 from xolotl.platform.ids import uuid7
+from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import Job, PostgresJobQueue
 
 INGESTED = datetime(2026, 1, 22, 20, tzinfo=UTC)
@@ -175,11 +178,14 @@ def _job(batch: int = 5000, *, at: datetime = CUTOFF) -> AggBackfillJob:
         update={"monitoring_agg_backfill_batch": batch}
     )
     return AggBackfillJob(
-        session_factory=get_sessionmaker(), settings=settings, clock_fn=lambda: at
+        session_factory=get_sessionmaker(),
+        settings=settings,
+        queue=PostgresJobQueue(get_sessionmaker(), clock_fn=lambda: at),
+        clock_fn=lambda: at,
     )
 
 
-def _backfill(tenant: CreatedTenant, job: AggBackfillJob, agg_id: str) -> int:
+def _backfill(tenant: CreatedTenant, job: AggBackfillJob, agg_id: str) -> int | None:
     return job.backfill(tenant.tenant_id, agg_id, actor="job:test")
 
 
@@ -228,18 +234,8 @@ def test_a_new_declaration_is_backfilled_from_six_months_of_rows_and_completes(
     # Half a year after the stream, the rows of the 20th are past the history.
     late = datetime(2026, 7, 22, 12, tzinfo=UTC)
     job = _job(at=late)
-    session_job = Job(
-        id=uuid7(),
-        tenant_id=tenant.tenant_id,
-        kind=AGG_BACKFILL_KIND,
-        key=f"agg_backfill:{agg_id}",
-        payload={"agg_id": agg_id},
-        attempts=1,
-        max_attempts=5,
-        lock_token=uuid7(),
-    )
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
-        job.run(s, session_job)
+        job.run(s, _session_job(tenant, agg_id))
     assert _counted(tenant, agg_id) == 1
     assert _through(tenant, agg_id) == late
     # Within six months, every row counts; a complete declaration is a no-op.
@@ -482,11 +478,37 @@ def test_a_walk_whose_add_meets_a_split_starts_again(
     assert _through(tenant, agg_id) == CUTOFF
 
 
-def test_splits_that_never_stop_fail_the_run_and_leave_it_incomplete(
+def _session_job(tenant: CreatedTenant, agg_id: str, **payload: int) -> Job:
+    return Job(
+        id=uuid7(),
+        tenant_id=tenant.tenant_id,
+        kind=AGG_BACKFILL_KIND,
+        key=f"agg_backfill:{agg_id}",
+        payload={"agg_id": agg_id, **payload},
+        attempts=1,
+        max_attempts=5,
+        lock_token=uuid7(),
+    )
+
+
+def _follow_ups(tenant: CreatedTenant, agg_id: str) -> list[JobRow]:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        return list(
+            s.scalars(
+                select(JobRow).where(
+                    JobRow.kind == AGG_BACKFILL_KIND,
+                    JobRow.key.startswith(f"agg_backfill:{agg_id}:after:"),
+                )
+            )
+        )
+
+
+def test_splits_that_never_stop_defer_the_run_with_a_backoff(
     tenant: CreatedTenant,
     queue: PostgresJobQueue,
     history: list[UUID],
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ):
     agg_id = _declare(tenant, queue)
     original = vars(AggBackfillJob)["_start"]
@@ -497,9 +519,78 @@ def test_splits_that_never_stop_fail_the_run_and_leave_it_incomplete(
         return step
 
     monkeypatch.setattr(AggBackfillJob, "_start", always_split)
-    with pytest.raises(RuntimeError, match="kept meeting splits"):
-        _ = _backfill(tenant, _job(), agg_id)
+    assert _backfill(tenant, _job(), agg_id) is None
     assert _through(tenant, agg_id) is None
+    assert any(
+        getattr(record, "agg_id", None) == agg_id
+        and getattr(record, "restarts", None) == backfill_module.MAX_ROUNDS
+        for record in caplog.records
+    )
+    # As a job, the run ends and enqueues its follow-up, deferrals one higher.
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        _job().run(s, _session_job(tenant, agg_id, deferrals=1))
+    (follow_up,) = _follow_ups(tenant, agg_id)
+    assert follow_up.payload == {"agg_id": agg_id, "deferrals": 2}
+    assert follow_up.run_after == CUTOFF + timedelta(minutes=4)
+
+
+def _run(tenant: CreatedTenant, job: AggBackfillJob, session_job: Job) -> None:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        job.run(s, session_job)
+
+
+def test_a_start_the_tenants_drains_hold_past_its_timeout_is_deferred(
+    tenant: CreatedTenant,
+    queue: PostgresJobQueue,
+    history: list[UUID],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    agg_id = _declare(tenant, queue)
+    monkeypatch.setattr(backfill_module, "START_LOCK_TIMEOUT", "50ms")
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        # A drain row transaction of the tenant, still running.
+        share_aggregate_epoch(s, tenant.tenant_id)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            deferred = pool.submit(_backfill, tenant, _job(), agg_id)
+            assert deferred.result(timeout=30) is None
+            # As a job, the run ends and enqueues its follow-up.
+            pool.submit(_run, tenant, _job(), _session_job(tenant, agg_id)).result(
+                timeout=30
+            )
+    assert _through(tenant, agg_id) is None
+    (follow_up,) = _follow_ups(tenant, agg_id)
+    assert follow_up.payload == {"agg_id": agg_id, "deferrals": 1}
+    assert follow_up.run_after == CUTOFF + timedelta(minutes=2)
+    # Once the drains let go, the start goes through.
+    assert _backfill(tenant, _job(), agg_id) == 3
+    assert _through(tenant, agg_id) == CUTOFF
+
+
+def test_a_drain_page_read_before_the_declaration_still_adds_its_rows_once(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    history: list[UUID],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # The page loads the declarations before ensure_declarations commits; the
+    # backfill starts (and runs) before the page's row is processed. The row is
+    # processed after the cutoff, so the walk skips it: the row adds itself.
+    _new_row(tenant, queue, monkeypatch)
+    original = vars(job_module)["_page"]
+    declared: list[str] = []
+
+    def declare_after_the_page_loads(*args, **kwargs):
+        page = original(*args, **kwargs)
+        if not declared:
+            declared.append(_declare(tenant, queue))
+            assert _backfill(tenant, _job(), declared[0]) == 3
+        return page
+
+    monkeypatch.setattr(job_module, "_page", declare_after_the_page_loads)
+    _drain(tenant, customer.party_id, queue, monkeypatch, now=LATER)
+    assert _counted(tenant, declared[0]) == 4
+    assert _through(tenant, declared[0]) == CUTOFF
 
 
 def test_a_second_run_waits_for_the_first_and_finds_the_declaration_complete(

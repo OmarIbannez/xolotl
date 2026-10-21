@@ -72,7 +72,9 @@ def register_monitoring(
         session_factory=session_factory, queue=queue, settings=settings
     )
     register_job_handler(BACKFILL_KIND, backfill.run)
-    agg_backfill = AggBackfillJob(session_factory=session_factory, settings=settings)
+    agg_backfill = AggBackfillJob(
+        session_factory=session_factory, settings=settings, queue=queue
+    )
     register_job_handler(AGG_BACKFILL_KIND, agg_backfill.run)
     partitions = PartitionsJob(months_ahead=settings.monitoring_partition_months_ahead)
     register_job_handler(PARTITIONS_KIND, partitions.run)

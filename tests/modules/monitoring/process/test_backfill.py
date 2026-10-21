@@ -29,6 +29,8 @@ from xolotl.modules.monitoring.errors import BackfillRangeInvalidError
 from xolotl.modules.monitoring.kinds import BACKFILL_KIND
 from xolotl.modules.monitoring.process.backfill import (
     REQUESTED_ACTION,
+    BackfillJob,
+    backfill_payload,
     request_backfill,
 )
 from xolotl.modules.monitoring.txn.models import Transaction
@@ -40,8 +42,9 @@ from xolotl.platform.audit.models import AuditEventRow
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import get_sessionmaker, tenant_session
 from xolotl.platform.enums import JobStatus
+from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs.models import JobRow
-from xolotl.platform.jobs.queue import PostgresJobQueue
+from xolotl.platform.jobs.queue import Job, PostgresJobQueue
 from xolotl.platform.jobs.runner import JobRunner
 from xolotl.platform.services import PlatformServices
 
@@ -237,3 +240,60 @@ def test_a_party_filter_limits_the_backfill(
     rows = _rows(tenant)
     assert rows["tx-1"].status is TransactionStatus.BACKFILL
     assert rows["tx-2"].status is TransactionStatus.PROCESSED
+
+
+def test_the_range_is_of_mexico_city_days(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    itf_tenant: UUID,
+    services: PlatformServices,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 05:30 UTC on the 21st is 23:30 on the 20th in Mexico City.
+    _ = _ingest(
+        tenant, queue, monkeypatch, [_item(1, datetime(2026, 1, 21, 5, 30, tzinfo=UTC))]
+    )
+    _ = _request(tenant, queue, from_=date(2026, 1, 21), to=date(2026, 1, 21))
+    assert _run_backfills(services) == 1
+    assert _rows(tenant)["tx-1"].status is TransactionStatus.BACKFILL
+    _ = _request(tenant, queue, from_=date(2026, 1, 20), to=date(2026, 1, 20))
+    assert _run_backfills(services) == 1
+    assert _rows(tenant)["tx-1"].status is TransactionStatus.PROCESSED
+
+
+def test_a_run_that_lost_its_lease_drains_no_further_party(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    customer_b: CustomerRelationship,
+    queue: PostgresJobQueue,
+    itf_tenant: UUID,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _ = _ingest(
+        tenant,
+        queue,
+        monkeypatch,
+        [_item(1, DAY), _item(2, DAY, customer_ref="cust-2")],
+    )
+    payload = backfill_payload(
+        from_=date(2026, 1, 20), to=date(2026, 1, 20), party_id=None
+    )
+    # A claim the queue does not know: its first heartbeat is refused.
+    lost = Job(
+        id=uuid7(),
+        tenant_id=tenant.tenant_id,
+        kind=BACKFILL_KIND,
+        key=None,
+        payload=payload,
+        attempts=1,
+        max_attempts=5,
+        lock_token=uuid7(),
+    )
+    job = BackfillJob(
+        session_factory=get_sessionmaker(), queue=queue, settings=get_settings()
+    )
+    report = job.backfill(tenant.tenant_id, payload, job=lost, actor="job:test")
+    assert (report.released, report.parties, report.processed) == (2, 2, 1)
+    statuses = sorted(row.status for row in _rows(tenant).values())
+    assert statuses == sorted([TransactionStatus.PROCESSED, TransactionStatus.RECEIVED])
