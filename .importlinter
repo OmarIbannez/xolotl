@@ -97,7 +97,7 @@ forbidden_modules =
     xolotl.modules.party.models
     xolotl.modules.screening.counterparty.models
     xolotl.modules.screening.engine.models
-# A10 adds "...counterparty.views -> ...counterparty.models" with the modules: an
+# A10 adds "...counterparty.views -> ...counterparty.models" with its module: an
 # ignore line that matches nothing fails the gate.
 ignore_imports =
     xolotl.modules.party.service -> xolotl.modules.party.models

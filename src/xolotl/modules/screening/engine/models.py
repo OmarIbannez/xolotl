@@ -2,12 +2,13 @@
 
 ``party_name_index`` holds the normalized tokens of each party's names in plaintext
 (program spec D7, PRV-301): no route ever serializes it. A ``screening_subject`` is
-one party, or one ad hoc query whose input is ciphertext. A run records the exact
-list set it screened (``screening_list_set`` and its members), and every non-trivial
-score it produced (``screening_hit``). A ``screening_match`` is a finding: one per
-subject and entry content. Parties are referenced by table name, so this module does
-not import the party models. The foreign keys whose conventional name would pass
-Postgres's 63 bytes are named by hand.
+one party, one counterparty (migration 0013), or one ad hoc query whose input is
+ciphertext. A run records the exact list set it screened (``screening_list_set``
+and its members), and every non-trivial score it produced (``screening_hit``). A
+``screening_match`` is a finding: one per subject and entry content. Parties are
+referenced by table name, so this module does not import the party models. The
+foreign keys whose conventional name would pass Postgres's 63 bytes are named by
+hand.
 """
 
 from datetime import date, datetime
@@ -57,8 +58,12 @@ from xolotl.platform.sqltypes import enum_column
 from xolotl.platform.tenancy.ddl import TenantTableMixin, tenant_fk, tenant_table_args
 
 SUBJECT_KIND_CHECK = (
-    "(kind = 'PARTY' AND party_id IS NOT NULL AND input IS NULL) "
-    "OR (kind = 'AD_HOC' AND party_id IS NULL AND input IS NOT NULL)"
+    "(kind = 'PARTY' AND party_id IS NOT NULL AND counterparty_id IS NULL "
+    "AND input IS NULL) "
+    "OR (kind = 'AD_HOC' AND party_id IS NULL AND counterparty_id IS NULL "
+    "AND input IS NOT NULL) "
+    "OR (kind = 'COUNTERPARTY' AND party_id IS NULL AND counterparty_id IS NOT NULL "
+    "AND input IS NULL)"
 )
 ONE_ENTRY_CHECK = "(list_entry_id IS NULL) <> (private_list_entry_id IS NULL)"
 ONE_VERSION_CHECK = "(list_version_id IS NULL) <> (private_list_version_id IS NULL)"
@@ -105,11 +110,21 @@ class ScreeningSubject(TenantTableMixin, Base):
         "screening_subject",
         tenant_fk("party_id", "party"),
         UniqueConstraint("tenant_id", "party_id"),
+        # Migration 0013: a counterparty is a subject too (SP-04 spec §11.2).
+        ForeignKeyConstraint(
+            ["tenant_id", "counterparty_id"],
+            ["counterparty.tenant_id", "counterparty.id"],
+            name="fk_screening_subject_counterparty",
+        ),
+        UniqueConstraint(
+            "tenant_id", "counterparty_id", name="uq_screening_subject_counterparty"
+        ),
         CheckConstraint(SUBJECT_KIND_CHECK, name="kind_input"),
     )
 
     kind: Mapped[SubjectKind] = mapped_column(enum_column(SubjectKind))
     party_id: Mapped[UUID | None] = mapped_column(Uuid)
+    counterparty_id: Mapped[UUID | None] = mapped_column(Uuid)
     # AD_HOC only: the NameQuery input, encrypted (spec input_enc, Deviation 1).
     input: Mapped[Encrypted[dict[str, object]] | None] = mapped_column(EncryptedJson)
     status: Mapped[SubjectStatus] = mapped_column(

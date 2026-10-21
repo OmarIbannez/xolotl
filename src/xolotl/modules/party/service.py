@@ -11,7 +11,7 @@ engine only: no person sees them, so it records nothing.
 
 import re
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
@@ -978,10 +978,59 @@ def screening_profile(s: Session, party_id: UUID) -> PartyScreeningProfile:
 
 @dataclass(frozen=True, slots=True)
 class RelationshipRef:
-    """What monitoring reads of a customer relationship (SP-04 plan 4a, A4)."""
+    """What transaction monitoring needs of a customer relationship (SP-04 §6.1)."""
 
     id: UUID
     party_id: UUID
     product: str | None
     account_tier: str | None
     status: CustomerRelationshipStatus
+
+
+def _ref_of(row: CustomerRelationship) -> RelationshipRef:
+    return RelationshipRef(
+        id=row.id,
+        party_id=row.party_id,
+        product=row.product,
+        account_tier=row.account_tier,
+        status=row.status,
+    )
+
+
+def relationship_by_external_ref(
+    s: Session, refs: Collection[str]
+) -> dict[str, RelationshipRef]:
+    """Resolve the tenant's relationships by their ``external_ref`` in one query.
+
+    Returns:
+        The found relationships by external reference; a missing one is absent.
+
+    """
+    if not refs:
+        return {}
+    rows = s.scalars(
+        select(CustomerRelationship).where(
+            CustomerRelationship.external_ref.in_(set(refs))
+        )
+    ).all()
+    return {row.external_ref: _ref_of(row) for row in rows}
+
+
+def relationship_ref(s: Session, relationship_id: UUID) -> RelationshipRef:
+    """Load one relationship of the session's tenant.
+
+    Returns:
+        The relationship.
+
+    Raises:
+        NotFoundError: When the tenant has no such relationship (another tenant's
+            row is invisible under row-level security).
+
+    """
+    row = s.scalar(
+        select(CustomerRelationship).where(CustomerRelationship.id == relationship_id)
+    )
+    if row is None:
+        msg = "relationship not found"
+        raise NotFoundError(msg)
+    return _ref_of(row)

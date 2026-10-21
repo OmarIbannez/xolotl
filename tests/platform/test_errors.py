@@ -1,5 +1,10 @@
 import pytest
 
+from xolotl.modules.monitoring.errors import (
+    BatchInvalidError,
+    BatchTooLargeError,
+    ExternalIdConflictError,
+)
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.screening.errors import (
     DispositionNotAllowedError,
@@ -70,6 +75,9 @@ from xolotl.platform.units.errors import (
         (DispositionNotAllowedError, 409, "DISPOSITION_NOT_ALLOWED"),
         (ScreeningIndexUnavailableError, 503, "SCREENING_INDEX_UNAVAILABLE"),
         (MatcherVersionMismatchError, 409, "MATCHER_VERSION_MISMATCH"),
+        (BatchInvalidError, 422, "TRANSACTION_BATCH_INVALID"),
+        (BatchTooLargeError, 413, "TRANSACTION_BATCH_TOO_LARGE"),
+        (ExternalIdConflictError, 409, "EXTERNAL_ID_CONFLICT"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
