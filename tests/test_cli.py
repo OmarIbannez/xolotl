@@ -42,6 +42,7 @@ from tests.helpers import (
     system_ctx,
     wrapped_keys,
 )
+from tests.modules.monitoring import support as monitoring_support
 from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
@@ -99,6 +100,7 @@ from xolotl.modules.screening.rescreen.walkers import (
     REINDEX_KIND,
 )
 from xolotl.modules.tenants import service
+from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock, db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
 from xolotl.platform.crypto import (
@@ -2169,6 +2171,51 @@ def test_screening_eval_refuses_a_corpus_dir_not_named_corpus(tmp_path: Path):
 
     assert result.exit_code == 1
     assert result.stderr == f"error: NOT_FOUND: no evaluation corpus at {renamed}\n"
+
+
+def test_monitoring_process_drains_a_party_and_reports_counts(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _ = monitoring_support.itf_tenant(tenant, admin_engine)
+    customer = monitoring_support.add_customer(tenant, "cust-1")
+    other = monitoring_support.add_customer(tenant, "cust-2")
+    # 2026-01-20 has every unit value of the fixture; 2026-01-22 has no UDI.
+    items = [
+        monitoring_support.make_item(external_id=external_id, occurred_at=at, **extra)
+        for external_id, at, extra in (
+            ("tx-1", "2026-01-20T12:00:00Z", {}),
+            ("tx-2", "2026-01-22T12:00:00Z", {}),
+            ("tx-3", "2026-01-22T13:00:00Z", {}),
+            ("tx-4", "2026-01-20T12:00:00Z", {"customer_ref": "cust-2"}),
+        )
+    ]
+    with monkeypatch.context() as patched:
+        patched.setattr(clock, "now", lambda: datetime(2026, 1, 22, 20, tzinfo=UTC))
+        with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+            report = monitoring_support.ingest_items(
+                s, items, queue=PostgresJobQueue(db.get_sessionmaker())
+            )
+    parked = report.transaction_ids[1]
+
+    one = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "process",
+            "--tenant",
+            tenant.slug,
+            "--party",
+            str(other.party_id),
+        ],
+    )
+    assert one.exit_code == 0, one.output
+    assert one.stdout == f"party {other.party_id}: 1 processed, 0 parked\n"
+
+    every = runner.invoke(app, ["monitoring", "process", "--tenant", tenant.slug])
+    assert every.exit_code == 0, every.output
+    assert every.stdout == (
+        f"party {customer.party_id}: 1 processed, 1 parked (stopped at {parked})\n"
+    )
 
 
 # ---- monitoring ingest-file ----------------------------------------------------------

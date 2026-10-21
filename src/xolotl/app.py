@@ -177,7 +177,8 @@ def wire_platform(
     # The re-screen batches: list deltas, private-list versions, periodic and
     # re-index walks.
     register_rescreen(queue=queue)
-    # The staff-only monitoring events and the monitoring.ingest_file job.
+    # The staff-only monitoring events and the monitoring.ingest_file and
+    # monitoring.process jobs.
     register_monitoring(
         session_factory=session_factory, settings=settings, queue=queue, store=store
     )

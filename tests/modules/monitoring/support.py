@@ -10,16 +10,17 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Engine, update
+from sqlalchemy import Engine, func, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from tests.helpers import platform_ctx, staff_session
+from tests.helpers import platform_ctx, staff_session, system_ctx
 from tests.platform.policy_support import install_both_packs
 from tests.platform.units_support import UNIT_GOLDEN, load_unit_values, seed_mx_holidays
 from xolotl.modules.monitoring.aggregates.declarations import AggregateDeclaration
 from xolotl.modules.monitoring.aggregates.models import AggDeclaration
 from xolotl.modules.monitoring.aggregates.postgres import ensure_declarations
 from xolotl.modules.monitoring.enums import BatchSource
+from xolotl.modules.monitoring.kinds import PROCESS_KIND
 from xolotl.modules.monitoring.txn.ingest import BatchReport, ingest_batch
 from xolotl.modules.monitoring.txn.schema import (
     Channel,
@@ -41,8 +42,11 @@ from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import tenant_session
+from xolotl.platform.enums import JobStatus
+from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import PostgresJobQueue
 from xolotl.platform.policy import assign_pack
+from xolotl.platform.services import PlatformServices
 
 ITF = "MX/ITF-IFPE"
 AVI = "MX/LFPIORPI-AVI"
@@ -352,3 +356,42 @@ def add_customer(
         s.add(row)
         s.flush()
         return row
+
+
+PROCESSING_ROUNDS = 50
+
+
+def _pending_processing(tenant_id: UUID) -> int:
+    with tenant_session(system_ctx(tenant_id)) as s:
+        return (
+            s.scalar(
+                select(func.count())
+                .select_from(JobRow)
+                .where(
+                    JobRow.kind == PROCESS_KIND,
+                    JobRow.status.in_((JobStatus.PENDING, JobStatus.RUNNING)),
+                )
+            )
+            or 0
+        )
+
+
+def run_processing(services: PlatformServices, tenant_id: UUID) -> int:
+    """Run the worker's jobs until the tenant has no ``monitoring.process`` job.
+
+    At most 50 rounds; a round that runs nothing ends it too (a job waiting for
+    its retry is not due yet).
+
+    Returns:
+        How many jobs ran, of every kind.
+
+    """
+    ran = 0
+    for _ in range(PROCESSING_ROUNDS):
+        if not _pending_processing(tenant_id):
+            break
+        count = services.job_runner.run_once()
+        ran += count
+        if count == 0:
+            break
+    return ran
