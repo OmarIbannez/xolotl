@@ -102,11 +102,11 @@ forbidden_modules =
     xolotl.modules.party.models
     xolotl.modules.screening.counterparty.models
     xolotl.modules.screening.engine.models
-# A10 adds "...counterparty.views -> ...counterparty.models" with its module: an
-# ignore line that matches nothing fails the gate.
+# An ignore line that matches nothing fails the gate.
 ignore_imports =
     xolotl.modules.party.service -> xolotl.modules.party.models
     xolotl.modules.screening.counterparty.resolve -> xolotl.modules.screening.counterparty.models
+    xolotl.modules.screening.counterparty.views -> xolotl.modules.screening.counterparty.models
 # C1: resolve's first-sight hook indexes a new row's name (plan 4c Deviation 5); it
 # and the name index writer reach the counterparty models, never the engine's.
     xolotl.modules.screening.counterparty.first_sight -> xolotl.modules.screening.counterparty.models

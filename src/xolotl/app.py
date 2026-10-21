@@ -16,6 +16,8 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
+from xolotl.modules.monitoring import routes_monitoring as monitoring_routes
+from xolotl.modules.monitoring import routes_transactions as transaction_routes
 from xolotl.modules.monitoring.composition import register_monitoring
 from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
@@ -303,6 +305,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             lists_routes.router,
             private_list_routes.router,
             screening_routes.router,
+            transaction_routes.router,
+            monitoring_routes.router,
             audit_routes.router,
         ],
     )

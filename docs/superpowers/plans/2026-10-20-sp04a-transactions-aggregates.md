@@ -80,6 +80,8 @@ Named as the spec names them; the reconciliation matches on these.
 15. **Flat navigation:** `nav.transactions` is one entry after `nav.parties` (SP-03a Deviation 11).
 16. **The console's "Cliente › Transacciones" tab is a card** (`PartyTransactionsCard`) on the existing party page, which has cards rather than tabs; 4b and 4c add their cards beside it.
 17. **A counterparty account is blind-indexed as sent, stripped of whitespace.** Spec §11.1 normalizes it through `normalize_identifier("CLABE" | "ACCOUNT", …)`, but `main`'s `normalize_identifier(value)` takes no type argument and knows no account types; `account_hash = blind_index("account", account.strip())` until the party module gains account normalization (reconciliation finding 22).
+18. **The upload's size cap reads the declared length, not the stream (A10).** Every POST under `/v1` passes through the platform's `IdempotentRoute`, which reads the whole body to hash it before the route runs, so `upload_transaction_file` cannot refuse "before reading it all": it refuses a `Content-Length` over `MONITORING_FILE_MAX_MB` before it touches the bytes, and `upload_file` checks the length again. Streaming the cap would be a platform change to the idempotency layer.
+19. **Reveals record their `VIEW_PII` rows first and then decrypt with `Encrypted.reveal` (A10)**, as `party.service.reveal_pii` does, rather than through `reveal_for_response`: that function takes only a text value (`transaction.raw` is JSON) and audits and decrypts one value at a time, so a multi-field reveal through it could decrypt a value before the next one is audited. The rows are read through the session's tenant, so the tenant check `reveal_for_response` adds holds by construction.
 
 ## Review Focus
 
@@ -1001,6 +1003,8 @@ def test_literal_routes_win_over_the_id_route(): ...                            
 - [ ] **Step 3: Implement** the schemas, queries, views, routers (literal routes registered before `/{transaction_id}`), the mounting and the CLI command.
 - [ ] **Step 4: Run to verify pass**, plus `tests/platform/test_api_conventions.py` (operation ids unique, every route declares access, every POST idempotent), then the gates.
 - [ ] **Step 5: Commit** `feat(monitoring): transactions API for API clients and staff, backfill and status endpoints, audited reveals`.
+
+Note from A10 (for A11 and A12): the list filters `from` and `to` are Mexico City dates (`YYYY-MM-DD`, both included), sent as query parameters of one query model (`TransactionQuery`); `GET /v1/transactions` and `GET /v1/transactions/{id}` return `Page_TransactionStaffView_ | Page_TransactionClientView_` and `TransactionRevealedView | TransactionStaffView | TransactionClientView` (the console always gets the staff shapes); the reveal is `?reveal=true` on the detail and records `VIEW_PII` each call, so do not cache it. `GET /v1/transactions/parked` and `/backfill` return `Page[TransactionStaffView]` with `parked` set only on `PARKED` rows. `POST /v1/transactions/files` answers 202 for a new file and 200 for a known one, both `FileStatusResponse`; the error report is `GET /v1/transactions/files/{id}/errors` (404 until it exists). The status route's operation id is `monitoring_status`; the backfill's `request_backfill_endpoint`.
 
 ---
 
