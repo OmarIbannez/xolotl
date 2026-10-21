@@ -43,7 +43,7 @@ def _include_object(
     item: SchemaItem,
     _name: str | None,
     _type: str,
-    reflected: bool,  # ruff: ignore[boolean-type-hint-positional-argument]
+    reflected: object,
     _compare_to: SchemaItem | None,
 ) -> bool:
     # Postgres clones a foreign key to a partitioned table onto each partition.
@@ -70,6 +70,10 @@ def test_orm_metadata_matches_the_migrated_schema(admin_engine: Engine):
 def test_every_table_with_tenant_id_uses_the_composite_unique():
     partitioned = {spec.table for spec in partitioned_tables()}
     assert {"audit_event", "transaction"} <= partitioned
+    tables = metadata().tables
+    for spec in partitioned_tables():
+        key = tuple(c.name for c in tables[spec.table].primary_key.columns)
+        assert key == ("tenant_id", spec.column, "id"), spec.table
     for table in metadata().sorted_tables:
         if (
             "tenant_id" not in table.c

@@ -5,7 +5,7 @@ any parent rows it needs) and flushes. Later modules append their factories
 here when they add tables, and list them in ``register_all``.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -1074,13 +1074,11 @@ def transaction_batch(session: Session, tenant_id: UUID) -> None:
     _ = _transaction_batch(session, tenant_id)
 
 
-def _transaction(
-    session: Session, tenant_id: UUID, *, occurred_at: datetime | None = None
-) -> Transaction:
+def _transaction(session: Session, tenant_id: UUID) -> Transaction:
     owner = _account(session, tenant_id)
     row = Transaction(
         tenant_id=tenant_id,
-        occurred_at=occurred_at or clock.now(),
+        occurred_at=clock.now(),
         id=uuid7(),
         external_id=f"ext-{uuid7().hex[:12]}",
         batch_id=_transaction_batch(session, tenant_id).id,

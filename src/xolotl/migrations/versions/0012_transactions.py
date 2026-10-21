@@ -1,4 +1,4 @@
-"""monitoring: accounts, counterparties, batches, files, partitioned transactions, refs, parked rows and aggregates
+"""monitoring: accounts, counterparties, partitioned transactions and aggregates
 
 Revision ID: 0012_transactions
 Revises: 0011_screening_hit_run_index
@@ -15,7 +15,7 @@ so the application role reaches rows through the parent only. ``transaction_ref`
 ``screening_subject_id`` gains a foreign key in 0013 and ``transaction.decision_id``
 one in 0014. Every table gets forced row-level security and the default grant.
 Downgrade drops the ten tables; ``transaction`` takes its partitions with it.
-"""  # ruff: ignore[line-too-long]
+"""
 
 from collections.abc import Sequence
 from datetime import datetime

@@ -22,7 +22,7 @@ def include_object(
     item: SchemaItem,
     _name: str | None,
     _type: str,
-    reflected: bool,  # ruff: ignore[boolean-type-hint-positional-argument] - Alembic passes it positionally
+    reflected: object,
     _compare_to: SchemaItem | None,
 ) -> bool:
     # Autogenerate only. Postgres clones a foreign key that references a partitioned
