@@ -19,6 +19,7 @@ CHAIN = [
     "0009_lists",
     "0010_screening",
     "0011_screening_hit_run_index",
+    "0012_transactions",
 ]
 
 

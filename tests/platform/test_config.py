@@ -265,6 +265,18 @@ def test_env_example_is_a_valid_configuration():
         "screening_delta_batch",
         "screening_rescreen_batch",
         "screening_periodic_cron",
+        "monitoring_batch_max_items",
+        "monitoring_file_max_mb",
+        "monitoring_file_max_rows",
+        "monitoring_file_chunk_rows",
+        "monitoring_late_days",
+        "monitoring_max_future_minutes",
+        "monitoring_process_lease_seconds",
+        "monitoring_process_page",
+        "monitoring_sweep_cron",
+        "monitoring_agg_backfill_batch",
+        "monitoring_partitions_cron",
+        "monitoring_partition_months_ahead",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -665,6 +677,46 @@ def test_the_periodic_rescreen_cron_is_validated(monkeypatch):
     ],
 )
 def test_list_limits_reject_nonsense(monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError, match=name.removeprefix("XOLOTL_").lower()):
+        _ = make_settings()
+
+
+def test_monitoring_settings_default_to_the_spec_values():
+    s = make_settings()
+    assert s.monitoring_batch_max_items == 1000
+    assert s.monitoring_file_max_mb == 50
+    assert s.monitoring_file_max_rows == 500000
+    assert s.monitoring_file_chunk_rows == 1000
+    assert s.monitoring_late_days == 7
+    assert s.monitoring_max_future_minutes == 10
+    assert s.monitoring_process_lease_seconds == 300
+    assert s.monitoring_process_page == 200
+    assert s.monitoring_sweep_cron == "* * * * *"
+    assert s.monitoring_agg_backfill_batch == 5000
+    assert s.monitoring_partitions_cron == "0 1 * * *"
+    assert s.monitoring_partition_months_ahead == 3
+
+
+@pytest.mark.parametrize(
+    "name", ["XOLOTL_MONITORING_SWEEP_CRON", "XOLOTL_MONITORING_PARTITIONS_CRON"]
+)
+def test_the_monitoring_crons_are_validated(monkeypatch, name):
+    monkeypatch.setenv(name, "daily")
+    with pytest.raises(ValidationError, match=name.removeprefix("XOLOTL_")):
+        _ = make_settings()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("XOLOTL_MONITORING_BATCH_MAX_ITEMS", "10001"),
+        ("XOLOTL_MONITORING_FILE_MAX_MB", "0"),
+        ("XOLOTL_MONITORING_PROCESS_LEASE_SECONDS", "29"),
+        ("XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD", "13"),
+    ],
+)
+def test_monitoring_limits_reject_nonsense(monkeypatch, name, value):
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError, match=name.removeprefix("XOLOTL_").lower()):
         _ = make_settings()

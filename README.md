@@ -108,6 +108,18 @@ driver is added.
 | `XOLOTL_LISTS_MAX_REMOVAL_RATIO` | `0.20` | A new list version that removes more than this share of the previous version's entries is refused (the mass-removal guard). |
 | `XOLOTL_LISTS_POLL_CRON` | `* * * * *` | When the per-tenant `lists.poll` job runs (UTC). |
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
+| `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` | `5000` | Transactions each page of an aggregate backfill reads (1 or more). |
+| `XOLOTL_MONITORING_BATCH_MAX_ITEMS` | `1000` | Most transactions in one `POST /v1/transactions` batch (1 to 10000). |
+| `XOLOTL_MONITORING_FILE_CHUNK_ROWS` | `1000` | Rows of a transactions file ingested per page of the `monitoring.ingest_file` job (1 or more). |
+| `XOLOTL_MONITORING_FILE_MAX_MB` | `50` | Largest transactions file upload, in MB (1 to 1024). |
+| `XOLOTL_MONITORING_FILE_MAX_ROWS` | `500000` | Most rows in one transactions file. |
+| `XOLOTL_MONITORING_LATE_DAYS` | `7` | A transaction received more than this many days after it occurred is held for a backfill instead of being processed (1 or more). |
+| `XOLOTL_MONITORING_MAX_FUTURE_MINUTES` | `10` | How far in the future a transaction's `occurred_at` may be, in minutes, to allow for clock skew. |
+| `XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD` | `3` | Monthly partitions the daily partition job keeps ahead of the current month (1 to 12). |
+| `XOLOTL_MONITORING_PARTITIONS_CRON` | `0 1 * * *` | When the daily partition maintenance job runs (UTC). |
+| `XOLOTL_MONITORING_PROCESS_LEASE_SECONDS` | `300` | Lease of one `monitoring.process` job, in seconds (30 or more). |
+| `XOLOTL_MONITORING_PROCESS_PAGE` | `200` | Transactions a `monitoring.process` job reads per page (1 or more). |
+| `XOLOTL_MONITORING_SWEEP_CRON` | `* * * * *` | When the per-tenant `monitoring.sweep` job runs (UTC). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
 | `XOLOTL_PACKS_DIR` | `./policy-packs` | Pack, unit seed and holiday sources; the Docker image sets `/app/policy-packs`. |

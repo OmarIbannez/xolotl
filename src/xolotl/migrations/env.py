@@ -1,4 +1,6 @@
 from alembic import context
+from sqlalchemy import ForeignKeyConstraint
+from sqlalchemy.sql.schema import SchemaItem
 
 from xolotl.models import metadata
 from xolotl.platform.db import get_admin_engine
@@ -16,6 +18,21 @@ def include_name(name: str | None, type_: str, _parent_names: object) -> bool:
     return True
 
 
+def include_object(
+    item: SchemaItem,
+    _name: str | None,
+    _type: str,
+    reflected: bool,  # ruff: ignore[boolean-type-hint-positional-argument] - Alembic passes it positionally
+    _compare_to: SchemaItem | None,
+) -> bool:
+    # Autogenerate only. Postgres clones a foreign key that references a partitioned
+    # table (transaction_ref's to transaction) onto each of its partitions, and no
+    # model declares the clones. tests/platform/test_schema_sync.py filters the same.
+    if reflected and isinstance(item, ForeignKeyConstraint):
+        return not is_partition_name(item.referred_table.name)
+    return True
+
+
 with get_admin_engine().connect() as connection:
     # compare_type and compare_server_default only matter to `alembic revision
     # --autogenerate` and `alembic check`: running a migration ignores them. Server
@@ -27,6 +44,7 @@ with get_admin_engine().connect() as connection:
         compare_type=True,
         compare_server_default=True,
         include_name=include_name,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()

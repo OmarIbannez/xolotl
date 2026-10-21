@@ -86,3 +86,27 @@ ignore_imports =
     xolotl.modules.monitoring.txn.schema -> xolotl.modules.party.schemas
     xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.schemas
     xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.enums
+
+[importlinter:contract:monitoring-boundaries]
+name = monitoring reads parties and counterparties through services and never imports reporting
+type = forbidden
+source_modules =
+    xolotl.modules.monitoring
+forbidden_modules =
+    xolotl.modules.reporting
+    xolotl.modules.party.models
+    xolotl.modules.screening.counterparty.models
+    xolotl.modules.screening.engine.models
+# A4 adds "xolotl.modules.screening.counterparty.resolve -> ...counterparty.models"
+# and A10 "...counterparty.views -> ...counterparty.models" with the modules: an
+# ignore line that matches nothing fails the gate.
+ignore_imports =
+    xolotl.modules.party.service -> xolotl.modules.party.models
+
+[importlinter:contract:screening-never-imports-monitoring]
+name = screening never imports monitoring (SP-04 spec Decision 18)
+type = forbidden
+source_modules =
+    xolotl.modules.screening
+forbidden_modules =
+    xolotl.modules.monitoring
