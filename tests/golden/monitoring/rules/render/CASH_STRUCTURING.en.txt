@@ -1,0 +1,1 @@
+Fires when the customer receives 3 or more cash deposits between 70% and 100% of the threshold within 7 days and their sum reaches the threshold

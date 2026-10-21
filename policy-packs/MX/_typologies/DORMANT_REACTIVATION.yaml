@@ -1,0 +1,35 @@
+# A relationship silent for months that suddenly moves money (spec §9.3);
+# last_seen is the LAST_SEEN the VELOCITY kind's dormancy gate reads.
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE]
+definition:
+  code: DORMANT_REACTIVATION
+  family: ALERT
+  kind: VELOCITY
+  title: Reactivación de cuenta inactiva
+  typology: [DORMANCY]
+  unit_key: USD/PRIOR_BANKING_DAY
+  params:
+    window: {value: P2D}
+    sum: {value: "2000", unit: USD}
+    # last_seen looks back P6M, so dormancy cannot be tuned past 180 days.
+    dormant_days: {value: 180, max: 180}
+  aggregates:
+    - name: window_sum
+      function: SUM
+      measure: UNIT_AMOUNT
+      unit_key: USD/PRIOR_BANKING_DAY
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P2D
+    - name: last_seen
+      function: LAST_SEEN
+      measure: ONE
+      unit_key: null
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P6M
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P2D, cooldown: P7D}
+  evidence: {transactions_window: P2D, aggregates: [window_sum, last_seen]}

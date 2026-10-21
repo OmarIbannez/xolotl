@@ -1,0 +1,30 @@
+# Repeated foreign-exchange operations in round amounts (spec §9.3).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE]
+definition:
+  code: ROUND_AMOUNT_FX_LAYERING
+  family: ALERT
+  kind: AGGREGATE
+  title: Cambio de divisas en montos redondos
+  typology: [LAYERING]
+  "on": {instrument: [FX], amount_round_multiple: 1000}
+  params:
+    min_round_count: {value: 5}
+  aggregates:
+    - name: fx_round_count
+      function: COUNT
+      measure: ONE
+      unit_key: null
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P7D
+      where: {instrument: [FX], amount_round_multiple: 1000}
+  conditions:
+    - {aggregate: fx_round_count, op: GTE, threshold: min_round_count}
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P7D, cooldown: P7D}
+  evidence:
+    transactions_window: P7D
+    transactions_where: {instrument: [FX], amount_round_multiple: 1000}
+    aggregates: [fx_round_count]

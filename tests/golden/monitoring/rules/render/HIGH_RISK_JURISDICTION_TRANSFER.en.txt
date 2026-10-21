@@ -1,0 +1,1 @@
+Fires when the customer makes a transfer operation of 1,000 USD or more with a counterparty or location on the lists FATF_BLACK and FATF_GREY

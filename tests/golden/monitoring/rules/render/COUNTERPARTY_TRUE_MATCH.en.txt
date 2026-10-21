@@ -1,0 +1,1 @@
+Fires when the customer makes an operation with a counterparty in status TRUE_MATCH

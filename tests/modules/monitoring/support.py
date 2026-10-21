@@ -42,11 +42,12 @@ from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import tenant_session
-from xolotl.platform.enums import JobStatus
+from xolotl.platform.enums import Confidence, JobStatus
 from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import PostgresJobQueue
 from xolotl.platform.policy import assign_pack
 from xolotl.platform.services import PlatformServices
+from xolotl.platform.units import UnitValue, upsert_value
 
 ITF = "MX/ITF-IFPE"
 AVI = "MX/LFPIORPI-AVI"
@@ -395,3 +396,30 @@ def run_processing(services: PlatformServices, tenant_id: UUID) -> int:
         if count == 0:
             break
     return ran
+
+
+def load_missing_values(admin_engine: Engine) -> None:
+    """Load what a transaction of 2026-01-22 lacks: its UDI and the prior FIX.
+
+    ``tests/golden/units/values.yaml`` has neither, so such a transaction parks
+    until this runs.
+    """
+    owner = sessionmaker(bind=admin_engine, expire_on_commit=False)
+    with tenant_session(platform_ctx(), factory=owner) as s:
+        for code, on, value in (
+            ("UDI", date(2026, 1, 22), "8.630000"),
+            ("USD_MXN_FIX", date(2026, 1, 21), "17.950000"),
+        ):
+            _ = upsert_value(
+                s,
+                UnitValue(
+                    unit_code=code,
+                    valid_from=on,
+                    valid_to=on,
+                    value=Decimal(value),
+                    quote_ccy="MXN",
+                    source="fixture",
+                    confidence=Confidence.VERIFIED,
+                ),
+                fetched_at=datetime(2026, 1, 23, tzinfo=UTC),
+            )

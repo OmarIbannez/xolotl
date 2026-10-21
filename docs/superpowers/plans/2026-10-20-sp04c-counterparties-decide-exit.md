@@ -558,6 +558,8 @@ CLI: `monitoring replay --tenant <slug> --from <date> --to <date> --dry-run` pri
 
 ### Task C7: The retention job
 
+Note from A9: `agg_declaration` is append-only. Never delete from it, not even to replace a declaration, or when a rule, rule set or assignment is retired: a drain row compares the declarations' cheap version (`declarations_version`: count and max `created_at`, `monitoring/aggregates/backfill.py`) with the one its page read, and a delete followed by an insert can leave both unchanged, so the drain would never add rows to the new declaration. An unused declaration simply stays.
+
 Depends on **C4** (`txn_decision` partitions), **C1** (counterparty subjects), 4a (A1 `xolotl.platform.partitions`; A2 `transaction` partitions, `transaction_ref`, `transaction_parked`, `agg_bucket`, `agg_distinct`, `agg_declaration`) and 4b (B4 `rule_hit`, `rule_hit_transaction`, `reportable_event`, `capture_group`, `capture_period`). Touches `src/xolotl/platform/partitions.py` and `src/xolotl/modules/tenants/service.py` and the pinned schedule tests. Console: no.
 
 **Files:**
