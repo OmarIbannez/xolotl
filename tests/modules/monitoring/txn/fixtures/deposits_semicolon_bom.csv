@@ -1,0 +1,5 @@
+﻿"external_id";"occurred_at";"customer_ref";"direction";"rail";"instrument";"amount";"currency";"channel";"counterparty.kind";"counterparty.name";"counterparty.country";"sucursal"
+"dep-001";"2026-01-15T10:00:00-06:00";"cust-1";"IN";"CASH";"CASH";"1500.00";"MXN";"BRANCH";"PERSON";"Pérez Gómez, Juan";"MX";"Sucursal Centro"
+"dep-002";"2026-01-15T11:30:00-06:00";"cust-1";"IN";"CASH";"CASH";"25000.50";"MXN";"ATM";"";"";"";"Sucursal Norte"
+"dep-003";"2026-01-16T09:15:00-06:00";"cust-1";"IN";"SPEI";"TRANSFER";"980.00";"MXN";"APP";"ORGANIZATION";"Comercial Ejemplo, SA de CV";"MX";""
+"dep-004";"2026-01-17T16:45:00-06:00";"cust-1";"OUT";"SPEI";"TRANSFER";"320.75";"USD";"WEB";"";"";"";""

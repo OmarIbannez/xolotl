@@ -20,6 +20,15 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from xolotl.app import build_key_provider, build_object_store, build_worker
+from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
+from xolotl.modules.monitoring.txn.files import (
+    CSV_TYPE,
+    JSONL_TYPE,
+    XLSX_TYPE,
+    IngestFileJob,
+    upload_file,
+)
+from xolotl.modules.monitoring.txn.models import TransactionFile
 from xolotl.modules.party.retention import RetentionSweeper
 from xolotl.modules.screening import evaluation_report
 from xolotl.modules.screening.catalog import (
@@ -72,7 +81,9 @@ from xolotl.platform.db import (
 from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
 from xolotl.platform.errors import NotFoundError, ValidationFailedError, XolotlError
 from xolotl.platform.events import InAppNotifier
+from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs import PostgresJobQueue
+from xolotl.platform.jobs.queue import Job
 from xolotl.platform.logging import configure_logging
 from xolotl.platform.policy import (
     PolicyPack,
@@ -83,6 +94,7 @@ from xolotl.platform.policy import (
     pack_files,
     unverified_paths,
 )
+from xolotl.platform.storage import ObjectStore
 from xolotl.platform.tenancy.context import TenantContext
 from xolotl.platform.units import (
     UNITS,
@@ -120,6 +132,8 @@ lists_app = typer.Typer(no_args_is_help=True, help="Shared sanctions lists")
 app.add_typer(lists_app, name="lists")
 screening_app = typer.Typer(no_args_is_help=True, help="Screening")
 app.add_typer(screening_app, name="screening")
+monitoring_app = typer.Typer(no_args_is_help=True, help="Transaction monitoring")
+app.add_typer(monitoring_app, name="monitoring")
 
 # The library's evaluation corpus in a source checkout; absent from the image.
 EVALUATION_CORPUS = (
@@ -1367,3 +1381,122 @@ def screening_eval(
             evaluation_report.canonical_json(report), encoding="utf-8"
         )
         typer.echo(f"wrote {target}")
+
+
+_FILE_TYPES_BY_SUFFIX: dict[str, str] = {
+    ".csv": CSV_TYPE,
+    ".jsonl": JSONL_TYPE,
+    ".xlsx": XLSX_TYPE,
+}
+
+
+def _plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _file_line(file: TransactionFile) -> str:
+    line = (
+        f"file {file.id}: {_plural(file.rows_total or 0, 'row')}, "
+        f"{file.rows_accepted} accepted, {_plural(file.rows_duplicate, 'duplicate')}, "
+        f"{file.rows_rejected} rejected, {file.status.value}"
+    )
+    if file.errors_key is not None:
+        line += f" (errors: {file.errors_key})"
+    return line
+
+
+def _ingest_now(
+    ctx: TenantContext,
+    file_id: UUID,
+    *,
+    store: ObjectStore,
+    queue: PostgresJobQueue,
+    settings: Settings,
+) -> str:
+    """Run a file's pages in this process, through a job built in place.
+
+    The job the upload queued stays queued; a worker that claims it later finds
+    the file ``COMPLETED`` and does nothing. The job built here holds no lease, so
+    the run does not heartbeat; if a worker claims the queued job meanwhile, the
+    run that loses the cursor stops and leaves the file to the other.
+
+    Returns:
+        The one-line report of the file.
+
+    """
+    tenant_id = ctx.require_tenant_id()
+    factory = get_sessionmaker()
+    job = Job(
+        id=uuid7(),
+        tenant_id=tenant_id,
+        kind=INGEST_FILE_KIND,
+        key=f"ingest_file:{file_id}",
+        payload={"file_id": str(file_id)},
+        attempts=1,
+        max_attempts=1,
+        lock_token=uuid7(),
+    )
+    ingest = IngestFileJob(
+        session_factory=factory, store=store, queue=queue, settings=settings
+    )
+    with tenant_session(ctx, factory=factory) as s:
+        ingest.run(s, job, leased=False)
+    with tenant_session(ctx, factory=factory) as s:
+        return _file_line(s.get_one(TransactionFile, (tenant_id, file_id)))
+
+
+@monitoring_app.command("ingest-file")
+def monitoring_ingest_file(
+    path: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="A CSV, JSON Lines (.jsonl) or XLSX file of transactions",
+        ),
+    ],
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    content_type: Annotated[
+        str | None,
+        typer.Option(
+            "--content-type",
+            help="The file's media type; by default taken from its suffix",
+        ),
+    ] = None,
+) -> None:
+    """Upload a transactions file for a tenant and ingest it here, page by page.
+
+    The same code as the upload endpoint and the worker's job; no worker is
+    needed. A file already uploaded is reported and not ingested again. Rows that
+    do not validate are reported by row, column and code in the error report.
+
+    Raises:
+        ValidationFailedError: When the type is neither given nor known from the
+            file's suffix.
+
+    """
+    actor = _cli_actor()
+    data = path.read_bytes()
+    settings = get_settings()
+    with _cli_errors():
+        kind = content_type or _FILE_TYPES_BY_SUFFIX.get(path.suffix.lower())
+        if kind is None:
+            msg = "the file type is not known from its suffix: pass --content-type"
+            raise ValidationFailedError(msg)
+        _ensure_key_provider()
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        queue = PostgresJobQueue(get_sessionmaker())
+        store = build_object_store(settings)
+        ctx = TenantContext.platform(actor, tenant_id=tenant_id)
+        with tenant_session(ctx) as s:
+            file, created = upload_file(
+                s, store, data=data, content_type=kind, uploaded_by=actor, queue=queue
+            )
+            file_id, status = file.id, file.status
+        if not created:
+            typer.echo(f"file {file_id}: already uploaded ({status.value})")
+            return
+        line = _ingest_now(ctx, file_id, store=store, queue=queue, settings=settings)
+    typer.echo(line)
