@@ -21,7 +21,10 @@ from sqlalchemy.orm import Session
 
 from xolotl.modules.party.identifiers import IdentifierError, validate
 from xolotl.modules.screening.counterparty.models import Counterparty
-from xolotl.modules.screening.counterparty.schema import CounterpartyKind
+from xolotl.modules.screening.counterparty.schema import (
+    CounterpartyKind,
+    normalize_wallet,
+)
 from xolotl.modules.screening.engine.queries import SCREENED_ID_TYPES
 from xolotl.modules.screening.lists import EntityType, IdType
 from xolotl.modules.screening.matching import NameQuery, QueryIdentifier
@@ -63,7 +66,7 @@ def _identifiers(s: Session, row: Counterparty) -> tuple[QueryIdentifier, ...]:
                 )
             )
     if row.wallet is not None:
-        address = "".join(row.wallet.reveal(session=s).split())
+        address = normalize_wallet(row.wallet.reveal(session=s))
         if address:
             found.append(
                 QueryIdentifier(IdType.DIGITAL_CURRENCY_ADDRESS, normalized=address)
