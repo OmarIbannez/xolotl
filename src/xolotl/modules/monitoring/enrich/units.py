@@ -3,7 +3,9 @@
 The conversion path is one rule for monitoring (plan 4a Deviation 6,
 reconciliation finding 8): the local leg first (a peso amount is itself under
 ``MXN/SAME_DAY``; a dollar amount becomes pesos at the prior banking day's FIX
-under ``MXN/PRIOR_BANKING_DAY``), then every other unit from those pesos. A pair
+under ``MXN/PRIOR_BANKING_DAY``, recorded under ``MXN/SAME_DAY`` too so the local
+amount is always present, spec Decision 19), then every other unit from those
+pesos. A pair
 whose unit is the transaction's own currency is the identity and reads no value.
 A value that is not there yet parks the transaction instead of borrowing another
 day's (program spec D5).
@@ -136,11 +138,15 @@ def unit_amounts_for(
                 needed_on=resolve_date(rule, on, holidays=holidays),
             ) from missing
         local = leg.amount
-        found[unit_key(LOCAL_CCY, rule)] = UnitAmount(
+        pesos = UnitAmount(
             amount=leg.amount,
             unit_value_id=leg.unit_value_id,
             resolved_date=leg.resolved_date,
         )
+        found[unit_key(LOCAL_CCY, rule)] = pesos
+        # The local-currency amount is always present (spec Decision 19): for a
+        # dollar amount it is the FIX conversion, the only peso value it has.
+        found[unit_key(LOCAL_CCY, ConversionRule.SAME_DAY)] = pesos
     else:
         msg = f"unsupported currency {currency}"
         raise ValueError(msg)

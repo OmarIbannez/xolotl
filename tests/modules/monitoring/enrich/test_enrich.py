@@ -269,7 +269,8 @@ def test_a_usd_transaction_converts_through_the_fix_first(
     assert local.amount == Decimal("18500.00")
     assert local.resolved_date == date(2026, 1, 19)
     assert local.unit_value_id is not None
-    assert "MXN/SAME_DAY" not in txn.unit_amounts
+    # The local-currency amount is always present: for dollars, the FIX pesos.
+    assert txn.unit_amounts["MXN/SAME_DAY"] == local
     assert txn.unit_amounts["USD/PRIOR_BANKING_DAY"] == UnitAmount(
         amount=Decimal("1000.00"), unit_value_id=None, resolved_date=ON.date()
     )
