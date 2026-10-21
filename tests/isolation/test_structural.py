@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 
 from sqlalchemy import Engine, text
 
-from xolotl.platform.audit.partitions import next_month, partition_name
 from xolotl.platform.db import APP_ROLE
+from xolotl.platform.partitions import next_month, partition_name
 from xolotl.platform.tenancy.registry import APPEND_ONLY_TABLES, SHARED_TABLES
 
 RELATIONS = text(
@@ -197,7 +197,19 @@ def test_audit_partitions_exist_for_this_month_and_three_ahead(admin_engine: Eng
     month = datetime.now(UTC).date().replace(day=1)
     expected = {"audit_event_default"}
     for _ in range(4):
-        expected.add(partition_name(month))
+        expected.add(partition_name("audit_event", month))
+        month = next_month(month)
+    names = {r["relname"] for r in _relations(admin_engine)}
+    assert expected <= names, f"missing partitions: {expected - names}"
+
+
+def test_transaction_partitions_exist_for_this_month_and_three_ahead(
+    admin_engine: Engine,
+):
+    month = datetime.now(UTC).date().replace(day=1)
+    expected = {"transaction_default"}
+    for _ in range(4):
+        expected.add(partition_name("transaction", month))
         month = next_month(month)
     names = {r["relname"] for r in _relations(admin_engine)}
     assert expected <= names, f"missing partitions: {expected - names}"

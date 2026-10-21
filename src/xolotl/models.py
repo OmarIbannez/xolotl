@@ -2,13 +2,19 @@
 
 Alembic's env.py and the schema-sync test import this module. Each feature
 module adds its ``models`` import here when it creates its first table; importing
-``platform.audit.partitions`` registers ``audit_event`` as a partitioned table.
+``platform.audit.partitions`` registers ``audit_event`` as a partitioned table, and
+importing ``monitoring.txn.models`` registers ``transaction``.
 """
 
 from sqlalchemy import MetaData
 
+from xolotl.modules.monitoring.aggregates import models as monitoring_aggregates_models
+from xolotl.modules.monitoring.txn import models as monitoring_txn_models
 from xolotl.modules.party import models as party_models
 from xolotl.modules.screening.catalog import models as screening_catalog_models
+from xolotl.modules.screening.counterparty import (
+    models as screening_counterparty_models,
+)
 from xolotl.modules.screening.engine import models as screening_engine_models
 from xolotl.modules.screening.review import models as screening_review_models
 from xolotl.modules.tenants import models as tenants_models
@@ -35,9 +41,12 @@ __all__ = [
     "events_models",
     "jobs_models",
     "metadata",
+    "monitoring_aggregates_models",
+    "monitoring_txn_models",
     "party_models",
     "policy_models",
     "screening_catalog_models",
+    "screening_counterparty_models",
     "screening_engine_models",
     "screening_review_models",
     "tenants_models",

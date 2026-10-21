@@ -13,6 +13,33 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from xolotl.modules.monitoring.aggregates.models import (
+    AggBucket,
+    AggDeclaration,
+    AggDistinct,
+)
+from xolotl.modules.monitoring.enums import (
+    AccountKind,
+    BatchSource,
+    BucketKind,
+    FileStatus,
+    ParkReason,
+)
+from xolotl.modules.monitoring.txn.models import (
+    Account,
+    Transaction,
+    TransactionBatch,
+    TransactionFile,
+    TransactionParked,
+    TransactionRef,
+)
+from xolotl.modules.monitoring.txn.schema import (
+    Channel,
+    Direction,
+    Instrument,
+    KeyKind,
+    Rail,
+)
 from xolotl.modules.party.enums import (
     AddressType,
     ContactKind,
@@ -43,6 +70,8 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListVersion,
     TenantListSubscription,
 )
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.schema import CounterpartyKind
 from xolotl.modules.screening.engine.enums import (
     BatchKind,
     BatchStatus,
@@ -639,17 +668,21 @@ def document(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
-def customer_relationship(session: Session, tenant_id: UUID) -> None:
+def _customer_relationship(session: Session, tenant_id: UUID) -> CustomerRelationship:
     row = _party(session, tenant_id)
-    session.add(
-        CustomerRelationship(
-            tenant_id=tenant_id,
-            party_id=row.id,
-            external_ref=f"ref-{uuid7().hex[:8]}",
-            status=CustomerRelationshipStatus.ACTIVE,
-        )
+    relationship = CustomerRelationship(
+        tenant_id=tenant_id,
+        party_id=row.id,
+        external_ref=f"ref-{uuid7().hex[:8]}",
+        status=CustomerRelationshipStatus.ACTIVE,
     )
+    session.add(relationship)
     session.flush()
+    return relationship
+
+
+def customer_relationship(session: Session, tenant_id: UUID) -> None:
+    _ = _customer_relationship(session, tenant_id)
 
 
 def _list_source_code() -> str:
@@ -964,6 +997,202 @@ def screening_batch(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def _account(session: Session, tenant_id: UUID) -> Account:
+    relationship = _customer_relationship(session, tenant_id)
+    row = Account(
+        tenant_id=tenant_id,
+        relationship_id=relationship.id,
+        party_id=relationship.party_id,
+        external_ref=f"default:{relationship.id}",
+        kind=AccountKind.DEFAULT,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def account(session: Session, tenant_id: UUID) -> None:
+    _ = _account(session, tenant_id)
+
+
+def _counterparty(session: Session, tenant_id: UUID) -> Counterparty:
+    # A real ciphertext, as for staff_credential: the tenant gets its keys here.
+    get_key_provider().create_tenant_keys(tenant_id, session=session)
+    row = Counterparty(
+        tenant_id=tenant_id,
+        kind=CounterpartyKind.UNKNOWN,
+        name=encrypt("Probe", tenant_id=tenant_id, session=session),
+        name_hash=b"\x01" * 32,
+        dedup_hash=uuid7().bytes * 2,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def counterparty(session: Session, tenant_id: UUID) -> None:
+    _ = _counterparty(session, tenant_id)
+
+
+def _transaction_file(session: Session, tenant_id: UUID) -> TransactionFile:
+    file_id = uuid7()
+    row = TransactionFile(
+        id=file_id,
+        tenant_id=tenant_id,
+        storage_key=f"transactions/files/{file_id}",
+        sha256=file_id.bytes * 2,
+        size=10,
+        content_type="text/csv",
+        status=FileStatus.UPLOADED,
+        uploaded_by="harness",
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def transaction_file(session: Session, tenant_id: UUID) -> None:
+    _ = _transaction_file(session, tenant_id)
+
+
+def _transaction_batch(session: Session, tenant_id: UUID) -> TransactionBatch:
+    row = TransactionBatch(
+        tenant_id=tenant_id,
+        source=BatchSource.FILE,
+        file_id=_transaction_file(session, tenant_id).id,
+        submitted_by="cli:harness",
+        item_count=1,
+        accepted=1,
+        duplicates=0,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def transaction_batch(session: Session, tenant_id: UUID) -> None:
+    _ = _transaction_batch(session, tenant_id)
+
+
+def _transaction(session: Session, tenant_id: UUID) -> Transaction:
+    owner = _account(session, tenant_id)
+    row = Transaction(
+        tenant_id=tenant_id,
+        occurred_at=clock.now(),
+        id=uuid7(),
+        external_id=f"ext-{uuid7().hex[:12]}",
+        batch_id=_transaction_batch(session, tenant_id).id,
+        party_id=owner.party_id,
+        relationship_id=owner.relationship_id,
+        account_id=owner.id,
+        counterparty_id=_counterparty(session, tenant_id).id,
+        policy_snapshot_id=_policy_snapshot(session, tenant_id).id,
+        direction=Direction.OUT,
+        rail=Rail.SPEI,
+        instrument=Instrument.TRANSFER,
+        channel=Channel.APP,
+        amount_minor=10000,
+        currency="MXN",
+        content_hash=b"\x00" * 32,
+        raw=encrypt_json({"k": "v"}, tenant_id=tenant_id, session=session),
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def transaction(session: Session, tenant_id: UUID) -> None:
+    _ = _transaction(session, tenant_id)
+
+
+def transaction_ref(session: Session, tenant_id: UUID) -> None:
+    row = _transaction(session, tenant_id)
+    session.add(
+        TransactionRef(
+            tenant_id=tenant_id,
+            external_id=row.external_id,
+            transaction_id=row.id,
+            occurred_at=row.occurred_at,
+            content_hash=row.content_hash,
+        )
+    )
+    session.flush()
+
+
+def transaction_parked(session: Session, tenant_id: UUID) -> None:
+    row = _transaction(session, tenant_id)
+    session.add(
+        TransactionParked(
+            tenant_id=tenant_id,
+            transaction_id=row.id,
+            occurred_at=row.occurred_at,
+            reason=ParkReason.UNIT_VALUE_MISSING,
+            unit_code="UDI",
+            needed_on=row.occurred_at.date(),
+        )
+    )
+    session.flush()
+
+
+AGG_ID = "0123456789abcdef"
+
+
+def agg_bucket(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        AggBucket(
+            tenant_id=tenant_id,
+            key_kind=KeyKind.PARTY,
+            key=str(uuid7()),
+            agg_id=AGG_ID,
+            bucket_start=clock.now(),
+            bucket_kind=BucketKind.DAY,
+        )
+    )
+    session.flush()
+
+
+def agg_distinct(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        AggDistinct(
+            tenant_id=tenant_id,
+            key_kind=KeyKind.PARTY,
+            key=str(uuid7()),
+            agg_id=AGG_ID,
+            bucket_start=clock.now(),
+            member_hash=b"\x01" * 32,
+        )
+    )
+    session.flush()
+
+
+def agg_declaration(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        AggDeclaration(
+            tenant_id=tenant_id,
+            agg_id=AGG_ID,
+            declaration={"function": "SUM"},
+            bucket_kind=BucketKind.DAY,
+            window_kind="DURATION",
+            window="P1D",
+        )
+    )
+    session.flush()
+
+
+def _register_monitoring() -> None:
+    # The SP-04 monitoring tables (plan 4a), apart to keep register_all short.
+    register_isolation_factory("account", account)
+    register_isolation_factory("counterparty", counterparty)
+    register_isolation_factory("transaction_batch", transaction_batch)
+    register_isolation_factory("transaction_file", transaction_file)
+    register_isolation_factory("transaction", transaction)
+    register_isolation_factory("transaction_ref", transaction_ref)
+    register_isolation_factory("transaction_parked", transaction_parked)
+    register_isolation_factory("agg_bucket", agg_bucket)
+    register_isolation_factory("agg_distinct", agg_distinct)
+    register_isolation_factory("agg_declaration", agg_declaration)
+
+
 def register_all() -> None:
     """Register every factory above; calling it again is harmless."""
     register_isolation_factory("staff_user", staff_user)
@@ -1014,3 +1243,4 @@ def register_all() -> None:
     register_isolation_factory("match_disposition", match_disposition)
     register_isolation_factory("screening_whitelist", screening_whitelist)
     register_isolation_factory("screening_batch", screening_batch)
+    _register_monitoring()

@@ -150,6 +150,28 @@ class Settings(BaseSettings):
     screening_rescreen_batch: int = Field(default=500, ge=1)
     # Per-tenant monthly full re-screen, five-field cron, in America/Mexico_City.
     screening_periodic_cron: str = "0 2 1 * *"
+    # Transaction monitoring (SP-04 plan 4a). Items in one POST /v1/transactions.
+    monitoring_batch_max_items: int = Field(default=1000, ge=1, le=10000)
+    # Upload limits of one transactions file, and the rows ingested per page.
+    monitoring_file_max_mb: int = Field(default=50, ge=1, le=1024)
+    monitoring_file_max_rows: int = Field(default=500000, ge=1)
+    monitoring_file_chunk_rows: int = Field(default=1000, ge=1)
+    # A transaction received more than this many days after it occurred waits for a
+    # backfill instead of being processed.
+    monitoring_late_days: int = Field(default=7, ge=1)
+    # How far in the future an occurred_at may be, for clock skew.
+    monitoring_max_future_minutes: int = Field(default=10, ge=0)
+    # Lease of one monitoring.process job, and the rows it reads per page.
+    monitoring_process_lease_seconds: int = Field(default=300, ge=30)
+    monitoring_process_page: int = Field(default=200, ge=1)
+    # Per-tenant monitoring.sweep job, five-field cron, evaluated in UTC.
+    monitoring_sweep_cron: str = "* * * * *"
+    # Transactions per page of an aggregate backfill.
+    monitoring_agg_backfill_batch: int = Field(default=5000, ge=1)
+    # Daily partition maintenance, five-field cron, evaluated in UTC.
+    monitoring_partitions_cron: str = "0 1 * * *"
+    # Monthly partitions kept ahead of the current month.
+    monitoring_partition_months_ahead: int = Field(default=3, ge=1, le=12)
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -174,6 +196,8 @@ class Settings(BaseSettings):
         "retention_purge_cron",
         "lists_poll_cron",
         "screening_periodic_cron",
+        "monitoring_sweep_cron",
+        "monitoring_partitions_cron",
     )
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:

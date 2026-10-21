@@ -419,6 +419,8 @@ def test_the_pending_and_period_indexes_exist(admin_engine): ...                
 
 Depends on: A2, A3. Console: no. Branch `sp04a-a4-batch-ingest`.
 
+Note from A2: add the ignore line `xolotl.modules.screening.counterparty.resolve -> xolotl.modules.screening.counterparty.models` to the `monitoring-boundaries` contract in `.importlinter` in this task.
+
 **Files:**
 - Create: `src/xolotl/modules/monitoring/kinds.py`, `src/xolotl/modules/monitoring/errors.py`, `src/xolotl/modules/monitoring/events.py`, `src/xolotl/modules/monitoring/txn/accounts.py`, `src/xolotl/modules/monitoring/txn/ingest.py`, `src/xolotl/modules/monitoring/process/__init__.py`, `src/xolotl/modules/monitoring/process/enqueue.py`, `src/xolotl/modules/screening/counterparty/resolve.py`, `tests/modules/monitoring/conftest.py`
 - Modify: `src/xolotl/modules/party/service.py`, `src/xolotl/modules/screening/counterparty/__init__.py`, `tests/modules/monitoring/support.py` (+ `make_item`, `ingest_items`)
@@ -889,6 +891,8 @@ def test_the_sweep_job_runs_through_the_runner_on_its_schedule(): ...
 ### Task A10: The transactions API for both audiences, the backfill and status endpoints, the counterparty views, `monitoring show`
 
 Depends on: A5, A9. Console: no. Branch `sp04a-a10-transactions-api`.
+
+Note from A2: add the ignore line `xolotl.modules.screening.counterparty.views -> xolotl.modules.screening.counterparty.models` to the `monitoring-boundaries` contract in `.importlinter` in this task.
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/schemas.py`, `src/xolotl/modules/monitoring/routes_transactions.py`, `src/xolotl/modules/monitoring/routes_monitoring.py`, `src/xolotl/modules/monitoring/txn/queries.py`, `src/xolotl/modules/monitoring/txn/views.py`, `src/xolotl/modules/monitoring/process/status.py`, `src/xolotl/modules/screening/counterparty/schemas.py`, `src/xolotl/modules/screening/counterparty/views.py`
