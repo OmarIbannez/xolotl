@@ -13,7 +13,9 @@ capture periods and ``counterparty_name_index``. ``monitoring_rule_version`` and
 ``rule_simulation`` reference each other, so ``fk_rule_version_simulation`` is added
 once both exist. A counterparty becomes a screening subject: ``screening_subject``
 gains ``counterparty_id`` and the ``COUNTERPARTY`` branch of its kind check, and
-``counterparty.screening_subject_id`` its foreign key. Downgrade reverses each step.
+``counterparty.screening_subject_id`` its foreign key. Downgrade reverses each step;
+it needs no ``COUNTERPARTY`` screening subject to exist, because 0010's kind check
+is restored before ``counterparty_id`` is dropped.
 """
 
 from collections.abc import Sequence
