@@ -12,5 +12,10 @@ Synthetic data only: every name, reference and amount is made up.
   (`bad-dup`) repeats a transaction the tests ingest first, and row 8 names a customer
   that does not exist: 7 accepted, 1 duplicate, 2 rejected.
 
+An XLSX date cell has no zone: the reader takes it as `America/Mexico_City` time
+(`MEXICO_CITY` of `xolotl.platform.calendar`), so a cell `2026-01-15 10:00` is
+`2026-01-15T10:00:00-06:00`. The `deposits.xlsx` fixture keeps `occurred_at` as text
+with its offset.
+
 They were written with `openpyxl` and the `csv` module; edit the four `deposits`
 files together so they keep spelling the same rows.

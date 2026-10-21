@@ -9,12 +9,14 @@ import io
 import json
 import logging
 from collections.abc import Generator, Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 from openpyxl import Workbook
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from tests.helpers import audit_events, staff_session, system_ctx
@@ -153,7 +155,35 @@ def _run(
     file_id: UUID,
 ) -> None:
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
-        _ingest_job(store, queue).run(s, _job(tenant, file_id))
+        _ingest_job(store, queue).run(s, _job(tenant, file_id), leased=False)
+
+
+def _claim(tenant: CreatedTenant, queue: PostgresJobQueue) -> Job:
+    (job,) = queue.claim(
+        worker_id="w-files",
+        tenant_id=tenant.tenant_id,
+        kinds=[INGEST_FILE_KIND],
+        limit=1,
+        lease=timedelta(minutes=5),
+    )
+    return job
+
+
+def _run_claimed(store: LocalFsObjectStore, queue: PostgresJobQueue, job: Job) -> None:
+    with tenant_session(system_ctx(job.tenant_id)) as s:
+        _ingest_job(store, queue).run(s, job)
+
+
+def _completed_events(tenant: CreatedTenant) -> int:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        return (
+            s.scalar(
+                select(func.count())
+                .select_from(OutboxRow)
+                .where(OutboxRow.type == TRANSACTION_FILE_COMPLETED)
+            )
+            or 0
+        )
 
 
 def _file(tenant: CreatedTenant, file_id: UUID) -> TransactionFile:
@@ -333,6 +363,36 @@ def test_xlsx_cells_become_text():
     assert (row.data["amount"], row.data["fee_amount"]) == ("1500", "12.5")
 
 
+def test_an_xlsx_date_cell_is_read_as_mexico_city_time():
+    data = _xlsx([
+        [
+            "external_id",
+            "occurred_at",
+            "customer_ref",
+            "direction",
+            "rail",
+            "instrument",
+            "amount",
+            "currency",
+        ],
+        [
+            "x-1",
+            datetime.fromisoformat("2026-01-15T10:00:00"),  # naive, as Excel keeps it
+            "cust-1",
+            "IN",
+            "CASH",
+            "CASH",
+            10,
+            "MXN",
+        ],
+    ])
+    (row,) = iter_rows(data, XLSX_TYPE, start=0, limit=5)
+    assert row.data is not None
+    assert row.data["occurred_at"] == "2026-01-15T10:00:00-06:00"
+    (item,) = _items(data, XLSX_TYPE)
+    assert item.occurred_at == datetime.fromisoformat("2026-01-15T16:00:00+00:00")
+
+
 @pytest.mark.parametrize(
     ("data", "content_type"),
     [
@@ -428,6 +488,36 @@ def test_an_upload_seals_the_file_stores_a_row_audits_and_enqueues_the_job(
         "rows_total": 4,
         "content_type": CSV_TYPE,
     }
+
+
+def _finds_nothing(*_args: object, **_kwargs: object) -> None:
+    return None
+
+
+def test_a_racing_upload_of_the_same_file_writes_no_object(
+    tenant: CreatedTenant,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # The second upload checked for the file before the first one committed: the
+    # unique index refuses its row before it stores anything.
+    data = _fixture("deposits.csv")
+    _ = _upload(tenant, store, queue, data)
+    with (
+        pytest.raises(IntegrityError),
+        staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
+    ):
+        monkeypatch.setattr(s, "scalar", _finds_nothing)
+        _ = upload_file(
+            s,
+            store,
+            data=data,
+            content_type=CSV_TYPE,
+            uploaded_by="staff:test",
+            queue=queue,
+        )
+    assert len(list(store.list(tenant.tenant_id, "transactions/files/"))) == 1
 
 
 def test_the_same_file_twice_returns_the_existing_row(
@@ -552,12 +642,13 @@ def test_the_job_resumes_from_the_cursor_after_a_crash(
         *,
         store: ObjectStore,
         queue: PostgresJobQueue,
+        now: datetime,
     ) -> tuple[int, int, list[RowError]]:
         pages.append(rows[0].number)
         if len(pages) == 3:
             msg = "the worker died"
             raise RuntimeError(msg)
-        return real_page(session, file, rows, store=store, queue=queue)
+        return real_page(session, file, rows, store=store, queue=queue, now=now)
 
     monkeypatch.setattr(files, "ingest_page", crash_on_the_third_page)
     with pytest.raises(RuntimeError):
@@ -774,6 +865,158 @@ def test_another_run_that_moved_the_cursor_stops_this_one(
         return real_rows(data, content_type, start=start, limit=limit)
 
     monkeypatch.setattr(files, "iter_rows", advance_then_read)
-    with pytest.raises(files.FileCursorMovedError):
-        _run(tenant, store, queue, file_id)
+    _run(tenant, store, queue, file_id)
     assert _external_ids(tenant) == []
+    # The other run owns the file: this one leaves its status alone.
+    moved = _file(tenant, file_id)
+    assert (moved.status, moved.cursor, moved.last_error) == (
+        FileStatus.PROCESSING,
+        2,
+        None,
+    )
+    assert _completed_events(tenant) == 0
+
+
+def test_a_run_that_loses_the_race_leaves_the_completed_file_alone(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # The CLI opens the file; before its first page, a worker claims the queued
+    # job and walks the whole file. The CLI's page then finds the cursor moved.
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    real_rows = files.iter_rows
+    raced: list[bool] = []
+
+    def the_worker_runs_first(
+        data: bytes, content_type: str, *, start: int, limit: int
+    ) -> Generator[files.FileRow]:
+        if not raced:
+            raced.append(True)
+            _run_claimed(store, queue, _claim(tenant, queue))
+        return real_rows(data, content_type, start=start, limit=limit)
+
+    monkeypatch.setattr(files, "iter_rows", the_worker_runs_first)
+    _run(tenant, store, queue, file_id)
+    done = _file(tenant, file_id)
+    assert (done.status, done.cursor, done.rows_accepted, done.last_error) == (
+        FileStatus.COMPLETED,
+        4,
+        4,
+        None,
+    )
+    assert _completed_events(tenant) == 1
+    # A retry of either run finds the file completed and publishes nothing.
+    _run(tenant, store, queue, file_id)
+    assert _completed_events(tenant) == 1
+
+
+def test_a_failure_after_another_run_completed_the_file_does_not_fail_it(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(get_settings(), "monitoring_file_chunk_rows", 3)
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    job = _claim(tenant, queue)
+
+    def the_other_run_finishes_then_this_one_breaks(
+        claimed: Job, *, lease: timedelta
+    ) -> bool:
+        assert claimed.id == job.id
+        assert lease > timedelta(0)
+        _run(tenant, store, queue, file_id)
+        msg = "the network went away"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(queue, "heartbeat", the_other_run_finishes_then_this_one_breaks)
+    with pytest.raises(RuntimeError):
+        _run_claimed(store, queue, job)
+    done = _file(tenant, file_id)
+    assert (done.status, done.cursor, done.last_error) == (
+        FileStatus.COMPLETED,
+        4,
+        None,
+    )
+    assert _completed_events(tenant) == 1
+
+
+def test_completing_a_file_another_run_completed_publishes_nothing(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # This run's last page commits; the other run then finds the cursor at the end
+    # and completes the file before this run does.
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    job = _claim(tenant, queue)
+    real_heartbeat = queue.heartbeat
+
+    def the_other_run_completes_first(claimed: Job, *, lease: timedelta) -> bool:
+        _run(tenant, store, queue, file_id)
+        return real_heartbeat(claimed, lease=lease)
+
+    monkeypatch.setattr(queue, "heartbeat", the_other_run_completes_first)
+    _run_claimed(store, queue, job)
+    assert _file(tenant, file_id).status is FileStatus.COMPLETED
+    assert _completed_events(tenant) == 1
+
+
+def test_a_run_whose_lease_was_lost_stops(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(get_settings(), "monitoring_file_chunk_rows", 3)
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    job = _claim(tenant, queue)
+    real_page = files.ingest_page
+
+    def the_lease_is_taken_back(
+        session: Session,
+        file: TransactionFile,
+        rows: Sequence[files.FileRow],
+        *,
+        store: ObjectStore,
+        queue: PostgresJobQueue,
+        now: datetime,
+    ) -> tuple[int, int, list[RowError]]:
+        # As if the reaper took the job back and another worker claimed it.
+        with tenant_session(system_ctx(tenant.tenant_id)) as s:
+            s.get_one(JobRow, (tenant.tenant_id, job.id)).lock_token = uuid7()
+        return real_page(session, file, rows, store=store, queue=queue, now=now)
+
+    monkeypatch.setattr(files, "ingest_page", the_lease_is_taken_back)
+    _run_claimed(store, queue, job)
+    stopped = _file(tenant, file_id)
+    assert (stopped.status, stopped.cursor) == (FileStatus.PROCESSING, 3)
+    assert _completed_events(tenant) == 0
+
+
+def test_the_page_checks_occurred_at_against_the_job_clock(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+):
+    # deposits.csv is of January 2026: a clock a year earlier puts it in the future.
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    job = IngestFileJob(
+        session_factory=get_sessionmaker(),
+        store=store,
+        queue=queue,
+        settings=get_settings(),
+        clock_fn=lambda: datetime.fromisoformat("2025-01-01T00:00:00+00:00"),
+    )
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        job.run(s, _job(tenant, file_id), leased=False)
+    row = _file(tenant, file_id)
+    assert (row.rows_accepted, row.rows_rejected) == (0, 4)

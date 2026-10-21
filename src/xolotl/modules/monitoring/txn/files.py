@@ -17,9 +17,10 @@ it cannot also be a folder of the object store. Nothing here logs a cell, and ev
 error raised over the file's content carries a fixed sentence.
 
 Reading: a CSV is UTF-8 (a BOM is tolerated) with a comma or semicolon delimiter
-chosen from the header line; an XLSX is read from its first sheet; a JSON Lines
-file is one object per line. Blank rows and lines are skipped but keep their place
-in the numbering, so a row number points at the row a person sees.
+chosen from the header line; an XLSX is read from its first sheet (a date cell,
+which has no zone, as Mexico City time); a JSON Lines file is one object per line.
+Blank rows and lines are skipped but keep their place in the numbering, so a row
+number points at the row a person sees.
 """
 
 import csv
@@ -38,6 +39,7 @@ from decimal import Decimal
 from itertools import islice
 from typing import ClassVar, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
@@ -66,6 +68,7 @@ from xolotl.modules.monitoring.txn.schema import (
 )
 from xolotl.platform import clock
 from xolotl.platform.audit import AuditEvent, record
+from xolotl.platform.calendar import MEXICO_CITY
 from xolotl.platform.config import Settings, get_settings
 from xolotl.platform.crypto.blobs import open_blob, seal_blob
 from xolotl.platform.db import SessionFactory, bound_context, tenant_session
@@ -99,6 +102,7 @@ XLSX_MAX_EXPANSION = 10
 CONFLICT_CODE = "EXTERNAL_ID_CONFLICT"
 _MIB = 1024 * 1024
 _LAST_ERROR_LIMIT = 200
+_XLSX_ZONE = ZoneInfo(MEXICO_CITY)
 _FIELDS: frozenset[str] = frozenset(TransactionInput.model_fields)
 # Where a refused batch item's index and field sit in its error's ``loc``.
 _LOC_INDEX = 1
@@ -178,10 +182,13 @@ def _csv_records(data: bytes) -> Generator[list[str]]:
 
 
 def _xlsx_cell(value: object) -> str:
-    # Dates as ISO text, whole numbers without a decimal point, the rest as text.
+    # Dates as ISO text, whole numbers without a decimal point, the rest as text. A
+    # spreadsheet date has no zone, so a date cell is read as Mexico City time.
     if value is None:
         return ""
     if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=_XLSX_ZONE)
         return value.isoformat()
     if isinstance(value, date):
         return value.isoformat()
@@ -500,13 +507,6 @@ def upload_file(
     tenant_id = bound_context(session).require_tenant_id()
     file_id = uuid7()
     key = storage_key_for(file_id)
-    _ = store.put(
-        tenant_id,
-        key,
-        seal_blob(session, tenant_id, data),
-        content_type=SEALED_CONTENT_TYPE,
-        metadata={"content_type": content_type},
-    )
     row = TransactionFile(
         tenant_id=tenant_id,
         id=file_id,
@@ -518,8 +518,17 @@ def upload_file(
         rows_total=rows_total,
         uploaded_by=uploaded_by,
     )
+    # The row first: a concurrent upload of the same file then fails on the unique
+    # (tenant_id, sha256) index before it writes an object nothing would point at.
     session.add(row)
     session.flush()
+    _ = store.put(
+        tenant_id,
+        key,
+        seal_blob(session, tenant_id, data),
+        content_type=SEALED_CONTENT_TYPE,
+        metadata={"content_type": content_type},
+    )
     _ = queue.enqueue(
         session,
         kind=INGEST_FILE_KIND,
@@ -632,6 +641,7 @@ def ingest_page(
     *,
     store: ObjectStore,
     queue: PostgresJobQueue,
+    now: datetime,
 ) -> tuple[int, int, list[RowError]]:
     """Ingest one page of a file in the caller's transaction and advance ``file``.
 
@@ -639,7 +649,8 @@ def ingest_page(
     that fails validation, repeats an ``external_id`` of the page, names an
     unknown customer or another customer's account, or re-sends a known
     ``external_id`` with other content is reported instead. The counters and
-    ``cursor`` of ``file`` advance and the error report is rewritten.
+    ``cursor`` of ``file`` advance and the error report is rewritten. ``now`` is
+    the instant ``occurred_at`` is checked against.
 
     Returns:
         The accepted and duplicate counts and the page's row errors.
@@ -653,7 +664,7 @@ def ingest_page(
     numbers = [row.number for row in rows if row.data is not None]
     items, field_errors = validate_batch(
         [row.data for row in rows if row.data is not None],
-        now=clock.now(),
+        now=now,
         max_future_minutes=get_settings().monitoring_max_future_minutes,
     )
     failed = {error.index for error in field_errors}
@@ -719,13 +730,16 @@ class IngestFileJob:
         self._settings: Settings = settings
         self._clock: Callable[[], datetime] = clock_fn
 
-    def run(self, session: Session, job: Job) -> None:
+    def run(self, session: Session, job: Job, *, leased: bool = True) -> None:
         """Ingest the job's file page by page, then mark it ``COMPLETED``.
 
         The runner's ``session`` only takes the final status and the event; every
         page is a transaction of its own. A failure marks the file ``FAILED`` in a
         fresh transaction and is raised again, so the queue retries from
-        ``cursor``.
+        ``cursor``. A run that finds another run moved the cursor, or whose lease
+        the queue took back, stops and leaves the file to that other run.
+        ``leased=False`` is for a job built in place (the CLI), which holds no
+        lease to keep alive.
         """
         file_id = UUID(str(job.payload["file_id"]))
         ctx = bound_context(session)
@@ -733,18 +747,32 @@ class IngestFileJob:
             opened = self._open(ctx, file_id)
             if opened is None:
                 return
-            self._pages(ctx, file_id, opened, job)
+            walked = self._pages(ctx, file_id, opened, job if leased else None)
+        except FileCursorMovedError:
+            logger.info(
+                "transaction file ingest left to another run",
+                extra={"file_id": str(file_id)},
+            )
+            return
         except Exception as exc:
-            with tenant_session(ctx, factory=self._session_factory) as s:
-                file = self._lock(s, file_id)
-                file.status = FileStatus.FAILED
-                file.last_error = _last_error(exc)
+            self._fail(ctx, file_id, exc)
             raise
+        if not walked:
+            return
         # Outside the handler above: the runner's session holds the file's lock
         # here, so marking it FAILED from another session would wait on itself. A
         # failure now rolls back with the runner's session; the retry finds the
         # cursor at the end and completes.
         self._complete(session, file_id)
+
+    def _fail(self, ctx: TenantContext, file_id: UUID, exc: Exception) -> None:
+        # Only a file this run could still be walking: a run that lost a race never
+        # turns a file another run completed into FAILED.
+        with tenant_session(ctx, factory=self._session_factory) as s:
+            file = self._lock(s, file_id)
+            if file.status in {FileStatus.UPLOADED, FileStatus.PROCESSING}:
+                file.status = FileStatus.FAILED
+                file.last_error = _last_error(exc)
 
     @staticmethod
     def _lock(session: Session, file_id: UUID) -> TransactionFile:
@@ -784,10 +812,11 @@ class IngestFileJob:
         return opened
 
     def _pages(
-        self, ctx: TenantContext, file_id: UUID, opened: _Opened, job: Job
-    ) -> None:
+        self, ctx: TenantContext, file_id: UUID, opened: _Opened, job: Job | None
+    ) -> bool:
         # One reader for the whole run, so a page does not re-read the rows before
         # it; each page checks under its lock that no other run moved the cursor.
+        # False when the lease was lost: the job may be running elsewhere.
         chunk = self._settings.monitoring_file_chunk_rows
         lease = timedelta(seconds=self._settings.monitoring_process_lease_seconds)
         cursor = opened.cursor
@@ -801,7 +830,13 @@ class IngestFileJob:
             while cursor < opened.rows_total:
                 page = list(islice(rows, chunk))
                 cursor = self._page(ctx, file_id, cursor, page, opened.rows_total)
-                _ = self._queue.heartbeat(job, lease=lease)
+                if job is not None and not self._queue.heartbeat(job, lease=lease):
+                    logger.info(
+                        "transaction file ingest lost its lease",
+                        extra={"file_id": str(file_id), "cursor": cursor},
+                    )
+                    return False
+        return True
 
     def _page(
         self,
@@ -816,7 +851,14 @@ class IngestFileJob:
             if file.cursor != cursor:
                 raise FileCursorMovedError
             if page:
-                _ = ingest_page(s, file, page, store=self._store, queue=self._queue)
+                _ = ingest_page(
+                    s,
+                    file,
+                    page,
+                    store=self._store,
+                    queue=self._queue,
+                    now=self._clock(),
+                )
             else:
                 # Fewer rows than counted at upload: nothing is left to read.
                 file.cursor = rows_total
@@ -824,6 +866,9 @@ class IngestFileJob:
 
     def _complete(self, session: Session, file_id: UUID) -> None:
         file = self._lock(session, file_id)
+        if file.status is FileStatus.COMPLETED:
+            # Another run completed it and published the event.
+            return
         file.status = FileStatus.COMPLETED
         file.finished_at = self._clock()
         _ = publish_monitoring_event(

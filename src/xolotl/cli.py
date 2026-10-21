@@ -1389,7 +1389,9 @@ def _ingest_now(
     """Run a file's pages in this process, through a job built in place.
 
     The job the upload queued stays queued; a worker that claims it later finds
-    the file ``COMPLETED`` and does nothing.
+    the file ``COMPLETED`` and does nothing. The job built here holds no lease, so
+    the run does not heartbeat; if a worker claims the queued job meanwhile, the
+    run that loses the cursor stops and leaves the file to the other.
 
     Returns:
         The one-line report of the file.
@@ -1411,7 +1413,7 @@ def _ingest_now(
         session_factory=factory, store=store, queue=queue, settings=settings
     )
     with tenant_session(ctx, factory=factory) as s:
-        ingest.run(s, job)
+        ingest.run(s, job, leased=False)
     with tenant_session(ctx, factory=factory) as s:
         return _file_line(s.get_one(TransactionFile, (tenant_id, file_id)))
 
