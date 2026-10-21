@@ -304,20 +304,35 @@ def test_a_window_parameter_is_a_duration_and_velocity_stays_short() -> None:
     for kind in (RuleKind.STRUCTURING, RuleKind.VELOCITY):
         data = document(kind)
         data["params"]["window"]["value"] = "weekly"
-        with pytest.raises(ValidationError, match=r"parameter 'window'.*ISO-8601"):
+        with pytest.raises(ValidationError, match="runs from PT1H to P6M"):
             _ = _validate(data)
     data = document(RuleKind.VELOCITY)
     for window in ("PT1H", "P7D", "PT12H"):
         data["params"]["window"]["value"] = window
         assert _validate(data).params["window"].value == window
-    for window in ("P99Y", "P8D", "P1M"):
+    for window in ("P8D", "P1M"):
         data["params"]["window"]["value"] = window
         with pytest.raises(ValidationError, match=r"PT1H\.\.P7D"):
             _ = _validate(data)
-    # Only VELOCITY is held to the short window.
+    data["params"]["window"]["value"] = "P99Y"
+    with pytest.raises(ValidationError, match="runs from PT1H to P6M"):
+        _ = _validate(data)
+    # Only VELOCITY is held to the short window; every window stays within A7's.
     data = document(RuleKind.STRUCTURING)
     data["params"]["window"]["value"] = "P30D"
+    data["aggregates"][0]["window"] = "P30D"
     assert _validate(data).params["window"].value == "P30D"
+    for window in ("P99Y", "P1Y", "P7M", "P200D"):
+        data["params"]["window"]["value"] = window
+        with pytest.raises(ValidationError, match="runs from PT1H to P6M"):
+            _ = _validate(data)
+    data["params"]["window"]["value"] = "P1M2D"
+    with pytest.raises(ValidationError, match="months or days"):
+        _ = _validate(data)
+    # A STRUCTURING window is the window of its near_count / near_sum.
+    data["params"]["window"]["value"] = "P7D"
+    with pytest.raises(ValidationError, match="'near_sum' counts over P30D"):
+        _ = _validate(data)
 
 
 def test_a_float_is_refused_anywhere_in_the_document() -> None:

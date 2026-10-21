@@ -260,7 +260,7 @@ def render(definition: RuleDefinition, locale: Literal["es-MX", "en"]) -> str
 
 `.importlinter`: the contract `monitoring-evaluator-is-pure` of Global Constraints (as built, it lists `rules.definitions` and `rules.render` only: import-linter refuses a source module that does not exist, so B2, B3 and B10 each add theirs; see their notes from B1).
 
-`_jurisdictions.yaml` gains `tax_haven: []` (with a comment: no source chosen, Open question 2) and `regions: {BORDER_ZONE_MX: [MX-BCN, MX-SON, MX-CHH, MX-COA, MX-NLE, MX-TAM]}` with `regions_confidence: UNVERIFIED` and a comment naming the six border states as the default of Open question 2.
+`_jurisdictions.yaml` gains `tax_haven: []` (with a comment: no source chosen, Open question 1) and `regions: {BORDER_ZONE_MX: [MX-BCN, MX-SON, MX-CHH, MX-COA, MX-NLE, MX-TAM]}` with `regions_confidence: UNVERIFIED` and a comment naming the six border states as the default of Open question 2.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -308,7 +308,7 @@ Depends on **B1** (A7's `aggregates/store.py` gives `AggregateValue` and `Aggreg
 - `params.lists` is one comma-separated `str` (`"FATF_BLACK,FATF_GREY"`), not a list; `resolve_definition` resolves its names when the rule set loads, so an unknown name or an empty set (`TAX_HAVEN`, Open question 1) is a load error.
 - A `THRESHOLD` rule may omit `threshold` when `on.counterparty_screening_status` is set or it has a `party_screening_status` or `pep_status_not` param.
 - A param's type is inferred from its value (`bool`, `int`, a decimal string, else `str`) and the known names have fixed types (`_PARAM_TYPES`: `threshold`, `near_ratio`, `sum`, `ratio`, `history_ratio` are decimals; `min_count`, `count`, `new_account_days`, `dormant_days` integers; `window`, `lists`, `outcome` and the two gates strings). A float anywhere in the document is refused, so YAML writes every decimal quoted (`"5000"`, `"0.70"`).
-- A `window` param is a duration: A7's `P[nM][nD][TnH]` or a policy `P[nY][nM][nD]`; a `VELOCITY` window lies within `PT1H`..`P7D`.
+- A `window` param is an A7 `DURATION` window (`P[nM][nD][TnH]`, `PT1H`..`P6M`, months not mixed with days or hours); a `VELOCITY` window lies within `PT1H`..`P7D`, and a `STRUCTURING` window must equal the window of its `near_count`/`near_sum` declarations.
 - `evidence.transactions_window` (and `dedup.window`) accepts `MONTH` besides an ISO duration.
 - An `AGGREGATE` rule needs at least one condition, and aggregate names are unique within a definition.
 - `with_params` coerces an `int` to `Decimal` for a decimal param.
@@ -398,7 +398,7 @@ Depends on **B1**. Pure code plus pack content: no tables. Runs beside B2 and B4
 - `params.lists` is one comma-separated `str` (`"FATF_BLACK,FATF_GREY"`), not a list; `resolve_definition` resolves its names when the rule set loads, so an unknown name or an empty set (`TAX_HAVEN`, Open question 1) is a load error.
 - A `THRESHOLD` rule may omit `threshold` when `on.counterparty_screening_status` is set or it has a `party_screening_status` or `pep_status_not` param.
 - A param's type is inferred from its value (`bool`, `int`, a decimal string, else `str`) and the known names have fixed types (`_PARAM_TYPES`: `threshold`, `near_ratio`, `sum`, `ratio`, `history_ratio` are decimals; `min_count`, `count`, `new_account_days`, `dormant_days` integers; `window`, `lists`, `outcome` and the two gates strings). A float anywhere in the document is refused, so YAML writes every decimal quoted (`"5000"`, `"0.70"`).
-- A `window` param is a duration: A7's `P[nM][nD][TnH]` or a policy `P[nY][nM][nD]`; a `VELOCITY` window lies within `PT1H`..`P7D`.
+- A `window` param is an A7 `DURATION` window (`P[nM][nD][TnH]`, `PT1H`..`P6M`, months not mixed with days or hours); a `VELOCITY` window lies within `PT1H`..`P7D`, and a `STRUCTURING` window must equal the window of its `near_count`/`near_sum` declarations.
 - `evidence.transactions_window` (and `dedup.window`) accepts `MONTH` besides an ISO duration.
 - An `AGGREGATE` rule needs at least one condition, and aggregate names are unique within a definition.
 - `with_params` coerces an `int` to `Decimal` for a decimal param.

@@ -33,13 +33,15 @@ from pydantic import (
 )
 
 from xolotl.modules.monitoring.aggregates.declarations import (
+    MAX_WINDOW_HOURS,
     AggregateDeclaration,
     TxnFilter,
     window_hours,
+    window_parts,
 )
 from xolotl.modules.monitoring.rules.render import Locale, render
 from xolotl.modules.monitoring.txn.schema import KeyKind
-from xolotl.platform.policy.durations import check_iso_duration, iso_duration_days
+from xolotl.platform.policy.durations import check_iso_duration
 from xolotl.platform.policy.jurisdictions import (
     COUNTRY_CODE,
     REGION_CODE,
@@ -83,7 +85,8 @@ MONTH = "MONTH"
 _TIER_OUTCOMES = frozenset({HitOutcome.BLOCK.value, HitOutcome.REVIEW.value})
 # A VELOCITY window is short (spec §9.1): one hour to seven days.
 _VELOCITY_HOURS = (1, 7 * 24)
-_HOURS_PER_DAY = 24
+# The declarations a STRUCTURING rule counts over its window (plan 4b B2).
+_STRUCTURING_AGGREGATES = frozenset({"near_count", "near_sum"})
 # "<unit>/<ConversionRule>", as "USD/PRIOR_BANKING_DAY".
 _UNIT_KEY = re.compile(r"([A-Z]{3})/([A-Z_]+)")
 
@@ -503,25 +506,31 @@ def _check_unit_key(text: str) -> None:
         raise ValueError(msg)
 
 
-def _param_window_hours(text: str) -> int:
-    # A7's window grammar (P[nM][nD][TnH], hours allowed) or a policy duration.
-    hours = window_hours(text)
-    if hours is not None:
-        return hours
-    return iso_duration_days(text) * _HOURS_PER_DAY
-
-
 def _window_problem(definition: RuleDefinition) -> str | None:
+    # A7's DURATION grammar and bounds (spec §8.2: PT1H..P6M, months not mixed
+    # with days or hours), since the window feeds the rule's declarations.
     param = definition.params.get("window")
     if param is None or not isinstance(param.value, str):
         return None
-    try:
-        hours = _param_window_hours(param.value)
-    except ValueError as exc:
-        return f"parameter 'window': {exc}"
+    window = param.value
+    hours = window_hours(window)
+    if hours is None or not 1 <= hours <= MAX_WINDOW_HOURS:
+        return f"parameter 'window' runs from PT1H to P6M, not {window!r}"
+    months, days, part_hours = window_parts(window) or (0, 0, 0)
+    if months and (days or part_hours):
+        return f"parameter 'window' counts months or days, not {window!r}"
     shortest, longest = _VELOCITY_HOURS
     if definition.kind is RuleKind.VELOCITY and not shortest <= hours <= longest:
-        return f"a VELOCITY window lies within PT1H..P7D, not {param.value}"
+        return f"a VELOCITY window lies within PT1H..P7D, not {window}"
+    if definition.kind is RuleKind.STRUCTURING:
+        for declaration in definition.aggregates:
+            if declaration.name in _STRUCTURING_AGGREGATES and (
+                declaration.window != window
+            ):
+                return (
+                    f"aggregate {declaration.name!r} counts over "
+                    f"{declaration.window}, not the window {window}"
+                )
     return None
 
 
