@@ -1,6 +1,7 @@
 import pytest
 
 from xolotl.modules.monitoring.errors import (
+    BackfillRangeInvalidError,
     BatchInvalidError,
     BatchTooLargeError,
     ExternalIdConflictError,
@@ -86,6 +87,7 @@ from xolotl.platform.units.errors import (
         (ExternalIdConflictError, 409, "EXTERNAL_ID_CONFLICT"),
         (FileTooLargeError, 413, "TRANSACTION_FILE_TOO_LARGE"),
         (FileInvalidError, 422, "TRANSACTION_FILE_INVALID"),
+        (BackfillRangeInvalidError, 422, "BACKFILL_RANGE_INVALID"),
         (RuleTemplateUnknownError, 404, "RULE_TEMPLATE_UNKNOWN"),
         (RuleTemplateImmutableError, 409, "RULE_TEMPLATE_IMMUTABLE"),
         (RuleParamOutOfBoundsError, 422, "RULE_PARAM_OUT_OF_BOUNDS"),

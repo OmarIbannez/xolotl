@@ -113,6 +113,11 @@ LISTS_POLL_SCHEDULE = "lists.poll"
 # The screening module's monthly full re-screen, on XOLOTL_SCREENING_PERIODIC_CRON in
 # Mexico City, named by its job kind (a literal, as above).
 SCREENING_PERIODIC_SCHEDULE = "screening.periodic_rescreen"
+# The monitoring module's per-minute sweep and daily partition maintenance, on
+# XOLOTL_MONITORING_SWEEP_CRON and XOLOTL_MONITORING_PARTITIONS_CRON in UTC, named by
+# their job kinds (literals, as above).
+MONITORING_SWEEP_SCHEDULE = "monitoring.sweep"
+MONITORING_PARTITIONS_SCHEDULE = "monitoring.partitions"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -241,7 +246,8 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
     in Mexico City, ``party.retention_sweep`` on ``XOLOTL_RETENTION_PURGE_CRON`` in
     UTC, ``lists.poll`` on ``XOLOTL_LISTS_POLL_CRON`` in UTC and the monthly
     ``screening.periodic_rescreen`` on ``XOLOTL_SCREENING_PERIODIC_CRON`` in Mexico
-    City.
+    City, ``monitoring.sweep`` on ``XOLOTL_MONITORING_SWEEP_CRON`` and
+    ``monitoring.partitions`` on ``XOLOTL_MONITORING_PARTITIONS_CRON``, both in UTC.
 
     Each schedule is named after the job it runs. ``schedule`` is an upsert on the
     tenant and the name that keeps the next slot of an unchanged schedule, so
@@ -279,6 +285,22 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
         cron=get_settings().screening_periodic_cron,
         tz=UNITS_FETCH_TZ,
         kind=SCREENING_PERIODIC_SCHEDULE,
+        payload={},
+    )
+    _ = queue.schedule(
+        s,
+        name=MONITORING_SWEEP_SCHEDULE,
+        cron=get_settings().monitoring_sweep_cron,
+        tz="UTC",
+        kind=MONITORING_SWEEP_SCHEDULE,
+        payload={},
+    )
+    _ = queue.schedule(
+        s,
+        name=MONITORING_PARTITIONS_SCHEDULE,
+        cron=get_settings().monitoring_partitions_cron,
+        tz="UTC",
+        kind=MONITORING_PARTITIONS_SCHEDULE,
         payload={},
     )
 

@@ -696,7 +696,9 @@ def test_a_drain_whose_heartbeat_is_refused_stops_after_the_page(
         settings=settings,
     )
     # Another run owns the job now; it takes the rest from here.
-    assert report == ProcessReport(processed=2, parked=0, stopped_at=None)
+    assert report == ProcessReport(
+        processed=2, parked=0, stopped_at=None, lease_lost=True
+    )
     assert [row.status for row in _rows(tenant)].count(TransactionStatus.RECEIVED) == 3
 
 

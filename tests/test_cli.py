@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn
 from uuid import UUID
@@ -23,7 +23,16 @@ import uvicorn
 import yaml
 from psycopg import sql
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, event, func, make_url, select, text
+from sqlalchemy import (
+    Engine,
+    create_engine,
+    event,
+    func,
+    make_url,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
@@ -48,10 +57,15 @@ from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
-from xolotl.modules.monitoring.enums import FileStatus
+from xolotl.modules.monitoring.enums import FileStatus, TransactionStatus
+from xolotl.modules.monitoring.process.job import process_party
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
 from xolotl.modules.monitoring.txn import files
-from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
+from xolotl.modules.monitoring.txn.models import (
+    Transaction,
+    TransactionFile,
+    TransactionParked,
+)
 from xolotl.modules.party import documents
 from xolotl.modules.party import service as party_service
 from xolotl.modules.party.enums import (
@@ -112,10 +126,12 @@ from xolotl.platform.crypto import (
     get_key_provider,
     set_key_provider,
 )
-from xolotl.platform.enums import KeyPurpose
+from xolotl.platform.enums import JobStatus, KeyPurpose
 from xolotl.platform.events.registry import reset_subscribers
 from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs import JobRunner, PostgresJobQueue
+from xolotl.platform.jobs.models import JobRow
+from xolotl.platform.partitions import partitioned_tables
 from xolotl.platform.storage.local import LocalFsObjectStore
 from xolotl.platform.units.banxico import BASE_URL as BANXICO_BASE_URL
 
@@ -2411,4 +2427,151 @@ def test_monitoring_ingest_file_that_loses_the_file_to_another_run_says_so(
     (row,) = _transaction_files(created.tenant_id)
     assert result.stdout == (
         f"file {row.id}: 4 rows, 0 accepted, 0 duplicates, 0 rejected, PROCESSING\n"
+    )
+
+
+# ---- monitoring sweep, backfill and partitions ------------------------------------
+
+
+def _ingest_at(
+    tenant: CreatedTenant,
+    monkeypatch: pytest.MonkeyPatch,
+    items: list[dict[str, object]],
+    *,
+    now: datetime,
+) -> list[UUID]:
+    with monkeypatch.context() as patched:
+        patched.setattr(clock, "now", lambda: now)
+        with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+            report = monitoring_support.ingest_items(
+                s, items, queue=PostgresJobQueue(db.get_sessionmaker())
+            )
+    return list(report.transaction_ids)
+
+
+def _monitoring_item(external_id: str, at: str, ref: str) -> dict[str, object]:
+    return monitoring_support.make_item(
+        external_id=external_id, occurred_at=at, customer_ref=ref
+    )
+
+
+def test_monitoring_sweep_reports_counts(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _ = monitoring_support.itf_tenant(tenant, admin_engine)
+    first = monitoring_support.add_customer(tenant, "cust-1")
+    _ = monitoring_support.add_customer(tenant, "cust-2")
+    third = monitoring_support.add_customer(tenant, "cust-3")
+    # 2026-01-22 lacks its UDI until it is loaded below; 2026-01-24 stays missing.
+    _ = _ingest_at(
+        tenant,
+        monkeypatch,
+        [
+            _monitoring_item("tx-1", "2026-01-22T18:00:00Z", "cust-1"),
+            _monitoring_item("tx-2", "2026-01-20T12:00:00Z", "cust-2"),
+            _monitoring_item("tx-3", "2026-01-24T12:00:00Z", "cust-3"),
+        ],
+        now=datetime(2026, 1, 25, 12, tzinfo=UTC),
+    )
+    factory = db.get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    for customer in (first, third):
+        report = process_party(
+            factory,
+            tenant.tenant_id,
+            customer.party_id,
+            queue=queue,
+            job=None,
+            settings=get_settings(),
+            actor="cli:test",
+        )
+        assert report.parked == 1
+    monitoring_support.load_missing_values(admin_engine)
+    # The ingest's jobs ran and lost the race: nothing is pending any more. The
+    # rows were parked a day ago, past the six hours that call for the notice.
+    with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
+        _ = s.execute(update(JobRow).values(status=JobStatus.DONE))
+        _ = s.execute(
+            update(TransactionParked).values(parked_at=clock.now() - timedelta(days=1))
+        )
+
+    result = runner.invoke(app, ["monitoring", "sweep", "--tenant", tenant.slug])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == (
+        "sweep: 2 enqueued, 1 unparked, 0 policy retries, notified\n"
+    )
+
+
+def test_monitoring_backfill_processes_the_range(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _ = monitoring_support.itf_tenant(tenant, admin_engine)
+    _ = monitoring_support.add_customer(tenant, "cust-1")
+    _ = monitoring_support.add_customer(tenant, "cust-2")
+    # Received ten days late: held for a backfill.
+    _ = _ingest_at(
+        tenant,
+        monkeypatch,
+        [
+            _monitoring_item("tx-1", "2026-01-20T12:00:00Z", "cust-1"),
+            _monitoring_item("tx-2", "2026-01-20T13:00:00Z", "cust-1"),
+            _monitoring_item("tx-3", "2026-01-20T14:00:00Z", "cust-2"),
+        ],
+        now=datetime(2026, 1, 30, 12, tzinfo=UTC),
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "backfill",
+            "--tenant",
+            tenant.slug,
+            "--from",
+            "2026-01-20",
+            "--to",
+            "2026-01-20",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.fullmatch(
+        r"backfill [0-9a-f-]{36}: 3 rows processed for 2 parties\n", result.stdout
+    )
+    with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
+        statuses = set(s.scalars(select(Transaction.status)))
+    assert statuses == {TransactionStatus.PROCESSED}
+
+    refused = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "backfill",
+            "--tenant",
+            tenant.slug,
+            "--from",
+            "2026-01-21",
+            "--to",
+            "2026-01-20",
+        ],
+    )
+    assert refused.exit_code == 1
+    assert refused.stderr == (
+        "error: BACKFILL_RANGE_INVALID: the range starts after it ends\n"
+    )
+
+
+def test_monitoring_partitions_ensure_lists_tables(engine: Engine):
+    result = runner.invoke(app, ["monitoring", "partitions", "ensure"])
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert [line.split(":")[0] for line in lines] == [
+        spec.table for spec in partitioned_tables()
+    ]
+    assert {"audit_event", "transaction"} <= {line.split(":")[0] for line in lines}
+    assert all(
+        re.fullmatch(r"[a-z_]+: created [a-z0-9_, ]+; skipped [A-Za-z0-9_, ()]+", line)
+        for line in lines
     )

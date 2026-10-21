@@ -534,6 +534,8 @@ The isolation harness discovers the eleven tenant tables and fails until the fac
 
 ### Task B5: Templates in the database, tenant rules and versions with bounds, `rules load`, `rules show`, `rules seed-tenant`
 
+Note from A9: `agg_declaration` is append-only. Never delete from it, not even to replace a declaration, or when a rule, rule set or assignment is retired: a drain row compares the declarations' cheap version (`declarations_version`: count and max `created_at`, `monitoring/aggregates/backfill.py`) with the one its page read, and a delete followed by an insert can leave both unchanged, so the drain would never add rows to the new declaration. An unused declaration simply stays.
+
 Depends on **B3** (the library) and **B4** (the tables). It appends to A4's `monitoring/errors.py` without an edge to A4: the wave order (A4 merges three waves earlier) and finding 17's first-to-merge rule cover it. No console. Touches `src/xolotl/cli.py` (`rules_app`, `db upgrade`, `serve`) and `src/xolotl/platform/config.py`.
 
 **Note from B3 (declarations derived from the params).** Tunable parameters do not move a template's declared aggregates by themselves: `CASH_STRUCTURING`'s band `[3500, 5000)` USD is written out while `near_ratio` and `threshold` are tunable, and a `VELOCITY` `window` param does not change the window of its `COUNT`/`SUM` declarations. `build_definition` rewrites the derived parts of the declarations from the tuned params: for `STRUCTURING`, `near_count`/`near_sum` get `where.amount_gte = near_ratio × threshold`, `where.amount_lt = threshold` and `window = params.window` (and the evidence's `transactions_where`/`transactions_window` follow); for `VELOCITY`, every `COUNT` and `SUM` declaration gets `window = params.window`. New `agg_id`s follow from the changed declarations and B6's `ensure_declarations` backfills them. B1 or B5 adds a validator refusing a version whose band or windows disagree with its params. `DORMANT_REACTIVATION`'s `dormant_days` carries `max: 180`, since `last_seen` looks back `P6M`. B3's `test_the_shipped_declarations_follow_their_params` pins the coupling in the shipped defaults (reconciliation finding 27).
@@ -626,6 +628,8 @@ def test_rules_load_show_and_seed_tenant(...)   # load -> "16 created"; load aga
 ---
 
 ### Task B6: Lifecycle, assignments and the active rule set
+
+Note from A9: `agg_declaration` is append-only. Never delete from it, not even to replace a declaration, or when a rule, rule set or assignment is retired: a drain row compares the declarations' cheap version (`declarations_version`: count and max `created_at`, `monitoring/aggregates/backfill.py`) with the one its page read, and a delete followed by an insert can leave both unchanged, so the drain would never add rows to the new declaration. An unused declaration simply stays.
 
 Depends on **B5**. No console. Touches `src/xolotl/platform/config.py`. Mirrors SP-03's disposition matrix (`screening/review/actions.py`).
 

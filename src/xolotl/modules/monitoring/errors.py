@@ -90,6 +90,13 @@ class FileInvalidError(ValidationFailedError):
     default_detail: ClassVar[str] = "the file cannot be read as transactions"
 
 
+class BackfillRangeInvalidError(ValidationFailedError):
+    """A backfill range starts after it ends, or ends after today."""
+
+    default_code: ClassVar[str] = "BACKFILL_RANGE_INVALID"
+    default_detail: ClassVar[str] = "the backfill range is not valid"
+
+
 class RuleTemplateUnknownError(NotFoundError):
     """No rule template of the library has this code (or this version)."""
 
