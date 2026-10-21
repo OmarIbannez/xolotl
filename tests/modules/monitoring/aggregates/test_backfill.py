@@ -1,5 +1,6 @@
 """The ``monitoring.agg_backfill`` job: a declaration's history rebuilt (A9)."""
 
+import logging
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -618,3 +619,47 @@ def test_a_second_run_waits_for_the_first_and_finds_the_declaration_complete(
         assert second.result(timeout=30) == 0
     assert _counted(tenant, agg_id) == 0
     assert _through(tenant, agg_id) == CUTOFF - timedelta(hours=1)
+
+
+def test_a_backfill_deferred_six_times_warns_once_a_day(
+    tenant: CreatedTenant,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    agg_id = _declare(tenant, queue)
+    # The declaration's first job was created the day before.
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        _ = s.execute(
+            update(JobRow)
+            .where(JobRow.kind == AGG_BACKFILL_KIND)
+            .values(created_at=CUTOFF - timedelta(days=1))
+        )
+
+    def never_completes(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(AggBackfillJob, "backfill", never_completes)
+
+    def warnings() -> list[tuple[object, object]]:
+        return [
+            (getattr(r, "agg_id", None), getattr(r, "deferrals", None))
+            for r in caplog.records
+            if "keeps deferring" in r.message
+        ]
+
+    with caplog.at_level(logging.WARNING):
+        _run(tenant, _job(), _session_job(tenant, agg_id, deferrals=4))
+        assert warnings() == []
+        with tenant_session(system_ctx(tenant.tenant_id)) as s:
+            _ = s.execute(
+                update(JobRow)
+                .where(JobRow.kind == AGG_BACKFILL_KIND)
+                .values(created_at=CUTOFF - timedelta(days=1))
+            )
+        # The sixth deferral is the first of the day: it warns, ids only.
+        _run(tenant, _job(), _session_job(tenant, agg_id, deferrals=5))
+        assert warnings() == [(agg_id, 6)]
+        # Its follow-up was created today, so the seventh does not.
+        _run(tenant, _job(), _session_job(tenant, agg_id, deferrals=6))
+        assert warnings() == [(agg_id, 6)]

@@ -44,9 +44,10 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from psycopg.errors import LockNotAvailable
 from sqlalchemy import (
@@ -78,8 +79,10 @@ from xolotl.modules.monitoring.kinds import AGG_BACKFILL_KIND
 from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
 from xolotl.platform import clock
+from xolotl.platform.calendar import MEXICO_CITY
 from xolotl.platform.config import Settings
 from xolotl.platform.db import SessionFactory, tenant_session
+from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import ClockFn, Job, PostgresJobQueue, retry_delay
 from xolotl.platform.tenancy.context import TenantContext
 
@@ -93,6 +96,8 @@ logger = logging.getLogger(__name__)
 HISTORY_MONTHS = 6
 # A round that keeps meeting splits defers the job instead of walking again.
 MAX_ROUNDS = 3
+# From this many deferrals in a row, a deferred run warns once a day.
+DEFERRALS_WARN = 6
 # How long a start waits for the tenant's running row transactions.
 START_LOCK_TIMEOUT = "5s"
 _TURN = text("SELECT pg_advisory_lock(hashtextextended(:key, 0))")
@@ -124,6 +129,10 @@ def share_aggregate_epoch(session: Session, tenant_id: UUID) -> None:
 
 def declarations_version(session: Session) -> DeclarationsVersion:
     """Read the cheap version of the tenant's declarations.
+
+    It holds only while ``agg_declaration`` is append-only: a delete followed by
+    an insert could leave the count and the latest ``created_at`` as they were, and
+    a drain would miss the new declaration. Nothing may delete from the table.
 
     Returns:
         How many declarations exist, and the latest ``created_at``.
@@ -184,6 +193,32 @@ def _add_page(
     except AccumulatorSplitError:
         return False
     return True
+
+
+def _ran_today(session: Session, agg_id: str, *, now: datetime) -> bool:
+    """Tell whether a backfill job of ``agg_id`` was created today in Mexico City.
+
+    The running job counts: its chain's first job created today has warned.
+
+    Returns:
+        True when one was.
+
+    """
+    zone = ZoneInfo(MEXICO_CITY)
+    midnight = datetime.combine(now.astimezone(zone).date(), time(0), tzinfo=zone)
+    payload_agg_id = type_coerce(
+        func.jsonb_extract_path_text(JobRow.payload, "agg_id"), Text()
+    )
+    found = session.scalar(
+        select(JobRow.id)
+        .where(
+            JobRow.kind == AGG_BACKFILL_KIND,
+            payload_agg_id == agg_id,
+            JobRow.created_at >= midnight,
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 class AggBackfillJob:
@@ -385,7 +420,11 @@ class AggBackfillJob:
     def run(self, session: Session, job: Job) -> None:
         """Rebuild the job's declaration; each round and page commits on its own.
 
-        A deferred run enqueues its follow-up in the job's session.
+        A deferred run enqueues its follow-up in the job's session. A declaration
+        that never completes keeps deferring (hourly, once ``retry_delay`` reaches
+        its cap) and its reads stay incomplete; from ``DEFERRALS_WARN`` deferrals,
+        the first deferred run of each Mexico City day logs a warning with the
+        ``agg_id`` and the count only.
         """
         agg_id = str(job.payload["agg_id"])
         walked = self.backfill(job.tenant_id, agg_id, actor=f"job:{job.id}")
@@ -395,10 +434,16 @@ class AggBackfillJob:
             )
             return
         deferrals = int(str(job.payload.get("deferrals", 0))) + 1
+        now = self._clock()
+        if deferrals >= DEFERRALS_WARN and not _ran_today(session, agg_id, now=now):
+            logger.warning(
+                "aggregate backfill keeps deferring",
+                extra={"agg_id": agg_id, "deferrals": deferrals},
+            )
         _ = self._queue.enqueue(
             session,
             kind=AGG_BACKFILL_KIND,
             payload={"agg_id": agg_id, "deferrals": deferrals},
             key=f"agg_backfill:{agg_id}:after:{job.id}",
-            run_after=self._clock() + retry_delay(deferrals),
+            run_after=now + retry_delay(deferrals),
         )

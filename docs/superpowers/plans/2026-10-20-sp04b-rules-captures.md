@@ -531,6 +531,8 @@ The isolation harness discovers the eleven tenant tables and fails until the fac
 
 ### Task B5: Templates in the database, tenant rules and versions with bounds, `rules load`, `rules show`, `rules seed-tenant`
 
+Note from A9: `agg_declaration` is append-only. Never delete from it, not even to replace a declaration, or when a rule, rule set or assignment is retired: a drain row compares the declarations' cheap version (`declarations_version`: count and max `created_at`, `monitoring/aggregates/backfill.py`) with the one its page read, and a delete followed by an insert can leave both unchanged, so the drain would never add rows to the new declaration. An unused declaration simply stays.
+
 Depends on **B3** (the library) and **B4** (the tables). It appends to A4's `monitoring/errors.py` without an edge to A4: the wave order (A4 merges three waves earlier) and finding 17's first-to-merge rule cover it. No console. Touches `src/xolotl/cli.py` (`rules_app`, `db upgrade`, `serve`) and `src/xolotl/platform/config.py`.
 
 **Files:**
@@ -621,6 +623,8 @@ def test_rules_load_show_and_seed_tenant(...)   # load -> "16 created"; load aga
 ---
 
 ### Task B6: Lifecycle, assignments and the active rule set
+
+Note from A9: `agg_declaration` is append-only. Never delete from it, not even to replace a declaration, or when a rule, rule set or assignment is retired: a drain row compares the declarations' cheap version (`declarations_version`: count and max `created_at`, `monitoring/aggregates/backfill.py`) with the one its page read, and a delete followed by an insert can leave both unchanged, so the drain would never add rows to the new declaration. An unused declaration simply stays.
 
 Depends on **B5**. No console. Touches `src/xolotl/platform/config.py`. Mirrors SP-03's disposition matrix (`screening/review/actions.py`).
 
