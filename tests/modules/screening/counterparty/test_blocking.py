@@ -36,6 +36,7 @@ from xolotl.modules.screening.lists import (
     ListEntry,
     NameQuality,
 )
+from xolotl.modules.screening.lists.ofac_xml import wallet_identifier
 from xolotl.modules.screening.matching import (
     BlockingPlan,
     IdfTable,
@@ -164,6 +165,20 @@ def test_a_wallet_on_the_entry_finds_the_counterparty_without_a_name(
                 identifiers=(_wallet(VALERIAN_XBT),),
             ),
         )
+    assert found.counterparty_ids == {wallet_only}
+
+
+def test_a_wallet_sent_with_whitespace_is_found_by_the_listed_address(
+    engine: Engine, tenant: CreatedTenant
+):
+    spaced = f" {VALERIAN_XBT[:10]} {VALERIAN_XBT[10:]}\t"
+    with job_session(tenant) as s:
+        wallet_only = _add(s, kind=CounterpartyKind.UNKNOWN, wallet=spaced)
+        _ = _add(s, kind=CounterpartyKind.UNKNOWN, wallet=f" {VALERIAN_XBT.upper()} ")
+        _ = _add(s, kind=CounterpartyKind.UNKNOWN, wallet=f" {VALERIAN_XBT[:-1]}e ")
+        # The list side's own identifier, as the OFAC parser builds it.
+        listed = wallet_identifier("XBT", VALERIAN_XBT)
+        found = _blocked(s, _entry("Valerian Labs", identifiers=(listed,)))
     assert found.counterparty_ids == {wallet_only}
 
 

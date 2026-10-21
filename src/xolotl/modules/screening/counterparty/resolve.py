@@ -8,8 +8,9 @@ Constraints "Keys and hashes"):
   ``name``;
 - the account, stripped of surrounding whitespace and indexed as ``account``
   (plan 4a Deviation 17: ``normalize_identifier`` knows no account type yet);
-- the wallet address as sent, case kept, so it is an HMAC of its own rather than a
-  ``blind_index``, which would fold it;
+- the wallet address with whitespace removed and case kept (``CounterpartyInput``
+  normalises it as the OFAC parser normalises a listed address), so it is an HMAC
+  of its own rather than a ``blind_index``, which would fold it;
 - the identifier, indexed under its type with the party module's rules.
 
 An absent component, or one with nothing left to index, contributes ``b""``.
@@ -121,7 +122,10 @@ def account_hash_of(session: Session, account: str) -> bytes:
 
 
 def wallet_hash_of(session: Session, address: str) -> bytes:
-    """HMAC a wallet address with its case kept, under the tenant's INDEX key.
+    """HMAC a normalised wallet address, case kept, under the tenant's INDEX key.
+
+    The address is expected in the form ``normalize_wallet`` gives, as
+    ``CounterpartyInput`` and a list entry's ``normalized`` already carry it.
 
     Returns:
         The 32-byte tag.

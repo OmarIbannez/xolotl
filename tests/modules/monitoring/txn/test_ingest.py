@@ -522,6 +522,37 @@ def test_counterparties_resolve_once_per_batch_and_an_unindexable_one_is_none(
     assert counts == [2, 2]
 
 
+def test_wallets_that_differ_only_by_whitespace_resolve_to_one_counterparty(
+    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+):
+    crypto = {"network": "bitcoin", "asset_code": "BTC", "asset_qty": "1"}
+    items = [
+        make_item(
+            external_id="tx-1",
+            counterparty={"wallet_address": "bc1qAbcDef9"},
+        ),
+        make_item(
+            external_id="tx-2",
+            counterparty={"wallet_address": " bc1q Abc\tDef9 "},
+        ),
+        make_item(
+            external_id="tx-3",
+            instrument="CRYPTO",
+            crypto={**crypto, "address": "bc1qAbc Def9"},
+        ),
+    ]
+    _ = _ingest(tenant, items, queue)
+    rows = {row.external_id: row for row in _rows(tenant)}
+    assert rows["tx-1"].counterparty_id is not None
+    assert rows["tx-1"].counterparty_id == rows["tx-2"].counterparty_id
+    assert rows["tx-1"].counterparty_id == rows["tx-3"].counterparty_id
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        counterparty = s.scalars(select(Counterparty)).one()
+        assert counterparty.wallet is not None
+        assert counterparty.wallet.reveal(session=s) == "bc1qAbcDef9"
+        assert counterparty.txn_count == 3
+
+
 def test_two_items_with_one_counterparty_count_two_transactions(
     tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
 ):

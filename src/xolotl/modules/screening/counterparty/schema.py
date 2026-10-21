@@ -7,12 +7,36 @@ the monitoring core can import it (spec §2, contract ``monitoring-core-is-pure`
 from enum import StrEnum
 from typing import ClassVar, Self
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from xolotl.modules.party.enums import IdentifierType
 from xolotl.modules.party.schemas import CountryCode
 
 _PII: dict[str, JsonValue] = {"pii": True}
+
+
+def normalize_wallet(address: str | None) -> str | None:
+    """Normalise a wallet address as the OFAC parser normalises a listed one.
+
+    The screening library's ``wallet_identifier`` removes every whitespace character
+    and keeps the case (base58 and bech32 checksums are case-sensitive), so a wallet
+    is compared, hashed and screened in that form. An address with nothing left is
+    absent.
+
+    Returns:
+        The address without whitespace, or None when nothing is left.
+
+    """
+    if address is None:
+        return None
+    return "".join(address.split()) or None
 
 
 class CounterpartyKind(StrEnum):
@@ -53,6 +77,11 @@ class CounterpartyInput(BaseModel):
     )
     wallet_network: str | None = Field(default=None, max_length=32)
     identifier: CounterpartyIdentifier | None = None
+
+    @field_validator("wallet_address")
+    @classmethod
+    def _normalized_wallet(cls, value: str | None) -> str | None:
+        return normalize_wallet(value)
 
     @model_validator(mode="after")
     def _names_someone(self) -> Self:
