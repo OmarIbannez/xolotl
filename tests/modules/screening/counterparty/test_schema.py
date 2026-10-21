@@ -57,3 +57,17 @@ def test_identifier_shape_matches_the_ad_hoc_identifier(
 
     assert valid(CounterpartyIdentifier) == valid(AdHocIdentifier)
     assert set(CounterpartyIdentifier.model_fields) == set(AdHocIdentifier.model_fields)
+
+
+def test_a_wallet_address_loses_its_whitespace_and_keeps_its_case() -> None:
+    # The OFAC parser's rule for a listed address (``wallet_identifier``).
+    counterparty = CounterpartyInput(wallet_address=" 0xAb C1\t23\n")
+    assert counterparty.wallet_address == "0xAbC123"
+
+
+def test_a_wallet_address_of_whitespace_only_is_absent() -> None:
+    counterparty = CounterpartyInput(name="Ana", wallet_address=" \t ")
+    assert counterparty.wallet_address is None
+
+    with pytest.raises(ValidationError, match="COUNTERPARTY_EMPTY"):
+        _ = CounterpartyInput(wallet_address="   ")

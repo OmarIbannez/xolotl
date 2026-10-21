@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from tests.helpers import staff_session
 from tests.modules.screening.catalog.support import load_shared, seed_sources
-from tests.modules.screening.counterparty.conftest import job_session
+from tests.modules.screening.counterparty.conftest import VALERIAN_XBT, job_session
 from tests.modules.screening.review.support import assign_itf
 from tests.platform.jobs_support import enqueue
 from tests.platform.webhooks_support import Stack, deliveries, make_endpoint
@@ -63,6 +63,7 @@ from xolotl.modules.screening.lists import (
     ListEntry,
     NameQuality,
 )
+from xolotl.modules.screening.lists.ofac_xml import wallet_identifier
 from xolotl.modules.screening.rescreen import register_rescreen, walkers
 from xolotl.modules.screening.rescreen.list_delta import LIST_DELTA_KIND
 from xolotl.modules.screening.rescreen.walkers import PERIODIC_RESCREEN_KIND
@@ -396,6 +397,36 @@ def test_a_delta_rescreens_only_the_counterparties_near_its_added_and_changed_en
     assert party_a in _party_runs(wired.tenant, RunMode.LIST_DELTA)
     assert batch.runs > len(delta_runs)
     assert batch.new_matches == 2 + 1  # the counterparties' A and C, party A
+
+
+def test_a_delta_finds_a_wallet_sent_with_whitespace_by_the_listed_address(
+    wired: Wired,
+):
+    _lists_ready(wired)
+    with job_session(wired.tenant) as s:
+        spaced, upper, changed = (
+            resolve(s, CounterpartyInput(wallet_address=address)).id
+            for address in (
+                f" {VALERIAN_XBT[:12]} {VALERIAN_XBT[12:30]}\t{VALERIAN_XBT[30:]} ",
+                f" {VALERIAN_XBT.upper()} ",
+                f" {VALERIAN_XBT[:-1]}e ",
+            )
+        )
+    listed = dataclasses.replace(
+        _entry("W", "Valerian Labs"),
+        entity_type=EntityType.ORGANIZATION,
+        identifiers=(wallet_identifier("XBT", VALERIAN_XBT),),
+    )
+    _ = _hand_over(wired, [*V1, listed])
+
+    assert _drain(wired) == 1
+
+    findings = _findings(wired.tenant)
+    assert {(cp, m.source_entry_key) for cp, m in findings} == {(spaced, "W")}
+    runs = _runs(wired.tenant, RunMode.LIST_DELTA)
+    assert set(runs) == {spaced}
+    assert upper not in runs
+    assert changed not in runs
 
 
 def test_a_delta_with_no_counterparties_behaves_as_before(wired: Wired):
