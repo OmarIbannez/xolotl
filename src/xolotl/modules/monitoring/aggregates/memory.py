@@ -100,13 +100,15 @@ def _accumulator(series: _Series, at: datetime) -> BucketRow | None:
 def _later_accumulator(
     series: _Series, start: datetime, end: datetime
 ) -> BucketRow | None:
-    return next(
+    # The earliest, as the Postgres store orders it.
+    return min(
         (
             row
             for row in series.values()
             if row.bucket_kind is BucketKind.ACCUM and start < row.bucket_start < end
         ),
-        None,
+        key=lambda row: row.bucket_start,
+        default=None,
     )
 
 

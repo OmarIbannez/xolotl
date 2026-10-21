@@ -234,7 +234,6 @@ def _window_problem(window_kind: WindowKind, window: str) -> str | None:
             months, days, part_hours = parts or (0, 0, 0)
             if months and (days or part_hours):
                 return f"a DURATION window counts months or days, not {window!r}"
-
         case WindowKind.ACCUM:
             if window != ACCUM_WINDOW:
                 return f"an ACCUM window is {ACCUM_WINDOW}, not {window!r}"

@@ -831,6 +831,8 @@ Depends on: A8. Console: no. Branch `sp04a-a9-sweep-backfill-partitions`.
 
 Note from A7: the transaction backfill reprocesses rows more than `monitoring_late_days` late, the only rows that can make a late accumulator split; give its `PostgresAggregateStore` the `queue` (A8's note) so the split marks the declaration incomplete and enqueues its `agg_backfill` instead of raising `AccumulatorSplitError`.
 
+Note from A7 (review): the `agg_backfill` job deletes the declaration's `agg_bucket` **and `agg_distinct`** rows before it walks (test both). If an `agg_backfill` job for the same `agg_id` is already PENDING or RUNNING, the queue's unique key drops the store's rebuild enqueue, and the running job could set `backfilled_through` over buckets a late row has split meanwhile: before setting `backfilled_through`, the job re-checks that it is still NULL-or-its-own run (or re-enqueues itself when a split happened during the walk).
+
 **Files:**
 - Create: `src/xolotl/modules/monitoring/process/sweep.py`, `src/xolotl/modules/monitoring/process/backfill.py`, `src/xolotl/modules/monitoring/process/partitions.py`, `src/xolotl/modules/monitoring/aggregates/backfill.py`
 - Modify: `src/xolotl/modules/monitoring/errors.py`, `src/xolotl/modules/monitoring/composition.py`, `src/xolotl/modules/tenants/service.py` (`schedule_platform_jobs`), `src/xolotl/cli.py`, `README.md` (a "Monitoring" section: ingest-file for dev and demo, process, sweep, backfill, partitions)
