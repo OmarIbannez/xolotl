@@ -1,7 +1,9 @@
 """Replay a run: re-score its stored hits exactly (SP-03 spec §8.4, NFR-SC-007).
 
 A replay rebuilds the subject's query and compares its fingerprint with the run's: a
-subject whose data changed since is reported and not re-scored. Otherwise each stored
+subject whose data changed since is reported and not re-scored. A counterparty's
+query is rebuilt under each of its entity types, and the one with the run's
+fingerprint is replayed. Otherwise each stored
 hit is scored again against its immutable entry row, with the scoring IDF rebuilt
 from the exact shared versions of the run's list set (Deviation 2) and the scoring
 configuration rebuilt from the run's policy snapshot, and banded with the thresholds
@@ -21,6 +23,8 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListEntryRow,
 )
 from xolotl.modules.screening.catalog.queries import entry_of
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.queries import entity_types_for
 from xolotl.modules.screening.engine.entries import (
     indexed_private_entry,
     shared_version_entries,
@@ -167,6 +171,24 @@ def _row(
     )
 
 
+def _run_query(
+    s: Session, subject: ScreeningSubject, run: ScreeningRun
+) -> NameQuery | None:
+    # A counterparty is screened once per entity type (SP-04 plan 4c Deviation 2), so
+    # its run's query is whichever of them still has the run's fingerprint.
+    if subject.counterparty_id is None:
+        candidates = [subject_query(s, subject)]
+    else:
+        row = s.get_one(Counterparty, (subject.tenant_id, subject.counterparty_id))
+        candidates = [
+            subject_query(s, subject, entity_type=entity_type)
+            for entity_type in entity_types_for(row)
+        ]
+    return next(
+        (q for q in candidates if q.fingerprint() == run.query_fingerprint), None
+    )
+
+
 def replay_run(s: Session, run_id: UUID) -> ReplayReport:
     """Re-score a run's stored hits and compare them with what was stored.
 
@@ -184,8 +206,8 @@ def replay_run(s: Session, run_id: UUID) -> ReplayReport:
     if run.matcher_version != MATCHER_VERSION:
         raise MatcherVersionMismatchError
     subject = s.get_one(ScreeningSubject, (run.tenant_id, run.subject_id))
-    query = subject_query(s, subject)
-    if query.fingerprint() != run.query_fingerprint:
+    query = _run_query(s, subject, run)
+    if query is None:
         return ReplayReport(
             run_id=run.id,
             matcher_version=run.matcher_version,
