@@ -38,7 +38,7 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 | 22 | Smaller exact-name fixes | `today_mx` → `policy_date(clock.now())`, `period_key_bounds` is B11's, the agreement path, `CounterpartyReveal` gone, `profiles/declared.py` gone, the two reveal conventions, account normalization |
 | 23 | The exit test activated rules after its fixtures' dates and simulated 196 days | C11 sections 1 and 2 run under a 2026-06-30 clock and simulate 1 to 29 June; B7's fixtures activate the same way |
 | 24 | `TIER_LIMIT`'s `month_in` was policy-derived in B2 but declared nowhere | B3's tier files declare it statically in `UDI/LAST_DAY_PREV_MONTH`; B2 reads it by name and stays silent when the snapshot disagrees |
-| 25 | A `ParkTransaction` on the decide path would be a 500 | C5 lists A6's `ParkTransaction` among the fail-mode triggers and tests it |
+| 25 | A `ParkTransactionError` on the decide path would be a 500 | C5 lists A6's `ParkTransactionError` among the fail-mode triggers and tests it |
 | 26 | C5's tier-limit boundary contradicted B2 and the spec | At the limit allows; one unit over blocks |
 
 ### 1. One migration chain, in order
@@ -95,6 +95,7 @@ The three SP-04 plans (`2026-10-20-sp04a-transactions-aggregates.md`, tasks A1 t
 - **Finding.** 4c's C5 wrote `store.seed(key, declaration, PostgresAggregateStore(s).read(...))` and "assumed 4a method, else C5 adds it". 4a's A7 has `MemoryAggregateStore.seed(key, declaration, buckets: Iterable[BucketRow])` and `PostgresAggregateStore.buckets(key, declaration, *, start, end) -> list[BucketRow]` (the `ix_agg_bucket_window` range read), marked "*(assumed use)*".
 - **Decision.** C5 seeds with bucket rows: for each declaration the sync rules read, `AggregateKey(d.key_kind, enriched.key_for(d.key_kind))`, the window bounds ending now (`window_bounds`, `period_bucket_start` or the open accumulator), `seed(key, d, PostgresAggregateStore(s).buckets(...))`, then `add()` the candidate. A declaration whose `agg_declaration.backfilled_through` is NULL, or that has no row yet (`load_declarations`), is read as `INCOMPLETE`, as processing does (spec §8.4).
 - **Round 1.** The mechanism was unnamed (the memory store's `complete` was always true). A7's `MemoryAggregateStore` gains `incomplete_ids: Collection[str] = ()`, the mirror of `PostgresAggregateStore(complete_ids=...)`: a read of a declaration whose `agg_id` is in it has `complete = False`, and B7's `reader_for` turns that into `INCOMPLETE`. C5 builds the set from `load_declarations(s)`.
+- **Round 2.** A7 adds `backfilled_ids(session) -> frozenset[str]` (`aggregates/postgres.py`): C5 passes `incomplete_ids = {d.agg_id() for d in declarations} - backfilled_ids(s)` and A8 `complete_ids=backfilled_ids(s)` once per drain.
 - **Edited.** 4a: Interfaces (Aggregates), A7 `seed` comment. 4b: "Interfaces for plan 4c" (evaluator bullet). 4c: C5 step 4.
 
 ### 10. The 4a pieces the decide path needs
@@ -261,11 +262,12 @@ The longest chain is twelve tasks: A1 → A2 → A7 → B1 → B3 → B5 → B6 
 - **Decision.** `TIER_N1_MONTHLY_OPS.yaml` and `TIER_N2_MONTHLY_OPS.yaml` declare `month_in` (SUM, UNIT_AMOUNT, `unit_key: UDI/LAST_DAY_PREV_MONTH`, RELATIONSHIP, MONTH, direction IN), the ITF pack's `kyc.tiers[].limits.monthly_ops.unit` under `units.tier_limit_rule`. B2 reads it by name like every other aggregate and does not fire when the snapshot's `limit.unit` or `tier_limit_rule` differ from the declared key (a pack change needs a template version). B3's test pins the declaration; B2's test adds the mismatch case.
 - **Edited.** 4b: B2 `TIER_LIMIT` semantics and test, B3 file description and test.
 
-### 25. `ParkTransaction` is a fail-mode trigger on the decide path
+### 25. `ParkTransactionError` is a fail-mode trigger on the decide path
 
-- **Finding.** 4c Deviation 8 and C5 step 3 switched to the fail mode on `UnitValueMissingError`, but A6's `unit_amounts_for` and `enrich_input` convert it into `ParkTransaction(UNIT_VALUE_MISSING, …)` (and a missing policy into `POLICY_NOT_ASSIGNED`); unhandled, it would have been a 500 where the spec promises never a 503.
-- **Decision.** C5 lists A6's `ParkTransaction` (`monitoring.enrich.service`) among the fail-mode triggers beside the directly raised errors, and `test_a_missing_unit_value_is_a_budget_failure_not_a_stale_value` asserts the rail's fail mode answers 200.
+- **Finding.** 4c Deviation 8 and C5 step 3 switched to the fail mode on `UnitValueMissingError`, but A6's `unit_amounts_for` and `enrich_input` convert it into `ParkTransactionError(UNIT_VALUE_MISSING, …)` (and a missing policy into `POLICY_NOT_ASSIGNED`); unhandled, it would have been a 500 where the spec promises never a 503.
+- **Decision.** C5 lists A6's `ParkTransactionError` (`monitoring.enrich.service`) among the fail-mode triggers beside the directly raised errors, and `test_a_missing_unit_value_is_a_budget_failure_not_a_stale_value` asserts the rail's fail mode answers 200.
 - **Edited.** 4c: Deviation 8, C5 step 3 and test.
+- **Note (A6 review, fix round 1).** The class was renamed from `ParkTransaction` to `ParkTransactionError`, because ruff's exception-name rule requires the `Error` suffix and the gates allow no suppression; the three plans and this record use the new name, so A8, B7, B10 and C5 consume it as `ParkTransactionError`.
 
 ### 26. The tier-limit boundary
 

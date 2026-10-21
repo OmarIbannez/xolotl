@@ -18,7 +18,6 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     PrimaryKeyConstraint,
-    String,
     Text,
     Uuid,
     text,
@@ -27,6 +26,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.schema import SchemaItem
 
+from xolotl.modules.monitoring.aggregates.declarations import WindowKind
 from xolotl.modules.monitoring.enums import BucketKind
 from xolotl.modules.monitoring.txn.schema import KeyKind
 from xolotl.platform.db import Base
@@ -100,8 +100,7 @@ class AggDeclaration(Base):
     # The AggregateDeclaration's canonical JSON.
     declaration: Mapped[dict[str, object]] = mapped_column(JSONB)
     bucket_kind: Mapped[BucketKind] = mapped_column(enum_column(BucketKind))
-    # DURATION, MONTH, QUARTER or ACCUM: plan 4a's A7 defines the WindowKind enum.
-    window_kind: Mapped[str] = mapped_column(String(32))
+    window_kind: Mapped[WindowKind] = mapped_column(enum_column(WindowKind))
     # An ISO-8601 duration ('P6M' for ACCUM) or the period name.
     window: Mapped[str] = mapped_column(Text)
     # NULL until monitoring.agg_backfill has walked the window's history.
