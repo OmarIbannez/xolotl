@@ -20,6 +20,7 @@ import psycopg
 import pytest
 import respx
 import uvicorn
+import yaml
 from psycopg import sql
 from pydantic import SecretStr
 from sqlalchemy import Engine, create_engine, event, func, make_url, select, text
@@ -1308,6 +1309,52 @@ def test_rules_validate_lists_the_library_without_a_database(tmp_path: Path):
     )
 
 
+def test_rules_load_show_and_seed_tenant(admin_engine: Engine, tenant: CreatedTenant):
+    first = runner.invoke(app, ["rules", "load"])
+    assert (first.exit_code, first.stderr) == (0, ""), first.stderr
+    lines = first.stdout.splitlines()
+    assert lines[-1] == "16 created, 0 unchanged"
+    assert "created CASH_STRUCTURING v1" in lines
+    assert len(lines) == 17
+    again = runner.invoke(app, ["rules", "load", str(TYPOLOGIES_DIR)])
+    assert (again.exit_code, again.stdout) == (0, "0 created, 16 unchanged\n")
+
+    show = runner.invoke(app, ["rules", "show", "CASH_STRUCTURING"])
+    assert show.exit_code == 0, show.stderr
+    cash = read_typology(TYPOLOGIES_DIR / "CASH_STRUCTURING.yaml").definition
+    assert f"es-MX: {cash.render('es-MX')}\n" in show.stdout
+    assert show.stdout.endswith(f"en: {cash.render('en')}\n")
+    shown = yaml.safe_load(show.stdout.split("es-MX: ")[0])
+    assert (shown["code"], shown["version"]) == ("CASH_STRUCTURING", 1)
+    assert shown["definition"]["params"]["threshold"]["value"] == "5000"
+    missing = runner.invoke(
+        app, ["rules", "show", "CASH_STRUCTURING", "--version", "2"]
+    )
+    assert missing.exit_code == 1
+    assert missing.stderr == (
+        "error: RULE_TEMPLATE_UNKNOWN: no rule template CASH_STRUCTURING v2\n"
+    )
+
+    assign_itf(tenant, admin_engine)
+    seed = [
+        "rules",
+        "seed-tenant",
+        "--tenant",
+        "acme",
+        "--author",
+        "Admin@Acme.mx",
+    ]
+    seeded = runner.invoke(app, seed)
+    assert seeded.exit_code == 0, seeded.stderr
+    drafts = seeded.stdout.splitlines()
+    assert drafts[-1] == "16 drafts for acme"
+    assert re.fullmatch(r"draft CASH_STRUCTURING v1 \([0-9a-f-]{36}\)", drafts[2])
+    assert runner.invoke(app, seed).stdout == "0 drafts for acme\n"
+    nobody = runner.invoke(app, [*seed[:-1], "nobody@acme.mx"])
+    assert nobody.exit_code == 1
+    assert nobody.stderr.startswith("error: NOT_FOUND: no staff user")
+
+
 def test_packs_load_refuses_unverified_values_without_the_flag(admin_engine: Engine):
     result = runner.invoke(app, ["packs", "load"])
     assert (result.exit_code, result.stdout) == (1, "")
@@ -1434,7 +1481,11 @@ def test_db_upgrade_seeds_the_catalog(admin_engine: Engine):
     result = runner.invoke(app, ["db", "upgrade"])
     assert result.exit_code == 0, result.output
     # The migrations log JSON lines first; the two results come last.
-    assert result.output.endswith(LISTS_SEEDED + "database upgraded to head\n")
+    assert result.output.endswith(
+        LISTS_SEEDED
+        + "rule templates: 16 created, 0 unchanged\n"
+        + "database upgraded to head\n"
+    )
     assert _list_source_count(admin_engine) == 5
 
 
@@ -1446,6 +1497,9 @@ def test_serve_seeds_the_catalog_after_migrating(admin_engine: Engine, monkeypat
     result = runner.invoke(app, ["serve"])
     assert result.exit_code == 0, result.output
     assert _list_source_count(admin_engine) == 5
+    with admin_engine.connect() as conn:
+        templates = conn.scalar(text("SELECT count(*) FROM rule_template_version"))
+    assert templates == 16
 
 
 def test_lists_status_lists_every_source(admin_engine: Engine, monkeypatch):

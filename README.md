@@ -109,6 +109,7 @@ driver is added.
 | `XOLOTL_LISTS_POLL_CRON` | `* * * * *` | When the per-tenant `lists.poll` job runs (UTC). |
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` | `5000` | Transactions each page of an aggregate backfill reads (1 or more). |
+| `XOLOTL_MONITORING_ALLOW_CUSTOM_RULES` | `false` | Lets an ADMIN author a monitoring rule from a bare kind, without a library template. |
 | `XOLOTL_MONITORING_BATCH_MAX_ITEMS` | `1000` | Most transactions in one `POST /v1/transactions` batch (1 to 10000). |
 | `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` | `100` | New counterparties each first-sight `screening.screen_counterparties` job screens in one transaction (1 or more). |
 | `XOLOTL_MONITORING_FILE_CHUNK_ROWS` | `1000` | Rows of a transactions file ingested per page of the `monitoring.ingest_file` job (1 or more). |
@@ -362,6 +363,26 @@ template by adding it again under a new `version`. The definition hashes are pin
 in `tests/golden/monitoring/rules/hashes.yaml` and the sentence each renders in
 `tests/golden/monitoring/rules/render/`. Write every decimal quoted (`"5000"`; a float
 is refused) and quote the `"on"` key (YAML 1.1 reads a bare `on` as `true`).
+
+```bash
+uv run xolotl rules load [directory]           # install the library as the database owner; a rerun changes nothing
+uv run xolotl rules show CASH_STRUCTURING [--version 1]   # the definition as YAML and its sentence in es-MX and en
+uv run xolotl rules seed-tenant --tenant acme --author mlro@acme.mx   # a DRAFT rule per template of the tenant's packs
+```
+
+`rules load` prints one line per template version it creates and a count; `xolotl db
+upgrade` and `serve` run it after seeding the list catalog. Loading a version that is
+already loaded with another definition exits 1 with `RULE_TEMPLATE_IMMUTABLE` and
+writes nothing. `rules seed-tenant` gives the tenant a `DRAFT` version, with the
+template's default parameters and the named staff user as author, of every template
+whose packs intersect the packs assigned to the tenant today or later; templates the
+tenant already has a rule for are skipped. A tenant tunes `params`, `segment`,
+`severity` and `dedup` within the template's bounds (`min`, `max`, `choices`, and the
+`tighten` direction from the template's default); a value outside them is refused
+with `RULE_PARAM_OUT_OF_BOUNDS` naming the parameter, the bound and the template
+version. The structuring band and the velocity windows are derived from the tuned
+parameters. Authoring a rule without a template is ADMIN-only and off unless
+`XOLOTL_MONITORING_ALLOW_CUSTOM_RULES=true`.
 
 A tenant's ADMIN assigns a pack version, optionally per product, and may tighten it
 with an override; staff of any role read:

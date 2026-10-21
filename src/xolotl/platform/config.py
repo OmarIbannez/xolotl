@@ -174,6 +174,8 @@ class Settings(BaseSettings):
     monitoring_partition_months_ahead: int = Field(default=3, ge=1, le=12)
     # New counterparties each screening.screen_counterparties job screens (plan 4c).
     monitoring_counterparty_screen_batch: int = Field(default=100, ge=1)
+    # Lets an ADMIN author a rule from a bare kind, without a template (plan 4b).
+    monitoring_allow_custom_rules: bool = False
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
