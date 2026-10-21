@@ -25,7 +25,22 @@ its cursor. Purged and merged parties are not walked.
   (``mode=PERIODIC``). The same walk serves a subscription's first version of a
   shared list (ref ``initial:<code>``, opened by ``list_delta``; its pages carry
   ``require_versions``, so the holder screens with at least that version) and
-  ``screening rescreen`` (ref ``manual:<UTC timestamp>``).
+  ``screening rescreen`` (ref ``manual:<UTC timestamp>``). After its party pages
+  the walk visits the tenant's counterparties (SP-04 spec §11.3, plan 4c
+  Deviation 6): the party page that comes up short enqueues the first counterparty
+  page (key ``<kind>:<batch_id>:cp:start``, payload ``after_counterparty_id``)
+  instead of completing the batch, or completes it when no counterparty is due.
+  Counterparty pages walk ids in order, screen each counterparty under each of its
+  entity types (``screen_counterparty``, ``mode=PERIODIC``, ``require_versions``
+  and the trigger carried), move the cursor to ``cp:<last id>`` and complete the
+  batch after a short page. A counterparty no transaction named in the last twelve
+  months is dormant and skipped (spec §21 Q8, ``counterparty.walk``); a list delta
+  still screens it. The batch's ``total`` counts the active parties and the
+  counterparties that are not dormant, as the batch opens; a counterparty made
+  during the walk sorts after the cursor and is walked too, so ``done`` may exceed
+  ``total``. A resume reads the cursor, never the counts. Counterparty runs publish
+  no client event,
+  as every counterparty run (tipping-off).
 - ``screening.reindex``: ``ensure_screening_index`` runs as the worker starts and
   opens the ``REINDEX`` batch (ref ``MATCHER_VERSION``) of each tenant whose name
   index holds a row of another matcher version or lacks an ``ACTIVE`` party's
@@ -53,6 +68,12 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListVersion,
 )
 from xolotl.modules.screening.catalog.private import private_entry_of
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.runs import screen_counterparty
+from xolotl.modules.screening.counterparty.walk import (
+    active_counterparty_count,
+    counterparty_ids_after,
+)
 from xolotl.modules.screening.engine.entries import indexed_private_entry
 from xolotl.modules.screening.engine.enums import (
     BatchKind,
@@ -69,6 +90,7 @@ from xolotl.modules.screening.engine.subjects import subject_for_party
 from xolotl.modules.screening.enums import DeltaChange, VersionStatus
 from xolotl.modules.screening.matching import MATCHER_VERSION, MemoryIndex
 from xolotl.modules.screening.rescreen.batches import (
+    COUNTERPARTY_CURSOR,
     WALKER_START,
     advance_batch,
     complete_batch,
@@ -133,12 +155,23 @@ def enqueue_walk(
 ) -> UUID | None:
     """Enqueue the walk's page that starts at the batch's cursor.
 
-    A new batch starts at page one; a resumed one after its last committed party.
+    A new batch starts at page one; a resumed one after its last committed party,
+    or, for a ``PERIODIC`` batch already walking counterparties, after its last
+    committed counterparty.
 
     Returns:
         The job id, or None when that page is already queued.
 
     """
+    cursor = batch.cursor or WALKER_START
+    if cursor.startswith(COUNTERPARTY_CURSOR):
+        return _enqueue_counterparty_page(
+            s,
+            queue,
+            batch=batch,
+            after=UUID(cursor.removeprefix(COUNTERPARTY_CURSOR)),
+            extra=extra,
+        )
     return queue.enqueue(
         s,
         kind=kind,
@@ -147,6 +180,28 @@ def enqueue_walk(
             "batch_id": str(batch.id),
             **(extra or {}),
             "after_party_id": batch.cursor,
+        },
+    )
+
+
+def _enqueue_counterparty_page(
+    s: Session,
+    queue: PostgresJobQueue,
+    *,
+    batch: ScreeningBatch,
+    after: UUID | None,
+    extra: dict[str, JsonValue] | None,
+) -> UUID | None:
+    # A PERIODIC walk's counterparty page, after the counterparty ``after``.
+    start = WALKER_START if after is None else str(after)
+    return queue.enqueue(
+        s,
+        kind=PERIODIC_RESCREEN_KIND,
+        key=f"{PERIODIC_RESCREEN_KIND}:{batch.id}:{COUNTERPARTY_CURSOR}{start}",
+        payload={
+            "batch_id": str(batch.id),
+            **(extra or {}),
+            "after_counterparty_id": None if after is None else str(after),
         },
     )
 
@@ -171,6 +226,7 @@ def _walk_page(
     after: UUID | None,
     screen_one: ScreenOne,
     extra: dict[str, JsonValue] | None = None,
+    then_counterparties: bool = False,
 ) -> None:
     limit = get_settings().screening_rescreen_batch
     party_ids = party_ids_after(s, after=after, limit=limit)
@@ -186,9 +242,55 @@ def _walk_page(
             cursor=str(party_ids[-1]),
         )
     if len(party_ids) < limit:
+        if then_counterparties and counterparty_ids_after(
+            s, after=None, limit=1, today=today_mx()
+        ):
+            _ = _enqueue_counterparty_page(
+                s, queue, batch=batch, after=None, extra=extra
+            )
+            return
         complete_batch(batch)
         return
     _ = enqueue_walk(s, queue, kind=kind, batch=batch, extra=extra)
+
+
+def _counterparty_page(
+    s: Session,
+    queue: PostgresJobQueue,
+    batch: ScreeningBatch,
+    *,
+    after: UUID | None,
+    trigger: Trigger,
+    required: dict[str, int] | None,
+    extra: dict[str, JsonValue],
+) -> None:
+    # One page of a PERIODIC walk's counterparties, the dormant ones left out.
+    limit = get_settings().screening_rescreen_batch
+    ids = counterparty_ids_after(s, after=after, limit=limit, today=today_mx())
+    runs = new_matches = 0
+    for counterparty_id in ids:
+        results = screen_counterparty(
+            s,
+            s.get_one(Counterparty, (batch.tenant_id, counterparty_id)),
+            mode=RunMode.PERIODIC,
+            trigger=trigger,
+            require_versions=required,
+            batch_id=batch.id,
+        )
+        runs += len(results)
+        new_matches += sum(result.run.new_match_count for result in results)
+    if ids:
+        advance_batch(
+            batch,
+            done=len(ids),
+            runs=runs,
+            new_matches=new_matches,
+            cursor=f"{COUNTERPARTY_CURSOR}{ids[-1]}",
+        )
+    if len(ids) < limit:
+        complete_batch(batch)
+        return
+    _ = _enqueue_counterparty_page(s, queue, batch=batch, after=ids[-1], extra=extra)
 
 
 # ---- private-list versions -------------------------------------------------------
@@ -373,15 +475,32 @@ def handle_periodic_rescreen(queue: PostgresJobQueue) -> JobHandler:
     """
 
     def walk(s: Session, job: Job) -> None:
-        page = _page_batch(s, job)
-        if page is None:
-            return
-        batch, after = page
         trigger, carried = _page_trigger(job)
         required = _required(job.payload)
         extra: dict[str, JsonValue] = {**carried}
         if required is not None:
             extra["require_versions"] = {**required}
+        if "after_counterparty_id" in job.payload:
+            batch = lock_batch(s, UUID(str(job.payload["batch_id"])))
+            raw = job.payload["after_counterparty_id"]
+            after_cp = None if raw is None else UUID(str(raw))
+            start = WALKER_START if after_cp is None else str(after_cp)
+            if page_already_done(batch, f"{COUNTERPARTY_CURSOR}{start}"):
+                return
+            _counterparty_page(
+                s,
+                queue,
+                batch,
+                after=after_cp,
+                trigger=trigger,
+                required=required,
+                extra=extra,
+            )
+            return
+        page = _page_batch(s, job)
+        if page is None:
+            return
+        batch, after = page
 
         def screen_one(party_id: UUID) -> RunResult:
             return screen(
@@ -401,6 +520,7 @@ def handle_periodic_rescreen(queue: PostgresJobQueue) -> JobHandler:
             after=after,
             screen_one=screen_one,
             extra=extra,
+            then_counterparties=True,
         )
 
     page = page_job(walk)
@@ -479,7 +599,10 @@ def _open_walk(
     ref: str,
     extra: dict[str, JsonValue] | None = None,
 ) -> tuple[ScreeningBatch, UUID | None] | None:
-    batch = open_batch(s, kind=kind, ref=ref, total=active_party_count(s))
+    total = active_party_count(s)
+    if kind is BatchKind.PERIODIC:
+        total += active_counterparty_count(s, today=today_mx())
+    batch = open_batch(s, kind=kind, ref=ref, total=total)
     if batch is None:
         return None
     job_kind = _WALK_KINDS[kind]

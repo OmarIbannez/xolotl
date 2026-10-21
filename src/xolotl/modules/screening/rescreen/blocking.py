@@ -43,6 +43,12 @@ particular and screening thousands of parties for one entry would stall the batc
 The caller logs it and the next periodic run covers those names. Its identifier
 matches are kept: an exact RFC, CURP or passport match is never deferred.
 
+Counterparties (SP-04 spec §11.3) are blocked by the same queries over
+``counterparty_name_index``: ``blocking_query`` and ``stop_keys`` take the index
+model as ``table`` (``PartyNameIndex`` by default), and the stop-key rule counts the
+counterparties' own rows. ``screening.counterparty.blocking`` adds the lookups by
+wallet address and identifier hash.
+
 Everything runs under the caller's tenant session, so row-level security keeps the
 search inside the tenant.
 """
@@ -60,6 +66,7 @@ from sqlalchemy.types import Text
 from xolotl.modules.party.enums import IdentifierType, PartyStatus
 from xolotl.modules.party.errors import IdentifierInvalidError
 from xolotl.modules.party.service import parties_query
+from xolotl.modules.screening.counterparty.models import CounterpartyNameIndex
 from xolotl.modules.screening.engine.models import PartyNameIndex
 from xolotl.modules.screening.lists import IdType, ListEntry
 from xolotl.modules.screening.matching import (
@@ -76,6 +83,9 @@ TRIGRAM_THRESHOLD = 0.4
 STOP_KEY_SHARE = 0.02
 STOP_KEY_MIN_HOLDERS = 100
 NO_STOP_KEYS: frozenset[str] = frozenset()
+# The name index a blocking query reads: the parties', or the counterparties'
+# (SP-04 spec §11.3), which share the columns blocking reads.
+type NameIndexTable = type[PartyNameIndex | CounterpartyNameIndex]
 _ID_TYPES = {
     IdType.RFC: IdentifierType.RFC,
     IdType.CURP: IdentifierType.CURP,
@@ -116,11 +126,14 @@ def name_plans(entry: ListEntry, idf: IdfTable) -> list[tuple[BlockingPlan, str]
     return plans
 
 
-def stop_keys(s: Session, plans: Iterable[BlockingPlan]) -> frozenset[str]:
+def stop_keys(
+    s: Session, plans: Iterable[BlockingPlan], *, table: NameIndexTable = PartyNameIndex
+) -> frozenset[str]:
     """Find the plans' single keys too common in the tenant's base to block on.
 
-    One aggregate query under the tenant's session counts the name rows holding
-    each key; row-level security keeps the counts to the tenant's own rows.
+    One aggregate query under the tenant's session counts the rows of ``table``
+    holding each key; row-level security keeps the counts to the tenant's own rows.
+    The counterparties' index is counted over its own rows, never the parties'.
 
     Returns:
         The keys held by more than ``STOP_KEY_SHARE`` of the tenant's name rows and
@@ -130,16 +143,16 @@ def stop_keys(s: Session, plans: Iterable[BlockingPlan]) -> frozenset[str]:
     singles = {keys[0] for plan in plans for keys in plan.key_sets if len(keys) == 1}
     if not singles:
         return frozenset()
-    rows = s.scalar(select(func.count()).select_from(PartyNameIndex)) or 0
+    rows = s.scalar(select(func.count()).select_from(table)) or 0
     threshold = max(STOP_KEY_MIN_HOLDERS, STOP_KEY_SHARE * rows)
     if rows <= threshold:
         return frozenset()
-    held = func.unnest(PartyNameIndex.phonetic_keys).table_valued("key")
+    held = func.unnest(table.phonetic_keys).table_valued("key")
     held = held.render_derived()
     key = held.c.key
     query = (
         select(key)
-        .select_from(PartyNameIndex)
+        .select_from(table)
         .join(held, true())
         .where(key == any_(cast(sorted(singles), ARRAY(Text))))
         .group_by(key)
@@ -155,7 +168,12 @@ def stop_keys(s: Session, plans: Iterable[BlockingPlan]) -> frozenset[str]:
 
 
 def blocking_query(
-    plan: BlockingPlan, folded: str, *, limit: int, stop: frozenset[str] = NO_STOP_KEYS
+    plan: BlockingPlan,
+    folded: str,
+    *,
+    limit: int,
+    stop: frozenset[str] = NO_STOP_KEYS,
+    table: NameIndexTable = PartyNameIndex,
 ) -> Select[UUID]:
     """Build the name query of one entry name: any key set, or trigram similarity.
 
@@ -164,21 +182,20 @@ def blocking_query(
     ``reverse_candidates`` does once.
 
     Returns:
-        The select of matching party ids, at most ``limit`` rows.
+        The select of matching party ids, or counterparty ids when ``table`` is
+        ``CounterpartyNameIndex``, at most ``limit`` rows.
 
     """
     key_sets = [
-        PartyNameIndex.phonetic_keys.contains(cast(list(keys), ARRAY(Text)))
+        table.phonetic_keys.contains(cast(list(keys), ARRAY(Text)))
         for keys in plan.key_sets
         if len(keys) != 1 or keys[0] not in stop
     ]
-    trigram = PartyNameIndex.norm_name.op("%")(folded) if folded else false()
-    return (
-        select(PartyNameIndex.party_id)
-        .where(or_(*key_sets, trigram))
-        .distinct()
-        .limit(limit)
+    trigram = table.norm_name.op("%")(folded) if folded else false()
+    subject = (
+        table.party_id if issubclass(table, PartyNameIndex) else table.counterparty_id
     )
+    return select(subject).where(or_(*key_sets, trigram)).distinct().limit(limit)
 
 
 def _name_matches(
