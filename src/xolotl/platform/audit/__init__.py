@@ -15,6 +15,10 @@ anchored anywhere outside the database. Anchoring it (a signed or write-once
 checkpoint of the latest ``(seq, hash)``) is a later requirement.
 """
 
+# Importing ``partitions`` registers ``audit_event`` as a partitioned table, so
+# every process that loads the audit package (the app, the CLI, the worker) keeps
+# its partitions ahead through ``ensure_all_partitions``.
+from xolotl.platform.audit import partitions as partitions
 from xolotl.platform.audit.chain import (
     GENESIS_HASH,
     VIEW_PII,
