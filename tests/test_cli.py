@@ -116,6 +116,7 @@ from xolotl.modules.screening.rescreen.walkers import (
     REINDEX_KIND,
 )
 from xolotl.modules.tenants import service
+from xolotl.modules.tenants.models import StaffUser
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock, db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
@@ -126,7 +127,7 @@ from xolotl.platform.crypto import (
     get_key_provider,
     set_key_provider,
 )
-from xolotl.platform.enums import JobStatus, KeyPurpose
+from xolotl.platform.enums import JobStatus, KeyPurpose, Role, StaffStatus
 from xolotl.platform.events.registry import reset_subscribers
 from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs import JobRunner, PostgresJobQueue
@@ -1369,6 +1370,22 @@ def test_rules_load_show_and_seed_tenant(admin_engine: Engine, tenant: CreatedTe
     nobody = runner.invoke(app, [*seed[:-1], "nobody@acme.mx"])
     assert nobody.exit_code == 1
     assert nobody.stderr.startswith("error: NOT_FOUND: no staff user")
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        s.add(
+            StaffUser(
+                tenant_id=tenant.tenant_id,
+                email="analyst@acme.mx",
+                display_name="Analista",
+                roles=[Role.ANALYST.value],
+                status=StaffStatus.ACTIVE,
+            )
+        )
+    analyst = runner.invoke(app, [*seed[:-1], "analyst@acme.mx"])
+    assert analyst.exit_code == 1
+    assert analyst.stderr == (
+        "error: VALIDATION_FAILED: the author must be a senior analyst, an MLRO or "
+        "an admin\n"
+    )
 
 
 def test_packs_load_refuses_unverified_values_without_the_flag(admin_engine: Engine):

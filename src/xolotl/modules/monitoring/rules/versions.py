@@ -19,13 +19,23 @@ from decimal import Decimal
 from typing import ClassVar, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    JsonValue,
+    ValidationError,
+    field_validator,
+)
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.aggregates.declarations import (
+    MAX_WINDOW_HOURS,
     AggregateDeclaration,
     AggregateFunction,
+    window_hours,
+    window_parts,
 )
 from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.errors import (
@@ -33,6 +43,7 @@ from xolotl.modules.monitoring.errors import (
     RuleTransitionNotAllowedError,
 )
 from xolotl.modules.monitoring.rules.definitions import (
+    MONTH,
     AnyParam,
     Dedup,
     ParamValue,
@@ -77,12 +88,21 @@ _EDITABLE = frozenset({RuleVersionStatus.DRAFT, RuleVersionStatus.SIMULATED})
 # The declarations a STRUCTURING rule counts over its band and window.
 _BANDED = frozenset({"near_count", "near_sum"})
 _WINDOWED = frozenset({AggregateFunction.COUNT, AggregateFunction.SUM})
+# The longest VELOCITY window, in hours (spec §9.1: P7D).
+_VELOCITY_HOURS = 7 * 24
 _TYPE_NAMES: Mapping[type, str] = {
     Decimal: "decimal",
     int: "integer",
     str: "text",
     bool: "boolean",
 }
+
+
+def _float_param(raw: object) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    items = cast("dict[object, object]", raw).items()
+    return next((str(name) for name, item in items if isinstance(item, float)), None)
 
 
 class VersionInput(BaseModel):
@@ -94,6 +114,16 @@ class VersionInput(BaseModel):
     segment: SegmentFilter | None = None
     severity: Severity | None = None
     dedup: Dedup | None = None
+
+    @field_validator("params", mode="before")
+    @classmethod
+    def _no_floats(cls, value: object) -> object:
+        # As in a definition: a JSON float is not an exact decimal.
+        name = _float_param(value)
+        if name is not None:
+            msg = f"{name}: write a decimal as a string, never a float"
+            raise ValueError(msg)
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +184,25 @@ def _violation(param: AnyParam, value: ParamValue) -> tuple[str, str] | None:
     return None
 
 
+def _window_violation(kind: RuleKind, window: str) -> tuple[str, str] | None:
+    # The kind's own limits on a window (spec §8.2, §9.1), reported as bounds so
+    # the editor can place them on the field (spec §9.4).
+    parts = window_parts(window)
+    if window == MONTH or parts is None:
+        return "type", "an ISO duration such as P1D"
+    months, days, hours = parts
+    if months and (days or hours):
+        return "type", "months or days, not both"
+    length = window_hours(window) or 0
+    if length < 1:
+        return "min", "PT1H"
+    if length > MAX_WINDOW_HOURS:
+        return "max", "P6M"
+    if kind is RuleKind.VELOCITY and length > _VELOCITY_HOURS:
+        return "max", "P7D (VELOCITY window)"
+    return None
+
+
 def check_params(
     template: RuleDefinition, values: Mapping[str, ParamValue], *, source: str
 ) -> list[BoundViolation]:
@@ -178,6 +227,8 @@ def check_params(
             violations.append(BoundViolation(name, "type", expected, source))
             continue
         found = _violation(param, typed)
+        if found is None and name == "window" and isinstance(typed, str):
+            found = _window_violation(template.kind, typed)
         if found is not None:
             violations.append(BoundViolation(name, *found, source))
     return violations
@@ -373,13 +424,22 @@ def _insert_version(
     return version
 
 
-def _insert_rule(
+def _new_rule(
     s: Session,
     definition: RuleDefinition,
     *,
     author_id: UUID,
     template: RuleTemplateVersion | None,
-) -> MonitoringRuleVersion:
+) -> MonitoringRule | None:
+    """Insert the rule row, or return None when another writer just inserted it.
+
+    The insert runs in a savepoint, so losing the race on ``(tenant_id, code)``
+    leaves the caller's transaction usable.
+
+    Returns:
+        The flushed rule, or None when the code is taken.
+
+    """
     rule = MonitoringRule(
         tenant_id=bound_context(s).require_tenant_id(),
         code=definition.code,
@@ -389,8 +449,22 @@ def _insert_rule(
         title=definition.title,
         created_by=author_id,
     )
-    s.add(rule)
-    s.flush()
+    try:
+        with s.begin_nested():
+            s.add(rule)
+    except IntegrityError:
+        return None
+    return rule
+
+
+def _first_version(
+    s: Session,
+    rule: MonitoringRule,
+    definition: RuleDefinition,
+    *,
+    author_id: UUID,
+    template: RuleTemplateVersion | None,
+) -> MonitoringRuleVersion:
     return _insert_version(
         s,
         rule,
@@ -427,7 +501,14 @@ def create_rule(
     definition = build_definition(
         definition_of(template), body, source=_source(template)
     )
-    return _insert_rule(s, definition, author_id=author_id, template=template)
+    rule = _new_rule(s, definition, author_id=author_id, template=template)
+    if rule is None:
+        # Another writer created the rule since the lookup: add a version to it.
+        winner = s.scalars(
+            select(MonitoringRule.id).where(MonitoringRule.code == template_code)
+        ).one()
+        return create_version(s, winner, body=body)
+    return _first_version(s, rule, definition, author_id=author_id, template=template)
 
 
 def create_custom_rule(
@@ -459,10 +540,14 @@ def create_custom_rule(
     if problem is not None:
         msg = f"rule {definition.code!r}: {problem}"
         raise ValidationFailedError(msg)
-    if _rule_by_code(s, definition.code) is not None:
+    author_id = UUID(ctx.actor_id)
+    rule = None
+    if _rule_by_code(s, definition.code) is None:
+        rule = _new_rule(s, definition, author_id=author_id, template=None)
+    if rule is None:
         msg = f"a rule {definition.code} exists"
         raise DomainError(msg)
-    return _insert_rule(s, definition, author_id=UUID(ctx.actor_id), template=None)
+    return _first_version(s, rule, definition, author_id=author_id, template=None)
 
 
 def _bounds_of(
@@ -613,8 +698,12 @@ def seed_tenant_rules(s: Session, *, author_id: UUID) -> list[MonitoringRuleVers
         definition = build_definition(
             definition_of(template), VersionInput(), source=_source(template)
         )
+        rule = _new_rule(s, definition, author_id=author_id, template=template)
+        if rule is None:
+            # A concurrent seed or create got there first.
+            continue
         created.append(
-            _insert_rule(s, definition, author_id=author_id, template=template)
+            _first_version(s, rule, definition, author_id=author_id, template=template)
         )
         codes.append(template.template_code)
     if created:

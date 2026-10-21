@@ -40,7 +40,7 @@ from xolotl.modules.monitoring.rules.templates import (
     load_templates,
     template_version,
 )
-from xolotl.modules.monitoring.rules.versions import seed_tenant_rules
+from xolotl.modules.monitoring.rules.versions import WRITERS, seed_tenant_rules
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
     JSONL_TYPE,
@@ -98,7 +98,7 @@ from xolotl.platform.db import (
     get_sessionmaker,
     tenant_session,
 )
-from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
+from xolotl.platform.enums import HolidayScope, KeyPurpose, StaffStatus, TenantEnv
 from xolotl.platform.errors import NotFoundError, ValidationFailedError, XolotlError
 from xolotl.platform.events import InAppNotifier
 from xolotl.platform.ids import uuid7
@@ -972,23 +972,31 @@ def rules_show(
     typer.echo(f"en: {definition.render('en')}")
 
 
-def _staff_user_id(session: Session, email: str) -> UUID:
-    """Find a staff user of the session's tenant by email.
+def _rule_author_id(session: Session, email: str) -> UUID:
+    """Find an active staff user of the session's tenant who writes rules.
 
     Returns:
         The user's id.
 
     Raises:
-        NotFoundError: When the tenant has no such user.
+        NotFoundError: When the tenant has no such active user.
+        ValidationFailedError: When the user is not a senior analyst, an MLRO or
+            an admin, so could not take the drafts further.
 
     """
-    user_id = session.scalar(
-        select(StaffUser.id).where(func.lower(StaffUser.email) == email.strip().lower())
+    user = session.scalar(
+        select(StaffUser).where(
+            func.lower(StaffUser.email) == email.strip().lower(),
+            StaffUser.status == StaffStatus.ACTIVE,
+        )
     )
-    if user_id is None:
+    if user is None:
         msg = f"no staff user {email!r} in this tenant"
         raise NotFoundError(msg)
-    return user_id
+    if not {role.value for role in WRITERS} & set(user.roles):
+        msg = "the author must be a senior analyst, an MLRO or an admin"
+        raise ValidationFailedError(msg)
+    return user.id
 
 
 @rules_app.command("seed-tenant")
@@ -1008,7 +1016,7 @@ def rules_seed_tenant(
     with _cli_errors():
         tenant_id, slug = _resolve_tenant(actor, tenant)
         with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
-            author_id = _staff_user_id(s, author)
+            author_id = _rule_author_id(s, author)
             lines = [
                 f"draft {row.definition['code']} v{row.version} ({row.id})"
                 for row in seed_tenant_rules(s, author_id=author_id)

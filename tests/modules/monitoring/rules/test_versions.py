@@ -1,12 +1,13 @@
 """Tenant rules and versions within the template's bounds (spec §9.4, plan 4b B5)."""
 
 from collections.abc import Iterable
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import sessionmaker
 
@@ -52,6 +53,7 @@ from xolotl.modules.monitoring.rules.versions import (
     update_version,
 )
 from xolotl.modules.tenants.service import CreatedTenant
+from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import Role
@@ -62,6 +64,7 @@ from xolotl.platform.errors import (
     ValidationFailedError,
 )
 from xolotl.platform.policy import assign_pack
+from xolotl.platform.policy.models import TenantPackAssignment
 from xolotl.platform.tenancy.context import TenantContext
 
 ITF = "MX/ITF-IFPE"
@@ -266,14 +269,74 @@ def test_the_shipped_defaults_build_to_themselves():
         assert coupling_problem(file.definition) is None
 
 
+@pytest.mark.parametrize(
+    ("window", "bound", "limit"),
+    [
+        ("P30D", "max", "P7D (VELOCITY window)"),
+        ("P7M", "max", "P6M"),
+        ("PT0H", "min", "PT1H"),
+        ("P1M2D", "type", "months or days, not both"),
+        ("soon", "type", "an ISO duration such as P1D"),
+    ],
+)
+def test_a_window_outside_its_kinds_limits_is_out_of_bounds(window, bound, limit):
+    source = "template NEW_ACCOUNT_VELOCITY v1"
+    template = _template_from_file("NEW_ACCOUNT_VELOCITY")
+    [violation] = check_params(template, {"window": window}, source=source)
+    assert violation == BoundViolation("window", bound, limit, source)
+    with pytest.raises(RuleParamOutOfBoundsError) as caught:
+        _ = build_definition(template, _params(window=window), source=source)
+    assert caught.value.errors[0].loc == ("params", "window")
+
+
 def test_a_tuned_definition_that_is_invalid_as_a_whole_is_refused():
-    with pytest.raises(ValidationFailedError, match="VELOCITY window") as caught:
+    with pytest.raises(ValidationFailedError, match="calendar MONTH") as caught:
         _ = build_definition(
-            _template_from_file("NEW_ACCOUNT_VELOCITY"),
-            _params(window="P30D"),
-            source="template NEW_ACCOUNT_VELOCITY v1",
+            _template_from_file("TIER_N1_MONTHLY_OPS"),
+            VersionInput(dedup=Dedup(window="P1D")),
+            source="template TIER_N1_MONTHLY_OPS v1",
         )
     assert caught.value.code == "VALIDATION_FAILED"
+
+
+def test_a_structuring_window_may_run_past_seven_days():
+    template = _cash_template_from_file()
+    assert check_params(template, {"window": "P30D"}, source=SOURCE) == []
+
+
+def test_tighten_raise_refuses_a_lower_value():
+    data = _cash_template_from_file().model_dump()
+    data["params"]["min_count"] = {"value": 3, "min": 2, "tighten": "RAISE"}
+    template = RuleDefinition.model_validate(data)
+    [violation] = check_params(template, {"min_count": 2}, source=SOURCE)
+    assert violation == BoundViolation("min_count", "tighten", "RAISE from 3", SOURCE)
+    assert check_params(template, {"min_count": 4}, source=SOURCE) == []
+    assert check_params(template, {"min_count": 3}, source=SOURCE) == []
+
+
+def test_a_float_is_refused_for_a_parameter():
+    with pytest.raises(ValidationError, match="never a float"):
+        _ = VersionInput.model_validate({"params": {"threshold": 4000.5}})
+    body = VersionInput.model_validate({"params": {"threshold": "4000.5"}})
+    assert body.params == {"threshold": "4000.5"}
+    assert VersionInput.model_validate({"params": {"min_count": 4}}).params == {
+        "min_count": 4
+    }
+
+
+@pytest.mark.usefixtures("library")
+def test_a_first_create_that_loses_the_race_becomes_version_2(
+    tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    first = _create(tenant)
+
+    # The second writer read "no rule" before the first one committed.
+    def nobody(_s: object, _code: str) -> None:
+        return None
+
+    monkeypatch.setattr(versions, "_rule_by_code", nobody)
+    second = _create(tenant, body=_params(near_ratio="0.8"))
+    assert (second.rule_id, second.version) == (first.rule_id, 2)
 
 
 @pytest.mark.usefixtures("library")
@@ -506,3 +569,34 @@ def test_seeding_follows_the_tenants_packs(tenant: CreatedTenant, admin_engine: 
     }
     assert _actions(avi_only.tenant_id).count("rules.version_created") == 7
     assert "rules.seeded" not in _actions(bare.tenant_id)
+
+
+TODAY = datetime(2026, 10, 21, 18, tzinfo=UTC)
+
+
+@pytest.mark.usefixtures("library")
+def test_seeding_reads_assignments_in_force_today_or_later(
+    admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(clock, "now", lambda: TODAY)
+    avi = install_both_packs(admin_engine)[AVI]
+
+    def tenant_with(slug: str, *, start: date, end: date | None) -> CreatedTenant:
+        created = new_tenant(slug, f"admin@{slug}.mx")
+        with staff_session(created.tenant_id, created.admin_user_id) as s:
+            _ = assign_pack(
+                s,
+                pack_version_id=avi,
+                product=None,
+                effective_from=start,
+                approved_by=created.admin_user_id,
+            )
+            _ = s.execute(update(TenantPackAssignment).values(effective_to=end))
+        return created
+
+    ended = tenant_with("ended", start=date(2026, 1, 1), end=date(2026, 10, 20))
+    ending = tenant_with("ending", start=date(2026, 1, 1), end=date(2026, 10, 21))
+    coming = tenant_with("coming", start=date(2026, 11, 1), end=None)
+    assert _seed(ended) == []
+    assert len(_seed(ending)) == 7
+    assert len(_seed(coming)) == 7
