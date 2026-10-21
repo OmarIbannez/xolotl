@@ -1,0 +1,34 @@
+# Many operations, or a large total, in the first days of a relationship (spec §9.3).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]
+definition:
+  code: NEW_ACCOUNT_VELOCITY
+  family: ALERT
+  kind: VELOCITY
+  title: Velocidad en cuenta nueva
+  typology: [VELOCITY]
+  unit_key: USD/PRIOR_BANKING_DAY
+  params:
+    window: {value: P1D}
+    count: {value: 10}
+    sum: {value: "3000", unit: USD}
+    new_account_days: {value: 30}
+  aggregates:
+    - name: window_count
+      function: COUNT
+      measure: ONE
+      unit_key: null
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P1D
+    - name: window_sum
+      function: SUM
+      measure: UNIT_AMOUNT
+      unit_key: USD/PRIOR_BANKING_DAY
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P1D
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}
+  evidence: {transactions_window: P1D, aggregates: [window_count, window_sum]}

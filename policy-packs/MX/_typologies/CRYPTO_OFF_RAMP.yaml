@@ -1,0 +1,36 @@
+# Virtual assets received and sold out to fiat within the day (spec §9.3); the
+# order of the two legs inside the day is not checked (spec §23).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]
+definition:
+  code: CRYPTO_OFF_RAMP
+  family: ALERT
+  kind: AGGREGATE
+  title: Salida de activos virtuales a moneda fiduciaria
+  typology: [CRYPTO]
+  "on": {direction: [OUT], instrument: [CASH, TRANSFER, CARD, CHEQUE]}
+  unit_key: USD/PRIOR_BANKING_DAY
+  params: {}
+  aggregates:
+    - name: crypto_in_sum
+      function: SUM
+      measure: UNIT_AMOUNT
+      unit_key: USD/PRIOR_BANKING_DAY
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P1D
+      where: {direction: [IN], instrument: [CRYPTO]}
+    - name: fiat_out_sum
+      function: SUM
+      measure: UNIT_AMOUNT
+      unit_key: USD/PRIOR_BANKING_DAY
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P1D
+      where: {direction: [OUT], instrument: [CASH, TRANSFER, CARD, CHEQUE]}
+  conditions:
+    - {aggregate: fiat_out_sum, op: GTE, ratio_of: crypto_in_sum, ratio: "0.8"}
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}
+  evidence: {transactions_window: P1D, aggregates: [crypto_in_sum, fiat_out_sum]}

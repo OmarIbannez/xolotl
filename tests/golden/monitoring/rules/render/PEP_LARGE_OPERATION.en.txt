@@ -1,0 +1,1 @@
+Fires when the customer makes an operation of 10,000 USD or more when the customer is a PEP

@@ -1,0 +1,22 @@
+# The month's volume against the declared profile or the customer's own history
+# (spec §9.3). The four declarations are the ones the PROFILE_DEVIATION kind reads.
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE]
+definition:
+  code: DECLARED_VS_ACTUAL_VOLUME
+  family: ALERT
+  kind: PROFILE_DEVIATION
+  title: Volumen declarado contra real
+  typology: [PROFILE]
+  params:
+    ratio: {value: "2.0", min: "1.2", max: "5.0"}
+    history_ratio: {value: "3.0"}
+  aggregates:
+    - {name: mtd_in, function: SUM, measure: AMOUNT_MINOR, unit_key: null, key_kind: RELATIONSHIP, window_kind: MONTH, window: MONTH, where: {direction: [IN]}}
+    - {name: mtd_out, function: SUM, measure: AMOUNT_MINOR, unit_key: null, key_kind: RELATIONSHIP, window_kind: MONTH, window: MONTH, where: {direction: [OUT]}}
+    - {name: trailing_in, function: SUM, measure: AMOUNT_MINOR, unit_key: null, key_kind: RELATIONSHIP, window_kind: DURATION, window: P6M, where: {direction: [IN]}}
+    - {name: trailing_out, function: SUM, measure: AMOUNT_MINOR, unit_key: null, key_kind: RELATIONSHIP, window_kind: DURATION, window: P6M, where: {direction: [OUT]}}
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: MONTH, cooldown: P7D}
+  evidence: {transactions_window: MONTH, aggregates: [mtd_in, mtd_out, trailing_in, trailing_out]}
