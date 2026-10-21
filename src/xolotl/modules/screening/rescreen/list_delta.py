@@ -69,6 +69,9 @@ from xolotl.modules.screening.catalog.models import (
     ListEntryRow,
     ListVersion,
 )
+
+# A module import: counterparty.blocking -> rescreen.blocking -> rescreen/__init__
+# -> wiring -> list_delta is a cycle, so a name import would fail.
 from xolotl.modules.screening.counterparty import blocking as counterparty_blocking
 from xolotl.modules.screening.counterparty.models import Counterparty
 from xolotl.modules.screening.counterparty.runs import screen_counterparty

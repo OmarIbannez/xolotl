@@ -56,6 +56,7 @@ from xolotl.modules.screening.engine.models import (
     ScreeningSubject,
 )
 from xolotl.modules.screening.engine.screen import RunResult, ScreenOptions, Trigger
+from xolotl.modules.screening.events import RUN_COMPLETED, STATUS_CHANGED
 from xolotl.modules.screening.lists import (
     EntityType,
     EntryName,
@@ -70,7 +71,9 @@ from xolotl.platform import clock
 from xolotl.platform.config import Settings, get_settings
 from xolotl.platform.db import get_sessionmaker
 from xolotl.platform.enums import JobStatus, Role
-from xolotl.platform.events import OutboxEventBus
+from xolotl.platform.events import Event, OutboxEventBus
+from xolotl.platform.events.event import event_from_row
+from xolotl.platform.events.models import OutboxRow
 from xolotl.platform.events.registry import reset_subscribers
 from xolotl.platform.jobs import JobRunner, PostgresJobQueue
 from xolotl.platform.jobs.models import JobRow
@@ -315,6 +318,14 @@ def _pages(tenant: CreatedTenant, batch_id: UUID | None = None) -> list[JobRow]:
         ]
 
 
+def _events_of(tenant: CreatedTenant, *types: str) -> list[Event]:
+    with job_session(tenant) as s:
+        rows = s.scalars(
+            select(OutboxRow).where(OutboxRow.type.in_(types)).order_by(OutboxRow.seq)
+        ).all()
+        return [event_from_row(row) for row in rows]
+
+
 def _periodic(wired: Wired) -> None:
     _ = enqueue(wired.queue, wired.tenant.tenant_id, kind=PERIODIC_RESCREEN_KIND)
 
@@ -411,6 +422,8 @@ def test_a_delta_with_no_counterparties_behaves_as_before(wired: Wired):
 def test_a_counterparty_rescreen_reaches_no_webhook(wired: Wired):
     _lists_ready(wired)
     (counterparty,) = _counterparties(wired.tenant, NAMES["A"])
+    # A party near entry A in the same tenant: the positive control.
+    (party,) = _parties(wired.tenant, NAMES["A"])
     _ = _hand_over(wired, V2)
     # Endpoints made after the hand-over see only what the re-screens publish.
     _ = make_endpoint(wired.tenant.tenant_id, event_types=["*"])
@@ -424,7 +437,22 @@ def test_a_counterparty_rescreen_reaches_no_webhook(wired: Wired):
     assert set(runs) == {counterparty}
     assert set(_runs(wired.tenant, RunMode.PERIODIC)) == {counterparty}
     assert [m.source_entry_key for _, m in _findings(wired.tenant)] == ["A"]
-    assert deliveries(wired.tenant.tenant_id) == []
+    # No webhook-safe screening event names a counterparty subject.
+    subjects = {str(r.subject_id) for each in runs.values() for r in each}
+    events = _events_of(wired.tenant, RUN_COMPLETED, STATUS_CHANGED)
+    assert not [e for e in events if e.data["subject_id"] in subjects]
+    # The party's delta run does reach the wildcard endpoint, so the fixture
+    # delivers.
+    delivered = {d.event_id for d in deliveries(wired.tenant.tenant_id)}
+    party_delta = [
+        e
+        for e in events
+        if e.type == RUN_COMPLETED
+        and e.data["party_id"] == str(party)
+        and e.data["mode"] == RunMode.LIST_DELTA.value
+    ]
+    assert party_delta
+    assert {e.id for e in party_delta} <= delivered
 
 
 # ---- the periodic walk -------------------------------------------------------------
@@ -615,6 +643,59 @@ def test_a_failed_counterparty_walk_resumes_at_its_counterparty_cursor(
     assert {cp: len(each) for cp, each in runs.items()} == dict.fromkeys(
         counterparties, 1
     )
+
+
+@pytest.mark.usefixtures("two_per_page")
+def test_a_failed_first_counterparty_page_reruns_on_reopen(
+    wired: Wired, monkeypatch: pytest.MonkeyPatch
+):
+    _lists_ready(wired)
+    (party,) = _parties(wired.tenant, NAMES["U"])
+    counterparties = _counterparties(wired.tenant, NAMES["A"], NAMES["C"], NAMES["R"])
+    cli = Trigger(TriggerType.CLI, "cli:tester")
+    with job_session(wired.tenant) as s:
+        batch_id = walkers.start_rescreen(
+            s, wired.queue, kind=BatchKind.PERIODIC, trigger=cli
+        )
+    # The party page only: it enqueues cp:start.
+    assert wired.runner.run_once(limit=1) == 1
+
+    def broken(*_args: object, **_kwargs: object) -> None:
+        msg = "screening is down"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(walkers, "screen_counterparty", broken)
+    with job_session(wired.tenant) as s:
+        _ = s.execute(
+            update(JobRow)
+            .where(JobRow.status == JobStatus.PENDING)
+            .values(max_attempts=1)
+        )
+    _ = _drain(wired)
+    batch = _batch(wired.tenant, BatchKind.PERIODIC)
+    assert (batch.id, batch.status, batch.cursor) == (
+        batch_id,
+        BatchStatus.FAILED,
+        str(party),
+    )
+    assert _runs(wired.tenant, RunMode.PERIODIC) == {}
+    monkeypatch.undo()
+    with job_session(wired.tenant) as s:
+        ref = s.get_one(ScreeningBatch, (wired.tenant.tenant_id, batch_id)).ref
+        walkers.open_periodic(s, wired.queue, ref=ref)
+    _ = _drain(wired)
+
+    batch = _batch(wired.tenant, BatchKind.PERIODIC)
+    assert (batch.id, batch.status, batch.done) == (
+        batch_id,
+        BatchStatus.COMPLETED,
+        4,
+    )
+    runs = _runs(wired.tenant, RunMode.PERIODIC)
+    assert {cp: len(each) for cp, each in runs.items()} == dict.fromkeys(
+        counterparties, 1
+    )
+    assert _party_runs(wired.tenant, RunMode.PERIODIC) == {party}
 
 
 def test_the_manual_rescreen_covers_counterparties_with_the_cli_trigger(

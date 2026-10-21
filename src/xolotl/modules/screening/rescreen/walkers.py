@@ -36,7 +36,10 @@ its cursor. Purged and merged parties are not walked.
   batch after a short page. A counterparty no transaction named in the last twelve
   months is dormant and skipped (spec §21 Q8, ``counterparty.walk``); a list delta
   still screens it. The batch's ``total`` counts the active parties and the
-  counterparties that are not dormant. Counterparty runs publish no client event,
+  counterparties that are not dormant, as the batch opens; a counterparty made
+  during the walk sorts after the cursor and is walked too, so ``done`` may exceed
+  ``total``. A resume reads the cursor, never the counts. Counterparty runs publish
+  no client event,
   as every counterparty run (tipping-off).
 - ``screening.reindex``: ``ensure_screening_index`` runs as the worker starts and
   opens the ``REINDEX`` batch (ref ``MATCHER_VERSION``) of each tenant whose name
