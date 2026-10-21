@@ -4,7 +4,6 @@ Plain functions: the module's ``conftest.py`` (A4) wraps them in fixtures. Plans
 and 4c use these names (reconciliation finding 19).
 """
 
-import random
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -29,6 +28,7 @@ from xolotl.modules.monitoring.txn.schema import (
     UnitAmount,
 )
 from xolotl.modules.screening.counterparty.schema import CounterpartyScreeningStatus
+from xolotl.modules.screening.matching.evaluation import Draw
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.db import tenant_session
 from xolotl.platform.jobs.queue import PostgresJobQueue
@@ -131,6 +131,8 @@ _COUNTERPARTIES: tuple[tuple[str, str | None], ...] = (
     ("c5" * 32, None),
 )
 _DEVICES = ("d1" * 32, "d2" * 32)
+_CHANNELS = (Channel.APP, Channel.WEB, Channel.BRANCH)
+_AREAS = ("CMX", "JAL", "BCN")
 _SHAPES: tuple[tuple[Rail, Instrument, Direction], ...] = (
     (Rail.CASH, Instrument.CASH, Direction.IN),
     (Rail.SPEI, Instrument.TRANSFER, Direction.OUT),
@@ -178,7 +180,7 @@ def stream(n: int, *, seed: int) -> list[EnrichedTransaction]:
         ``n`` transactions in ``occurred_at`` order.
 
     """
-    rng = random.Random(seed)  # ruff: ignore[suspicious-non-cryptographic-random-usage] -- synthetic data, not a secret
+    draw = Draw(seed)
     parties = [UUID(int=100 + index) for index in range(3)]
     relationships = [UUID(int=200 + index) for index in range(3)]
     accounts = [
@@ -187,18 +189,22 @@ def stream(n: int, *, seed: int) -> list[EnrichedTransaction]:
     at = STREAM_START
     stream: list[EnrichedTransaction] = []
     for number in range(n):
-        at += timedelta(hours=rng.randint(1, 9))
-        who = rng.randrange(3)
-        rail, instrument, direction = rng.choice(_SHAPES)
-        currency = "USD" if rng.random() < 0.3 else "MXN"
-        amount_minor = rng.randrange(10_000, 20_000_000)
-        if rng.random() < 0.2:
+        at += timedelta(hours=draw.randrange(1, 10))
+        who = draw.below(3)
+        rail, instrument, direction = _SHAPES[draw.below(len(_SHAPES))]
+        currency = "USD" if draw.below(10) < 3 else "MXN"
+        amount_minor = draw.randrange(10_000, 20_000_000)
+        if draw.below(10) < 2:
             amount_minor -= amount_minor % 100_000
             amount_minor = max(amount_minor, 100_000)
         pesos = Decimal(amount_minor) / 100
         if currency == "USD":
             pesos *= _PER_UNIT["USD"]
-        counterparty = rng.choice(_COUNTERPARTIES) if rng.random() < 0.8 else None
+        counterparty = (
+            _COUNTERPARTIES[draw.below(len(_COUNTERPARTIES))]
+            if draw.below(10) < 8
+            else None
+        )
         crypto = instrument is Instrument.CRYPTO
         stream.append(
             EnrichedTransaction(
@@ -208,16 +214,16 @@ def stream(n: int, *, seed: int) -> list[EnrichedTransaction]:
                 received_at=at + timedelta(minutes=1),
                 party_id=parties[who],
                 relationship_id=relationships[who],
-                account_id=rng.choice(accounts[who]),
+                account_id=accounts[who][draw.below(2)],
                 product="EMONEY",
                 direction=direction,
                 rail=rail,
                 instrument=instrument,
-                channel=rng.choice((Channel.APP, Channel.WEB, Channel.BRANCH)),
+                channel=_CHANNELS[draw.below(len(_CHANNELS))],
                 amount_minor=amount_minor,
                 currency=currency,
-                fee_minor=rng.randrange(0, 5_000) if crypto else None,
-                asset_qty=Decimal(rng.randrange(1, 10**6)) / 10**4 if crypto else None,
+                fee_minor=draw.randrange(0, 5_000) if crypto else None,
+                asset_qty=Decimal(draw.randrange(1, 10**6)) / 10**4 if crypto else None,
                 asset_code="BTC" if crypto else None,
                 unit_amounts=_unit_amounts(pesos, at.astimezone(_MEXICO_CITY).date()),
                 counterparty_id=None if counterparty is None else UUID(int=500),
@@ -228,11 +234,13 @@ def stream(n: int, *, seed: int) -> list[EnrichedTransaction]:
                     if counterparty is None
                     else CounterpartyScreeningStatus.UNSCREENED
                 ),
-                device_key=rng.choice(_DEVICES) if rng.random() < 0.7 else None,
+                device_key=_DEVICES[draw.below(len(_DEVICES))]
+                if draw.below(10) < 7
+                else None,
                 geo_country="MX",
-                geo_admin_area=rng.choice(("CMX", "JAL", "BCN")),
+                geo_admin_area=_AREAS[draw.below(len(_AREAS))],
                 crypto=(
-                    {"network": "bitcoin", "self_custody": rng.random() < 0.5}
+                    {"network": "bitcoin", "self_custody": draw.below(2) == 0}
                     if crypto
                     else None
                 ),

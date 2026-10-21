@@ -27,6 +27,15 @@ from xolotl.modules.monitoring.enums import BucketKind
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
 
 
+class AccumulatorSplitError(RuntimeError):
+    """A late row would open an accumulator a later one cannot join.
+
+    The later accumulator holds an operation past the new window's end, so moving
+    the window earlier would split it; the declaration must be rebuilt in
+    ``occurred_at`` order by its backfill.
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class AggregateKey:
     """What an aggregate is kept per: ``AggregateKey(kind, txn.key_for(kind))``."""

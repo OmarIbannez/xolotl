@@ -1,9 +1,10 @@
 """The Postgres store, distinct members, completeness and declarations (§8.1-§8.4)."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from tests.helpers import new_tenant, system_ctx
@@ -11,19 +12,27 @@ from tests.modules.monitoring.aggregates import scenarios
 from tests.modules.monitoring.support import declare
 from xolotl.modules.monitoring.aggregates.declarations import (
     AggregateFunction,
+    Measure,
     WindowKind,
 )
 from xolotl.modules.monitoring.aggregates.memory import MemoryAggregateStore
-from xolotl.modules.monitoring.aggregates.models import AggDeclaration, AggDistinct
+from xolotl.modules.monitoring.aggregates.models import (
+    AggBucket,
+    AggDeclaration,
+    AggDistinct,
+)
 from xolotl.modules.monitoring.aggregates.postgres import (
     AGG_BACKFILL_KIND,
     PostgresAggregateStore,
+    backfilled_ids,
     ensure_declarations,
     load_declarations,
 )
+from xolotl.modules.monitoring.aggregates.store import AccumulatorSplitError
 from xolotl.modules.monitoring.enums import BucketKind
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.db import tenant_session
+from xolotl.platform.enums import JobStatus
 from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import PostgresJobQueue
 
@@ -32,8 +41,15 @@ def _complete(s: Session) -> PostgresAggregateStore:
     return PostgresAggregateStore(s, complete_ids=_ALL_IDS)
 
 
+_ACCUM_DISTINCT = replace(
+    scenarios.ACCUM_SUM,
+    name="accum_counterparties",
+    function=AggregateFunction.DISTINCT_COUNT,
+    measure=Measure.ONE,
+    distinct_of="COUNTERPARTY",
+)
 _ALL_IDS = {scenarios.declaration(f).agg_id() for f in AggregateFunction} | {
-    scenarios.ACCUM.agg_id()
+    d.agg_id() for d in (scenarios.ACCUM, scenarios.ACCUM_SUM, _ACCUM_DISTINCT)
 }
 
 
@@ -50,6 +66,63 @@ def test_a_transaction_outside_the_filter_does_not_contribute(s: Session):
 
 def test_accumulators_open_and_close_per_key(s: Session):
     assert scenarios.accumulators(_complete(s)) == scenarios.ACCUM_EXPECTED
+
+
+def test_a_late_row_starts_the_accumulator_earlier(s: Session):
+    assert scenarios.late_accumulator(_complete(s)) == scenarios.LATE_EXPECTED
+    starts = s.scalars(select(AggBucket.bucket_start)).all()
+    assert starts == [datetime(2026, 7, 10, 6, tzinfo=UTC)]
+
+
+def test_a_late_row_moves_the_distinct_members_with_the_window(s: Session):
+    store = _complete(s)
+    for at, counterparty in (
+        (datetime(2026, 7, 14, 18, tzinfo=UTC), scenarios.C1),
+        (datetime(2026, 7, 15, 18, tzinfo=UTC), scenarios.C2),
+        (scenarios.LATE_FIRST, scenarios.C1),
+    ):
+        store.add(
+            scenarios.txn(at, 100, counterparty_key=counterparty), [_ACCUM_DISTINCT]
+        )
+    read = store.accumulator_read(
+        scenarios.KEY, _ACCUM_DISTINCT, at=scenarios.LATE_FIRST
+    )
+    assert (read.count, read.distinct) == (3, 2)
+    stored = s.scalars(select(AggDistinct.bucket_start)).all()
+    assert stored == [datetime(2026, 7, 10, 6, tzinfo=UTC)] * 2
+
+
+def test_an_accumulator_a_late_row_cannot_join_is_rebuilt(
+    s: Session, queue: PostgresJobQueue
+):
+    agg_id = declare(s, scenarios.ACCUM_SUM, queue=queue)
+    _ = s.execute(update(JobRow).values(status=JobStatus.DONE))
+    store = PostgresAggregateStore(s, complete_ids=backfilled_ids(s), queue=queue)
+    scenarios.split_accumulator(store)
+    assert backfilled_ids(s) == frozenset()
+    read = store.accumulator_read(
+        scenarios.KEY, scenarios.ACCUM_SUM, at=scenarios.LATE_FIRST
+    )
+    assert read.complete is False
+    pending = s.scalars(
+        select(JobRow.key).where(
+            JobRow.kind == AGG_BACKFILL_KIND, JobRow.status == JobStatus.PENDING
+        )
+    ).all()
+    assert pending == [f"agg_backfill:{agg_id}"]
+
+
+def test_a_store_without_a_queue_refuses_to_split_an_accumulator(s: Session):
+    with pytest.raises(AccumulatorSplitError, match="split"):
+        scenarios.split_accumulator(_complete(s))
+
+
+def test_backfilled_ids_names_the_declarations_whose_backfill_ran(
+    s: Session, queue: PostgresJobQueue
+):
+    done = declare(s, scenarios.ACCUM_SUM, queue=queue)
+    _ = ensure_declarations(s, [scenarios.ACCUM], queue=queue)
+    assert backfilled_ids(s) == frozenset({done})
 
 
 def test_distinct_members_are_hmacs_not_values(s: Session):

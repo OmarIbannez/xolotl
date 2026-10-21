@@ -411,6 +411,8 @@ Migration 0014: `rail_setting`, `txn_decision` (`PARTITION BY RANGE (decided_at)
 
 Depends on **C4**, on 4a (A3 `TransactionInput`, `parse_item`; A4 `relationship_by_external_ref`, `find_account`, `ingest_batch`, `dedup_hash_of`, `status_by_dedup_hash`, `publish_monitoring_event`; A6 `enrich_input`, `snapshot_for`, `policy_date`; A7 `PostgresAggregateStore.buckets`, `MemoryAggregateStore.seed`, `window_bounds`, `load_declarations`) and on 4b (**B7**: `active_rules`, `RuleSet.sync_rules`, `RuleSet.ruleset_hash()`, `reader_for`, `profile_for`, `notice_tier_limit`, `NoticeSource.DECIDE`, `LIMIT_CODE_MONTHLY_OPS`; B2 `evaluate`, `EvalContext`, `Firing`, `HitOutcome`, `INCOMPLETE`; B1 `RuleKind.TIER_LIMIT`, `Severity.CRITICAL`, `load_jurisdictions`; **B12**: `HitDetail` and `routes_hits.py`, which this task extends with `decision`). Touches A4's `txn/ingest.py` and B12's hit detail. Console: no.
 
+Note from A7: build the memory store's `incomplete_ids` as `{d.agg_id() for d in declarations} - backfilled_ids(s)` (`aggregates/postgres.py`, `backfilled_ids(session) -> frozenset[str]`: the `agg_id`s whose `backfilled_through` is set), so a declaration with no `agg_declaration` row yet reads incomplete too.
+
 **Files:**
 - Create: `src/xolotl/modules/monitoring/decide/{service,linkage,views}.py`
 - Modify: `routes_decide.py` (two routes), `monitoring/schemas.py` (`DecideResponse`, `DecisionReason`, `DecisionClientResponse`, `DecisionStaffResponse`, `DecisionSummary`; `HitDetail.decision`), `monitoring/events.py` (`DECISION_ISSUED`, appended to A4's `STAFF_ONLY_EVENT_TYPES`), `monitoring/txn/ingest.py` (A4; `link_decisions` between steps 2 and 4), `monitoring/routes_hits.py` (B12; fills `HitDetail.decision`)

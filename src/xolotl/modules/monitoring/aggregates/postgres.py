@@ -7,16 +7,24 @@ rolls back with the row that carries it. ``agg_declaration`` holds every
 declaration processing maintains; ``ensure_declarations`` is its only writer and
 enqueues the backfill of each new one, and until that backfill sets
 ``backfilled_through`` every read of the declaration is incomplete.
+
+A late row that opens an accumulator before a key's open one moves that window
+earlier (spec §10.5): the later bucket and its members are folded into the new
+one. When the later bucket already holds an operation past the new window's end
+(only a backfilled row more than ``monitoring_late_days`` late can do that), the
+store cannot split it: it sets ``backfilled_through`` back to NULL and enqueues
+the declaration's backfill, which rebuilds its buckets in ``occurred_at`` order.
 """
 
 import json
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import replace
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import DateTime, delete, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -31,6 +39,7 @@ from xolotl.modules.monitoring.aggregates.models import (
     AggDistinct,
 )
 from xolotl.modules.monitoring.aggregates.store import (
+    AccumulatorSplitError,
     AggregateKey,
     AggregateValue,
     BucketRow,
@@ -79,16 +88,23 @@ class PostgresAggregateStore:
     """The tenant's aggregates in ``agg_bucket`` and ``agg_distinct``.
 
     ``complete_ids`` fixes which declarations read as complete; when None, each
-    read looks up its declaration's ``backfilled_through``.
+    read looks up its declaration's ``backfilled_through``. ``queue`` enqueues
+    the backfill of a declaration whose accumulator a late row cannot split;
+    without one such a row raises ``AccumulatorSplitError``.
     """
 
     def __init__(
-        self, session: Session, *, complete_ids: Collection[str] | None = None
+        self,
+        session: Session,
+        *,
+        complete_ids: Collection[str] | None = None,
+        queue: PostgresJobQueue | None = None,
     ) -> None:
         self._s: Session = session
         self._complete: frozenset[str] | None = (
             None if complete_ids is None else frozenset(complete_ids)
         )
+        self._queue: PostgresJobQueue | None = queue
 
     def _tenant(self) -> UUID:
         return bound_context(self._s).require_tenant_id()
@@ -115,6 +131,105 @@ class PostgresAggregateStore:
             .limit(1)
         ).first()
 
+    def _later_accumulator(
+        self, key: AggregateKey, agg_id: str, start: datetime, end: datetime
+    ) -> AggBucket | None:
+        return self._s.scalars(
+            select(AggBucket)
+            .where(
+                AggBucket.key_kind == key.kind,
+                AggBucket.key == key.key,
+                AggBucket.agg_id == agg_id,
+                AggBucket.bucket_kind == BucketKind.ACCUM,
+                AggBucket.bucket_start > start,
+                AggBucket.bucket_start < end,
+            )
+            .order_by(AggBucket.bucket_start)
+            .limit(1)
+        ).first()
+
+    def _move_earlier(
+        self, key: AggregateKey, agg_id: str, start: datetime, end: datetime
+    ) -> None:
+        """Fold a later accumulator into the one a late row opens at ``start``.
+
+        A later accumulator with an operation at or after ``end`` cannot join the
+        new window, so the declaration is rebuilt instead.
+        """
+        later = self._later_accumulator(key, agg_id, start, end)
+        if later is None:
+            return
+        if later.last_at is None or later.last_at >= end:
+            self._rebuild(agg_id)
+            return
+        old_start = later.bucket_start
+        self._accumulate(
+            key,
+            agg_id,
+            replace(_row(later, frozenset()), bucket_start=start, bucket_end=end),
+        )
+        old = (
+            AggDistinct.key_kind == key.kind,
+            AggDistinct.key == key.key,
+            AggDistinct.agg_id == agg_id,
+            AggDistinct.bucket_start == old_start,
+        )
+        _ = self._s.execute(
+            insert(AggDistinct)
+            .from_select(
+                [
+                    "tenant_id",
+                    "key_kind",
+                    "key",
+                    "agg_id",
+                    "bucket_start",
+                    "member_hash",
+                ],
+                select(
+                    AggDistinct.tenant_id,
+                    AggDistinct.key_kind,
+                    AggDistinct.key,
+                    AggDistinct.agg_id,
+                    literal(start, DateTime(timezone=True)),
+                    AggDistinct.member_hash,
+                ).where(*old),
+            )
+            .on_conflict_do_nothing()
+        )
+        _ = self._s.execute(delete(AggDistinct).where(*old))
+        _ = self._s.execute(
+            delete(AggBucket).where(
+                AggBucket.key_kind == key.kind,
+                AggBucket.key == key.key,
+                AggBucket.agg_id == agg_id,
+                AggBucket.bucket_start == old_start,
+            )
+        )
+
+    def _rebuild(self, agg_id: str) -> None:
+        """Mark the declaration incomplete and enqueue its backfill.
+
+        Raises:
+            AccumulatorSplitError: When the store has no queue to enqueue it with.
+
+        """
+        if self._queue is None:
+            msg = f"aggregate {agg_id}: a late row would split an accumulator"
+            raise AccumulatorSplitError(msg)
+        _ = self._s.execute(
+            update(AggDeclaration)
+            .where(AggDeclaration.agg_id == agg_id)
+            .values(backfilled_through=None)
+        )
+        _ = self._queue.enqueue(
+            self._s,
+            kind=AGG_BACKFILL_KIND,
+            payload={"agg_id": agg_id},
+            key=f"agg_backfill:{agg_id}",
+        )
+        if self._complete is not None:
+            self._complete -= {agg_id}
+
     def _upsert(self, contribution: Contribution, at: datetime) -> None:
         key, agg_id = contribution.key, contribution.agg_id
         end: datetime | None = None
@@ -122,47 +237,33 @@ class PostgresAggregateStore:
             open_bucket = self._accumulator(key, agg_id, at)
             if open_bucket is None:
                 start, end = accum_window(at, contribution.declaration.window)
+                self._move_earlier(key, agg_id, start, end)
             else:
                 start, end = open_bucket.bucket_start, open_bucket.bucket_end
         else:
             start = bucket_start_for(contribution.bucket_kind, at)
-        tenant_id = self._tenant()
         measure = contribution.measure
-        statement = insert(AggBucket).values(
-            tenant_id=tenant_id,
-            key_kind=key.kind,
-            key=key.key,
-            agg_id=agg_id,
-            bucket_start=start,
-            bucket_kind=contribution.bucket_kind,
-            bucket_end=end,
-            value=measure,
-            count=1,
-            max_value=measure,
-            min_value=measure,
-            first_at=at,
-            last_at=at,
-        )
-        new = statement.excluded
-        _ = self._s.execute(
-            statement.on_conflict_do_update(
-                index_elements=_BUCKET_KEY,
-                set_={
-                    "value": AggBucket.value + new.value,
-                    "count": AggBucket.count + 1,
-                    "max_value": func.greatest(AggBucket.max_value, new.max_value),
-                    "min_value": func.least(AggBucket.min_value, new.min_value),
-                    "first_at": func.least(AggBucket.first_at, new.first_at),
-                    "last_at": func.greatest(AggBucket.last_at, new.last_at),
-                    "updated_at": func.now(),
-                },
-            )
+        self._accumulate(
+            key,
+            agg_id,
+            BucketRow(
+                bucket_kind=contribution.bucket_kind,
+                bucket_start=start,
+                bucket_end=end,
+                value=measure,
+                count=1,
+                max_value=measure,
+                min_value=measure,
+                first_at=at,
+                last_at=at,
+                members=frozenset(),
+            ),
         )
         if contribution.member is not None:
             _ = self._s.execute(
                 insert(AggDistinct)
                 .values(
-                    tenant_id=tenant_id,
+                    tenant_id=self._tenant(),
                     key_kind=key.kind,
                     key=key.key,
                     agg_id=agg_id,
@@ -171,6 +272,39 @@ class PostgresAggregateStore:
                 )
                 .on_conflict_do_nothing()
             )
+
+    def _accumulate(self, key: AggregateKey, agg_id: str, row: BucketRow) -> None:
+        """Insert ``row`` as a bucket of ``key``, or fold it into the one there."""
+        statement = insert(AggBucket).values(
+            tenant_id=self._tenant(),
+            key_kind=key.kind,
+            key=key.key,
+            agg_id=agg_id,
+            bucket_start=row.bucket_start,
+            bucket_kind=row.bucket_kind,
+            bucket_end=row.bucket_end,
+            value=row.value,
+            count=row.count,
+            max_value=row.max_value,
+            min_value=row.min_value,
+            first_at=row.first_at,
+            last_at=row.last_at,
+        )
+        new = statement.excluded
+        _ = self._s.execute(
+            statement.on_conflict_do_update(
+                index_elements=_BUCKET_KEY,
+                set_={
+                    "value": AggBucket.value + new.value,
+                    "count": AggBucket.count + new.count,
+                    "max_value": func.greatest(AggBucket.max_value, new.max_value),
+                    "min_value": func.least(AggBucket.min_value, new.min_value),
+                    "first_at": func.least(AggBucket.first_at, new.first_at),
+                    "last_at": func.greatest(AggBucket.last_at, new.last_at),
+                    "updated_at": func.now(),
+                },
+            )
+        )
 
     def add(
         self, txn: EnrichedTransaction, declarations: Sequence[AggregateDeclaration]
@@ -333,6 +467,26 @@ def load_declarations(session: Session) -> list[AggregateDeclaration]:
         )
         for row in rows
     ]
+
+
+def backfilled_ids(session: Session) -> frozenset[str]:
+    """Name the declarations whose backfill has run.
+
+    The decide path reads every other declaration as incomplete
+    (``incomplete_ids``), and processing passes this set as ``complete_ids`` once
+    per drain instead of a lookup per read.
+
+    Returns:
+        The ``agg_id`` of every declaration whose ``backfilled_through`` is set.
+
+    """
+    return frozenset(
+        session.scalars(
+            select(AggDeclaration.agg_id).where(
+                AggDeclaration.backfilled_through.is_not(None)
+            )
+        )
+    )
 
 
 def ensure_declarations(

@@ -40,6 +40,9 @@ _HOURS_PER_MONTH = 30 * _HOURS_PER_DAY
 # The longest window an aggregate keeps (spec §8.2): six months.
 MAX_WINDOW_HOURS = 6 * _HOURS_PER_MONTH
 ACCUM_WINDOW = "P6M"
+# The keys one party's processing lease serialises: an ACCUM bucket is chosen by a
+# read before its insert, which is safe only when no other drain writes the key.
+_ACCUM_KEY_KINDS = frozenset({KeyKind.PARTY, KeyKind.RELATIONSHIP, KeyKind.ACCOUNT})
 _CENTS_PER_UNIT = 100
 
 type DistinctOf = Literal["COUNTERPARTY", "DEVICE", "COUNTRY", "ACCOUNT"]
@@ -209,8 +212,10 @@ class AggregateDeclaration:
         Raises:
             ValueError: When ``UNIT_AMOUNT`` has no ``unit_key``, ``DISTINCT_COUNT``
                 no ``distinct_of``, a band no ``amount_unit_key``, a ``DURATION``
-                window is not between ``PT1H`` and ``P6M``, an ``ACCUM`` window is
-                not ``P6M`` or a ``MONTH`` or ``QUARTER`` window is not its kind.
+                window is not between ``PT1H`` and ``P6M`` or mixes months with
+                days or hours, an ``ACCUM`` window is not ``P6M`` or is kept per a
+                key one party's drain does not serialise, or a ``MONTH`` or
+                ``QUARTER`` window is not its kind.
 
         """
         problem = _problem(self)
@@ -222,9 +227,14 @@ class AggregateDeclaration:
 def _window_problem(window_kind: WindowKind, window: str) -> str | None:
     match window_kind:
         case WindowKind.DURATION:
+            parts = window_parts(window)
             hours = window_hours(window)
             if hours is None or not 1 <= hours <= MAX_WINDOW_HOURS:
                 return f"a DURATION window runs from PT1H to P6M, not {window!r}"
+            months, days, part_hours = parts or (0, 0, 0)
+            if months and (days or part_hours):
+                return f"a DURATION window counts months or days, not {window!r}"
+
         case WindowKind.ACCUM:
             if window != ACCUM_WINDOW:
                 return f"an ACCUM window is {ACCUM_WINDOW}, not {window!r}"
@@ -250,6 +260,11 @@ def _problem(declaration: AggregateDeclaration) -> str | None:
         (
             band and where.amount_unit_key is None,
             "an amount band needs amount_unit_key",
+        ),
+        (
+            declaration.window_kind is WindowKind.ACCUM
+            and declaration.key_kind not in _ACCUM_KEY_KINDS,
+            "an ACCUM window is kept per PARTY, RELATIONSHIP or ACCOUNT",
         ),
     )
     found = next((problem for failed, problem in problems if failed), None)

@@ -175,3 +175,69 @@ ACCUM_EXPECTED = [
     (1, datetime(2026, 7, 15, 12, 0, tzinfo=UTC)),
     (1, datetime(2026, 3, 1, 12, 0, tzinfo=UTC)),
 ]
+
+
+ACCUM_SUM = AggregateDeclaration(
+    name="accum_sum",
+    function=AggregateFunction.SUM,
+    measure=Measure.AMOUNT_MINOR,
+    unit_key=None,
+    key_kind=KeyKind.PARTY,
+    window_kind=WindowKind.ACCUM,
+    window="P6M",
+)
+LATE_FIRST = datetime(2026, 7, 10, 18, 0, tzinfo=UTC)
+
+
+def late_accumulator(
+    store: AggregateStore,
+) -> list[tuple[Decimal, int, datetime | None]]:
+    """Open an accumulator on 14 July, then add a late row of 10 July and 1 August.
+
+    The late row starts the window earlier (spec §10.5) instead of opening a second
+    accumulator, so the window runs from 10 July to 10 January.
+
+    Returns:
+        ``(value, count, first_at)`` of the reads at 1 August, 11 July and
+        9 January 2027 (still in the window) and 11 January 2027 (past it).
+
+    """
+    for at in (
+        datetime(2026, 7, 14, 18, 0, tzinfo=UTC),
+        datetime(2026, 7, 15, 18, 0, tzinfo=UTC),
+        LATE_FIRST,
+        datetime(2026, 8, 1, 18, 0, tzinfo=UTC),
+    ):
+        store.add(txn(at, 100), [ACCUM_SUM])
+    reads = [
+        store.accumulator_read(KEY, ACCUM_SUM, at=at)
+        for at in (
+            datetime(2026, 8, 1, 19, 0, tzinfo=UTC),
+            datetime(2026, 7, 11, tzinfo=UTC),
+            datetime(2027, 1, 9, tzinfo=UTC),
+            datetime(2027, 1, 11, tzinfo=UTC),
+        )
+    ]
+    return [(value.value, value.count, value.first_at) for value in reads]
+
+
+LATE_EXPECTED = [
+    (Decimal(400), 4, LATE_FIRST),
+    (Decimal(400), 4, LATE_FIRST),
+    (Decimal(400), 4, LATE_FIRST),
+    (Decimal(0), 0, None),
+]
+
+
+def split_accumulator(store: AggregateStore) -> None:
+    """Add rows on 14 July and 13 January, then a row of 1 July far behind them.
+
+    The 1 July row opens a window to 1 January that the 14 July accumulator,
+    holding the 13 January row, cannot join.
+    """
+    for at in (
+        datetime(2026, 7, 14, 18, 0, tzinfo=UTC),
+        datetime(2027, 1, 13, 18, 0, tzinfo=UTC),
+        datetime(2026, 7, 1, 18, 0, tzinfo=UTC),
+    ):
+        store.add(txn(at, 100), [ACCUM_SUM])

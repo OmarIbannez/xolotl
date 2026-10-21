@@ -97,9 +97,28 @@ _VALID = declaration(AggregateFunction.SUM)
         ({"function": AggregateFunction.DISTINCT_COUNT}, "distinct_of"),
         ({"window": "PT0H"}, "DURATION"),
         ({"window": "P7M"}, "DURATION"),
+        ({"window": "P5M30D"}, "months or days"),
+        ({"window": "P1MT1H"}, "months or days"),
+        ({"window": "P6M1D"}, "DURATION"),
         ({"window": "P1Y"}, "DURATION"),
         ({"window": "MONTH"}, "DURATION"),
         ({"window_kind": WindowKind.ACCUM, "window": "P3M"}, "ACCUM"),
+        (
+            {
+                "window_kind": WindowKind.ACCUM,
+                "window": "P6M",
+                "key_kind": KeyKind.COUNTERPARTY,
+            },
+            "PARTY, RELATIONSHIP or ACCOUNT",
+        ),
+        (
+            {
+                "window_kind": WindowKind.ACCUM,
+                "window": "P6M",
+                "key_kind": KeyKind.DEVICE,
+            },
+            "PARTY, RELATIONSHIP or ACCOUNT",
+        ),
         ({"window_kind": WindowKind.MONTH, "window": "QUARTER"}, "MONTH"),
         ({"window_kind": WindowKind.QUARTER, "window": "P3M"}, "QUARTER"),
         ({"where": TxnFilter(amount_gte=Decimal(1))}, "amount_unit_key"),

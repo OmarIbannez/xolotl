@@ -83,15 +83,31 @@ def _grown(
 
 
 def _accumulator(series: _Series, at: datetime) -> BucketRow | None:
-    for row in series.values():
-        end = row.bucket_end
-        if (
-            row.bucket_kind is BucketKind.ACCUM
-            and end is not None
-            and row.bucket_start <= at < end
-        ):
-            return row
-    return None
+    # The latest accumulator holding ``at``, as Postgres orders it; two overlap only
+    # after a split that marked the declaration incomplete.
+    held = [
+        row
+        for row in series.values()
+        if row.bucket_kind is BucketKind.ACCUM
+        and row.bucket_end is not None
+        and row.bucket_start <= at < row.bucket_end
+    ]
+    if not held:
+        return None
+    return max(held, key=lambda row: row.bucket_start)
+
+
+def _later_accumulator(
+    series: _Series, start: datetime, end: datetime
+) -> BucketRow | None:
+    return next(
+        (
+            row
+            for row in series.values()
+            if row.bucket_kind is BucketKind.ACCUM and start < row.bucket_start < end
+        ),
+        None,
+    )
 
 
 class MemoryAggregateStore:
@@ -137,6 +153,7 @@ class MemoryAggregateStore:
                 open_row = _accumulator(series, at)
                 if open_row is None:
                     start, end = accum_window(at, contribution.declaration.window)
+                    self._move_earlier(series, contribution.agg_id, start, end)
                 else:
                     start, end = open_row.bucket_start, open_row.bucket_end
             else:
@@ -150,6 +167,24 @@ class MemoryAggregateStore:
                 at=at,
                 member=None if member is None else self._member_hash(member),
             )
+
+    def _move_earlier(
+        self, series: _Series, agg_id: str, start: datetime, end: datetime
+    ) -> None:
+        """Start a later accumulator at ``start`` when a late row opens one before it.
+
+        A later accumulator whose operations all fall before ``end`` joins the new
+        window (spec §10.5: the window starts earlier). One with an operation at or
+        after ``end`` cannot be split here, so the declaration reads incomplete.
+        """
+        later = _later_accumulator(series, start, end)
+        if later is None:
+            return
+        if later.last_at is not None and later.last_at < end:
+            del series[later.bucket_start]
+            series[start] = replace(later, bucket_start=start, bucket_end=end)
+            return
+        self._incomplete |= {agg_id}
 
     def _value(
         self, declaration: AggregateDeclaration, rows: list[BucketRow]

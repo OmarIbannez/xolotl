@@ -32,3 +32,21 @@ def test_incomplete_ids_mark_reads_incomplete():
         MemoryAggregateStore().read(scenarios.KEY, declared, at=scenarios.READ_AT)
         == EMPTY
     )
+
+
+def test_a_late_row_starts_the_accumulator_earlier():
+    store = MemoryAggregateStore()
+    assert scenarios.late_accumulator(store) == scenarios.LATE_EXPECTED
+    read = store.accumulator_read(
+        scenarios.KEY, scenarios.ACCUM_SUM, at=scenarios.LATE_FIRST
+    )
+    assert read.complete is True
+
+
+def test_an_accumulator_a_late_row_cannot_join_reads_incomplete():
+    store = MemoryAggregateStore()
+    scenarios.split_accumulator(store)
+    read = store.accumulator_read(
+        scenarios.KEY, scenarios.ACCUM_SUM, at=scenarios.LATE_FIRST
+    )
+    assert read.complete is False

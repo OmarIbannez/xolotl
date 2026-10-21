@@ -26,9 +26,9 @@ from xolotl.platform.policy.durations import add_iso_duration
 
 HOUR_MAX = "P7D"
 DAY_MAX = "P6M"
-# The platform calendar's zone, named here because the pure core may not import
-# xolotl.platform.calendar.
-_MEXICO_CITY = ZoneInfo("America/Mexico_City")
+# The platform calendar's zone (xolotl.platform.calendar.MEXICO_CITY), named here
+# because the pure core may not import xolotl.platform.calendar; a test pins them.
+MEXICO_CITY_ZONE = ZoneInfo("America/Mexico_City")
 _MONTHS_PER_QUARTER = 3
 _MONTH_KEY = re.compile(r"^(\d{4})-(\d{2})$")
 _QUARTER_KEY = re.compile(r"^(\d{4})-Q([1-4])$")
@@ -71,7 +71,7 @@ def _hours(window: str) -> int:
 
 
 def _mexico_start(day: date) -> datetime:
-    return datetime.combine(day, time(), tzinfo=_MEXICO_CITY).astimezone(UTC)
+    return datetime.combine(day, time(), tzinfo=MEXICO_CITY_ZONE).astimezone(UTC)
 
 
 def bucket_start_for(kind: BucketKind, at: datetime) -> datetime:
@@ -90,7 +90,7 @@ def bucket_start_for(kind: BucketKind, at: datetime) -> datetime:
         case BucketKind.DAY:
             return at.replace(hour=0, minute=0, second=0, microsecond=0)
         case BucketKind.MONTH | BucketKind.QUARTER | BucketKind.ACCUM:
-            local = at.astimezone(_MEXICO_CITY).date()
+            local = at.astimezone(MEXICO_CITY_ZONE).date()
             if kind is BucketKind.ACCUM:
                 return _mexico_start(local)
             month = local.month
@@ -167,5 +167,5 @@ def accum_window(first_at: datetime, window: str) -> tuple[datetime, datetime]:
         both in UTC.
 
     """
-    day = first_at.astimezone(_MEXICO_CITY).date()
+    day = first_at.astimezone(MEXICO_CITY_ZONE).date()
     return _mexico_start(day), _mexico_start(add_iso_duration(day, window))

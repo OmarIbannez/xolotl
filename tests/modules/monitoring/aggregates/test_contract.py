@@ -126,6 +126,15 @@ DECLARATIONS = (
         "P14D",
         where=TxnFilter(rail=frozenset({Rail.SWIFT}), cross_border=True),
     ),
+    _declared(
+        "devices_accum",
+        AggregateFunction.DISTINCT_COUNT,
+        Measure.ONE,
+        KeyKind.ACCOUNT,
+        WindowKind.ACCUM,
+        "P6M",
+        distinct_of="DEVICE",
+    ),
 )
 
 
@@ -167,14 +176,8 @@ def _reads(
     return values
 
 
-def test_postgres_and_memory_stores_agree_on_a_replayed_stream(s: Session):
-    rows = stream(300, seed=4)
-    memory = MemoryAggregateStore()
-    postgres = PostgresAggregateStore(s, complete_ids=())
-    for txn in rows:
-        memory.add(txn, DECLARATIONS)
-        postgres.add(txn, DECLARATIONS)
-    keys = sorted(
+def _keys(rows: list[EnrichedTransaction]) -> list[AggregateKey]:
+    return sorted(
         {
             AggregateKey(kind, key)
             for txn in rows
@@ -183,6 +186,16 @@ def test_postgres_and_memory_stores_agree_on_a_replayed_stream(s: Session):
         },
         key=lambda k: (k.kind, k.key),
     )
+
+
+def test_postgres_and_memory_stores_agree_on_a_replayed_stream(s: Session):
+    rows = stream(300, seed=4)
+    memory = MemoryAggregateStore()
+    postgres = PostgresAggregateStore(s, complete_ids=())
+    for txn in rows:
+        memory.add(txn, DECLARATIONS)
+        postgres.add(txn, DECLARATIONS)
+    keys = _keys(rows)
     assert {k.kind for k in keys} == set(KeyKind)
     from_memory = [_strip(v) for v in _reads(memory, keys, rows)]
     from_postgres = [_strip(v) for v in _reads(postgres, keys, rows)]
@@ -196,6 +209,37 @@ def test_postgres_and_memory_stores_agree_on_a_replayed_stream(s: Session):
             for key in keys
             if key.kind is declaration.key_kind
         ), declaration.name
+
+
+def test_both_stores_read_late_rows_as_if_they_had_come_in_order(s: Session):
+    rows = stream(300, seed=4)
+    # The first six rows arrive after the next fourteen (about four days later,
+    # inside the late rule), so each key's first accumulator is opened by a later
+    # row and must move earlier when the late one arrives (spec §10.5).
+    late = rows[6:20] + rows[:6] + rows[20:]
+    assert late[0].occurred_at > late[14].occurred_at
+    in_order = MemoryAggregateStore()
+    memory = MemoryAggregateStore()
+    postgres = PostgresAggregateStore(s, complete_ids=())
+    for txn in rows:
+        in_order.add(txn, DECLARATIONS)
+    for txn in late:
+        memory.add(txn, DECLARATIONS)
+        postgres.add(txn, DECLARATIONS)
+    keys = _keys(rows)
+    expected = [_strip(v) for v in _reads(in_order, keys, rows)]
+    assert [_strip(v) for v in _reads(memory, keys, rows)] == expected
+    assert [_strip(v) for v in _reads(postgres, keys, rows)] == expected
+    # Some accumulator does start at a late row.
+    delayed = {txn.occurred_at for txn in rows[:6]}
+    last = rows[-1].occurred_at
+    assert any(
+        memory.accumulator_read(key, d, at=last).first_at in delayed
+        for d in DECLARATIONS
+        if d.window_kind is WindowKind.ACCUM
+        for key in keys
+        if key.kind is d.key_kind
+    )
 
 
 def _strip(value: AggregateValue) -> AggregateValue:

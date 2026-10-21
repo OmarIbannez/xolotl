@@ -1,6 +1,7 @@
 """Bucket choice and window arithmetic (spec §8.2, §5.2 ``agg_bucket``)."""
 
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -11,6 +12,7 @@ from xolotl.modules.monitoring.aggregates.declarations import (
     WindowKind,
 )
 from xolotl.modules.monitoring.aggregates.windows import (
+    MEXICO_CITY_ZONE,
     accum_window,
     bucket_kind_for,
     bucket_start_for,
@@ -19,6 +21,7 @@ from xolotl.modules.monitoring.aggregates.windows import (
 )
 from xolotl.modules.monitoring.enums import BucketKind
 from xolotl.modules.monitoring.txn.schema import KeyKind
+from xolotl.platform.calendar import MEXICO_CITY
 
 
 def _declared(window_kind: WindowKind, window: str) -> AggregateDeclaration:
@@ -111,3 +114,21 @@ def test_period_bucket_start_and_accum_window():
 def test_a_period_key_of_another_kind_is_refused(kind: BucketKind, period_key: str):
     with pytest.raises(ValueError, match="period key"):
         _ = period_bucket_start(kind, period_key)
+
+
+def test_the_zone_is_the_platform_calendars():
+    assert ZoneInfo(MEXICO_CITY) == MEXICO_CITY_ZONE
+    assert MEXICO_CITY_ZONE.key == MEXICO_CITY
+
+
+def test_a_month_bucket_starts_at_mexico_city_midnight():
+    at = datetime(2026, 7, 15, 12, tzinfo=UTC)
+    assert bucket_start_for(BucketKind.MONTH, at) == datetime(2026, 7, 1, 6, tzinfo=UTC)
+
+
+def test_an_accumulator_opened_on_a_month_end_clamps_to_the_last_day():
+    # 31 August plus six months is 28 February: 2027 has no 29th.
+    assert accum_window(datetime(2026, 8, 31, 18, tzinfo=UTC), "P6M") == (
+        datetime(2026, 8, 31, 6, tzinfo=UTC),
+        datetime(2027, 2, 28, 6, tzinfo=UTC),
+    )
