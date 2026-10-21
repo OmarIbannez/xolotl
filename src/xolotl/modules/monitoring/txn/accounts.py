@@ -3,7 +3,9 @@
 An item without ``account_ref`` books to the relationship's ``DEFAULT`` account,
 keyed ``default:<relationship_id>``. An ``account_ref`` is the client's own key,
 unique per tenant: the first item that names it binds it to its relationship, and
-naming it under another relationship later is a conflict.
+naming it under another relationship later is a conflict. A client's ref may not
+start with ``default:``, so it can never name another relationship's DEFAULT
+account.
 """
 
 from collections.abc import Collection
@@ -24,8 +26,11 @@ class AccountRefConflictError(Exception):
     """An ``account_ref`` is already bound to another relationship."""
 
 
+DEFAULT_REF_PREFIX = "default:"
+
+
 def _default_ref(relationship_id: UUID) -> str:
-    return f"default:{relationship_id}"
+    return f"{DEFAULT_REF_PREFIX}{relationship_id}"
 
 
 def account_key(relationship_id: UUID, account_ref: str | None) -> str:

@@ -218,6 +218,17 @@ def test_an_account_ref_of_another_customer_refuses_the_batch(
     ]
 
 
+def test_an_account_ref_shaped_like_a_default_key_is_refused(
+    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+):
+    other = add_customer(tenant, "cust-2")
+    with pytest.raises(BatchInvalidError) as caught:
+        _ = _ingest(tenant, [make_item(account_ref=f"default:{other.id}")], queue)
+    assert [(*error.loc, error.type) for error in caught.value.errors] == [
+        ("transactions", 0, "account_ref", "INVALID")
+    ]
+
+
 def test_an_old_transaction_is_backfill_and_not_enqueued(
     tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
 ):

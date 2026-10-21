@@ -52,6 +52,7 @@ from xolotl.modules.monitoring.events import (
 )
 from xolotl.modules.monitoring.process.enqueue import enqueue_processing
 from xolotl.modules.monitoring.txn.accounts import (
+    DEFAULT_REF_PREFIX,
     AccountRefConflictError,
     account_for,
     account_key,
@@ -139,6 +140,10 @@ def _relationships(
     )
     for index, (item, relationship) in enumerate(zip(items, found, strict=True)):
         if relationship is None or item.account_ref is None:
+            continue
+        if item.account_ref.startswith(DEFAULT_REF_PREFIX):
+            # Reserved for DEFAULT accounts: it would name another relationship's.
+            errors.append(_field_error(index, "account_ref", FieldErrorCode.INVALID))
             continue
         if owners.setdefault(item.account_ref, relationship.id) != relationship.id:
             errors.append(
