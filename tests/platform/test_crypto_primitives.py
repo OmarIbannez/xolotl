@@ -13,9 +13,11 @@ from uuid import UUID
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from sqlalchemy import Engine
 
-from tests.helpers import leaked, locals_report
+from tests.helpers import leaked, locals_report, new_tenant, system_ctx
 from xolotl.platform.crypto import primitives
+from xolotl.platform.crypto.blobs import open_blob, seal_blob
 from xolotl.platform.crypto.errors import (
     DecryptionError,
     KeyDestroyedError,
@@ -36,6 +38,7 @@ from xolotl.platform.crypto.primitives import (
     unwrap_dek,
     wrap_dek,
 )
+from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import KeyPurpose
 from xolotl.platform.errors import XolotlError
 
@@ -502,3 +505,29 @@ def test_tracebacks_that_capture_locals_show_masks_not_key_bytes(name: str):
     report = locals_report(FAILURES[name])
     assert leaked(report, *EVERY_KEY) == []
     assert "SecretBytes(***)" in report  # the key arguments are in the frames, masked
+
+
+# ---- sealed blobs (SP-04 spec 6.2) ---------------------------------------------------
+
+
+def test_seal_blob_round_trips_under_the_tenant_data_key(engine: Engine):
+    created = new_tenant()
+    data = b"external_id,amount\ntx-1,1500.00\n" * 100
+    with tenant_session(system_ctx(created.tenant_id)) as s:
+        sealed = seal_blob(s, created.tenant_id, data)
+        assert parse_header(sealed) == 1
+        assert b"tx-1" not in sealed
+        assert seal_blob(s, created.tenant_id, data) != sealed
+        assert open_blob(s, created.tenant_id, sealed) == data
+
+
+def test_a_blob_of_another_tenant_does_not_open(engine: Engine):
+    first = new_tenant()
+    second = new_tenant("beta", "admin@beta.mx")
+    with tenant_session(system_ctx(first.tenant_id)) as s:
+        sealed = seal_blob(s, first.tenant_id, b"private rows")
+    with (
+        pytest.raises(DecryptionError),
+        tenant_session(system_ctx(second.tenant_id)) as s,
+    ):
+        _ = open_blob(s, second.tenant_id, sealed)
