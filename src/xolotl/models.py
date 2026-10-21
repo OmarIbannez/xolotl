@@ -1,7 +1,8 @@
 """Imports every ORM model module so ``Base.metadata`` is complete.
 
 Alembic's env.py and the schema-sync test import this module. Each feature
-module adds its ``models`` import here when it creates its first table.
+module adds its ``models`` import here when it creates its first table; importing
+``platform.audit.partitions`` registers ``audit_event`` as a partitioned table.
 """
 
 from sqlalchemy import MetaData
@@ -13,6 +14,7 @@ from xolotl.modules.screening.review import models as screening_review_models
 from xolotl.modules.tenants import models as tenants_models
 from xolotl.platform.api import models as api_models
 from xolotl.platform.audit import models as audit_models
+from xolotl.platform.audit import partitions as audit_partitions
 from xolotl.platform.calendar import models as calendar_models
 from xolotl.platform.connectors import models as connectors_models
 from xolotl.platform.crypto import models as crypto_models
@@ -26,6 +28,7 @@ from xolotl.platform.workflows import models as workflows_models
 __all__ = [
     "api_models",
     "audit_models",
+    "audit_partitions",
     "calendar_models",
     "connectors_models",
     "crypto_models",

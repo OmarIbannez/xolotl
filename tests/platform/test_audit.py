@@ -448,7 +448,7 @@ def test_rows_in_the_default_partition_skip_their_month_only(
         logged = [
             (r.levelno, names[0] in r.getMessage())
             for r in caplog.records
-            if r.name == "xolotl.platform.audit.partitions"
+            if r.name == "xolotl.platform.partitions"
         ]
         assert logged == [(logging.ERROR, True)]
         migrate.upgrade()  # `db upgrade`, and so `serve`, carries on
