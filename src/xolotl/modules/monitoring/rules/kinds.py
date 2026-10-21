@@ -15,11 +15,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, Protocol, final, override
+from typing import TYPE_CHECKING, Literal, Protocol, final, override
 
 from xolotl.modules.monitoring.aggregates.declarations import (
     AggregateDeclaration,
-    AggregateFunction,
     Measure,
     WindowKind,
     matches,
@@ -46,7 +45,12 @@ from xolotl.modules.monitoring.txn.schema import (
     KeyKind,
 )
 from xolotl.platform.policy.jurisdictions import JurisdictionLists
-from xolotl.platform.policy.resolver import EffectivePolicy
+
+if TYPE_CHECKING:
+    # Only for the annotation: the resolver module loads sqlalchemy, which the
+    # pure evaluator never needs at runtime (the policy package's __init__ still
+    # loads it today, through the jurisdictions import).
+    from xolotl.platform.policy.resolver import EffectivePolicy
 
 # PROFILE_DEVIATION compares with history only from three months of it (§9.1),
 # and its trailing window holds six.
@@ -56,7 +60,14 @@ _TRAILING_MONTHS = 6
 # with six months of history (otherwise the customer is new, not dormant).
 _DORMANT_HISTORY_MONTHS = 6
 _MONTHS_PER_YEAR = 12
+# The declared profile is in MXN minor units (4c finding 12); the month-to-date
+# declarations sum MXN/SAME_DAY unit amounts, in pesos.
+_DECLARED_CURRENCY = "MXN"
+_MINOR_PER_MAJOR = Decimal(100)
 _LAST_SEEN = "last_seen"
+# VELOCITY's declarations, by the names the library's templates give them.
+_WINDOW_COUNT = "window_count"
+_WINDOW_SUM = "window_sum"
 
 
 @final
@@ -121,7 +132,7 @@ class EvalContext:
     txn: EnrichedTransaction
     aggregates: AggregateReader
     profile: EvalProfile
-    policy: EffectivePolicy
+    policy: "EffectivePolicy"
     lists: JurisdictionLists
     now: datetime
 
@@ -230,6 +241,9 @@ def _spelled(param: AnyParam) -> str:
 def _since(end: datetime, window: str) -> datetime:
     """Subtract a ``DURATION`` window from ``end``, months by the calendar.
 
+    This duplicates the calendar-month subtraction of the private
+    ``aggregates.windows._minus``; both should move to one shared public helper.
+
     Returns:
         ``end`` minus the window, in UTC.
 
@@ -274,14 +288,6 @@ def _holds(
             return left <= right
         case "LT":
             return left < right
-
-
-def _by_function(
-    definition: RuleDefinition, function: AggregateFunction
-) -> AggregateDeclaration | None:
-    return next(
-        (item for item in definition.aggregates if item.function is function), None
-    )
 
 
 def _threshold(
@@ -359,7 +365,10 @@ def _dormancy_holds(
     if declaration is None:
         return False
     # The last complete bucket before the rule's window, so the window's own
-    # operations (the reactivation itself) never count as earlier activity.
+    # operations (the reactivation itself) never count as earlier activity. The
+    # read ends at the start of the window's first DAY bucket, so activity between
+    # that UTC midnight and the window's start counts as neither earlier nor in the
+    # window; at DAY granularity that gap is accepted.
     before = bucket_start_for(bucket_kind_for(declaration), start)
     seen = reads.value(_LAST_SEEN, at=before - timedelta(microseconds=1))
     if seen is None:
@@ -394,13 +403,11 @@ def _velocity(
     start = _since(ctx.txn.occurred_at, window)
     if not _dormancy_holds(definition, ctx, reads, start):
         return None
-    counted = _by_function(definition, AggregateFunction.COUNT)
-    summed = _by_function(definition, AggregateFunction.SUM)
     fired = _count_or_sum(
         definition,
         reads,
-        count_of=None if counted is None else counted.name,
-        sum_of=None if summed is None else summed.name,
+        count_of=_WINDOW_COUNT,
+        sum_of=_WINDOW_SUM,
         total=_decimal(definition, "sum"),
     )
     return start if fired else None
@@ -435,14 +442,18 @@ def _against_declaration(
 ) -> bool:
     declared = ctx.profile.declared_profile
     ratio = _decimal(definition, "ratio")
-    if declared is None or ratio is None or declared.currency != ctx.txn.currency:
+    # Any transaction currency compares: its MXN/SAME_DAY amount is always present
+    # (spec Decision 19).
+    if declared is None or ratio is None or declared.currency != _DECLARED_CURRENCY:
         return False
     monthly = (
         declared.monthly_inflow_minor
         if ctx.txn.direction is Direction.IN
         else declared.monthly_outflow_minor
     )
-    return monthly is not None and monthly > 0 and mtd / monthly >= ratio
+    if monthly is None or monthly <= 0:
+        return False
+    return mtd / (Decimal(monthly) / _MINOR_PER_MAJOR) >= ratio
 
 
 def _against_history(

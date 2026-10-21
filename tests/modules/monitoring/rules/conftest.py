@@ -257,8 +257,8 @@ _EXTRA: dict[RuleKind, dict[str, Any]] = {
     },
     RuleKind.VELOCITY: {
         "aggregates": [
-            declaration("day_count", "COUNT", "P1D", measure="ONE"),
-            declaration("day_sum", "SUM", "P1D"),
+            declaration("window_count", "COUNT", "P1D", measure="ONE"),
+            declaration("window_sum", "SUM", "P1D"),
         ],
     },
     RuleKind.PROFILE_DEVIATION: {
@@ -267,8 +267,8 @@ _EXTRA: dict[RuleKind, dict[str, Any]] = {
                 name,
                 "SUM",
                 window,
-                measure="AMOUNT_MINOR",
                 window_kind=kind,
+                unit_key="MXN/SAME_DAY",
                 where={"direction": [direction]},
             )
             for name, window, kind, direction in (

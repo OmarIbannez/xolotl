@@ -88,6 +88,33 @@ def test_a_threshold_profile_gate_reads_the_profile() -> None:
     assert evaluate(pep, context(txn=small, who=profile(pep_status="FOREIGN"))) is None
 
 
+def test_the_profile_gates_hold_for_every_kind() -> None:
+    fired = {"near_count": value("3", count=3), "near_sum": value("5100", count=3)}
+    base = rule(RuleKind.STRUCTURING).params
+    screened = rule(
+        RuleKind.STRUCTURING,
+        params={
+            **{name: param.model_dump() for name, param in base.items()},
+            "party_screening_status": {
+                "value": "TRUE_MATCH",
+                "choices": ["TRUE_MATCH"],
+            },
+        },
+    )
+    matched = profile(party_screening_status="TRUE_MATCH")
+    assert evaluate(screened, context(fired, who=matched)) is not None
+    assert evaluate(screened, context(fired)) is None
+    pep = rule(
+        RuleKind.STRUCTURING,
+        params={
+            **{name: param.model_dump() for name, param in base.items()},
+            "pep_status_not": {"value": "NONE", "choices": ["NONE"]},
+        },
+    )
+    assert evaluate(pep, context(fired, who=profile(pep_status="DOMESTIC")))
+    assert evaluate(pep, context(fired)) is None
+
+
 def test_a_rule_does_not_apply_outside_its_segment_or_filter() -> None:
     txn = enriched(unit_amounts=usd_amounts("6000"))
     segmented = _threshold_rule(segment={"tier": ["N1"]})
@@ -97,6 +124,11 @@ def test_a_rule_does_not_apply_outside_its_segment_or_filter() -> None:
     risky = _threshold_rule(segment={"risk_rating": ["HIGH"]})
     assert not applies(risky, context(txn=txn))
     assert applies(risky, context(txn=txn, who=profile(risk_rating="HIGH")))
+    enhanced = _threshold_rule(segment={"monitoring_profile": ["ENHANCED"]})
+    assert not applies(enhanced, context(txn=txn))
+    assert applies(
+        enhanced, context(txn=txn, who=profile(monitoring_profile="ENHANCED"))
+    )
 
     cash = _threshold_rule(on={"instrument": ["CASH"]})
     transfer = enriched(
@@ -233,9 +265,28 @@ def test_a_ratio_condition_compares_against_another_aggregate() -> None:
     )
 
 
+def test_the_strict_and_inclusive_condition_ops() -> None:
+    def single(op: str):
+        return rule(
+            RuleKind.AGGREGATE,
+            params={"limit": {"value": "1000", "unit": "USD"}},
+            conditions=[{"aggregate": "in_sum", "op": op, "threshold": "limit"}],
+        )
+
+    def at(total: str):
+        return context({"in_sum": value(total, count=1), "out_sum": value("0")})
+
+    above = single("GT")
+    assert evaluate(above, at("1000.01")) is not None
+    assert evaluate(above, at("1000")) is None
+    upto = single("LTE")
+    assert evaluate(upto, at("1000")) is not None
+    assert evaluate(upto, at("1000.01")) is None
+
+
 def test_velocity_gates_on_account_age_and_dormancy() -> None:
     definition = rule(RuleKind.VELOCITY)
-    busy = {"day_count": value("10", count=10), "day_sum": value("100", count=10)}
+    busy = {"window_count": value("10", count=10), "window_sum": value("100", count=10)}
 
     def started(days: int):
         return profile(relationship_started_at=OCCURRED - timedelta(days=days))
@@ -247,9 +298,12 @@ def test_velocity_gates_on_account_age_and_dormancy() -> None:
     assert evaluate(definition, context(busy, who=started(40))) is None
     unknown = profile(relationship_started_at=None)
     assert evaluate(definition, context(busy, who=unknown)) is None
-    quiet = {"day_count": value("9", count=9), "day_sum": value("2999.99", count=9)}
+    quiet = {
+        "window_count": value("9", count=9),
+        "window_sum": value("2999.99", count=9),
+    }
     assert evaluate(definition, context(quiet, who=started(10))) is None
-    large = {"day_count": value("9", count=9), "day_sum": value("3000", count=9)}
+    large = {"window_count": value("9", count=9), "window_sum": value("3000", count=9)}
     assert evaluate(definition, context(large, who=started(10))) is not None
 
     dormant = rule(
@@ -350,6 +404,19 @@ def test_high_risk_jurisdiction_resolves_list_names() -> None:
     pending = {**three, "to_listed_sum": INCOMPLETE}
     assert evaluate(windowed, context(pending, txn=domestic)) is None
 
+    # A declared sum, not the per-transaction threshold, bounds the window's total.
+    summing = rule(
+        RuleKind.HIGH_RISK_JURISDICTION,
+        params={
+            **{name: param.model_dump() for name, param in windowed.params.items()},
+            "sum": {"value": "5000", "unit": "USD"},
+        },
+        aggregates=windowed.model_dump()["aggregates"],
+    )
+    assert evaluate(summing, context(summed, txn=domestic)) is None
+    large = {"to_listed_count": value("1", count=1), "to_listed_sum": value("5000")}
+    assert evaluate(summing, context(large, txn=domestic)) is not None
+
 
 def test_profile_deviation_is_silent_without_a_declaration_and_history() -> None:
     definition = rule(RuleKind.PROFILE_DEVIATION)
@@ -357,22 +424,28 @@ def test_profile_deviation_is_silent_without_a_declaration_and_history() -> None
     young = profile(declared_profile=None, history_months=2)
     assert evaluate(definition, context(mtd, who=young)) is None
 
+    # Declared 100,000.00 pesos a month, in centavos; the sums are in pesos.
     declared = DeclaredProfile(
-        monthly_inflow_minor=100_000, monthly_outflow_minor=None, currency="MXN"
+        monthly_inflow_minor=10_000_000, monthly_outflow_minor=None, currency="MXN"
     )
     who = profile(declared_profile=declared, history_months=2)
     firing = evaluate(definition, context(mtd, who=who))
     assert firing is not None
     assert firing.params["ratio"] == "2.0"
     assert firing.window_start == MONTH_START
+    assert firing.aggregates["mtd_in"].unit == "MXN/SAME_DAY"
     exactly = {"mtd_in": value("200000", count=5)}
     assert evaluate(definition, context(exactly, who=who)) is not None
     under = {"mtd_in": value("199999", count=5)}
     assert evaluate(definition, context(under, who=who)) is None
     in_usd = profile(
-        declared_profile=DeclaredProfile(100_000, None, "USD"), history_months=2
+        declared_profile=DeclaredProfile(10_000_000, None, "USD"), history_months=2
     )
     assert evaluate(definition, context(mtd, who=in_usd)) is None
+    # A USD transaction compares its peso sums with the MXN declaration.
+    dollars = enriched(currency="USD", amount_minor=500_000)
+    assert evaluate(definition, context(mtd, txn=dollars, who=who)) is not None
+    assert evaluate(definition, context(under, txn=dollars, who=who)) is None
     outflow = enriched(direction=Direction.OUT)
     assert evaluate(definition, context(mtd, txn=outflow, who=who)) is None
 
@@ -394,6 +467,27 @@ def test_profile_deviation_compares_with_the_trailing_average() -> None:
     assert evaluate(definition, context(spent, txn=outflow, who=seasoned))
     internal = enriched(direction=Direction.INTERNAL)
     assert evaluate(definition, context(tripled, txn=internal, who=seasoned)) is None
+
+
+def test_profile_deviation_averages_over_at_most_six_months_of_history() -> None:
+    definition = rule(RuleKind.PROFILE_DEVIATION, on={})
+    year = profile(history_months=12)
+    # (525,000 - 225,000) / 6 = 50,000 a month; 225,000 is 4.5 times that.
+    assert evaluate(
+        definition,
+        context({"mtd_in": value("225000"), "trailing_in": value("525000")}, who=year),
+    )
+    # (725,000 - 225,000) / 6 = 83,333 a month, a ratio of 2.7: silent. Dividing
+    # by twelve months would give 41,667 and a ratio of 5.4, a false alert.
+    wide = {"mtd_in": value("225000"), "trailing_in": value("725000")}
+    assert evaluate(definition, context(wide, who=year)) is None
+
+    # From three months of history the comparison runs; with two it never does.
+    tripled = {"mtd_in": value("225000"), "trailing_in": value("450000")}
+    three = profile(declared_profile=None, history_months=3)
+    assert evaluate(definition, context(tripled, who=three)) is not None
+    two = profile(declared_profile=None, history_months=2)
+    assert evaluate(definition, context(tripled, who=two)) is None
 
 
 def test_tier_limit_reads_the_snapshots_tier_and_includes_the_transaction() -> None:
