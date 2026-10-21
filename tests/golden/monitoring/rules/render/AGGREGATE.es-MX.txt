@@ -1,0 +1,1 @@
+Dispara cuando la suma de operaciones recibidas en 2 días es de al menos 2 000 USD y la suma de operaciones enviadas en 2 días es de al menos el 90 % de la suma de operaciones recibidas en 2 días

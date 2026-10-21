@@ -1,0 +1,1 @@
+Fires when the customer makes an operation with a counterparty in status TRUE_MATCH to a custodial wallet with a counterparty abroad with counterparties in FATF_GREY and PA with counterparties outside US from BORDER_ZONE_MX in multiples of 1,000 while the customer's screening status is TRUE_MATCH when the customer is a PEP

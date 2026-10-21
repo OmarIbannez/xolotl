@@ -336,6 +336,19 @@ A pack version is immutable: loading a changed file at the same version is refus
 (`PACK_VERSION_IMMUTABLE`). Without `--allow-unverified` (refused in prod) `packs load`
 and `units seed` refuse values still marked `UNVERIFIED` and name them.
 
+`policy-packs/_jurisdictions.yaml` holds the named jurisdiction lists that monitoring
+rules refer to as `$NAME`: three country sets (`FATF_BLACK` from `call_for_action`,
+`FATF_GREY` from `increased_monitoring`, `TAX_HAVEN` from `tax_haven`, ISO 3166-1
+alpha-2) and one region set (`BORDER_ZONE_MX`, ISO 3166-2 codes under `regions`),
+with the `as_of` date of the FATF statements they copy. `TAX_HAVEN` is empty until a
+source is chosen, so a rule naming it is refused when its rule set loads, and
+`BORDER_ZONE_MX` defaults to the six northern border states
+(`regions_confidence: UNVERIFIED`). `xolotl.platform.policy.load_jurisdictions()`
+reads and checks the file (a missing or unknown key, a malformed or repeated code is
+`VALIDATION_FAILED`); a rule set resolves its list names to codes when it loads, and
+the SHA-256 of the file is recorded in every hit's evidence (`lists_hash`) and in
+each aggregate's id, so editing the lists starts new aggregates.
+
 A tenant's ADMIN assigns a pack version, optionally per product, and may tighten it
 with an override; staff of any role read:
 

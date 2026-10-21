@@ -1,0 +1,1 @@
+Dispara cuando el número de dispositivos distintos en operaciones en el trimestre calendario supera 3 y el máximo de operaciones de cambio de divisas en los 6 meses desde la primera operación es menor que el 150 % del número de operaciones en 1 hora y el número de operaciones en 1 hora es de a lo más 3

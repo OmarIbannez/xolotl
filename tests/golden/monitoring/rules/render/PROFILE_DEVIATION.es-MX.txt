@@ -1,0 +1,1 @@
+Dispara cuando la suma del mes de operaciones recibidas del cliente es de al menos 2.0 veces su perfil declarado o 3.0 veces su promedio mensual de los últimos 6 meses
