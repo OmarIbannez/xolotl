@@ -1,0 +1,16 @@
+# Virtual assets sent to a self-custody wallet (spec §9.3).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]
+definition:
+  code: SELF_CUSTODY_OUTFLOW
+  family: ALERT
+  kind: THRESHOLD
+  title: Envío a billetera de autocustodia
+  typology: [CRYPTO]
+  "on": {direction: [OUT], instrument: [CRYPTO], self_custody: true}
+  unit_key: USD/PRIOR_BANKING_DAY
+  params:
+    threshold: {value: "1000", unit: USD}
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}

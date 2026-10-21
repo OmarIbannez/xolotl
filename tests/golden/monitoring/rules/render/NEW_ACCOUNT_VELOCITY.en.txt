@@ -1,0 +1,1 @@
+Fires when the customer makes 10 or more operations or a total of 3,000 USD or more within 1 day during the first 30 days of the relationship

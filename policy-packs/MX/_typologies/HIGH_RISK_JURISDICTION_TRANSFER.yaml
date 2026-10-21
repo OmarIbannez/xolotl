@@ -1,0 +1,17 @@
+# A transfer with a counterparty or location on the FATF lists (spec §9.3).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE]
+definition:
+  code: HIGH_RISK_JURISDICTION_TRANSFER
+  family: ALERT
+  kind: HIGH_RISK_JURISDICTION
+  title: Transferencia con jurisdicción de alto riesgo
+  typology: [JURISDICTION]
+  "on": {instrument: [TRANSFER]}
+  unit_key: USD/PRIOR_BANKING_DAY
+  params:
+    threshold: {value: "1000", unit: USD}
+    lists: {value: "FATF_BLACK,FATF_GREY"}
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}

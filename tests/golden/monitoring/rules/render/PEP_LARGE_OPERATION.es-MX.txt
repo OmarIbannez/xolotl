@@ -1,0 +1,1 @@
+Dispara cuando el cliente realiza una operación de 10 000 USD o más cuando el cliente es PEP

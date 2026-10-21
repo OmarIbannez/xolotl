@@ -23,6 +23,7 @@ from xolotl.app import build_key_provider, build_object_store, build_worker
 from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
 from xolotl.modules.monitoring.process.job import ProcessReport, process_party
+from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_library
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
     JSONL_TYPE,
@@ -136,6 +137,10 @@ screening_app = typer.Typer(no_args_is_help=True, help="Screening")
 app.add_typer(screening_app, name="screening")
 monitoring_app = typer.Typer(no_args_is_help=True, help="Transaction monitoring")
 app.add_typer(monitoring_app, name="monitoring")
+rules_app = typer.Typer(
+    no_args_is_help=True, help="Monitoring rule templates and tenant rules"
+)
+app.add_typer(rules_app, name="rules")
 
 # The library's evaluation corpus in a source checkout; absent from the image.
 EVALUATION_CORPUS = (
@@ -847,6 +852,23 @@ def packs_show(
             "config": row.config,
         }
     typer.echo(json.dumps(shown, indent=2, ensure_ascii=False))
+
+
+@rules_app.command("validate")
+def rules_validate(
+    path: Annotated[
+        Path,
+        typer.Argument(help="The typology library directory; default the MX library"),
+    ] = TYPOLOGIES_DIR,
+) -> None:
+    """Validate the typology library without a database, one line per template."""
+    with _cli_errors():
+        templates = read_library(path)
+    for template in templates:
+        packs = ",".join(template.packs)
+        digest = template.definition_hash.hex()[:12]
+        kind = template.definition.kind
+        typer.echo(f"{template.code} v{template.version} {kind} {digest} {packs}")
 
 
 @lists_app.command("seed")

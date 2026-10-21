@@ -48,6 +48,7 @@ from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
 from xolotl.modules.monitoring.enums import FileStatus
+from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
 from xolotl.modules.monitoring.txn import files
 from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
 from xolotl.modules.party import documents
@@ -1280,6 +1281,31 @@ def test_packs_validate_refuses_an_invalid_file_in_one_line(tmp_path: Path):
     missing = runner.invoke(app, ["packs", "validate", str(tmp_path / "nope.yaml")])
     assert missing.exit_code == 1
     assert missing.stderr == "error: PACK_INVALID: nope.yaml: not a pack\n"
+
+
+def test_rules_validate_lists_the_library_without_a_database(tmp_path: Path):
+    cash = TYPOLOGIES_DIR / "CASH_STRUCTURING.yaml"
+    result = runner.invoke(app, ["rules", "validate"])
+    assert (result.exit_code, result.stderr) == (0, ""), result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) == 16
+    assert lines[2] == (
+        "CASH_STRUCTURING v1 STRUCTURING "
+        f"{read_typology(cash).definition_hash.hex()[:12]} MX/ITF-IFPE"
+    )
+    assert all(
+        re.fullmatch(r"[A-Z0-9_]+ v1 [A-Z_]+ [0-9a-f]{12} MX/[A-Z/,-]+", line)
+        for line in lines
+    )
+    _ = shutil.copy(
+        TYPOLOGIES_DIR / "TIER_N1_MONTHLY_OPS.yaml", tmp_path / "TIER_N3.yaml"
+    )
+    bad = runner.invoke(app, ["rules", "validate", str(tmp_path)])
+    assert (bad.exit_code, bad.stdout) == (1, "")
+    assert bad.stderr == (
+        "error: VALIDATION_FAILED: TIER_N3.yaml: the code TIER_N1_MONTHLY_OPS "
+        "differs from the file name\n"
+    )
 
 
 def test_packs_load_refuses_unverified_values_without_the_flag(admin_engine: Engine):

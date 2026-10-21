@@ -1,0 +1,1 @@
+Dispara cuando el cliente realiza una operación en efectivo desde BORDER_ZONE_MX y la suma de operaciones en efectivo desde BORDER_ZONE_MX en 30 días es de al menos 3 000 USD

@@ -1,0 +1,14 @@
+# Any operation while the customer is a confirmed match: blocked persons (FR-TM-014).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]
+definition:
+  code: BLOCKED_PERSON_PARTY
+  family: ALERT
+  kind: THRESHOLD
+  title: Operación de persona bloqueada
+  typology: [SCREENING]
+  params:
+    party_screening_status: {value: TRUE_MATCH, choices: [TRUE_MATCH]}
+  severity: CRITICAL
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}
