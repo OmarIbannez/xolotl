@@ -71,3 +71,18 @@ class ExternalIdConflictError(DomainError):
 
     default_code: ClassVar[str] = "EXTERNAL_ID_CONFLICT"
     default_detail: ClassVar[str] = "an external_id was re-sent with other content"
+
+
+class FileTooLargeError(XolotlError):
+    """A file is over ``MONITORING_FILE_MAX_MB`` or ``MONITORING_FILE_MAX_ROWS``."""
+
+    status: ClassVar[int] = 413
+    default_code: ClassVar[str] = "TRANSACTION_FILE_TOO_LARGE"
+    default_detail: ClassVar[str] = "the file is too large"
+
+
+class FileInvalidError(ValidationFailedError):
+    """A file cannot be read, has no header or lacks a required column."""
+
+    default_code: ClassVar[str] = "TRANSACTION_FILE_INVALID"
+    default_detail: ClassVar[str] = "the file cannot be read as transactions"
