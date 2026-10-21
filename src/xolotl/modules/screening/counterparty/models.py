@@ -7,6 +7,8 @@ blind index under the tenant's INDEX key. The name, account, wallet address and
 identifier are ciphertext under the tenant's DATA key (the kernel convention, no
 ``_enc`` suffix). ``screening_status`` is the synchronous cache the decide path
 reads (DR-308); ``screening_subject_id`` gains its foreign key in migration 0013.
+``counterparty_name_index`` (0013) holds the normalized tokens of a counterparty's
+name in plaintext, as ``party_name_index`` does (D7, PRV-301): no route serializes it.
 """
 
 from datetime import datetime
@@ -16,6 +18,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     DateTime,
+    ForeignKeyConstraint,
     Index,
     LargeBinary,
     String,
@@ -24,6 +27,7 @@ from sqlalchemy import (
     Uuid,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql.schema import SchemaItem
 
@@ -32,6 +36,7 @@ from xolotl.modules.screening.counterparty.schema import (
     CounterpartyKind,
     CounterpartyScreeningStatus,
 )
+from xolotl.platform import clock
 from xolotl.platform.crypto.encrypted import Encrypted, EncryptedStr
 from xolotl.platform.db import Base
 from xolotl.platform.sqltypes import enum_column
@@ -51,6 +56,13 @@ class Counterparty(TenantTableMixin, Base):
         CheckConstraint(ONE_COMPONENT_CHECK, name="one_component"),
         Index("ix_counterparty_name_hash", "tenant_id", "name_hash"),
         Index("ix_counterparty_wallet_hash", "tenant_id", "wallet_hash"),
+        # screening_subject references this table too; the cycle is closed by ALTER.
+        ForeignKeyConstraint(
+            ["tenant_id", "screening_subject_id"],
+            ["screening_subject.tenant_id", "screening_subject.id"],
+            name="fk_counterparty_subject",
+            use_alter=True,
+        ),
     )
 
     kind: Mapped[CounterpartyKind] = mapped_column(enum_column(CounterpartyKind))
@@ -85,4 +97,34 @@ class Counterparty(TenantTableMixin, Base):
     )
     txn_count: Mapped[int] = mapped_column(
         BigInteger, default=0, server_default=text("0")
+    )
+
+
+class CounterpartyNameIndex(TenantTableMixin, Base):
+    __tablename__: str = "counterparty_name_index"
+    __table_args__: tuple[SchemaItem, ...] = tenant_table_args(
+        "counterparty_name_index",
+        ForeignKeyConstraint(
+            ["tenant_id", "counterparty_id"],
+            ["counterparty.tenant_id", "counterparty.id"],
+            name="fk_counterparty_name_index_counterparty",
+        ),
+        UniqueConstraint("tenant_id", "counterparty_id"),
+        Index("ix_cni_phonetic", "phonetic_keys", postgresql_using="gin"),
+        Index(
+            "ix_cni_trgm",
+            "norm_name",
+            postgresql_using="gin",
+            postgresql_ops={"norm_name": "gin_trgm_ops"},
+        ),
+    )
+
+    counterparty_id: Mapped[UUID] = mapped_column(Uuid)
+    # Normalized tokens only (D7): never the name as the client sent it.
+    norm_name: Mapped[str] = mapped_column(Text)
+    tokens: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    phonetic_keys: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    matcher_version: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), onupdate=clock.now
     )

@@ -481,6 +481,8 @@ def test_model_partial_index_predicates_are_the_specs():
             "status = 'ACTIVE'"
         ),
         ("transaction", "ix_transaction_pending"): ("status IN ('RECEIVED', 'PARKED')"),
+        ("monitoring_rule_version", "ux_rule_version_active"): "status = 'ACTIVE'",
+        ("capture_group", "ux_capture_group_open"): "status <> 'SUPERSEDED'",
     }
 
 
