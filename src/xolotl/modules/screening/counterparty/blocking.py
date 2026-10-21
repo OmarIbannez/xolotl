@@ -11,7 +11,8 @@ By identifier, nothing is decrypted: each of the entry's RFC, CURP and passport
 numbers that passes the party module's validator is blind-indexed as resolve
 indexes a counterparty's identifier (``identifier_hash_of``) and looked up in
 ``counterparty.identifier_hash``; each digital-currency address is HMACed as
-resolve HMACs a wallet (``wallet_hash_of``, case kept) and looked up in
+resolve HMACs a wallet (``wallet_hash_of``, whitespace removed, case kept on both
+sides) and looked up in
 ``counterparty.wallet_hash``, so a wallet-only counterparty is found without a name
 and only by the whole, exact address.
 

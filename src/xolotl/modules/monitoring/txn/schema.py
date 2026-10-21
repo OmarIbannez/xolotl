@@ -34,6 +34,7 @@ from xolotl.modules.party.schemas import CountryCode
 from xolotl.modules.screening.counterparty.schema import (
     CounterpartyInput,
     CounterpartyScreeningStatus,
+    normalize_wallet,
 )
 
 _CENT = Decimal("0.01")
@@ -122,6 +123,12 @@ class CryptoContext(BaseModel):
     asset_code: str
     # The column is numeric(28, 10): at most 18 digits before the point.
     asset_qty: Decimal = Field(gt=0, lt=_QUANTITY_CEILING, max_digits=_QUANTITY_DIGITS)
+
+    @field_validator("address")
+    @classmethod
+    def _normalized_address(cls, value: str | None) -> str | None:
+        # Normalised as the counterparty's wallet is, since it stands in for it.
+        return normalize_wallet(value)
 
     @field_validator("asset_qty")
     @classmethod
