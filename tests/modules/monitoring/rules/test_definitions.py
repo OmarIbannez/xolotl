@@ -16,10 +16,12 @@ from xolotl.modules.monitoring.rules.definitions import (
     Param,
     RuleDefinition,
     RuleKind,
+    canonical_json,
     resolve_definition,
     resolve_list_names,
 )
 from xolotl.modules.monitoring.txn.schema import Direction
+from xolotl.platform.audit import chain
 from xolotl.platform.policy import load_jurisdictions
 
 
@@ -262,3 +264,125 @@ def test_bounds_compare_like_with_like() -> None:
     data["params"] = "threshold"
     with pytest.raises(ValidationError, match="params"):
         _ = _validate(data)
+
+
+def test_a_named_list_must_have_codes_and_literals_must_be_codes() -> None:
+    lists = load_jurisdictions()
+    # TAX_HAVEN is empty (Open question 1): naming it is a load error, never a
+    # filter that places no condition.
+    with pytest.raises(ValueError, match="TAX_HAVEN has no source yet"):
+        _ = resolve_list_names(
+            TxnFilter(counterparty_country_in=frozenset({"$TAX_HAVEN"})), lists
+        )
+    for codes in ({"FATF_GREY"}, {"MEX"}, {"mx"}):
+        with pytest.raises(ValueError, match="not a country code"):
+            _ = resolve_list_names(
+                TxnFilter(counterparty_country_not_in=frozenset(codes)), lists
+            )
+    with pytest.raises(ValueError, match="not a region code"):
+        _ = resolve_list_names(
+            TxnFilter(geo_admin_area_in=frozenset({"BORDER_ZONE_MX"})), lists
+        )
+
+
+def test_the_lists_parameter_is_checked_when_the_rule_set_loads() -> None:
+    lists = load_jurisdictions()
+    rule = definition(RuleKind.HIGH_RISK_JURISDICTION)
+    assert resolve_definition(rule, lists).params == rule.params
+    for value, problem in (
+        ("FATF_BLACK,NOWHERE", "NOWHERE"),
+        ("FATF_GREY, TAX_HAVEN", "TAX_HAVEN has no source yet"),
+        ("", "unknown country list ''"),
+    ):
+        data = document(RuleKind.HIGH_RISK_JURISDICTION)
+        data["params"]["lists"]["value"] = value
+        with pytest.raises(ValueError, match=problem):
+            _ = resolve_definition(_validate(data), lists)
+
+
+def test_a_window_parameter_is_a_duration_and_velocity_stays_short() -> None:
+    for kind in (RuleKind.STRUCTURING, RuleKind.VELOCITY):
+        data = document(kind)
+        data["params"]["window"]["value"] = "weekly"
+        with pytest.raises(ValidationError, match=r"parameter 'window'.*ISO-8601"):
+            _ = _validate(data)
+    data = document(RuleKind.VELOCITY)
+    for window in ("PT1H", "P7D", "PT12H"):
+        data["params"]["window"]["value"] = window
+        assert _validate(data).params["window"].value == window
+    for window in ("P99Y", "P8D", "P1M"):
+        data["params"]["window"]["value"] = window
+        with pytest.raises(ValidationError, match=r"PT1H\.\.P7D"):
+            _ = _validate(data)
+    # Only VELOCITY is held to the short window.
+    data = document(RuleKind.STRUCTURING)
+    data["params"]["window"]["value"] = "P30D"
+    assert _validate(data).params["window"].value == "P30D"
+
+
+def test_a_float_is_refused_anywhere_in_the_document() -> None:
+    data = document(RuleKind.AGGREGATE)
+    data["conditions"][1]["ratio"] = 0.9
+    with pytest.raises(
+        ValidationError, match=r"conditions\[1\]\.ratio: .*never a float"
+    ):
+        _ = _validate(data)
+    data = document(RuleKind.THRESHOLD)
+    data["on"] = {"amount_unit_key": "USD/PRIOR_BANKING_DAY", "amount_gte": 500.5}
+    with pytest.raises(ValidationError, match=r"on\.amount_gte: .*never a float"):
+        _ = _validate(data)
+    data = document(RuleKind.STRUCTURING)
+    data["aggregates"][0]["where"]["amount_lt"] = 500.5
+    with pytest.raises(
+        ValidationError, match=r"aggregates\[0\]\.where\.amount_lt: .*never a float"
+    ):
+        _ = _validate(data)
+    data = document(RuleKind.STRUCTURING)
+    data["params"]["near_ratio"]["choices"] = ["0.6", 0.7]
+    with pytest.raises(ValidationError, match=r"choices\[1\]: .*never a float"):
+        _ = _validate(data)
+
+
+def test_a_decimal_hashes_alike_however_it_is_written() -> None:
+    data = document(RuleKind.STRUCTURING)
+    first = _validate(data)
+    data["params"]["threshold"]["value"] = "5000.00"
+    data["params"]["near_ratio"]["value"] = "0.7"
+    data["aggregates"][0]["where"]["amount_gte"] = "3500.0"
+    respelled = _validate(data)
+    assert respelled.definition_hash() == first.definition_hash()
+    # The stored JSON keeps the spelling as written.
+    assert respelled.model_dump(mode="json")["params"]["threshold"]["value"] == (
+        "5000.00"
+    )
+    threshold = document(RuleKind.THRESHOLD)
+    threshold["on"] = {"amount_unit_key": "USD/PRIOR_BANKING_DAY", "amount_gte": "500"}
+    hashed = _validate(threshold).definition_hash()
+    threshold["on"]["amount_gte"] = "500.0"
+    assert _validate(threshold).definition_hash() == hashed
+    aggregate = document(RuleKind.AGGREGATE)
+    hashed = _validate(aggregate).definition_hash()
+    aggregate["conditions"][1]["ratio"] = "0.90"
+    assert _validate(aggregate).definition_hash() == hashed
+    aggregate["conditions"][1]["ratio"] = "0.91"
+    assert _validate(aggregate).definition_hash() != hashed
+
+
+def test_the_hash_input_is_the_audit_chains_canonical_json() -> None:
+    sample = {
+        "título": "Depósitos en efectivo — ñandú",
+        "nested": {"z": [1, {"b": "2", "a": None}], "a": True},
+        "definition": definition(RuleKind.STRUCTURING).model_dump(mode="json"),
+    }
+    assert canonical_json(sample) == chain.canonical_json(sample)
+
+
+def test_a_unit_key_names_a_unit_and_a_conversion_rule() -> None:
+    data = document(RuleKind.THRESHOLD)
+    for unit_key in ("USD/LAST_DAY_PREV_MONTH", "UDI/SAME_DAY"):
+        data["unit_key"] = unit_key
+        assert _validate(data).unit_key == unit_key
+    for unit_key in ("USD", "USD/WHENEVER", "usd/SAME_DAY", "USD/SAME_DAY/X"):
+        data["unit_key"] = unit_key
+        with pytest.raises(ValidationError, match="<unit>/<rule>"):
+            _ = _validate(data)

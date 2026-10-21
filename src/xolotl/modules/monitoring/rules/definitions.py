@@ -15,6 +15,7 @@ Pure: no database, no web framework (contract ``monitoring-evaluator-is-pure``).
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import fields, replace
 from decimal import Decimal, InvalidOperation
@@ -34,11 +35,17 @@ from pydantic import (
 from xolotl.modules.monitoring.aggregates.declarations import (
     AggregateDeclaration,
     TxnFilter,
+    window_hours,
 )
 from xolotl.modules.monitoring.rules.render import Locale, render
 from xolotl.modules.monitoring.txn.schema import KeyKind
-from xolotl.platform.policy.durations import check_iso_duration
-from xolotl.platform.policy.jurisdictions import JurisdictionLists
+from xolotl.platform.policy.durations import check_iso_duration, iso_duration_days
+from xolotl.platform.policy.jurisdictions import (
+    COUNTRY_CODE,
+    REGION_CODE,
+    JurisdictionLists,
+)
+from xolotl.platform.units.rules import ConversionRule
 
 
 class RuleFamily(StrEnum):
@@ -74,6 +81,11 @@ type ParamValue = Decimal | int | str | bool
 # The calendar month in America/Mexico_City, the one window that is not a duration.
 MONTH = "MONTH"
 _TIER_OUTCOMES = frozenset({HitOutcome.BLOCK.value, HitOutcome.REVIEW.value})
+# A VELOCITY window is short (spec §9.1): one hour to seven days.
+_VELOCITY_HOURS = (1, 7 * 24)
+_HOURS_PER_DAY = 24
+# "<unit>/<ConversionRule>", as "USD/PRIOR_BANKING_DAY".
+_UNIT_KEY = re.compile(r"([A-Z]{3})/([A-Z_]+)")
 
 
 def _below(value: ParamValue, bound: ParamValue) -> bool:
@@ -122,12 +134,25 @@ class Param[T: ParamValue](BaseModel):
 type AnyParam = Param[Decimal] | Param[int] | Param[str] | Param[bool]
 
 
-def _has_float(raw: object) -> bool:
+def _float_at(raw: object, path: str) -> str | None:
     if isinstance(raw, float):
-        return True
-    if isinstance(raw, list):
-        return any(_has_float(item) for item in cast("list[object]", raw))
-    return False
+        return path
+    items: list[tuple[str, object]] = []
+    if isinstance(raw, dict):
+        items = [
+            (f"{path}.{key}" if path else str(key), item)
+            for key, item in cast("dict[object, object]", raw).items()
+        ]
+    elif isinstance(raw, list):
+        items = [
+            (f"{path}[{index}]", item)
+            for index, item in enumerate(cast("list[object]", raw))
+        ]
+    for where, item in items:
+        found = _float_at(item, where)
+        if found is not None:
+            return found
+    return None
 
 
 def _as_decimal(text: str) -> Decimal | None:
@@ -138,14 +163,11 @@ def _as_decimal(text: str) -> Decimal | None:
     return number if number.is_finite() else None
 
 
-def _param(name: str, raw: object) -> object:
+def _param(raw: object) -> object:
     # Anything but a mapping is left for pydantic to refuse against the union.
     if not isinstance(raw, dict):
         return raw
     data = cast("dict[str, object]", raw)
-    if any(_has_float(item) for item in data.values()):
-        msg = f"parameter {name!r}: write a decimal as a string, never a float"
-        raise ValueError(msg)
     value = data.get("value")
     if isinstance(value, bool):
         return Param[bool].model_validate(data)
@@ -193,6 +215,24 @@ def _sorted_codes(value: object) -> JsonValue:
         return sorted(spelled, key=str)
     if isinstance(value, Decimal):
         return str(value)
+    return cast("JsonValue", value)
+
+
+def _hashed(value: object) -> JsonValue:
+    # Decimals as A7's _canonical_value writes them, so "5000" and "5000.00" hash
+    # alike; the stored JSON keeps the spelling as written.
+    if isinstance(value, Decimal):
+        return format(value.normalize(), "f")
+    if isinstance(value, StrEnum):
+        return value.value
+    if isinstance(value, frozenset | set):
+        members = cast("frozenset[object]", value)
+        return sorted((str(member) for member in members), key=str)
+    if isinstance(value, dict):
+        items = cast("dict[object, object]", value).items()
+        return {str(key): _hashed(item) for key, item in items}
+    if isinstance(value, list | tuple):
+        return [_hashed(item) for item in cast("list[object]", value)]
     return cast("JsonValue", value)
 
 
@@ -324,13 +364,29 @@ class RuleDefinition(BaseModel):
     dedup: Dedup = Dedup()
     evidence: Evidence = Evidence()
 
+    @model_validator(mode="before")
+    @classmethod
+    def _no_floats(cls, value: object) -> object:
+        found = _float_at(value, "")
+        if found is not None:
+            msg = f"{found}: write a decimal as a string, never a float"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("unit_key")
+    @classmethod
+    def _check_unit_key(cls, value: str | None) -> str | None:
+        if value is not None:
+            _check_unit_key(value)
+        return value
+
     @field_validator("params", mode="before")
     @classmethod
     def _typed_params(cls, value: object) -> object:
         if not isinstance(value, dict):
             return value
         raw = cast("dict[object, object]", value)
-        return {str(name): _param(str(name), item) for name, item in raw.items()}
+        return {str(name): _param(item) for name, item in raw.items()}
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:
@@ -345,13 +401,19 @@ class RuleDefinition(BaseModel):
         return self
 
     def definition_hash(self) -> bytes:
-        """Hash the canonical JSON: sorted keys, decimals and sets as strings.
+        """Hash the canonical JSON of the definition.
+
+        Keys are sorted, sets become sorted lists and decimals are normalised
+        (``"5000"`` and ``"5000.00"`` hash alike, as in A7's ``canonical_json``).
+        The bytes are those of ``xolotl.platform.audit.chain.canonical_json``,
+        which a test pins.
 
         Returns:
             The 32-byte SHA-256.
 
         """
-        return hashlib.sha256(_canonical_json(self.model_dump(mode="json"))).digest()
+        dumped = _hashed(self.model_dump(mode="python"))
+        return hashlib.sha256(canonical_json(dumped)).digest()
 
     def render(self, locale: Locale = "es-MX") -> str:
         """Write the analyst-readable sentence of the rule.
@@ -399,9 +461,17 @@ def _coerced(param: AnyParam, value: ParamValue) -> ParamValue:
     return value
 
 
-def _canonical_json(value: object) -> bytes:
-    # The spelling of the audit chain's canonical_json, kept here because that
-    # module reads the database and this one is pure.
+def canonical_json(value: object) -> bytes:
+    """Spell ``value`` as compact JSON with sorted keys, non-ASCII kept.
+
+    A copy of ``xolotl.platform.audit.chain.canonical_json``, kept here because
+    that module reads the database and this one is pure; the test
+    ``test_the_hash_input_is_the_audit_chains_canonical_json`` pins the two equal.
+
+    Returns:
+        The UTF-8 bytes.
+
+    """
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode()
@@ -425,6 +495,36 @@ def _required_problem(definition: RuleDefinition) -> str | None:
     return None
 
 
+def _check_unit_key(text: str) -> None:
+    match = _UNIT_KEY.fullmatch(text)
+    if match is None or match.group(2) not in ConversionRule:
+        rules = ", ".join(ConversionRule)
+        msg = f"unit_key {text!r} must read <unit>/<rule> with a rule of {rules}"
+        raise ValueError(msg)
+
+
+def _param_window_hours(text: str) -> int:
+    # A7's window grammar (P[nM][nD][TnH], hours allowed) or a policy duration.
+    hours = window_hours(text)
+    if hours is not None:
+        return hours
+    return iso_duration_days(text) * _HOURS_PER_DAY
+
+
+def _window_problem(definition: RuleDefinition) -> str | None:
+    param = definition.params.get("window")
+    if param is None or not isinstance(param.value, str):
+        return None
+    try:
+        hours = _param_window_hours(param.value)
+    except ValueError as exc:
+        return f"parameter 'window': {exc}"
+    shortest, longest = _VELOCITY_HOURS
+    if definition.kind is RuleKind.VELOCITY and not shortest <= hours <= longest:
+        return f"a VELOCITY window lies within PT1H..P7D, not {param.value}"
+    return None
+
+
 def _params_problem(definition: RuleDefinition) -> str | None:
     required = _required_problem(definition)
     if required is not None:
@@ -436,7 +536,7 @@ def _params_problem(definition: RuleDefinition) -> str | None:
         problem = param.problem()
         if problem is not None:
             return f"parameter {name!r}: {problem}"
-    return None
+    return _window_problem(definition)
 
 
 def _aggregates_problem(definition: RuleDefinition) -> str | None:
@@ -481,9 +581,14 @@ def _resolved(
     codes: frozenset[str], lists: JurisdictionLists, *, regions: bool
 ) -> frozenset[str]:
     names = [code for code in codes if code.startswith("$")]
+    literal = codes.difference(names)
+    pattern, what = (REGION_CODE, "region") if regions else (COUNTRY_CODE, "country")
+    for code in sorted(literal):
+        if pattern.fullmatch(code) is None:
+            msg = f"{code!r} is not a {what} code (a list name is written $NAME)"
+            raise ValueError(msg)
     if not names:
         return codes
-    literal = codes.difference(names)
     resolve = lists.resolve_regions if regions else lists.resolve_countries
     return literal | resolve(names)
 
@@ -491,8 +596,11 @@ def _resolved(
 def resolve_list_names(where: TxnFilter, lists: JurisdictionLists) -> TxnFilter:
     """Replace every ``$NAME`` of the country and region sets by its codes.
 
-    Literal codes pass through; the other fields are untouched. A name that is
-    not a set of ``lists`` raises ``ValueError`` from ``JurisdictionLists``.
+    Literal codes pass through; the other fields are untouched.
+
+    A name that is not a set of ``lists`` or names an empty one (from
+    ``JurisdictionLists``), or a literal that is not a country (ISO 3166-1
+    alpha-2) or region (ISO 3166-2) code, raises ``ValueError``.
 
     Returns:
         The filter with literal codes only.
@@ -516,12 +624,20 @@ def resolve_definition(
     """Resolve list names over ``on``, the evidence filter and every declaration.
 
     Every declaration also gets ``lists_hash`` (the lists file's SHA-256 in hex),
-    so a changed ``_jurisdictions.yaml`` yields new ``agg_id``s (spec §8.2).
+    so a changed ``_jurisdictions.yaml`` yields new ``agg_id``s (spec §8.2). The
+    names of ``params.lists`` (``"FATF_BLACK,FATF_GREY"``) are checked too, so an
+    unknown or empty set fails the load rather than the evaluation. Each of these
+    raises ``ValueError``, as ``resolve_list_names`` does.
 
     Returns:
         The resolved copy.
 
     """
+    named = definition.params.get("lists")
+    if named is not None:
+        _ = lists.resolve_countries(
+            name.strip() for name in str(named.value).split(",")
+        )
     lists_hash = lists.content_hash.hex()
     aggregates = [
         replace(

@@ -1,1 +1,1 @@
-Dispara cuando el cliente realiza una operación por transferencia de 1 000 USD o más con una contraparte o ubicación en las listas FATF_BLACK y FATF_GREY
+Dispara cuando el cliente realiza una operación por transferencia de 1 000 USD o más con una contraparte o ubicación en las listas FATF_BLACK y FATF_GREY

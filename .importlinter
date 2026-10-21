@@ -137,4 +137,5 @@ forbidden_modules =
 ignore_imports =
     xolotl.modules.monitoring.rules.definitions -> xolotl.platform.policy.durations
     xolotl.modules.monitoring.rules.definitions -> xolotl.platform.policy.jurisdictions
+    xolotl.modules.monitoring.rules.definitions -> xolotl.platform.units.rules
     xolotl.modules.monitoring.txn.schema -> xolotl.modules.screening.counterparty.schema

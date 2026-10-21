@@ -88,3 +88,40 @@ def test_a_malformed_code_is_refused(tmp_path: Path) -> None:
         _ = load_jurisdictions(_write(tmp_path, _VALID[:regions] + "regions: {}\n"))
     with pytest.raises(ValidationFailedError, match="unknown sets COAST"):
         _ = load_jurisdictions(_write(tmp_path, _VALID + "  COAST: [MX-GRO]\n"))
+
+
+def test_an_empty_set_cannot_be_named(tmp_path: Path) -> None:
+    # An empty set would place no condition at all (plan 4b Open question 1).
+    lists = load_jurisdictions()
+    with pytest.raises(ValueError, match="TAX_HAVEN has no source yet"):
+        _ = lists.resolve_countries(["$TAX_HAVEN"])
+    with pytest.raises(ValueError, match="TAX_HAVEN"):
+        _ = lists.resolve_countries(["FATF_GREY", "TAX_HAVEN"])
+    empty = load_jurisdictions(
+        _write(tmp_path, _VALID.replace("[MX-BCN, MX-SON]", "[]"))
+    )
+    with pytest.raises(ValueError, match="BORDER_ZONE_MX has no source yet"):
+        _ = empty.resolve_regions(["$BORDER_ZONE_MX"])
+
+
+def test_the_file_is_read_strictly(tmp_path: Path) -> None:
+    with pytest.raises(ValidationFailedError, match="unknown keys grey"):
+        _ = load_jurisdictions(_write(tmp_path, _VALID + "grey: [VE]\n"))
+    without = _VALID.replace("regions_confidence: UNVERIFIED\n", "")
+    with pytest.raises(ValidationFailedError, match="missing regions_confidence"):
+        _ = load_jurisdictions(_write(tmp_path, without))
+    for key in ("regions_confidence: UNVERIFIED", "confidence: VERIFIED"):
+        name = key.split(":", 1)[0]
+        doubtful = _VALID.replace(key, f"{name}: MAYBE")
+        with pytest.raises(ValidationFailedError, match=f"{name} must be VERIFIED"):
+            _ = load_jurisdictions(_write(tmp_path, doubtful))
+    with pytest.raises(ValidationFailedError, match="is not a valid code"):
+        _ = load_jurisdictions(_write(tmp_path, _VALID.replace("[KY]", '["KY\\n"]')))
+    stamped = _VALID.replace("2026-06-19", "2026-06-19 10:00:00")
+    with pytest.raises(ValidationFailedError, match="as_of must be a date"):
+        _ = load_jurisdictions(_write(tmp_path, stamped))
+    with pytest.raises(ValidationFailedError, match="VE is listed twice"):
+        _ = load_jurisdictions(_write(tmp_path, _VALID.replace("[VE, YE]", "[VE, VE]")))
+    twice = _VALID.replace("[MX-BCN, MX-SON]", "[MX-BCN, MX-BCN]")
+    with pytest.raises(ValidationFailedError, match="MX-BCN is listed twice"):
+        _ = load_jurisdictions(_write(tmp_path, twice))

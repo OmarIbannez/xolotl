@@ -14,7 +14,7 @@ import hashlib
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import cast
 
@@ -32,8 +32,19 @@ _COUNTRY_KEYS = {
     "FATF_GREY": "increased_monitoring",
     "TAX_HAVEN": "tax_haven",
 }
-_COUNTRY = re.compile(r"^[A-Z]{2}$")
-_REGION = re.compile(r"^[A-Z]{2}-[A-Z0-9]{1,3}$")
+# The spelling of a country (ISO 3166-1 alpha-2) and of a region (ISO 3166-2) code;
+# rules check their literal codes against these too.
+COUNTRY_CODE = re.compile(r"[A-Z]{2}")
+REGION_CODE = re.compile(r"[A-Z]{2}-[A-Z0-9]{1,3}")
+_CONFIDENCE = frozenset({"VERIFIED", "UNVERIFIED"})
+_KEYS = frozenset({
+    "as_of",
+    "source",
+    "confidence",
+    *_COUNTRY_KEYS.values(),
+    "regions_confidence",
+    "regions",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +59,9 @@ class JurisdictionLists:
     def resolve_countries(self, names: Iterable[str]) -> frozenset[str]:
         """Union the country sets ``names`` name (``"$FATF_GREY"`` or ``"FATF_GREY"``).
 
+        A name that is not a country set, or names an empty one, raises
+        ``ValueError``.
+
         Returns:
             The country codes of every named set.
 
@@ -56,6 +70,9 @@ class JurisdictionLists:
 
     def resolve_regions(self, names: Iterable[str]) -> frozenset[str]:
         """Union the region sets ``names`` name (``"$BORDER_ZONE_MX"`` or bare).
+
+        A name that is not a region set, or names an empty one, raises
+        ``ValueError``.
 
         Returns:
             The region codes of every named set.
@@ -73,6 +90,11 @@ def _resolve(
         if bare not in sets:
             msg = f"unknown {what} list {name!r}"
             raise ValueError(msg)
+        if not sets[bare]:
+            # An empty set would read as "no condition" in a filter, so a rule
+            # naming it would fire on every transaction (plan 4b Open question 1).
+            msg = f"{bare} has no source yet (plan 4b Open question 1)"
+            raise ValueError(msg)
         codes |= sets[bare]
     return frozenset(codes)
 
@@ -88,8 +110,10 @@ def _codes(
         raise _refuse(path, f"{key} must be a list of codes")
     codes: set[str] = set()
     for item in cast("list[object]", raw):
-        if not isinstance(item, str) or pattern.match(item) is None:
+        if not isinstance(item, str) or pattern.fullmatch(item) is None:
             raise _refuse(path, f"{key}: {item!r} is not a valid code")
+        if item in codes:
+            raise _refuse(path, f"{key}: {item} is listed twice")
         codes.add(item)
     return frozenset(codes)
 
@@ -105,7 +129,7 @@ def _regions(path: Path, raw: object) -> dict[str, frozenset[str]]:
     for name in REGION_SETS:
         if name not in named:
             raise _refuse(path, f"regions: missing {name}")
-        regions[name] = _codes(path, f"regions.{name}", named[name], _REGION)
+        regions[name] = _codes(path, f"regions.{name}", named[name], REGION_CODE)
     return regions
 
 
@@ -117,8 +141,10 @@ def load_jurisdictions(path: Path = JURISDICTIONS_FILE) -> JurisdictionLists:
 
     Raises:
         ValidationFailedError: When the file is not a YAML mapping, a key is
-            missing, ``as_of`` is not a date, a country is not ISO 3166-1 alpha-2
-            or a region does not read ``CC-XXX`` (ISO 3166-2).
+            missing or unknown, ``as_of`` is not a date, a confidence is neither
+            ``VERIFIED`` nor ``UNVERIFIED``, a country is not ISO 3166-1 alpha-2, a
+            region does not read ``CC-XXX`` (ISO 3166-2) or a set lists a code
+            twice.
 
     """
     content = path.read_bytes()
@@ -131,17 +157,25 @@ def load_jurisdictions(path: Path = JURISDICTIONS_FILE) -> JurisdictionLists:
         msg = f"{path.name}: not a mapping"
         raise ValidationFailedError(msg)
     data = cast("dict[str, object]", raw)
-    required = ("as_of", "source", "confidence", *_COUNTRY_KEYS.values(), "regions")
-    missing = [key for key in required if key not in data]
+    missing = sorted(_KEYS.difference(data))
     if missing:
         msg = f"{path.name}: missing {', '.join(missing)}"
         raise ValidationFailedError(msg)
+    unknown = sorted(str(key) for key in data if key not in _KEYS)
+    if unknown:
+        msg = f"{path.name}: unknown keys {', '.join(unknown)}"
+        raise ValidationFailedError(msg)
     as_of = data["as_of"]
-    if not isinstance(as_of, date):
+    # A datetime is a date too; the statements are dated by day.
+    if not isinstance(as_of, date) or isinstance(as_of, datetime):
         msg = f"{path.name}: as_of must be a date"
         raise ValidationFailedError(msg)
+    for key in ("confidence", "regions_confidence"):
+        if data[key] not in _CONFIDENCE:
+            msg = f"{path.name}: {key} must be VERIFIED or UNVERIFIED"
+            raise ValidationFailedError(msg)
     countries = {
-        name: _codes(path, key, data[key], _COUNTRY)
+        name: _codes(path, key, data[key], COUNTRY_CODE)
         for name, key in _COUNTRY_KEYS.items()
     }
     return JurisdictionLists(

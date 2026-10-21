@@ -2,8 +2,8 @@
 
 One sentence per kind with the parameters substituted, so the console can show
 what a version does without reading its JSON. Amounts read ``<amount> <unit>``
-with a thin space between thousands in es-MX (``5 000 USD``) and a comma in en
-(``5,000 USD``).
+with a narrow no-break space (U+202F) between thousands in es-MX (``5 000 USD``)
+and a comma in en (``5,000 USD``).
 
 Pure: no database, no web framework (contract ``monitoring-evaluator-is-pure``).
 """
@@ -61,7 +61,7 @@ class RenderedRule(Protocol):
     def conditions(self) -> Sequence[RenderedCondition]: ...
 
 
-_THIN_SPACE = chr(0x2009)  # U+2009 THIN SPACE
+_THIN_SPACE = chr(0x202F)  # U+202F NARROW NO-BREAK SPACE
 _DURATION = re.compile(r"^P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)D)?(?:T(\d+)H)?$")
 _DURATION_WORDS: dict[Locale, tuple[tuple[str, str], ...]] = {
     "es-MX": (("año", "años"), ("mes", "meses"), ("día", "días"), ("hora", "horas")),
@@ -276,9 +276,81 @@ def _codes(codes: frozenset[str], locale: Locale) -> str:
     return _join(sorted(code.removeprefix("$") for code in codes), locale)
 
 
+def _listed(
+    codes: frozenset[str], locale: Locale, words: tuple[str, str, str, str]
+) -> str:
+    # words: the es-MX singular and plural, then the en ones, with {} for codes.
+    one, many = words[:2] if locale == "es-MX" else words[2:]
+    return (one if len(codes) == 1 else many).format(_codes(codes, locale))
+
+
+def _band(where: TxnFilter, locale: Locale) -> str:
+    unit_key = where.amount_unit_key
+    unit = None if unit_key is None else unit_key.split("/", 1)[0]
+
+    def amount(value: Decimal) -> str:
+        text = _number(value, locale)
+        return text if unit is None else f"{text} {unit}"
+
+    es = locale == "es-MX"
+    low, high = where.amount_gte, where.amount_lt
+    if low is not None and high is not None:
+        return (
+            f" de al menos {amount(low)} y menos de {amount(high)}"
+            if es
+            else f" of at least {amount(low)} and below {amount(high)}"
+        )
+    if low is not None:
+        return f" de al menos {amount(low)}" if es else f" of at least {amount(low)}"
+    if high is not None:
+        return f" de menos de {amount(high)}" if es else f" below {amount(high)}"
+    return ""
+
+
+def _routes(where: TxnFilter, locale: Locale) -> str:
+    clauses: list[str] = []
+    if where.rail:
+        rails = frozenset(map(str, where.rail))
+        clauses.append(
+            _listed(
+                rails,
+                locale,
+                (
+                    " por la red de pago {}",
+                    " por las redes de pago {}",
+                    " on the {} rail",
+                    " on the {} rails",
+                ),
+            )
+        )
+    if where.channel:
+        channels = frozenset(map(str, where.channel))
+        clauses.append(
+            _listed(
+                channels,
+                locale,
+                (
+                    " por el canal {}",
+                    " por los canales {}",
+                    " through the {} channel",
+                    " through the {} channels",
+                ),
+            )
+        )
+    if where.currency:
+        clauses.append(
+            _listed(
+                where.currency,
+                locale,
+                (" en moneda {}", " en monedas {}", " in {}", " in {}"),
+            )
+        )
+    return "".join(clauses) + _band(where, locale)
+
+
 def _qualifiers(where: TxnFilter, locale: Locale) -> str:
     es = locale == "es-MX"
-    clauses: list[str] = []
+    clauses: list[str] = [_routes(where, locale)]
     if where.counterparty_screening_status:
         status = _codes(where.counterparty_screening_status, locale)
         clauses.append(
@@ -418,11 +490,9 @@ def _sentence_structuring(definition: RenderedRule, locale: Locale) -> str:
     )
 
 
-def _sentence_velocity(definition: RenderedRule, locale: Locale) -> str:
+def _count_or_sum(definition: RenderedRule, noun: str, locale: Locale) -> str:
     params = definition.params
     es = locale == "es-MX"
-    noun = _plural(definition.on, locale, directional=False)
-    noun += _qualifiers(definition.on, locale)
     count = params.get("count")
     total = params.get("sum")
     parts: list[str] = []
@@ -441,10 +511,15 @@ def _sentence_velocity(definition: RenderedRule, locale: Locale) -> str:
             parts.append(
                 f"un total de {amount} o más" if es else f"a total of {amount} or more"
             )
-        what = (" o " if es else " or ").join(parts)
-    else:
-        what = parts[0]
-    within = _within(str(params["window"].value), locale)
+        return (" o " if es else " or ").join(parts)
+    return parts[0]
+
+
+def _sentence_velocity(definition: RenderedRule, locale: Locale) -> str:
+    noun = _plural(definition.on, locale, directional=False)
+    noun += _qualifiers(definition.on, locale)
+    what = _count_or_sum(definition, noun, locale)
+    within = _within(str(definition.params["window"].value), locale)
     return f"{_subject(definition, locale)} {what} {within}{_gates(definition, locale)}"
 
 
@@ -471,8 +546,23 @@ def _sentence_jurisdiction(definition: RenderedRule, locale: Locale) -> str:
         _threshold(definition, locale)
         + _qualifiers(definition.on, locale)
         + place
+        + _listed_window(definition, locale)
         + _gates(definition, locale)
     )
+
+
+def _listed_window(definition: RenderedRule, locale: Locale) -> str:
+    # The window branch: to_listed_count / to_listed_sum reach count / sum.
+    params = definition.params
+    window = params.get("window")
+    if window is None or not {"count", "sum"} & set(params):
+        return ""
+    noun = _plural(definition.on, locale, directional=False)
+    what = _count_or_sum(definition, noun, locale)
+    within = _within(str(window.value), locale)
+    if locale == "es-MX":
+        return f" o cuando, {within}, realiza {what} con contrapartes en esas listas"
+    return f", or when {within} they make {what} with counterparties on those lists"
 
 
 def _window_phrase(declaration: AggregateDeclaration, locale: Locale) -> str:

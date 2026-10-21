@@ -11,7 +11,7 @@ from xolotl.modules.monitoring.rules.definitions import RuleDefinition, RuleKind
 from xolotl.modules.monitoring.rules.render import Locale, render
 
 GOLDEN = Path(__file__).resolve().parents[3] / "golden/monitoring/rules/render"
-_THIN = chr(0x2009)
+_THIN = chr(0x202F)  # U+202F NARROW NO-BREAK SPACE
 
 
 def _assert_golden(name: str, actual: str) -> None:
@@ -163,3 +163,62 @@ def test_velocity_by_sum_after_dormancy_and_a_triggered_aggregate() -> None:
         "Fires when the customer receives a cash deposit and the sum of incoming "
         "operations in the calendar month is at least 2,000 USD"
     )
+
+
+def test_rails_channels_currencies_and_amount_bands_read_as_clauses() -> None:
+    data = document(RuleKind.THRESHOLD)
+    data["on"] = {
+        "rail": ["SPEI", "CODI"],
+        "channel": ["APP"],
+        "currency": ["MXN"],
+        "amount_unit_key": "USD/PRIOR_BANKING_DAY",
+        "amount_gte": "3500",
+        "amount_lt": "5000",
+    }
+    rule = RuleDefinition.model_validate(data)
+    _assert_golden("routes.es-MX.txt", rule.render("es-MX"))
+    _assert_golden("routes.en.txt", rule.render("en"))
+    data["on"] = {
+        "rail": ["SWIFT"],
+        "channel": ["BRANCH", "ATM"],
+        "currency": ["USD", "EUR"],
+        "amount_gte": "10000",
+    }
+    data["params"] = {"party_screening_status": {"value": "TRUE_MATCH"}}
+    rule = RuleDefinition.model_validate(data)
+    assert rule.render("es-MX") == (
+        "Dispara cuando el cliente realiza una operación por la red de pago SWIFT "
+        "por los canales ATM y BRANCH en monedas EUR y USD de al menos "
+        f"10{_THIN}000 mientras el cliente tiene estado de screening TRUE_MATCH"
+    )
+    assert rule.render("en") == (
+        "Fires when the customer makes an operation on the SWIFT rail through the "
+        "ATM and BRANCH channels in EUR and USD of at least 10,000 while the "
+        "customer's screening status is TRUE_MATCH"
+    )
+    data["on"] = {"amount_unit_key": "UDI/SAME_DAY", "amount_lt": "750"}
+    rule = RuleDefinition.model_validate(data)
+    assert " de menos de 750 UDI " in rule.render("es-MX")
+    assert " below 750 UDI " in rule.render("en")
+
+
+def test_a_jurisdiction_rule_reads_its_window_branch() -> None:
+    data = document(RuleKind.HIGH_RISK_JURISDICTION)
+    data["params"].update({
+        "window": {"value": "P7D"},
+        "count": {"value": 3},
+        "sum": {"value": "5000", "unit": "USD"},
+    })
+    rule = RuleDefinition.model_validate(data)
+    _assert_golden("HIGH_RISK_JURISDICTION.window.es-MX.txt", rule.render("es-MX"))
+    _assert_golden("HIGH_RISK_JURISDICTION.window.en.txt", rule.render("en"))
+    del data["params"]["count"]
+    rule = RuleDefinition.model_validate(data)
+    branch = (
+        ", or when within 7 days they make transfer operations totalling 5,000 USD "
+        "or more with counterparties on those lists"
+    )
+    assert rule.render("en").endswith(branch)
+    del data["params"]["sum"]
+    rule = RuleDefinition.model_validate(data)
+    assert "or when" not in rule.render("en")
