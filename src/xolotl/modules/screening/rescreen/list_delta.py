@@ -25,7 +25,13 @@ handles one page in one transaction:
    only_entries=<the page's entries it was blocked on>)``, so the run is
    ``restricted_to_delta`` and an unchanged entry is never scored. Purged and merged
    parties are skipped.
-5. The batch advances by the page (``done`` counts the screened delta entries), and
+5. The tenant's counterparties near the page's entries (SP-04 spec §11.3) are
+   blocked the same way over ``counterparty_name_index``, plus their wallet
+   addresses and identifiers by hash (``reverse_counterparty_candidates``), and each
+   is screened after the parties, in id order, with ``screen_counterparty`` under
+   the same options. A dormant counterparty is screened too: only the periodic
+   walk skips those. Counterparty runs publish no client event (tipping-off).
+6. The batch advances by the page (``done`` counts the screened delta entries), and
    either the next page is enqueued (key ``screening.list_delta:<batch>:<offset>``)
    or, after a short page, the batch completes.
 
@@ -34,7 +40,9 @@ CURP and passport matches in the delta; its name candidates are left to the next
 periodic run. The entry is logged at WARNING (``screening.delta_entry_overflow``,
 list code and entry key only), the count travels with the page payloads
 (``overflow``), and the completed batch records it as ``OVERFLOW:<n>`` in
-``last_error`` while staying ``COMPLETED``.
+``last_error`` while staying ``COMPLETED``. The counterparty side overflows on its
+own: such an entry keeps its identifier and wallet matches, is logged the same way
+with ``subjects`` ``counterparty``, and adds one to the count.
 
 Resuming a failed batch: when a page's last attempt fails, the batch is marked
 ``FAILED`` and keeps its cursor. The operator path to resume it is to replay the
@@ -47,6 +55,7 @@ the next periodic run.
 
 import logging
 from collections import defaultdict
+from dataclasses import dataclass
 from uuid import UUID
 
 from pydantic import JsonValue
@@ -60,6 +69,12 @@ from xolotl.modules.screening.catalog.models import (
     ListEntryRow,
     ListVersion,
 )
+
+# A module import: counterparty.blocking -> rescreen.blocking -> rescreen/__init__
+# -> wiring -> list_delta is a cycle, so a name import would fail.
+from xolotl.modules.screening.counterparty import blocking as counterparty_blocking
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.runs import screen_counterparty
 from xolotl.modules.screening.engine.entries import indexed_shared_entry
 from xolotl.modules.screening.engine.enums import BatchKind, RunMode, TriggerType
 from xolotl.modules.screening.engine.holder import get_index_holder
@@ -79,6 +94,7 @@ from xolotl.modules.screening.rescreen.blocking import reverse_candidates
 from xolotl.modules.screening.rescreen.delisting import suggest_delisting
 from xolotl.modules.screening.rescreen.walkers import open_periodic
 from xolotl.platform.config import get_settings
+from xolotl.platform.db import bound_context
 from xolotl.platform.events import Event, Handler
 from xolotl.platform.jobs.queue import Job, JobHandler, PostgresJobQueue
 
@@ -208,6 +224,70 @@ def _blocked_by_party(
     return by_party, overflow
 
 
+def _blocked_by_counterparty(
+    s: Session, rows: list[ListEntryRow], version: ListVersion
+) -> tuple[dict[UUID, list[IndexedEntry]], int]:
+    # The counterparties near each entry, inverted as ``_blocked_by_party`` does.
+    shard = get_index_holder().shared(s, require={version.list_code: version.seq})
+    indexed = [indexed_shared_entry(row) for row in rows]
+    blocked = counterparty_blocking.reverse_counterparty_candidates(
+        s, [i.entry for i in indexed], idf=shard.blocking_idf
+    )
+    by_counterparty: dict[UUID, list[IndexedEntry]] = defaultdict(list)
+    overflow = 0
+    for entry, found in zip(indexed, blocked, strict=True):
+        if found.overflow:
+            overflow += 1
+            logger.warning(
+                "screening.delta_entry_overflow",
+                extra={
+                    "list_code": version.list_code,
+                    "entry_key": found.entry_key,
+                    "subjects": "counterparty",
+                },
+            )
+        for counterparty_id in found.counterparty_ids:
+            by_counterparty[counterparty_id].append(entry)
+    return by_counterparty, overflow
+
+
+@dataclass(frozen=True, slots=True)
+class _Counted:
+    runs: int
+    new_matches: int
+    overflow: int
+
+
+def _rescreen_counterparties(
+    s: Session,
+    rows: list[ListEntryRow],
+    version: ListVersion,
+    *,
+    job: Job,
+    batch_id: UUID,
+) -> _Counted:
+    # Each counterparty blocked near the page, in id order, against the entries it
+    # was blocked on: the page's counterparty runs, new findings and overflow.
+    by_counterparty, overflow = _blocked_by_counterparty(s, rows, version)
+    trigger = Trigger(TriggerType.JOB, str(job.id))
+    runs = new_matches = 0
+    for counterparty_id in sorted(by_counterparty):
+        results = screen_counterparty(
+            s,
+            s.get_one(
+                Counterparty, (bound_context(s).require_tenant_id(), counterparty_id)
+            ),
+            mode=RunMode.LIST_DELTA,
+            trigger=trigger,
+            only_entries=by_counterparty[counterparty_id],
+            require_versions={version.list_code: version.seq},
+            batch_id=batch_id,
+        )
+        runs += len(results)
+        new_matches += sum(result.run.new_match_count for result in results)
+    return _Counted(runs, new_matches, overflow)
+
+
 def handle_list_delta(queue: PostgresJobQueue) -> JobHandler:
     """Build the ``screening.list_delta`` page handler.
 
@@ -249,6 +329,10 @@ def handle_list_delta(queue: PostgresJobQueue) -> JobHandler:
             )
             runs += 1
             new_matches += result.run.new_match_count
+        counted = _rescreen_counterparties(s, rows, version, job=job, batch_id=batch.id)
+        runs += counted.runs
+        new_matches += counted.new_matches
+        overflow += counted.overflow
         following = offset + len(rows)
         advance_batch(
             batch,
