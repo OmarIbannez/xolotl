@@ -60,6 +60,13 @@ from xolotl.modules.party.schemas import (
     PersonInput,
 )
 from xolotl.modules.screening import evaluation_report
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.resolve import resolve
+from xolotl.modules.screening.counterparty.schema import (
+    CounterpartyInput,
+    CounterpartyKind,
+    CounterpartyScreeningStatus,
+)
 from xolotl.modules.screening.engine.enums import (
     BatchKind,
     BatchStatus,
@@ -1821,6 +1828,70 @@ def test_screening_check_and_replay(admin_engine: Engine, tmp_path: Path):
 
         unknown = runner.invoke(
             app, ["screening", "check", "--tenant", "nope", "--party", str(party.id)]
+        )
+        assert unknown.exit_code == 1
+        assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
+    finally:
+        set_index_holder(None)
+
+
+def test_screening_screen_counterparties_screens_every_new_counterparty(
+    admin_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    created = new_tenant()
+    seed_sources(admin_engine)
+    _ = load_shared(
+        "OFAC_SDN",
+        [
+            ListEntry(
+                list_code="OFAC_SDN",
+                entry_key="7001",
+                entity_type=EntityType.PERSON,
+                primary_name=EntryName("JUAN CARLOS PEREZ GOMEZ", NameQuality.PRIMARY),
+                source_ref="sdn 7001",
+            )
+        ],
+        store=LocalFsObjectStore(tmp_path / "objects"),
+    )
+    assign_itf(created, admin_engine)
+    # Two pages of two, and a third that comes up short.
+    monkeypatch.setattr(get_settings(), "monitoring_counterparty_screen_batch", 2)
+    with db.tenant_session(system_ctx(created.tenant_id)) as s:
+        juan = resolve(
+            s,
+            CounterpartyInput(
+                kind=CounterpartyKind.PERSON, name="Juan Carlos Pérez Gómez"
+            ),
+        ).id
+        for name in ("Comercial Uno", "Comercial Dos", "Comercial Tres"):
+            _ = resolve(s, CounterpartyInput(name=name))
+    set_index_holder(None)
+    try:
+        result = runner.invoke(
+            app, ["screening", "screen-counterparties", "--tenant", "acme"]
+        )
+        assert result.exit_code == 0, result.output
+        assert result.stdout == "screened 4 counterparties for tenant acme\n"
+        with db.tenant_session(system_ctx(created.tenant_id)) as s:
+            rows = s.scalars(select(Counterparty)).all()
+            runs = s.scalars(select(ScreeningRun)).all()
+        assert all(r.screened_at is not None for r in rows)
+        assert {
+            r.id
+            for r in rows
+            if r.screening_status is not CounterpartyScreeningStatus.CLEAR
+        } == {juan}
+        assert {(r.trigger_type, r.trigger_ref) for r in runs} == {
+            (TriggerType.CLI, f"cli:{getpass.getuser()}")
+        }
+
+        again = runner.invoke(
+            app, ["screening", "screen-counterparties", "--tenant", "acme"]
+        )
+        assert again.stdout == "screened 0 counterparties for tenant acme\n"
+
+        unknown = runner.invoke(
+            app, ["screening", "screen-counterparties", "--tenant", "nope"]
         )
         assert unknown.exit_code == 1
         assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"

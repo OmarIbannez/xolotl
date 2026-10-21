@@ -102,6 +102,10 @@ forbidden_modules =
 ignore_imports =
     xolotl.modules.party.service -> xolotl.modules.party.models
     xolotl.modules.screening.counterparty.resolve -> xolotl.modules.screening.counterparty.models
+# C1: resolve's first-sight hook indexes a new row's name (plan 4c Deviation 5); it
+# and the name index writer reach the counterparty models, never the engine's.
+    xolotl.modules.screening.counterparty.first_sight -> xolotl.modules.screening.counterparty.models
+    xolotl.modules.screening.counterparty.names -> xolotl.modules.screening.counterparty.models
 
 [importlinter:contract:screening-never-imports-monitoring]
 name = screening never imports monitoring (SP-04 spec Decision 18)
