@@ -480,6 +480,7 @@ def test_model_partial_index_predicates_are_the_specs():
         ("private_list_version", "ux_private_list_version_active"): (
             "status = 'ACTIVE'"
         ),
+        ("transaction", "ix_transaction_pending"): ("status IN ('RECEIVED', 'PARKED')"),
     }
 
 
