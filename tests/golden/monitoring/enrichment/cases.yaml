@@ -6,7 +6,7 @@
 # listed (`pairs`), for dates no pack is in force on or whose other values the
 # fixture does not hold. `expected` is the unit_amounts JSON, each `row` naming the
 # unit_value row read as [unit_code, valid_from] (null for an identity), or `park`
-# for the ParkTransaction raised. A `periods` operation runs period_keys_for.
+# for the ParkTransactionError raised. A `periods` operation runs period_keys_for.
 - id: uma-change-31-jan-vs-1-feb
   note: two AVI crypto operations a day apart read different UMA rows (108.57, 113.14)
   operations:

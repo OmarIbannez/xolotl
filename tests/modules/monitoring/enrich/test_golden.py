@@ -16,7 +16,7 @@ from tests.helpers import staff_session
 from tests.modules.monitoring.support import both_packs_tenant
 from xolotl.modules.monitoring.enrich.periods import period_keys_for
 from xolotl.modules.monitoring.enrich.policy import snapshot_for
-from xolotl.modules.monitoring.enrich.service import ParkTransaction
+from xolotl.modules.monitoring.enrich.service import ParkTransactionError
 from xolotl.modules.monitoring.enrich.units import unit_amounts_for, unit_pairs
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.calendar import Holidays, load_holidays
@@ -64,7 +64,7 @@ def _units(s: Session, operation: dict[str, Any], holidays: Holidays) -> Any:
             pairs=_pairs(s, operation, on),
             holidays=holidays,
         )
-    except ParkTransaction as parked:
+    except ParkTransactionError as parked:
         return {
             "park": {
                 "reason": parked.reason.value,

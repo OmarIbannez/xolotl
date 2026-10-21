@@ -12,7 +12,6 @@ day's (program spec D5).
 from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
-from typing import NoReturn
 
 from xolotl.modules.monitoring.enums import ParkReason
 from xolotl.modules.monitoring.txn.schema import UnitAmount
@@ -32,7 +31,7 @@ LOCAL_CCY = "MXN"
 LIBRARY_PAIR = ("USD", ConversionRule.PRIOR_BANKING_DAY)
 
 
-class ParkTransaction(Exception):  # ruff: ignore[error-suffix-on-exception-name]
+class ParkTransactionError(Exception):
     """The transaction cannot be enriched yet; the processing job parks it."""
 
     def __init__(
@@ -85,14 +84,6 @@ def unit_pairs(policy: EffectivePolicy) -> frozenset[tuple[str, ConversionRule]]
     return frozenset(pairs)
 
 
-def _park(unit: str, rule: ConversionRule, on: date, holidays: Holidays) -> NoReturn:
-    raise ParkTransaction(
-        ParkReason.UNIT_VALUE_MISSING,
-        UNIT_OF.get(unit, unit),
-        needed_on=resolve_date(rule, on, holidays=holidays),
-    )
-
-
 def unit_amounts_for(
     units: UnitService,
     *,
@@ -104,7 +95,7 @@ def unit_amounts_for(
 ) -> dict[str, UnitAmount]:
     """Convert an amount into every pair, recording the value each one read.
 
-    A missing value raises ``ParkTransaction`` (``UNIT_VALUE_MISSING``) with the
+    A missing value raises ``ParkTransactionError`` (``UNIT_VALUE_MISSING``) with the
     unit code and date of the first one: the local leg first, then the pairs in
     sorted order.
 
@@ -121,6 +112,8 @@ def unit_amounts_for(
         The local leg and one ``UnitAmount`` per pair, keyed by ``unit_key``.
 
     Raises:
+        ParkTransactionError: ``UNIT_VALUE_MISSING`` when a unit value the
+            conversion needs is not loaded yet.
         ValueError: For a currency other than ``MXN`` and ``USD``.
 
     """
@@ -136,8 +129,12 @@ def unit_amounts_for(
             leg = units.threshold_in_ccy(
                 Quantity(amount=amount, unit="USD"), LOCAL_CCY, on, rule
             )
-        except UnitValueMissingError:
-            _park("USD", rule, on, holidays)
+        except UnitValueMissingError as missing:
+            raise ParkTransactionError(
+                ParkReason.UNIT_VALUE_MISSING,
+                UNIT_OF.get("USD", "USD"),
+                needed_on=resolve_date(rule, on, holidays=holidays),
+            ) from missing
         local = leg.amount
         found[unit_key(LOCAL_CCY, rule)] = UnitAmount(
             amount=leg.amount,
@@ -155,8 +152,12 @@ def unit_amounts_for(
             continue
         try:
             conversion = units.to_unit(local, LOCAL_CCY, unit, on, rule)
-        except UnitValueMissingError:
-            _park(unit, rule, on, holidays)
+        except UnitValueMissingError as missing:
+            raise ParkTransactionError(
+                ParkReason.UNIT_VALUE_MISSING,
+                UNIT_OF.get(unit, unit),
+                needed_on=resolve_date(rule, on, holidays=holidays),
+            ) from missing
         found[unit_key(unit, rule)] = UnitAmount(
             amount=conversion.amount,
             unit_value_id=conversion.unit_value_id,

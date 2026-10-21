@@ -20,7 +20,7 @@ from xolotl.modules.monitoring.enrich.policy import (
     snapshot_for,
 )
 from xolotl.modules.monitoring.enrich.service import (
-    ParkTransaction,
+    ParkTransactionError,
     apply_enrichment,
     enrich,
     enrich_input,
@@ -315,7 +315,7 @@ def test_a_missing_unit_value_parks_the_transaction(
         # 2026-01-22 has no UDI row: SAME_DAY is the first missing pair.
         item = _item(occurred_at="2026-01-22T18:00:00Z")
         row = _store(s, tenant.tenant_id, item, relationship)
-        with pytest.raises(ParkTransaction) as caught:
+        with pytest.raises(ParkTransactionError) as caught:
             _ = _enrich(s, row, relationship)
     assert caught.value.reason is ParkReason.UNIT_VALUE_MISSING
     assert caught.value.unit_code == "UDI"
@@ -331,7 +331,7 @@ def test_a_missing_fix_parks_a_usd_transaction_on_the_fix(
         # The FIX of 2026-01-20, which the 21st reads, is not in the fixture.
         item = _item(occurred_at="2026-01-21T18:00:00Z", currency="USD")
         row = _store(s, tenant.tenant_id, item, relationship)
-        with pytest.raises(ParkTransaction) as caught:
+        with pytest.raises(ParkTransactionError) as caught:
             _ = _enrich(s, row, relationship)
     assert caught.value.unit_code == "USD_MXN_FIX"
     assert caught.value.needed_on == date(2026, 1, 20)
@@ -479,7 +479,27 @@ def test_enrich_input_gives_the_same_unit_amounts_and_periods_as_enrich(
             snapshot=_snapshot(s, "EMONEY"),
             now=now,
         )
+        # The same counterparty sent with another country keeps the stored one.
+        moved = enrich_input(
+            s,
+            _item(
+                counterparty={
+                    "kind": "PERSON",
+                    "name": "Juan Pérez",
+                    "account": "012180001234567891",
+                    "country": "US",
+                }
+            ),
+            relationship=relationship,
+            account_id=row.account_id,
+            units=UnitService(s),
+            holidays=_holidays(s),
+            snapshot=_snapshot(s, "EMONEY"),
+            now=now,
+        )
         assert s.scalars(select(Counterparty.id)).all() == counterparties
+    assert moved.counterparty_key == from_row.counterparty_key
+    assert moved.counterparty_country == from_row.counterparty_country == "MX"
     assert decided.unit_amounts == from_row.unit_amounts
     assert decided.period_keys == from_row.period_keys
     assert decided.account_id is None

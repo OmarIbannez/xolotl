@@ -7,7 +7,7 @@ amount into every unit of the snapshot's policy and computes the period keys.
 path, reconciliation finding 10): the counterparty is found by its key, never
 written. ``apply_enrichment`` stores the result on the row and
 ``enriched_from_row`` rebuilds it from a processed row without converting again.
-A unit value that is not there yet raises ``ParkTransaction``; a date with no
+A unit value that is not there yet raises ``ParkTransactionError``; a date with no
 policy raises ``PolicyNotAssignedError`` from ``snapshot_for``, before this.
 """
 
@@ -18,13 +18,12 @@ from typing import cast
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import select
 from sqlalchemy.orm import Session, object_session
 
 from xolotl.modules.monitoring.enrich.periods import period_keys_for
 from xolotl.modules.monitoring.enrich.policy import SnapshotRef, policy_date
 from xolotl.modules.monitoring.enrich.units import (
-    ParkTransaction,
+    ParkTransactionError,
     unit_amounts_for,
     unit_pairs,
 )
@@ -40,8 +39,8 @@ from xolotl.modules.monitoring.txn.schema import (
 from xolotl.modules.party.service import RelationshipRef
 from xolotl.modules.screening.counterparty.resolve import (
     CounterpartyUnindexableError,
+    country_and_status_by_dedup_hash,
     dedup_hash_of,
-    status_by_dedup_hash,
     status_of,
 )
 from xolotl.modules.screening.counterparty.schema import CounterpartyScreeningStatus
@@ -53,7 +52,7 @@ from xolotl.platform.policy.models import PolicySnapshot
 from xolotl.platform.units import UnitService
 
 __all__ = [
-    "ParkTransaction",
+    "ParkTransactionError",
     "apply_enrichment",
     "enrich",
     "enrich_input",
@@ -108,7 +107,7 @@ def enrich(
     """Enrich a stored transaction with its policy, units, periods and context.
 
     A unit value the policy needs and nobody has loaded yet raises
-    ``ParkTransaction`` from ``unit_amounts_for``.
+    ``ParkTransactionError`` from ``unit_amounts_for``.
 
     Args:
         session: The processing transaction's session.
@@ -199,7 +198,9 @@ def enrich_input(
     The counterparty is ``counterparty_of(item)``, found by its dedup hash as
     ingest keys it, and nothing is written: a counterparty never seen is
     ``UNSCREENED`` with no id, and one with nothing to index is no counterparty.
-    A missing unit value raises ``ParkTransaction``, as in ``enrich`` (C5 maps it
+    A counterparty already stored carries its stored country, as ``enrich``
+    reads it, so the decide and processing paths agree.
+    A missing unit value raises ``ParkTransactionError``, as in ``enrich`` (C5 maps it
     to the fail mode).
 
     Args:
@@ -230,8 +231,13 @@ def enrich_input(
             dedup_hash = None
     if counterparty is not None and dedup_hash is not None:
         counterparty_key = dedup_hash.hex()
-        country = counterparty.country
-        status = status_by_dedup_hash(session, dedup_hash)
+        stored = country_and_status_by_dedup_hash(session, dedup_hash)
+        if stored is None:
+            country = counterparty.country
+            status = CounterpartyScreeningStatus.UNSCREENED
+        else:
+            # The stored row's country, as ``enrich`` reads it on processing.
+            country, status = stored
     valued = _valued(
         units,
         amount=item.amount,
@@ -316,8 +322,9 @@ def enriched_from_row(row: Transaction) -> EnrichedTransaction:
     """Rebuild the enriched view of a processed row; nothing is converted again.
 
     The row stores neither the counterparty's key nor the policy's country, so
-    both are read through the row's session: the counterparty's dedup hash by
-    its id and the country from the snapshot (two reads by primary key).
+    both are read through the row's session's identity map: the counterparty's
+    dedup hash by its id and the country from the snapshot, so a replay reads
+    each distinct counterparty and snapshot about once.
 
     Returns:
         The enriched transaction as processing recorded it.
@@ -338,12 +345,11 @@ def enriched_from_row(row: Transaction) -> EnrichedTransaction:
     if row.counterparty_id is not None:
         dedup_hash, _, _ = status_of(session, row.counterparty_id)
         counterparty_key = dedup_hash.hex()
-    content = session.scalars(
-        select(PolicySnapshot.content).where(
-            PolicySnapshot.id == row.policy_snapshot_id
-        )
-    ).one()
-    country = str(content["country"])
+    snapshot = session.get_one(
+        PolicySnapshot,
+        (bound_context(session).require_tenant_id(), row.policy_snapshot_id),
+    )
+    country = str(snapshot.content["country"])
     status = row.counterparty_screening_status
     return EnrichedTransaction(
         id=row.id,
