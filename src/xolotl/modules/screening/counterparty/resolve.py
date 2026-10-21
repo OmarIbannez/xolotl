@@ -21,7 +21,7 @@ import hmac
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import Boolean, literal_column, select, text
+from sqlalchemy import Boolean, literal_column, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -211,13 +211,15 @@ def dedup_hash_of(session: Session, counterparty: CounterpartyInput) -> bytes:
     return _dedup(session, component_hashes(session, counterparty))
 
 
-def resolve(session: Session, counterparty: CounterpartyInput) -> CounterpartyRef:
-    """Upsert the counterparty an input names and count one more transaction.
+def resolve(
+    session: Session, counterparty: CounterpartyInput, *, count: int = 1
+) -> CounterpartyRef:
+    """Upsert the counterparty an input names and count ``count`` transactions.
 
     A new row stores the name, account, wallet and identifier as ciphertext under
-    the tenant's DATA key beside their tags; a known one gains ``last_seen_at``
-    and one ``txn_count`` and keeps what it first stored. An input with nothing
-    to index raises ``CounterpartyUnindexableError``.
+    the tenant's DATA key beside their tags and starts ``txn_count`` at ``count``;
+    a known one gains ``last_seen_at`` and ``count`` more and keeps what it first
+    stored. An input with nothing to index raises ``CounterpartyUnindexableError``.
 
     Returns:
         The row's id, key, country and cached screening status, and whether this
@@ -256,13 +258,13 @@ def resolve(session: Session, counterparty: CounterpartyInput) -> CounterpartyRe
             identifier=seal(None if identifier is None else identifier.value),
             identifier_hash=hashes.identifier_hash,
             dedup_hash=dedup_hash,
-            txn_count=1,
+            txn_count=count,
         )
         .on_conflict_do_update(
             index_elements=[Counterparty.tenant_id, Counterparty.dedup_hash],
             set_={
                 "last_seen_at": text("now()"),
-                "txn_count": table.c.txn_count + 1,
+                "txn_count": table.c.txn_count + count,
             },
         )
         .returning(
@@ -279,6 +281,18 @@ def resolve(session: Session, counterparty: CounterpartyInput) -> CounterpartyRe
         country=row[1],
         screening_status=row[2],
         created=row[3],
+    )
+
+
+def uncount(session: Session, counterparty_id: UUID) -> None:
+    """Take back one transaction ``resolve`` counted for a row that was not kept."""
+    _ = session.execute(
+        update(Counterparty)
+        .where(
+            Counterparty.tenant_id == _tenant(session),
+            Counterparty.id == counterparty_id,
+        )
+        .values(txn_count=Counterparty.txn_count - 1)
     )
 
 

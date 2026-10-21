@@ -379,6 +379,34 @@ def amount_minor(amount: Decimal) -> int:
     return int(amount.scaleb(2))
 
 
+def counterparty_of(item: TransactionInput) -> CounterpartyInput | None:
+    """Return the counterparty an item names, the crypto address standing in.
+
+    ``crypto.address`` is the counterparty's wallet when the counterparty names
+    none (spec §4). Ingest and the decide path key a counterparty on
+    ``dedup_hash_of(session, counterparty_of(item))``, so both must use this.
+
+    Returns:
+        The counterparty input, or None when the item names no one.
+
+    """
+    address = None if item.crypto is None else item.crypto.address
+    network = None if item.crypto is None else item.crypto.network
+    counterparty = item.counterparty
+    if address is None:
+        return counterparty
+    if counterparty is None:
+        return CounterpartyInput(wallet_address=address, wallet_network=network)
+    if counterparty.wallet_address is not None:
+        return counterparty
+    return counterparty.model_copy(
+        update={
+            "wallet_address": address,
+            "wallet_network": counterparty.wallet_network or network,
+        }
+    )
+
+
 class UnitAmount(BaseModel):
     """A transaction's amount in one threshold unit under one conversion rule."""
 

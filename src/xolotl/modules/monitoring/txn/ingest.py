@@ -3,28 +3,37 @@
 ``ingest_batch`` runs in the caller's transaction, in plan 4a's order (Deviation
 4: spec step 3, decision linking, is plan 4c's):
 
-1. Resolve every item's ``customer_ref`` (one query) and account. Any unknown or
-   inactive customer, or an account bound to another relationship, refuses the
-   whole batch with ``TRANSACTION_BATCH_INVALID``; nothing is written.
+1. Resolve every item's ``customer_ref`` (one query) and check every
+   ``account_ref`` against the accounts already bound (one query) and the items
+   before it. Any unknown or inactive customer, or an account bound to another
+   relationship, refuses the whole batch with ``TRANSACTION_BATCH_INVALID``
+   before anything is written. Then upsert each distinct account once.
 2. Classify each re-sent ``external_id`` against ``transaction_ref``: equal content
    is a duplicate, other content refuses the batch with ``EXTERNAL_ID_CONFLICT``.
-   Resolve the counterparties of the new items, write the ``transaction_batch``
-   row and, per new item, the ``transaction`` row and then its ``transaction_ref``
-   with ``ON CONFLICT DO NOTHING``. The ref's foreign key to the partitioned
-   primary key is not deferrable, so the row goes first; when a concurrent batch
-   won the ref, the row is deleted again and the item is classified as above.
-   (Plan 4c's C5 links decisions here, over ``created`` rows.)
+   Resolve the counterparties of the new items, each counting its items, write
+   the ``transaction_batch`` row and, per new item, the ``transaction`` row and
+   then its ``transaction_ref`` with ``ON CONFLICT DO NOTHING``. The ref's foreign
+   key to the partitioned primary key is not deferrable, so the row goes first;
+   when a concurrent batch won the ref, the row is deleted again, its
+   counterparty count taken back, and the item is classified as above. (Plan
+   4c's C5 links decisions here, over ``created`` rows.)
 4. Enqueue one ``monitoring.process`` job per party with a ``RECEIVED`` row.
 5. Publish ``monitoring.transaction_batch_accepted.v1``.
+
+Concurrent batches take their row locks in one order, so they wait on each other
+instead of deadlocking: accounts by ``external_ref``, counterparties by
+``dedup_hash``, refs by ``external_id``.
 
 A row whose ``occurred_at`` is more than ``MONITORING_LATE_DAYS`` before receipt is
 ``BACKFILL``: kept and counted as accepted, but never enqueued (spec §8.5).
 No audit row is written: the batch row is the provenance record (spec §14).
 """
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -45,6 +54,8 @@ from xolotl.modules.monitoring.process.enqueue import enqueue_processing
 from xolotl.modules.monitoring.txn.accounts import (
     AccountRefConflictError,
     account_for,
+    account_key,
+    bound_relationships,
 )
 from xolotl.modules.monitoring.txn.models import (
     Transaction,
@@ -57,6 +68,7 @@ from xolotl.modules.monitoring.txn.schema import (
     TransactionInput,
     amount_minor,
     content_hash,
+    counterparty_of,
 )
 from xolotl.modules.party.enums import CustomerRelationshipStatus
 from xolotl.modules.party.service import RelationshipRef, relationship_by_external_ref
@@ -65,8 +77,8 @@ from xolotl.modules.screening.counterparty.resolve import (
     CounterpartyUnindexableError,
     dedup_hash_of,
     resolve,
+    uncount,
 )
-from xolotl.modules.screening.counterparty.schema import CounterpartyInput
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.crypto import encrypt_json
@@ -74,6 +86,9 @@ from xolotl.platform.crypto.blind_index import blind_index, normalize_identifier
 from xolotl.platform.db import bound_context
 from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs.queue import PostgresJobQueue
+
+if TYPE_CHECKING:
+    from xolotl.modules.screening.counterparty.schema import CounterpartyInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,96 +109,112 @@ class _Resolved:
     account_id: UUID
 
 
-def _resolve_items(
+def _field_error(index: int, field: str, code: FieldErrorCode) -> FieldError:
+    return FieldError(index=index, field=field, code=code)
+
+
+def _relationships(
     session: Session, items: Sequence[TransactionInput]
-) -> list[_Resolved]:
-    relationships = relationship_by_external_ref(
+) -> list[RelationshipRef]:
+    # Validates without writing: customers, then accounts bound elsewhere, either
+    # already stored or by an earlier item of this batch.
+    by_ref = relationship_by_external_ref(
         session, {item.customer_ref for item in items}
     )
     errors: list[FieldError] = []
-    resolved: list[_Resolved] = []
+    found: list[RelationshipRef | None] = []
     for index, item in enumerate(items):
-        relationship = relationships.get(item.customer_ref)
+        relationship = by_ref.get(item.customer_ref)
         if (
             relationship is None
             or relationship.status is not CustomerRelationshipStatus.ACTIVE
         ):
             errors.append(
-                FieldError(
-                    index=index,
-                    field="customer_ref",
-                    code=FieldErrorCode.CUSTOMER_REF_UNKNOWN,
-                )
+                _field_error(index, "customer_ref", FieldErrorCode.CUSTOMER_REF_UNKNOWN)
             )
-            continue
-        try:
-            account = account_for(session, relationship, item.account_ref)
-        except AccountRefConflictError:
-            errors.append(
-                FieldError(
-                    index=index,
-                    field="account_ref",
-                    code=FieldErrorCode.ACCOUNT_REF_CONFLICT,
-                )
-            )
-            continue
-        resolved.append(_Resolved(relationship=relationship, account_id=account.id))
-    if errors:
-        raise BatchInvalidError(errors=field_error_items(errors))
-    return resolved
-
-
-def counterparty_of(item: TransactionInput) -> CounterpartyInput | None:
-    """Return the counterparty an item names, the crypto address standing in.
-
-    ``crypto.address`` is the counterparty's wallet when the counterparty names
-    none (spec §4).
-
-    Returns:
-        The counterparty input, or None when the item names no one.
-
-    """
-    address = None if item.crypto is None else item.crypto.address
-    network = None if item.crypto is None else item.crypto.network
-    counterparty = item.counterparty
-    if address is None:
-        return counterparty
-    if counterparty is None:
-        return CounterpartyInput(wallet_address=address, wallet_network=network)
-    if counterparty.wallet_address is not None:
-        return counterparty
-    return counterparty.model_copy(
-        update={
-            "wallet_address": address,
-            "wallet_network": counterparty.wallet_network or network,
-        }
+            relationship = None
+        found.append(relationship)
+    owners = bound_relationships(
+        session, {item.account_ref for item in items if item.account_ref is not None}
     )
+    for index, (item, relationship) in enumerate(zip(items, found, strict=True)):
+        if relationship is None or item.account_ref is None:
+            continue
+        if owners.setdefault(item.account_ref, relationship.id) != relationship.id:
+            errors.append(
+                _field_error(index, "account_ref", FieldErrorCode.ACCOUNT_REF_CONFLICT)
+            )
+    if errors:
+        errors.sort(key=lambda error: error.index)
+        raise BatchInvalidError(errors=field_error_items(errors))
+    return [relationship for relationship in found if relationship is not None]
+
+
+def _resolve_items(
+    session: Session, items: Sequence[TransactionInput]
+) -> list[_Resolved]:
+    relationships = _relationships(session, items)
+    keys = [
+        account_key(relationship.id, item.account_ref)
+        for item, relationship in zip(items, relationships, strict=True)
+    ]
+    first_index: dict[str, int] = {}
+    for index, key in enumerate(keys):
+        _ = first_index.setdefault(key, index)
+    # One upsert per account, in key order, so concurrent batches lock alike.
+    account_ids: dict[str, UUID] = {}
+    errors: list[FieldError] = []
+    for key in sorted(first_index):
+        index = first_index[key]
+        try:
+            account = account_for(
+                session, relationships[index], items[index].account_ref
+            )
+        except AccountRefConflictError:
+            # A concurrent batch bound the ref after the check above.
+            errors.extend(
+                _field_error(other, "account_ref", FieldErrorCode.ACCOUNT_REF_CONFLICT)
+                for other, other_key in enumerate(keys)
+                if other_key == key
+            )
+            continue
+        account_ids[key] = account.id
+    if errors:
+        errors.sort(key=lambda error: error.index)
+        raise BatchInvalidError(errors=field_error_items(errors))
+    return [
+        _Resolved(relationship=relationship, account_id=account_ids[key])
+        for relationship, key in zip(relationships, keys, strict=True)
+    ]
 
 
 def _counterparties(
     session: Session, items: Sequence[TransactionInput]
 ) -> list[CounterpartyRef | None]:
-    # One resolve per distinct counterparty; a later mention reuses the first ref.
-    by_hash: dict[bytes, CounterpartyRef] = {}
-    refs: list[CounterpartyRef | None] = []
+    # One resolve per distinct counterparty, counting its items, in dedup_hash
+    # order so concurrent batches lock alike.
+    hashes: list[bytes | None] = []
+    inputs: dict[bytes, CounterpartyInput] = {}
+    counts: Counter[bytes] = Counter()
     for item in items:
         counterparty = counterparty_of(item)
-        if counterparty is None:
-            refs.append(None)
-            continue
-        try:
-            dedup_hash = dedup_hash_of(session, counterparty)
-        except CounterpartyUnindexableError:
-            # Nothing left to index (a name of punctuation only): the input stays
-            # in raw and the row names no counterparty.
-            refs.append(None)
-            continue
-        ref = by_hash.get(dedup_hash)
-        if ref is None:
-            ref = resolve(session, counterparty)
-            by_hash[dedup_hash] = ref
-        refs.append(ref)
-    return refs
+        dedup_hash = None
+        if counterparty is not None:
+            try:
+                dedup_hash = dedup_hash_of(session, counterparty)
+            except CounterpartyUnindexableError:
+                # Nothing left to index (a name of punctuation only): the input
+                # stays in raw and the row names no counterparty.
+                dedup_hash = None
+        hashes.append(dedup_hash)
+        if counterparty is not None and dedup_hash is not None:
+            _ = inputs.setdefault(dedup_hash, counterparty)
+            counts[dedup_hash] += 1
+    refs = {
+        dedup_hash: resolve(session, inputs[dedup_hash], count=counts[dedup_hash])
+        for dedup_hash in sorted(inputs)
+    }
+    return [None if dedup_hash is None else refs[dedup_hash] for dedup_hash in hashes]
 
 
 def _stored_refs(
@@ -252,7 +283,9 @@ def _row(
         asset_code=None if crypto is None else crypto.asset_code,
         counterparty_id=None if counterparty is None else counterparty.id,
         counterparty_country=(
-            None if item.counterparty is None else item.counterparty.country
+            None
+            if counterparty is None or item.counterparty is None
+            else item.counterparty.country
         ),
         device_hash=_device_hash(session, item),
         geo_country=None if device is None else device.geo_country,
@@ -330,6 +363,8 @@ def _keep(
         )
     )
     session.expunge(row)
+    if counterparty is not None:
+        uncount(session, counterparty.id)
     winner = session.get_one(
         TransactionRef, (row.tenant_id, item.external_id), populate_existing=True
     )
@@ -350,7 +385,9 @@ def ingest_batch(
 
     A refused batch raises ``BatchInvalidError``, and a known ``external_id``
     re-sent with other content ``ExternalIdConflictError``; either way the caller's
-    transaction must roll back.
+    transaction must roll back. An unknown customer or an account bound elsewhere
+    is refused before anything is written, but an account bound by a concurrent
+    batch is only found by its upsert.
 
     Returns:
         The batch's id, its counters, the transaction id of every item (a
@@ -367,7 +404,13 @@ def ingest_batch(
         if item.external_id in stored
     }
     fresh = [index for index in range(len(items)) if index not in known]
-    counterparties = _counterparties(session, [items[index] for index in fresh])
+    counterparties = dict(
+        zip(
+            fresh,
+            _counterparties(session, [items[index] for index in fresh]),
+            strict=True,
+        )
+    )
     batch = TransactionBatch(
         tenant_id=bound_context(session).require_tenant_id(),
         source=source,
@@ -387,20 +430,25 @@ def ingest_batch(
         late_after=timedelta(days=get_settings().monitoring_late_days),
     )
     created: list[Transaction] = []
-    for index, counterparty in zip(fresh, counterparties, strict=True):
+    # Refs are claimed in external_id order, so concurrent batches lock alike.
+    for index in sorted(fresh, key=lambda fresh_index: items[fresh_index].external_id):
         kept = _keep(
             session,
             items[index],
             index,
             fresh=fresh_rows,
             resolved=resolved[index],
-            counterparty=counterparty,
+            counterparty=counterparties[index],
             digest=digests[index],
         )
         if isinstance(kept, Transaction):
             created.append(kept)
             known[index] = kept.id
         else:
+            # Unreachable through the API today: validate_batch refuses a repeated
+            # external_id, and two concurrent batches with equal content name one
+            # account, whose upsert lock makes the later batch wait and then see
+            # the ref in its pre-read. Kept for the race the locks do not cover.
             known[index] = kept
     received = [row for row in created if row.status is TransactionStatus.RECEIVED]
     batch.accepted = len(created)

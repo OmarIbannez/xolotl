@@ -6,30 +6,37 @@ the outermost context manager, so the error crosses the session and rolls it bac
 
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import timedelta
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, text
+from sqlalchemy.orm import Session
 
 from tests.helpers import everything_stored, staff_session, system_ctx
 from tests.modules.monitoring.support import add_customer, ingest_items, make_item
-from xolotl.modules.monitoring.enums import TransactionStatus
+from xolotl.modules.monitoring.enums import BatchSource, TransactionStatus
 from xolotl.modules.monitoring.errors import BatchInvalidError, ExternalIdConflictError
 from xolotl.modules.monitoring.events import TRANSACTION_BATCH_ACCEPTED
 from xolotl.modules.monitoring.kinds import PROCESS_KIND
-from xolotl.modules.monitoring.txn.ingest import BatchReport
+from xolotl.modules.monitoring.txn import accounts, ingest
+from xolotl.modules.monitoring.txn.ingest import BatchReport, ingest_batch
 from xolotl.modules.monitoring.txn.models import (
+    Account,
     Transaction,
     TransactionBatch,
     TransactionRef,
 )
+from xolotl.modules.monitoring.txn.schema import validate_batch
 from xolotl.modules.party.enums import CustomerRelationshipStatus
 from xolotl.modules.party.models import CustomerRelationship
+from xolotl.modules.party.service import RelationshipRef
 from xolotl.modules.screening.counterparty.models import Counterparty
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
+from xolotl.platform.config import get_settings
 from xolotl.platform.db import tenant_session
 from xolotl.platform.events.event import event_from_row
 from xolotl.platform.events.models import OutboxRow
@@ -110,7 +117,9 @@ def test_a_batch_writes_rows_refs_a_batch_row_and_one_job_per_party(
     assert first.product == "EMONEY"
     assert first.relationship_id == customer.id
     assert first.counterparty_country == "MX"
-    assert {row.account_id for row in rows if row.relationship_id == customer.id}
+    # The DEFAULT account and acc-9 are two rows of one relationship.
+    assert rows[0].account_id != rows[1].account_id
+    assert rows[0].relationship_id == rows[1].relationship_id == customer.id
     assert rows[1].counterparty_id is None
     assert {(ref.external_id, ref.transaction_id) for ref in refs} == {
         (row.external_id, row.id) for row in rows
@@ -175,7 +184,22 @@ def test_an_unknown_or_closed_customer_ref_refuses_the_whole_batch(
     assert all("cust-" not in error.msg for error in caught.value.errors)
     assert _count(tenant, Transaction) == 0
     assert _count(tenant, TransactionBatch) == 0
+    assert _count(tenant, Account) == 0
     assert _jobs(tenant) == []
+
+
+def test_a_refused_batch_writes_no_account_even_before_the_rollback(
+    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+):
+    items = [
+        make_item(external_id="tx-1", account_ref="acc-new"),
+        make_item(external_id="tx-2", customer_ref="cust-unknown"),
+    ]
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        with pytest.raises(BatchInvalidError):
+            _ = ingest_items(s, items, queue=queue)
+        # Still inside the refused batch's transaction: nothing was written.
+        assert s.scalar(select(func.count()).select_from(Account)) == 0
 
 
 def test_an_account_ref_of_another_customer_refuses_the_batch(
@@ -230,61 +254,110 @@ def test_the_batch_event_carries_ids_and_counts_only(
     assert event.key == str(report.batch_id)
 
 
+def _backend_pid(session: Session) -> int:
+    return session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+
+
+_LOCK_WAIT = text(
+    "SELECT wait_event_type = 'Lock' FROM pg_stat_activity WHERE pid = :pid"
+)
+
+
+def _waits_on_a_lock(admin_engine: Engine, pid: int) -> bool:
+    with admin_engine.connect() as conn:
+        return bool(conn.execute(_LOCK_WAIT, {"pid": pid}).scalar())
+
+
+def _until(condition: Callable[[], bool], what: str, timeout: float = 10) -> None:
+    """Poll ``condition`` until it holds.
+
+    Raises:
+        AssertionError: When it does not hold within ``timeout`` seconds.
+
+    """
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            msg = f"timed out waiting until {what}"
+            raise AssertionError(msg)
+        time.sleep(0.01)
+
+
 def _race(
     tenant: CreatedTenant,
     queue: PostgresJobQueue,
-    first_item: dict[str, object],
-    second_item: dict[str, object],
+    admin_engine: Engine,
+    items: tuple[dict[str, object], dict[str, object]],
 ) -> tuple[Future[BatchReport], Future[BatchReport]]:
-    """Ingest two batches, the second reaching the ref while the first holds it.
+    """Ingest two one-item batches, the first committing once the second waits.
+
+    The first batch ingests and keeps its transaction open until the second
+    batch's backend is blocked on a row lock the first holds, then commits. Where
+    the second blocks depends on the items: on the account upsert when both name
+    one account, else on the ``transaction_ref`` insert.
 
     Returns:
         The two batches' futures, both done.
 
     """
     first_ingested = threading.Event()
-    second_started = threading.Event()
+    second_pid: list[int] = []
 
     def first() -> BatchReport:
         with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
-            report = ingest_items(s, [first_item], queue=queue)
+            report = ingest_items(s, [items[0]], queue=queue)
             first_ingested.set()
-            _ = second_started.wait(5)
-            # Hold the ref uncommitted while the second batch reaches it.
-            time.sleep(0.5)
+            _until(
+                lambda: (
+                    bool(second_pid) and _waits_on_a_lock(admin_engine, second_pid[0])
+                ),
+                "the second batch waits on a lock",
+            )
             return report
 
     def second() -> BatchReport:
-        _ = first_ingested.wait(5)
-        second_started.set()
+        _until(first_ingested.is_set, "the first batch has ingested")
         with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
-            return ingest_items(s, [second_item], queue=queue)
+            second_pid.append(_backend_pid(s))
+            return ingest_items(s, [items[1]], queue=queue)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = (pool.submit(first), pool.submit(second))
-        _ = wait(futures, timeout=10)
+        _ = wait(futures, timeout=30)
     return futures
 
 
 def test_two_concurrent_batches_with_one_external_id_keep_one_row(
-    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    admin_engine: Engine,
 ):
+    # Review Focus 1. One customer and one account: the second batch blocks on
+    # the account upsert, then its pre-read sees the committed ref.
     item = make_item(counterparty=COUNTERPARTY)
-    first, second = _race(tenant, queue, item, item)
+    first, second = _race(tenant, queue, admin_engine, (item, item))
     assert (first.result().accepted, first.result().duplicates) == (1, 0)
     assert (second.result().accepted, second.result().duplicates) == (0, 1)
     assert second.result().transaction_ids == first.result().transaction_ids
     assert _count(tenant, Transaction) == 1
     assert _count(tenant, TransactionRef) == 1
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assert s.scalar(select(Counterparty.txn_count)) == 1
 
 
 def test_a_concurrent_batch_that_loses_the_ref_with_other_content_conflicts(
-    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    admin_engine: Engine,
 ):
     # Another customer's account, so the two batches share no account row lock
-    # and the second reaches the ref insert before the first commits.
+    # and the second blocks on the ref insert until the first commits.
     _ = add_customer(tenant, "cust-2")
-    first, second = _race(tenant, queue, make_item(), make_item(customer_ref="cust-2"))
+    first, second = _race(
+        tenant, queue, admin_engine, (make_item(), make_item(customer_ref="cust-2"))
+    )
     assert first.result().accepted == 1
     with pytest.raises(ExternalIdConflictError):
         _ = second.result()
@@ -292,6 +365,67 @@ def test_a_concurrent_batch_that_loses_the_ref_with_other_content_conflicts(
     assert [row.id for row in rows] == list(first.result().transaction_ids)
     assert _count(tenant, TransactionRef) == 1
     assert _count(tenant, TransactionBatch) == 1
+
+
+def test_two_batches_naming_two_customers_in_opposite_orders_do_not_deadlock(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    admin_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _ = add_customer(tenant, "cust-2")
+    pids: dict[int, int] = {}
+    paused: set[int] = set()
+    guard = threading.Lock()
+    account_for = accounts.account_for
+
+    def other_waits(me: int) -> bool:
+        return any(
+            _waits_on_a_lock(admin_engine, pid)
+            for ident, pid in pids.items()
+            if ident != me
+        )
+
+    def account_then_pause(
+        session: Session, relationship: RelationshipRef, account_ref: str | None
+    ) -> Account:
+        account = account_for(session, relationship, account_ref)
+        me = threading.get_ident()
+        with guard:
+            first_call = me not in paused
+            paused.add(me)
+        if first_call:
+            # Hold the first account until the other batch holds one too or waits
+            # on this one: opposite lock orders would deadlock from here.
+            _until(
+                lambda: len(paused) == 2 or other_waits(me),
+                "the other batch holds or waits on an account",
+            )
+        return account
+
+    monkeypatch.setattr(ingest, "account_for", account_then_pause)
+    batches = (
+        [
+            make_item(external_id="a-1"),
+            make_item(external_id="a-2", customer_ref="cust-2"),
+        ],
+        [
+            make_item(external_id="b-1", customer_ref="cust-2"),
+            make_item(external_id="b-2"),
+        ],
+    )
+
+    def run(items: list[dict[str, object]]) -> BatchReport:
+        with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+            pids[threading.get_ident()] = _backend_pid(s)
+            return ingest_items(s, items, queue=queue)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(run, items) for items in batches]
+        _ = wait(futures, timeout=30)
+    assert [future.result().accepted for future in futures] == [2, 2]
+    assert _count(tenant, Transaction) == 4
 
 
 def test_the_ip_lives_only_in_raw(
@@ -374,4 +508,55 @@ def test_counterparties_resolve_once_per_batch_and_an_unindexable_one_is_none(
     assert rows["tx-4"].counterparty_id == rows["tx-5"].counterparty_id
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
         counts = sorted(s.scalars(select(Counterparty.txn_count)).all())
-    assert counts == [1, 1]
+    assert counts == [2, 2]
+
+
+def test_two_items_with_one_counterparty_count_two_transactions(
+    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+):
+    items = [
+        make_item(external_id="tx-1", counterparty=COUNTERPARTY),
+        make_item(external_id="tx-2", counterparty=COUNTERPARTY),
+    ]
+    _ = _ingest(tenant, items, queue)
+    _ = _ingest(tenant, [*items, make_item(external_id="tx-3")], queue)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assert s.scalars(select(Counterparty.txn_count)).all() == [2]
+
+
+def test_an_item_that_loses_its_ref_takes_back_its_counterparty_count(
+    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+):
+    # validate_batch refuses a repeated external_id, so only a direct call reaches
+    # the lost-ref path with equal content: the second item loses to the first.
+    item = make_item(counterparty=COUNTERPARTY)
+    accepted, _errors = validate_batch(
+        [item],
+        now=clock.now(),
+        max_future_minutes=get_settings().monitoring_max_future_minutes,
+    )
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        report = ingest_batch(
+            s,
+            [accepted[0], accepted[0]],
+            source=BatchSource.API,
+            submitted_by="api_key:test",
+            queue=queue,
+        )
+    assert (report.accepted, report.duplicates) == (1, 1)
+    assert report.transaction_ids[0] == report.transaction_ids[1]
+    assert _count(tenant, Transaction) == 1
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assert s.scalars(select(Counterparty.txn_count)).all() == [1]
+
+
+def test_counterparty_country_is_kept_only_with_a_resolved_counterparty(
+    tenant: CreatedTenant, customer: CustomerRelationship, queue: PostgresJobQueue
+):
+    _ = _ingest(
+        tenant,
+        [make_item(counterparty={"name": "!!!", "country": "US"})],
+        queue,
+    )
+    row = _rows(tenant)[0]
+    assert (row.counterparty_id, row.counterparty_country) == (None, None)

@@ -11,6 +11,7 @@ from xolotl.modules.screening.counterparty.resolve import (
     dedup_hash_of,
     resolve,
     status_by_dedup_hash,
+    uncount,
 )
 from xolotl.modules.screening.counterparty.schema import (
     CounterpartyIdentifier,
@@ -45,6 +46,18 @@ def test_the_same_counterparty_resolves_to_one_row_with_a_growing_count(
     assert second.id == first.id
     assert second.dedup_hash == first.dedup_hash
     assert first.screening_status is CounterpartyScreeningStatus.UNSCREENED
+
+
+def test_resolve_counts_a_number_of_transactions_and_uncount_takes_one_back(
+    tenant: CreatedTenant,
+):
+    counterparty = CounterpartyInput(name="Comercial Uno")
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        first = resolve(s, counterparty, count=3)
+        _ = resolve(s, counterparty, count=2)
+        uncount(s, first.id)
+        row = s.get_one(Counterparty, (tenant.tenant_id, first.id))
+        assert row.txn_count == 4
 
 
 def test_components_change_the_dedup_hash(tenant: CreatedTenant):

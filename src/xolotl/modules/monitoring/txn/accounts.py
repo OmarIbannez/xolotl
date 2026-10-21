@@ -6,6 +6,7 @@ unique per tenant: the first item that names it binds it to its relationship, an
 naming it under another relationship later is a conflict.
 """
 
+from collections.abc import Collection
 from uuid import UUID
 
 from sqlalchemy import select, text
@@ -25,6 +26,31 @@ class AccountRefConflictError(Exception):
 
 def _default_ref(relationship_id: UUID) -> str:
     return f"default:{relationship_id}"
+
+
+def account_key(relationship_id: UUID, account_ref: str | None) -> str:
+    """Return the ``external_ref`` an item's account is kept under.
+
+    Returns:
+        ``account_ref``, or the relationship's ``DEFAULT`` key when it is None.
+
+    """
+    return _default_ref(relationship_id) if account_ref is None else account_ref
+
+
+def bound_relationships(session: Session, keys: Collection[str]) -> dict[str, UUID]:
+    """Read which relationship each existing account key is bound to.
+
+    Returns:
+        The relationship id by ``external_ref``, for the keys that exist.
+
+    """
+    rows = session.execute(
+        select(Account.external_ref, Account.relationship_id).where(
+            Account.external_ref.in_(keys)
+        )
+    ).all()
+    return {row[0]: row[1] for row in rows}
 
 
 def _upsert(
@@ -99,5 +125,8 @@ def find_account(
         account when it is None; None when there is no such row.
 
     """
-    ref = _default_ref(relationship_id) if account_ref is None else account_ref
-    return session.scalar(select(Account).where(Account.external_ref == ref))
+    return session.scalar(
+        select(Account).where(
+            Account.external_ref == account_key(relationship_id, account_ref)
+        )
+    )
