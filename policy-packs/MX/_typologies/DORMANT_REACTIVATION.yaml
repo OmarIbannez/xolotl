@@ -13,7 +13,8 @@ definition:
   params:
     window: {value: P2D}
     sum: {value: "2000", unit: USD}
-    dormant_days: {value: 180}
+    # last_seen looks back P6M, so dormancy cannot be tuned past 180 days.
+    dormant_days: {value: 180, max: 180}
   aggregates:
     - name: window_sum
       function: SUM

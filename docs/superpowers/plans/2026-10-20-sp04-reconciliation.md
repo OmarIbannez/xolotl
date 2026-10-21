@@ -275,6 +275,12 @@ The longest chain is twelve tasks: A1 → A2 → A7 → B1 → B3 → B5 → B6 
 - **Decision.** At the limit allows; one unit over blocks. The test says so and cites B2.
 - **Edited.** 4c: C5 tests.
 
+### 27. Declarations derived from tunable params, and the profile's peso sums
+
+- **Finding.** B3's review: a template's declared aggregates are written out while the params they derive from are tunable. `CASH_STRUCTURING`'s band `[3500, 5000)` USD stays fixed when `near_ratio` or `threshold` is tuned, a `VELOCITY` `window` param does not move its `COUNT`/`SUM` declarations' window, and `DORMANT_REACTIVATION`'s `dormant_days` had no maximum while `last_seen` looks back only `P6M`. Separately, `DECLARED_VS_ACTUAL_VOLUME` summed `AMOUNT_MINOR`, adding MXN and USD minor units together.
+- **Decision.** The declarations are derived from the params when a tenant's version is built: B5's `build_definition` rewrites `STRUCTURING`'s `near_count`/`near_sum` (`where.amount_gte = near_ratio × threshold`, `where.amount_lt = threshold`, `window = window`) and every `VELOCITY` `COUNT`/`SUM` declaration's window from the tuned params; new `agg_id`s follow and B6's `ensure_declarations` backfills them; B1 or B5 adds a validator refusing a version whose band or windows disagree with its params. B3 sets `dormant_days.max = 180` and pins the coupling in the shipped defaults. The profile sums become `UNIT_AMOUNT` in `MXN/SAME_DAY`, and B2's `PROFILE_DEVIATION` compares them, in pesos, with the declared profile's minor units divided by 100. Open: A6 records a USD transaction's peso leg under `MXN/PRIOR_BANKING_DAY` only, so `MXN/SAME_DAY` is not yet "always present" (spec Decision 19, 4c finding 12) and USD transactions drop out of these sums until enrichment or this declaration changes.
+- **Edited.** 4b: B2 and B5 notes from B3, B3's `DORMANT_REACTIVATION.yaml`, `DECLARED_VS_ACTUAL_VOLUME.yaml` and `test_library.py`.
+
 ## Open for the product owner
 
 Execution proceeds on the plans' defaults; a different answer becomes a follow-up task. Collected from the three plans' "Open questions" and from the findings above:

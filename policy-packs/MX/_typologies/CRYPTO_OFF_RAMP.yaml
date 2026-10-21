@@ -1,5 +1,8 @@
 # Virtual assets received and sold out to fiat within the day (spec §9.3); the
-# order of the two legs inside the day is not checked (spec §23).
+# order of the two legs inside the day is not checked (spec §23). Fiat is the
+# explicit instrument list CASH, TRANSFER, CARD, CHEQUE: a filter has no
+# instrument_not_in, FX and FEE are not a sale to fiat, and a future Instrument
+# value that is fiat must be added to both lists here.
 version: 1
 country_code: MX
 packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]

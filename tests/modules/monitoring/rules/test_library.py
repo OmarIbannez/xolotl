@@ -131,6 +131,71 @@ def test_cash_structuring_carries_the_spec_bounds() -> None:
     }
 
 
+def test_the_shipped_declarations_follow_their_params() -> None:
+    """The declared band and windows are the parameters' defaults.
+
+    A tuned version rewrites them from its params in B5's ``build_definition``;
+    until then, these pin the coupling in the shipped defaults.
+    """
+    structuring = _template("CASH_STRUCTURING")
+    threshold = cast("Decimal", structuring.params["threshold"].value)
+    near_ratio = cast("Decimal", structuring.params["near_ratio"].value)
+    window = structuring.params["window"].value
+    for declaration in structuring.aggregates:
+        assert declaration.where.amount_gte == near_ratio * threshold
+        assert declaration.where.amount_lt == threshold
+        assert declaration.window == window
+    for code in ("NEW_ACCOUNT_VELOCITY", "DORMANT_REACTIVATION"):
+        rule = _template(code)
+        windowed = [
+            declaration
+            for declaration in rule.aggregates
+            if declaration.function in {AggregateFunction.COUNT, AggregateFunction.SUM}
+        ]
+        assert windowed, code
+        for declaration in windowed:
+            assert declaration.window == rule.params["window"].value, code
+
+
+def test_dormancy_cannot_outrun_the_last_seen_lookback() -> None:
+    rule = _template("DORMANT_REACTIVATION")
+    last_seen = next(d for d in rule.aggregates if d.name == "last_seen")
+    assert last_seen.window == "P6M"
+    assert rule.params["dormant_days"].max == 180
+
+
+@pytest.mark.parametrize(
+    ("edit", "replacement", "problem"),
+    [
+        ("version: 1", 'version: "1"', "version: Input should be a valid integer"),
+        ("version: 1", "version: true", "version: Input should be a valid integer"),
+        (
+            "packs: [MX/ITF-IFPE]",
+            "packs: [ITF-IFPE]",
+            "packs.0: String should match pattern '^[A-Z]{2}/[A-Z0-9-]+$'",
+        ),
+        (
+            "packs: [MX/ITF-IFPE]",
+            "packs: [MX/ITF-IFPE, MX/ITF-IFPE]",
+            "packs repeats a pack",
+        ),
+        (
+            "packs: [MX/ITF-IFPE]",
+            "packs: [MX/ITF-IFPE, CO/SARLAFT]",
+            "pack CO/SARLAFT is not of country MX",
+        ),
+    ],
+)
+def test_the_document_fields_are_strict(
+    tmp_path: Path, edit: str, replacement: str, problem: str
+) -> None:
+    path = _copy(tmp_path, "CASH_STRUCTURING")
+    _rewrite(path, edit, replacement)
+    with pytest.raises(ValidationFailedError) as caught:
+        _ = read_typology(path)
+    assert caught.value.detail == f"CASH_STRUCTURING.yaml: {problem}"
+
+
 @pytest.mark.parametrize(
     ("code", "outcome"),
     [("TIER_N1_MONTHLY_OPS", "BLOCK"), ("TIER_N2_MONTHLY_OPS", "REVIEW")],

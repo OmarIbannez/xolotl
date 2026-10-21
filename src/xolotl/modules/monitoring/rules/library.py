@@ -10,24 +10,46 @@ Pure: no database, no web framework (contract ``monitoring-evaluator-is-pure``).
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import Annotated, ClassVar, Self, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    ValidationError,
+    model_validator,
+)
 
 from xolotl.modules.monitoring.rules.definitions import RuleDefinition, RuleFamily
 from xolotl.platform.errors import ValidationFailedError
 
 TYPOLOGIES_DIR = Path("policy-packs/MX/_typologies")
+# A pack code is the country, a slash and the pack (``MX/ITF-IFPE``).
+_PACK_CODE = r"^[A-Z]{2}/[A-Z0-9-]+$"
 
 
 class _TypologyDocument(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
-    version: int = Field(ge=1)
+    version: StrictInt = Field(ge=1)
     country_code: str = Field(pattern=r"^[A-Z]{2}$")
-    packs: list[str] = Field(min_length=1)
+    packs: list[Annotated[str, Field(pattern=_PACK_CODE)]] = Field(min_length=1)
     definition: RuleDefinition
+
+    @model_validator(mode="after")
+    def _packs_are_the_countrys(self) -> Self:
+        if len(set(self.packs)) != len(self.packs):
+            msg = "packs repeats a pack"
+            raise ValueError(msg)
+        foreign = [
+            pack for pack in self.packs if pack.split("/", 1)[0] != self.country_code
+        ]
+        if foreign:
+            msg = f"pack {foreign[0]} is not of country {self.country_code}"
+            raise ValueError(msg)
+        return self
 
 
 @dataclass(frozen=True, slots=True)
