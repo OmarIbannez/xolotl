@@ -8,8 +8,10 @@ one resumes from its cursor.
 
 Each page job advances its batch in the page's own transaction. The cursor is where
 the next page starts: an offset into the version's delta rows for ``LIST_DELTA``, the
-last party id walked for the other kinds. It never moves backwards, so a replayed
-page sees that the batch has passed it and is skipped.
+last party id walked for the other kinds. A ``PERIODIC`` walk's counterparty pages
+(SP-04 spec §11.3) move it on to ``cp:<last counterparty id>``, which sorts after
+every party id. It never moves backwards, so a replayed page sees that the batch has
+passed it and is skipped.
 
 The job runner has no hook for a job that runs out of attempts, so each page
 handler is wrapped in ``page_job``: when the last attempt fails, the wrapper rolls
@@ -34,6 +36,9 @@ from xolotl.platform.jobs.queue import Job, JobHandler
 
 # The first page of a walker starts before every party id.
 WALKER_START = "start"
+# A counterparty page's cursor: after every party cursor (plan 4c Deviation 6).
+COUNTERPARTY_CURSOR = "cp:"
+_PAST_PARTIES = 1 << 128
 
 
 def open_batch(
@@ -99,9 +104,15 @@ def lock_batch(s: Session, batch_id: UUID) -> ScreeningBatch:
 
 def _position(kind: BatchKind, cursor: str) -> int:
     # Offsets compare as numbers and party ids as UUIDs ("1000" follows "200"); a
-    # walker's first page sorts before every party id.
+    # walker's first page sorts before every party id, and its first counterparty
+    # page after them and before every counterparty id.
     if kind is BatchKind.LIST_DELTA:
         return int(cursor)
+    if cursor.startswith(COUNTERPARTY_CURSOR):
+        rest = cursor.removeprefix(COUNTERPARTY_CURSOR)
+        if rest == WALKER_START:
+            return _PAST_PARTIES
+        return _PAST_PARTIES + 1 + UUID(rest).int
     if cursor == WALKER_START:
         return -1
     return UUID(cursor).int
