@@ -1,0 +1,1 @@
+Fires when the customer makes an operation of 1,000 USD or more on the CODI and SPEI rails through the APP channel in MXN of at least 3,500 USD and below 5,000 USD

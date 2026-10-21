@@ -55,7 +55,7 @@ Nothing is consumed. 4c consumes this plan (see "Interfaces for plan 4c"). `cust
 - **Migration** `src/xolotl/migrations/versions/0013_rules_captures.py`: `revision = "0013_rules_captures"`, `down_revision = "0012_transactions"` (A2's revision; the three SP-04 migrations merge in the order A2 → B4 → C4). It is this plan's only migration. `"0013_rules_captures"` is appended to `CHAIN` in `tests/platform/test_migration_chain.py` after 4a's `"0012_transactions"`.
 - **Two shared tables** (`rule_template`, `rule_template_version`, spec §5.1) join `SHARED_TABLES` and not `SHARED_WRITABLE`: the owner role seeds them (`xolotl rules load`), the app role gets `SELECT` through `grant_shared`. **Eleven tenant tables** exactly as the 4b block of spec §5.2: `monitoring_rule`, `monitoring_rule_version`, `rule_simulation`, `rule_assignment`, `rule_hit`, `rule_hit_transaction`, `capture_group`, `reportable_event`, `tier_limit_notice`, `capture_period`, `counterparty_name_index`. Each is `class X(TenantTableMixin, Base)` with `tenant_table_args`, composite FKs through `tenant_fk` or a named `ForeignKeyConstraint` where the convention would pass 63 bytes, `enable_rls("<table>")` in the migration (default grant), one isolation factory in `register_all()`, and its model imported in `src/xolotl/models.py`. A link to a transaction carries `(tenant_id, occurred_at, transaction_id)` with the composite FK to the partitioned primary key (spec §5.2). Nothing in 0013 is append-only.
 - **No encrypted column in 0013.** `rule_hit.evidence`, `reportable_event.fields`, `rule_simulation.sample` and `counterparty_name_index` carry amounts, units, codes, hashes, ids and normalized tokens only (PRV-501, D7); no route serializes `counterparty_name_index`.
-- **Import contracts** (`.importlinter`, B1 adds the contract `monitoring-evaluator-is-pure`): the pure set `xolotl.modules.monitoring.rules.definitions`, `xolotl.modules.monitoring.rules.kinds`, `xolotl.modules.monitoring.rules.render`, `xolotl.modules.monitoring.rules.library` and `xolotl.modules.monitoring.captures.definitions` never imports `sqlalchemy`, `fastapi`, `xolotl.modules.screening`, `xolotl.modules.party.models`, `xolotl.modules.party.service` or any `xolotl.platform` package other than `xolotl.platform.errors`, `xolotl.platform.enums`, `xolotl.platform.units.rules`, `xolotl.platform.units.quantity`, `xolotl.platform.policy.schema`, `xolotl.platform.policy.resolver` (the `EffectivePolicy` type) and `xolotl.platform.policy.jurisdictions`; among monitoring modules it imports only `monitoring.enums`, `monitoring.txn.schema`, `monitoring.aggregates.declarations`, `monitoring.aggregates.windows` and `monitoring.aggregates.store` (4a's pure modules, A3 and A7). `xolotl.modules.monitoring` never imports `xolotl.modules.reporting` and `xolotl.modules.screening` never imports `xolotl.modules.monitoring` (A2's contracts `monitoring-boundaries` and `screening-never-imports-monitoring`; this plan adds neither).
+- **Import contracts** (`.importlinter`, B1 adds the contract `monitoring-evaluator-is-pure`): the pure set `xolotl.modules.monitoring.rules.definitions`, `xolotl.modules.monitoring.rules.kinds`, `xolotl.modules.monitoring.rules.render`, `xolotl.modules.monitoring.rules.library` and `xolotl.modules.monitoring.captures.definitions` never imports `sqlalchemy`, `fastapi`, `xolotl.modules.screening`, `xolotl.modules.party.models`, `xolotl.modules.party.service` or any `xolotl.platform` package other than `xolotl.platform.errors`, `xolotl.platform.enums`, `xolotl.platform.units.rules`, `xolotl.platform.units.quantity`, `xolotl.platform.policy.schema`, `xolotl.platform.policy.resolver` (the `EffectivePolicy` type), `xolotl.platform.policy.jurisdictions` and `xolotl.platform.policy.durations` (`check_iso_duration`, `iso_duration_days`; B1); among monitoring modules it imports only `monitoring.enums`, `monitoring.txn.schema`, `monitoring.aggregates.declarations`, `monitoring.aggregates.windows` and `monitoring.aggregates.store` (4a's pure modules, A3 and A7). Because the contract forbids `xolotl.modules.screening` and import-linter follows indirect imports, it also ignores the edge `xolotl.modules.monitoring.txn.schema -> xolotl.modules.screening.counterparty.schema` (4a's transaction schema takes the counterparty input types from screening's pure schema module; B1). `xolotl.modules.monitoring` never imports `xolotl.modules.reporting` and `xolotl.modules.screening` never imports `xolotl.modules.monitoring` (A2's contracts `monitoring-boundaries` and `screening-never-imports-monitoring`; this plan adds neither).
 - **Settings** (`src/xolotl/platform/config.py`, prefix `XOLOTL_`): `monitoring_allow_custom_rules: bool = False` (B5), `monitoring_rule_cache_seconds: int = Field(default=30, ge=0)` and `monitoring_simulation_max_age_days: int = Field(default=30, ge=1)` (B6), `monitoring_simulation_max_days: int = Field(default=190, ge=1)` (B8), `monitoring_period_close_cron: str = "0 4 1 * *"` added to the `_check_cron` validator (B11). Each goes in `.env.example`, the README configuration table and the `model_fields_set` assertion of `tests/platform/test_config.py::test_env_example_is_a_valid_configuration`.
 - **Problem codes** introduced, each with a row in `tests/platform/test_errors.py`: `RULE_TEMPLATE_UNKNOWN` (404, B5), `RULE_TEMPLATE_IMMUTABLE` (409, B5; Deviation 2), `RULE_PARAM_OUT_OF_BOUNDS` (422 with `errors[]`, B5), `RULE_TRANSITION_NOT_ALLOWED` (409 with `blocked_reasons`, B6), `SIMULATION_RANGE_TOO_LONG` (422, B8), `PERIOD_NOT_ENDED` (409, B11). Reused: `NOT_FOUND`, `VALIDATION_FAILED`, `POLICY_NOT_ASSIGNED`, `ROLE_FORBIDDEN`, `SCOPE_MISSING`, `IDEMPOTENCY_*`.
 - **Events** (`source = "xolotl.monitoring"`, ids and codes only, exactly the fields of spec §14): staff-only `monitoring.rule_hit_created.v1` (key `str(party_id)`), `monitoring.reportable_event_captured.v1`, `monitoring.reportable_event_superseded.v1`, `monitoring.capture_period_closed.v1`, `monitoring.capture_period_changed.v1` (key `str(party_id)` for events, the period id for periods), `monitoring.rule_version_activated.v1`, `monitoring.rule_version_retired.v1`, `monitoring.simulation_completed.v1` (key `str(rule_version_id)`); webhook-safe `monitoring.tier_limit_reached.v1` (key `str(relationship_id)`, data `relationship_id`, `account_id`, `tier`, `limit_code`, `period_key`, `outcome`, never an amount). The eight staff-only types are B4's `RULES_STAFF_ONLY_EVENT_TYPES` (a separate tuple; 4a's `STAFF_ONLY_EVENT_TYPES` is not edited) and `register_rules` (B7) marks each with `register_staff_only`.
@@ -258,9 +258,9 @@ def render(definition: RuleDefinition, locale: Literal["es-MX", "en"]) -> str
     # the threshold is written as "<amount> <unit>" with a thin-space thousands separator in es-MX ("5 000 USD") and a comma in en ("5,000 USD")
 ```
 
-`.importlinter`: the contract `monitoring-evaluator-is-pure` of Global Constraints (B2's `kinds.py` and B3's `library.py` are listed now, before they exist; import-linter ignores absent modules).
+`.importlinter`: the contract `monitoring-evaluator-is-pure` of Global Constraints (as built, it lists `rules.definitions` and `rules.render` only: import-linter refuses a source module that does not exist, so B2, B3 and B10 each add theirs; see their notes from B1).
 
-`_jurisdictions.yaml` gains `tax_haven: []` (with a comment: no source chosen, Open question 2) and `regions: {BORDER_ZONE_MX: [MX-BCN, MX-SON, MX-CHH, MX-COA, MX-NLE, MX-TAM]}` with `regions_confidence: UNVERIFIED` and a comment naming the six border states as the default of Open question 2.
+`_jurisdictions.yaml` gains `tax_haven: []` (with a comment: no source chosen, Open question 1) and `regions: {BORDER_ZONE_MX: [MX-BCN, MX-SON, MX-CHH, MX-COA, MX-NLE, MX-TAM]}` with `regions_confidence: UNVERIFIED` and a comment naming the six border states as the default of Open question 2.
 
 - [ ] **Step 1: Write the failing tests.**
 
@@ -299,7 +299,21 @@ Depends on **B1** (A7's `aggregates/store.py` gives `AggregateValue` and `Aggreg
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/rules/kinds.py`
+- Modify: `.importlinter` (see the note from B1)
 - Test: `tests/modules/monitoring/rules/conftest.py` (the fake reader and `enriched(**overrides)` builder), `tests/modules/monitoring/rules/test_kinds.py`
+
+**Note from B1 (import contract).** import-linter refuses a source module that does not exist, so B1's `monitoring-evaluator-is-pure` lists only `rules.definitions` and `rules.render`. Add `xolotl.modules.monitoring.rules.kinds` to its `source_modules` in `.importlinter`, with one `ignore_imports` line per allowed `xolotl.platform` module it actually imports (`xolotl.modules.monitoring.rules.kinds -> xolotl.platform.<module>`); an ignore line that matches nothing fails the gate, so add exactly the lines your imports need.
+
+**Note from B1 (choices this task must know).**
+- `params.lists` is one comma-separated `str` (`"FATF_BLACK,FATF_GREY"`), not a list; `resolve_definition` resolves its names when the rule set loads, so an unknown name or an empty set (`TAX_HAVEN`, Open question 1) is a load error.
+- A `THRESHOLD` rule may omit `threshold` when `on.counterparty_screening_status` is set or it has a `party_screening_status` or `pep_status_not` param.
+- A param's type is inferred from its value (`bool`, `int`, a decimal string, else `str`) and the known names have fixed types (`_PARAM_TYPES`: `threshold`, `near_ratio`, `sum`, `ratio`, `history_ratio` are decimals; `min_count`, `count`, `new_account_days`, `dormant_days` integers; `window`, `lists`, `outcome` and the two gates strings). A float anywhere in the document is refused, so YAML writes every decimal quoted (`"5000"`, `"0.70"`).
+- A `window` param is an A7 `DURATION` window (`P[nM][nD][TnH]`, `PT1H`..`P6M`, months not mixed with days or hours); a `VELOCITY` window lies within `PT1H`..`P7D`, and a `STRUCTURING` window must equal the window of its `near_count`/`near_sum` declarations.
+- `evidence.transactions_window` (and `dedup.window`) accepts `MONTH` besides an ISO duration.
+- An `AGGREGATE` rule needs at least one condition, and aggregate names are unique within a definition.
+- `with_params` coerces an `int` to `Decimal` for a decimal param.
+- `resolve_definition` sets `lists_hash` on every declaration, whether or not its filter names a list.
+- `unit_key` reads `<unit>/<ConversionRule>` (`USD/PRIOR_BANKING_DAY`); a literal country or region code that is not ISO 3166-1 alpha-2 / ISO 3166-2 (a list name written without `$`) fails at load.
 
 **Interfaces:**
 
@@ -375,8 +389,22 @@ Depends on **B1**. Pure code plus pack content: no tables. Runs beside B2 and B4
 
 **Files:**
 - Create: `policy-packs/MX/_typologies/{CASH_STRUCTURING,RAPID_PASS_THROUGH,NEW_ACCOUNT_VELOCITY,MANY_TO_ONE_FUNNEL,DECLARED_VS_ACTUAL_VOLUME,HIGH_RISK_JURISDICTION_TRANSFER,CRYPTO_OFF_RAMP,SELF_CUSTODY_OUTFLOW,BORDER_ZONE_CASH,ROUND_AMOUNT_FX_LAYERING,DORMANT_REACTIVATION,COUNTERPARTY_TRUE_MATCH,BLOCKED_PERSON_PARTY,PEP_LARGE_OPERATION,TIER_N1_MONTHLY_OPS,TIER_N2_MONTHLY_OPS}.yaml`, `src/xolotl/modules/monitoring/rules/library.py`
-- Modify: `src/xolotl/cli.py`, `tests/test_cli.py`, `tests/test_policy_packs_tree.py` (the tree test learns `_typologies/`)
+- Modify: `src/xolotl/cli.py`, `tests/test_cli.py`, `tests/test_policy_packs_tree.py` (the tree test learns `_typologies/`), `.importlinter` (see the note from B1)
 - Test: `tests/modules/monitoring/rules/test_library.py`, `tests/golden/monitoring/rules/render/<CODE>.es-MX.txt` and `.en.txt` (16 each)
+
+**Note from B1 (import contract).** import-linter refuses a source module that does not exist, so B1's `monitoring-evaluator-is-pure` lists only `rules.definitions` and `rules.render`. Add `xolotl.modules.monitoring.rules.library` to its `source_modules` in `.importlinter`, with one `ignore_imports` line per allowed `xolotl.platform` module it actually imports (`xolotl.modules.monitoring.rules.library -> xolotl.platform.<module>`); an ignore line that matches nothing fails the gate, so add exactly the lines your imports need.
+
+**Note from B1 (choices this task must know).**
+- `params.lists` is one comma-separated `str` (`"FATF_BLACK,FATF_GREY"`), not a list; `resolve_definition` resolves its names when the rule set loads, so an unknown name or an empty set (`TAX_HAVEN`, Open question 1) is a load error.
+- A `THRESHOLD` rule may omit `threshold` when `on.counterparty_screening_status` is set or it has a `party_screening_status` or `pep_status_not` param.
+- A param's type is inferred from its value (`bool`, `int`, a decimal string, else `str`) and the known names have fixed types (`_PARAM_TYPES`: `threshold`, `near_ratio`, `sum`, `ratio`, `history_ratio` are decimals; `min_count`, `count`, `new_account_days`, `dormant_days` integers; `window`, `lists`, `outcome` and the two gates strings). A float anywhere in the document is refused, so YAML writes every decimal quoted (`"5000"`, `"0.70"`).
+- A `window` param is an A7 `DURATION` window (`P[nM][nD][TnH]`, `PT1H`..`P6M`, months not mixed with days or hours); a `VELOCITY` window lies within `PT1H`..`P7D`, and a `STRUCTURING` window must equal the window of its `near_count`/`near_sum` declarations.
+- `evidence.transactions_window` (and `dedup.window`) accepts `MONTH` besides an ISO duration.
+- An `AGGREGATE` rule needs at least one condition, and aggregate names are unique within a definition.
+- `with_params` coerces an `int` to `Decimal` for a decimal param.
+- `resolve_definition` sets `lists_hash` on every declaration, whether or not its filter names a list.
+- `unit_key` reads `<unit>/<ConversionRule>` (`USD/PRIOR_BANKING_DAY`); a literal country or region code that is not ISO 3166-1 alpha-2 / ISO 3166-2 (a list name written without `$`) fails at load.
+- `definition_hash` normalises decimals as A7's `_canonical_value` does (`format(value.normalize(), "f")`), so `"5000"` and `"5000.00"` hash alike; `tests/golden/monitoring/rules/hashes.yaml` pins hashes of that spelling.
 
 **Interfaces:**
 
@@ -962,8 +990,10 @@ Depends on **B4** (tables) and **B7** (`register_rules`, the hook pattern, `read
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/captures/{definitions,fields,events,groups,supersede,hook}.py`, `src/xolotl/modules/monitoring/captures/triggers.yaml`, `src/xolotl/modules/monitoring/captures/field_maps/{MX_F41_ROR,MX_ITF_FX_CASH,MX_ITF_INTL_TRANSFER,MX_ITF_VA_OPS,MX_AVISO_AVI}.yaml`, `tests/golden/monitoring/captures/<CODE>/{units,transactions,expected}.yaml` (six codes)
-- Modify: `src/xolotl/modules/monitoring/rules/wiring.py` (the `CapturesHook`), `pyproject.toml` (package data for the YAML files if the build excludes them)
+- Modify: `src/xolotl/modules/monitoring/rules/wiring.py` (the `CapturesHook`), `pyproject.toml` (package data for the YAML files if the build excludes them), `.importlinter` (see the note from B1)
 - Test: `tests/modules/monitoring/captures/{__init__,test_definitions,test_fields,test_events,test_groups,test_supersede}.py`, `tests/modules/monitoring/captures/test_capture_goldens.py`
+
+**Note from B1 (import contract).** import-linter refuses a source module that does not exist, so B1's `monitoring-evaluator-is-pure` lists only `rules.definitions` and `rules.render`. Add `xolotl.modules.monitoring.captures.definitions` to its `source_modules` in `.importlinter`, with one `ignore_imports` line per allowed `xolotl.platform` module it actually imports (`xolotl.modules.monitoring.captures.definitions -> xolotl.platform.<module>`); an ignore line that matches nothing fails the gate, so add exactly the lines your imports need.
 
 **Interfaces:**
 

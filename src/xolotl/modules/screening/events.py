@@ -1,8 +1,9 @@
 """The screening events: ids and codes only, never a name or a score (D8, spec §11).
 
 ``screening.run_completed.v1`` and ``screening.status_changed.v1`` may reach a
-customer's webhook. The rest tell staff what a screening found and are staff-only
-(FR-SC-013, PRV-303): ``register_screening`` marks every type of
+customer's webhook, so the engine never publishes them for a counterparty subject
+(tipping-off, SP-04 spec §15). The rest tell staff what a screening found and are
+staff-only (FR-SC-013, PRV-303): ``register_screening`` marks every type of
 ``STAFF_ONLY_EVENT_TYPES`` with ``register_staff_only``, so no webhook carries them.
 """
 
@@ -27,6 +28,8 @@ PRIVATE_LIST_VERSION_ACTIVATED = "private_list.version_activated.v1"
 # One per tenant per shared list version handed to re-screening (the catch-up of
 # ``lists.poll``); webhook-safe.
 LISTS_VERSION_PUBLISHED = "lists.version_published.v1"
+# A counterparty's cached screening status changed (SP-04 spec §11.2); staff-only.
+COUNTERPARTY_STATUS_CHANGED = "screening.counterparty_status_changed.v1"
 
 STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (
     PRIVATE_LIST_VERSION_ACTIVATED,
@@ -34,6 +37,7 @@ STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (
     MATCH_DISPOSITIONED,
     TRUE_MATCH_CONFIRMED,
     MATCH_DELISTING_SUGGESTED,
+    COUNTERPARTY_STATUS_CHANGED,
 )
 
 

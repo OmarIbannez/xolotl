@@ -12,3 +12,13 @@ source: "FATF, High-risk jurisdictions subject to a call for action; Jurisdictio
 confidence: VERIFIED
 call_for_action: [KP, IR, MM]
 increased_monitoring: [AO, BO, BA, BG, CM, CI, CD, HT, IQ, KE, KW, LA, LB, MC, NP, PG, SS, SY, VE, VN, VG, YE]
+# No tax-haven source has been chosen yet (plan 4b Open question 1): the set is empty,
+# and a rule naming $TAX_HAVEN is refused when its rule set loads until a source is
+# named here (an empty set would otherwise place no condition at all).
+tax_haven: []
+# The default of plan 4b Open question 2: the six states on the northern border as
+# ISO 3166-2 codes (Baja California, Sonora, Chihuahua, Coahuila, Nuevo León,
+# Tamaulipas). The customs definition (the 20 km strip) would need municipality codes.
+regions_confidence: UNVERIFIED
+regions:
+  BORDER_ZONE_MX: [MX-BCN, MX-SON, MX-CHH, MX-COA, MX-NLE, MX-TAM]

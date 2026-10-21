@@ -1,0 +1,1 @@
+Fires when the customer's month-to-date sum of incoming operations is at least 2.0 times the declared profile or 3.0 times their monthly average over the last 6 months

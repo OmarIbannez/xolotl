@@ -3,7 +3,10 @@
 A ``PARTY`` subject is created on first use, once per party. An ``AD_HOC`` subject
 stores its input encrypted, for reproducibility, until the policy's KYC retention
 period has passed. A subject's status follows its findings, and a change is
-published as ``screening.status_changed.v1``.
+published as ``screening.status_changed.v1``, except a ``COUNTERPARTY`` subject's,
+which never reaches a webhook (tipping-off). A ``COUNTERPARTY`` subject's status is
+written to its ``counterparty`` row whenever the row differs, the status
+cache the decide path reads (SP-04 spec §11.2, plan 4c Deviation 4).
 """
 
 from typing import cast
@@ -14,6 +17,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from xolotl.modules.party.service import get_party
+from xolotl.modules.screening.counterparty.status import sync_counterparty_status
 from xolotl.modules.screening.engine.enums import (
     OPEN_MATCH_STATUSES,
     MatchStatus,
@@ -106,10 +110,23 @@ def refresh_subject_status(s: Session, subject: ScreeningSubject) -> SubjectStat
         status = SubjectStatus.PENDING_REVIEW
     else:
         status = SubjectStatus.CLEAR
+    if subject.counterparty_id is not None:
+        # Before the early return: a first run that stays CLEAR still moves the row
+        # from UNSCREENED.
+        _ = sync_counterparty_status(
+            s,
+            counterparty_id=subject.counterparty_id,
+            subject_id=subject.id,
+            status=status.value,
+        )
     if status == subject.status:
         return status
     subject.status = status
     s.flush()
+    if subject.counterparty_id is not None:
+        # A counterparty's status stays off webhooks (tipping-off, SP-04 spec §15);
+        # the staff-only screening.counterparty_status_changed.v1 carries it.
+        return status
     _ = publish_screening_event(
         s,
         STATUS_CHANGED,

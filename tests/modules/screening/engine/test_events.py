@@ -18,6 +18,7 @@ def test_only_run_and_status_events_may_reach_a_webhook():
         "screening.match_dispositioned.v1",
         "screening.true_match_confirmed.v1",
         "screening.match_delisting_suggested.v1",
+        "screening.counterparty_status_changed.v1",
     }
     assert events.RUN_COMPLETED not in events.STAFF_ONLY_EVENT_TYPES
     assert events.STATUS_CHANGED not in events.STAFF_ONLY_EVENT_TYPES

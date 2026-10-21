@@ -25,6 +25,11 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListEntryRow,
     TenantListSubscription,
 )
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.queries import (
+    entity_types_for,
+    query_for_counterparty,
+)
 from xolotl.modules.screening.engine.enums import (
     OPEN_MATCH_STATUSES,
     AutoReason,
@@ -33,6 +38,7 @@ from xolotl.modules.screening.engine.enums import (
     HitBand,
     MatchStatus,
     RunMode,
+    SubjectStatus,
     TriggerType,
 )
 from xolotl.modules.screening.engine.features import hit_features
@@ -67,6 +73,7 @@ from xolotl.modules.screening.events import (
     RUN_COMPLETED,
     publish_screening_event,
 )
+from xolotl.modules.screening.lists import EntityType
 from xolotl.modules.screening.matching import (
     MATCHER_VERSION,
     Band,
@@ -145,8 +152,14 @@ def _locked(s: Session, subject: ScreeningSubject) -> ScreeningSubject:
     ).one()
 
 
-def subject_query(s: Session, subject: ScreeningSubject) -> NameQuery:
+def subject_query(
+    s: Session, subject: ScreeningSubject, *, entity_type: EntityType | None = None
+) -> NameQuery:
     """Build the query of a subject: its party's data, or its decrypted ad hoc input.
+
+    A counterparty subject is queried from its row under ``entity_type``, or its
+    first entity type when none is given (SP-04 plan 4c Deviation 3); a party or an
+    ad hoc subject ignores ``entity_type``.
 
     Returns:
         The query a run of the subject screens, and a replay rebuilds.
@@ -154,6 +167,11 @@ def subject_query(s: Session, subject: ScreeningSubject) -> NameQuery:
     """
     if subject.party_id is not None:
         return query_for_party(s, subject.party_id)
+    if subject.counterparty_id is not None:
+        row = s.get_one(Counterparty, (subject.tenant_id, subject.counterparty_id))
+        return query_for_counterparty(
+            s, row, entity_type=entity_type or entity_types_for(row)[0]
+        )
     # An AD_HOC subject always has its input (the kind_input check constraint).
     stored = cast("Encrypted[dict[str, object]]", subject.input)
     return query_for_ad_hoc(AdHocSubjectInput.model_validate(stored.reveal(session=s)))
@@ -386,6 +404,20 @@ class _Run:
         subject.last_screened_at = clock.now()
         subject.last_run_id = run.id
         self.s.flush()
+        if subject.counterparty_id is None:
+            self._publish_completed(run, subject, status)
+        return RunResult(
+            run=run,
+            subject=subject,
+            hits=tuple(self.hits),
+            new_matches=tuple(self.new_matches),
+        )
+
+    def _publish_completed(
+        self, run: ScreeningRun, subject: ScreeningSubject, status: SubjectStatus
+    ) -> None:
+        # A counterparty's run stays off webhooks (tipping-off, SP-04 spec §15): the
+        # staff-only screening.counterparty_status_changed.v1 carries its outcome.
         _ = publish_screening_event(
             self.s,
             RUN_COMPLETED,
@@ -399,12 +431,6 @@ class _Run:
                 "mode": run.mode.value,
                 "outcome": status.value,
             },
-        )
-        return RunResult(
-            run=run,
-            subject=subject,
-            hits=tuple(self.hits),
-            new_matches=tuple(self.new_matches),
         )
 
     def _finding(
@@ -522,6 +548,8 @@ class ScreenOptions(TypedDict, total=False):
     only_index: MemoryIndex | None
     require_versions: Mapping[str, int] | None
     batch_id: UUID | None
+    # A counterparty subject's entity type for this run (SP-04 plan 4c Deviation 3).
+    entity_type: EntityType | None
 
 
 def _prepare(
@@ -559,8 +587,9 @@ def screen(
     those entries through a throwaway index, and ``only_index`` takes candidates
     from a caller's index instead of the holder's (3c's batches); either marks the
     run ``restricted_to_delta``. ``require_versions`` makes the holder hold at least
-    those shared versions. A tenant without a policy in force gets
-    ``POLICY_NOT_ASSIGNED`` and no run.
+    those shared versions. ``entity_type`` sets the entity type a counterparty
+    subject is queried under, which its run's ``query_fingerprint`` records. A tenant
+    without a policy in force gets ``POLICY_NOT_ASSIGNED`` and no run.
 
     Returns:
         The completed run, the subject, the stored hits and the new findings.
@@ -576,7 +605,7 @@ def screen(
         msg = "only_entries and only_index are exclusive"
         raise ValueError(msg)
     subject = _locked(s, subject)
-    query = subject_query(s, subject)
+    query = subject_query(s, subject, entity_type=options.get("entity_type"))
     view = policy_for_run(s)
     started = time.monotonic()
     members, list_set, sources = _prepare(s, view, options)

@@ -1,8 +1,8 @@
 """Vocabularies of the screening engine and review (SP-03 spec §5.2, migration 0010).
 
 Every value equals its name and is stored UPPERCASE as text, so a member reserved for
-a later sub-project (``SubjectKind.COUNTERPARTY``, ``RunMode.ONBOARDING``) is added
-without a migration.
+a later sub-project (``RunMode.ONBOARDING``) is added without a migration, as SP-04's
+``SubjectKind.COUNTERPARTY`` and ``RunMode.COUNTERPARTY`` were (plan 4c, C1).
 """
 
 from enum import StrEnum
@@ -11,6 +11,7 @@ from enum import StrEnum
 class SubjectKind(StrEnum):
     PARTY = "PARTY"
     AD_HOC = "AD_HOC"
+    COUNTERPARTY = "COUNTERPARTY"
 
 
 class SubjectStatus(StrEnum):
@@ -27,6 +28,8 @@ class RunMode(StrEnum):
     PRIVATE_LIST = "PRIVATE_LIST"
     PERIODIC = "PERIODIC"
     REINDEX = "REINDEX"
+    # A counterparty's first-sight screen (SP-04 spec §11.2).
+    COUNTERPARTY = "COUNTERPARTY"
 
 
 class TriggerType(StrEnum):
