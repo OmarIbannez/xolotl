@@ -1,0 +1,1 @@
+Dispara cuando el cliente realiza una operación con una contraparte en estado TRUE_MATCH hacia una billetera custodiada con una contraparte en el extranjero con contrapartes en FATF_GREY y PA con contrapartes fuera de US desde BORDER_ZONE_MX por montos múltiplos de 1 000 mientras el cliente tiene estado de screening TRUE_MATCH cuando el cliente es PEP

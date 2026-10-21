@@ -115,3 +115,26 @@ source_modules =
     xolotl.modules.screening
 forbidden_modules =
     xolotl.modules.monitoring
+
+[importlinter:contract:monitoring-evaluator-is-pure]
+name = rule definitions, the evaluator and the capture definitions are pure (plan 4b Global Constraints, Deviation 1)
+type = forbidden
+source_modules =
+    xolotl.modules.monitoring.rules.definitions
+    xolotl.modules.monitoring.rules.render
+forbidden_modules =
+    sqlalchemy
+    fastapi
+    xolotl.modules.screening
+    xolotl.modules.party.models
+    xolotl.modules.party.service
+    xolotl.platform
+# The platform modules the pure set may read (each pure itself), and 4a's pure
+# transaction schema, which takes the counterparty input types from screening's
+# pure schema module. import-linter refuses a source module that does not exist,
+# so B2 (rules.kinds), B3 (rules.library) and B10 (captures.definitions) add their
+# module and its ignore lines here; an ignore line that matches nothing fails too.
+ignore_imports =
+    xolotl.modules.monitoring.rules.definitions -> xolotl.platform.policy.durations
+    xolotl.modules.monitoring.rules.definitions -> xolotl.platform.policy.jurisdictions
+    xolotl.modules.monitoring.txn.schema -> xolotl.modules.screening.counterparty.schema
