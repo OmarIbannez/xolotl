@@ -52,10 +52,6 @@ SHARD_CEILING_MB = 480
 # names._normalized; the Notion task "Screening library: shrink MemoryIndex and the
 # name cache"); when that lands, the ceiling drops to this target.
 SHARD_TARGET_MB = 250
-# A refresh frees the old shard before it builds the new one, so it costs about
-# what the warm-up does (1.04 times on Linux, up to 1.26 on macOS), never two
-# shards (1.6 times before).
-REFRESH_MARGIN = 1.5
 PROBE_TIMEOUT_SECONDS = 900
 
 
@@ -137,6 +133,9 @@ def test_shared_shard_memory_at_40k_entries(admin_engine: Engine, tmp_path: Path
     app = float(untraced["app_kept_rss_mb"])
     warm = float(untraced["warm_rss_mb"]) - app
     refresh = float(untraced["refresh_rss_mb"]) - app
-    assert refresh < warm * REFRESH_MARGIN, f"refresh {refresh} MB, warm {warm} MB"
+    # A refresh frees the old shard before it builds the new one: it adds 16 MB above
+    # the warm-up on Linux and up to 91 MB on macOS (which keeps freed pages), where
+    # two shards at once added about 300 MB.
+    assert refresh - warm < 0.5 * warm, f"refresh {refresh} MB, warm {warm} MB"
     shard = max(warm, refresh)
     assert shard < SHARD_CEILING_MB, f"the shard adds {shard} MB"

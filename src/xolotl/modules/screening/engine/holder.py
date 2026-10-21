@@ -243,6 +243,9 @@ class ScreeningIndexHolder:
             if current is not None and current.versions is not seen:
                 # Another screen swapped in a new shard while this one waited.
                 return current
+            if current is None and self._rebuild_failed and not self._due():
+                # The rebuild this screen waited for failed: no load in series.
+                raise ScreeningIndexUnavailableError
             active = self._active_signature(s)
             self._checked_at = self._monotonic()
             if current is not None and _signature(current.versions) == active:
@@ -327,7 +330,10 @@ class ScreeningIndexHolder:
         """Return the session tenant's private shard, building it on a miss.
 
         The entries are decrypted in ``s``, for processing only. The index blocks
-        with the shared shard's IDF table; private entries never weigh tokens.
+        with the shared shard's IDF table; private entries never weigh tokens. A
+        miss therefore asks ``shared`` for it, and answers what ``shared`` does:
+        ``ScreeningIndexUnavailableError`` during the warm-up, a rebuild, or the
+        interval after a failed rebuild.
 
         Returns:
             The shard, or None when the tenant has no active private version.

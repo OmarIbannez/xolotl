@@ -228,15 +228,21 @@ class _GatedFactory:
 
     def __init__(self) -> None:
         self.armed: bool = False
+        self.fail: bool = False
+        self.opened: int = 0
         self.entered: threading.Event = threading.Event()
         self.release: threading.Event = threading.Event()
 
     def __call__(self) -> Session:
+        self.opened += 1
         if self.armed:
             self.entered.set()
             if not self.release.wait(timeout=WAIT):
                 msg = "the test never released the factory"
                 raise TimeoutError(msg)
+            if self.fail:
+                msg = "database down"
+                raise RuntimeError(msg)
         return get_sessionmaker()()
 
 
@@ -362,6 +368,53 @@ def test_a_screen_requiring_the_new_version_waits_for_the_rebuild(
     assert len(rebuilt) == 1
     assert waited == rebuilt
     assert rebuilt[0].versions[UN].seq == 2
+
+
+def test_a_screen_queued_behind_a_failed_rebuild_does_not_load_again(
+    gated: _Gated, admin_engine: Engine, un_entries, store
+):
+    holder, factory = gated.holder, gated.factory
+    seed_sources(admin_engine)
+    _ = load_shared(UN, un_entries, store=store)
+    with _platform() as s:
+        _ = holder.shared(s)
+    _ = load_shared(UN, (*un_entries, un_entry("1004", "Nuevo Listado")), store=store)
+    gated.clock.advance(31)
+    factory.armed = True
+    factory.fail = True
+    errors: dict[str, BaseException] = {}
+
+    def screen(name: str, require: Mapping[str, int] | None) -> threading.Thread:
+        def run() -> None:
+            try:
+                with _platform() as s:
+                    _ = holder.shared(s, require=require)
+            except (RuntimeError, ScreeningIndexUnavailableError) as error:
+                errors[name] = error
+
+        thread = threading.Thread(target=run, name=name, daemon=True)
+        thread.start()
+        return thread
+
+    rebuild = screen("screen-a", None)
+    waits = gated.lock.waited_by["screen-b"] = threading.Event()
+    waiter = None
+    try:
+        assert factory.entered.wait(timeout=WAIT)
+        # A delta job queues on the lock behind the rebuild, which then fails.
+        waiter = screen("screen-b", {UN: 2})
+        assert waits.wait(timeout=WAIT)
+        opened = factory.opened
+    finally:
+        factory.release.set()
+        rebuild.join(timeout=WAIT)
+        if waiter is not None:
+            waiter.join(timeout=WAIT)
+    assert waiter is not None
+    assert not waiter.is_alive()
+    assert isinstance(errors["screen-a"], RuntimeError)
+    assert isinstance(errors["screen-b"], ScreeningIndexUnavailableError)
+    assert factory.opened == opened
 
 
 def test_a_due_screen_keeps_the_installed_shard_while_another_checks_for_versions(
