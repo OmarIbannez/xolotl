@@ -88,6 +88,8 @@ _EDITABLE = frozenset({RuleVersionStatus.DRAFT, RuleVersionStatus.SIMULATED})
 # The declarations a STRUCTURING rule counts over its band and window.
 _BANDED = frozenset({"near_count", "near_sum"})
 _WINDOWED = frozenset({AggregateFunction.COUNT, AggregateFunction.SUM})
+# Migration 0013's UNIQUE (tenant_id, code) on monitoring_rule.
+_RULE_CODE_UNIQUE = "uq_monitoring_rule_tenant_id_code"
 # The longest VELOCITY window, in hours (spec §9.1: P7D).
 _VELOCITY_HOURS = 7 * 24
 _TYPE_NAMES: Mapping[type, str] = {
@@ -439,6 +441,9 @@ def _new_rule(
     Returns:
         The flushed rule, or None when the code is taken.
 
+    Raises:
+        IntegrityError: When any other constraint refuses the row.
+
     """
     rule = MonitoringRule(
         tenant_id=bound_context(s).require_tenant_id(),
@@ -452,7 +457,12 @@ def _new_rule(
     try:
         with s.begin_nested():
             s.add(rule)
-    except IntegrityError:
+    except IntegrityError as exc:
+        # Only the code's unique constraint means another writer won; a foreign
+        # key (an author of another tenant, an unknown template) is an error.
+        diag = getattr(exc.orig, "diag", None)
+        if getattr(diag, "constraint_name", None) != _RULE_CODE_UNIQUE:
+            raise
         return None
     return rule
 

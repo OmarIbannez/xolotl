@@ -9,6 +9,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import Engine, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from tests.helpers import audit_events, new_tenant, platform_ctx, staff_session
@@ -600,3 +601,42 @@ def test_seeding_reads_assignments_in_force_today_or_later(
     assert _seed(ended) == []
     assert len(_seed(ending)) == 7
     assert len(_seed(coming)) == 7
+
+
+@pytest.mark.usefixtures("library")
+def test_a_foreign_author_is_an_error_not_a_lost_race(
+    tenant: CreatedTenant, admin_engine: Engine
+):
+    packs = install_both_packs(admin_engine)
+    _assign(tenant, [(packs[ITF], None)])
+    other = new_tenant("other", "admin@other.mx")
+    ctx = TenantContext.platform("cli:seed", tenant_id=tenant.tenant_id)
+    with (
+        pytest.raises(IntegrityError, match="created_by"),
+        tenant_session(ctx) as s,
+    ):
+        _ = seed_tenant_rules(s, author_id=other.admin_user_id)
+    with (
+        pytest.raises(IntegrityError, match="created_by"),
+        staff_session(tenant.tenant_id, other.admin_user_id, (Role.MLRO,)) as s,
+    ):
+        _ = create_rule(s, template_code=CASH, body=VersionInput())
+
+
+@pytest.mark.usefixtures("library")
+def test_a_custom_rule_that_loses_the_race_is_a_conflict(
+    tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    _allow_custom(monkeypatch, allowed=True)
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        _ = create_custom_rule(s, definition=_custom())
+
+    def nobody(_s: object, _code: str) -> None:
+        return None
+
+    monkeypatch.setattr(versions, "_rule_by_code", nobody)
+    with (
+        pytest.raises(DomainError, match="a rule MY_SELF_CUSTODY exists"),
+        staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
+    ):
+        _ = create_custom_rule(s, definition=_custom())
