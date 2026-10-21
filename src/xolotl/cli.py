@@ -1371,7 +1371,7 @@ def _file_line(file: TransactionFile) -> str:
     line = (
         f"file {file.id}: {_plural(file.rows_total or 0, 'row')}, "
         f"{file.rows_accepted} accepted, {_plural(file.rows_duplicate, 'duplicate')}, "
-        f"{file.rows_rejected} rejected"
+        f"{file.rows_rejected} rejected, {file.status.value}"
     )
     if file.errors_key is not None:
         line += f" (errors: {file.errors_key})"

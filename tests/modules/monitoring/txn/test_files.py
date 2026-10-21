@@ -913,6 +913,71 @@ def test_a_run_that_loses_the_race_leaves_the_completed_file_alone(
     assert _completed_events(tenant) == 1
 
 
+def test_a_leased_run_that_loses_the_cursor_to_a_stale_run_walks_on(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # The worker holding the live lease opens the file; before its first page, a
+    # stale run (its lease reaped) commits one page and stops at its heartbeat. The
+    # live run then walks on from the moved cursor and completes the file.
+    monkeypatch.setattr(get_settings(), "monitoring_file_chunk_rows", 3)
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    live = _claim(tenant, queue)
+    real_rows = files.iter_rows
+    starts: list[int] = []
+
+    def a_stale_run_commits_a_page_first(
+        data: bytes, content_type: str, *, start: int, limit: int
+    ) -> Generator[files.FileRow]:
+        starts.append(start)
+        if len(starts) == 1:
+            # A job that no longer holds a lease: its heartbeat is refused.
+            _run_claimed(store, queue, _job(tenant, file_id))
+        return real_rows(data, content_type, start=start, limit=limit)
+
+    monkeypatch.setattr(files, "iter_rows", a_stale_run_commits_a_page_first)
+    _run_claimed(store, queue, live)
+    # The live run, the stale run, then the live run again from the moved cursor.
+    assert starts == [0, 0, 3]
+    done = _file(tenant, file_id)
+    assert (done.status, done.cursor, done.rows_accepted) == (
+        FileStatus.COMPLETED,
+        4,
+        4,
+    )
+    assert _external_ids(tenant) == ["dep-001", "dep-002", "dep-003", "dep-004"]
+    assert _completed_events(tenant) == 1
+
+
+def test_a_leased_run_that_loses_the_cursor_to_a_completed_file_publishes_nothing(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    store: LocalFsObjectStore,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    file_id, _ = _upload(tenant, store, queue, _fixture("deposits.csv"))
+    live = _claim(tenant, queue)
+    real_rows = files.iter_rows
+    raced: list[bool] = []
+
+    def the_cli_completes_the_file_first(
+        data: bytes, content_type: str, *, start: int, limit: int
+    ) -> Generator[files.FileRow]:
+        if not raced:
+            raced.append(True)
+            _run(tenant, store, queue, file_id)
+        return real_rows(data, content_type, start=start, limit=limit)
+
+    monkeypatch.setattr(files, "iter_rows", the_cli_completes_the_file_first)
+    _run_claimed(store, queue, live)
+    assert _file(tenant, file_id).status is FileStatus.COMPLETED
+    assert _completed_events(tenant) == 1
+
+
 def test_a_failure_after_another_run_completed_the_file_does_not_fail_it(
     tenant: CreatedTenant,
     customer: CustomerRelationship,

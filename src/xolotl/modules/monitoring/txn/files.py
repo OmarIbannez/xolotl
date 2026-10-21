@@ -736,24 +736,17 @@ class IngestFileJob:
         The runner's ``session`` only takes the final status and the event; every
         page is a transaction of its own. A failure marks the file ``FAILED`` in a
         fresh transaction and is raised again, so the queue retries from
-        ``cursor``. A run that finds another run moved the cursor, or whose lease
-        the queue took back, stops and leaves the file to that other run.
-        ``leased=False`` is for a job built in place (the CLI), which holds no
-        lease to keep alive.
+        ``cursor``. A run whose lease the queue took back stops. A leased run that
+        finds another run moved the cursor holds the job's live lease, so it opens
+        the file again and walks on from the new cursor (the other run is stale and
+        stops at its next heartbeat). ``leased=False`` is for a job built in place
+        (the CLI), which holds no lease: it stops and leaves the file to the other
+        run.
         """
         file_id = UUID(str(job.payload["file_id"]))
         ctx = bound_context(session)
         try:
-            opened = self._open(ctx, file_id)
-            if opened is None:
-                return
-            walked = self._pages(ctx, file_id, opened, job if leased else None)
-        except FileCursorMovedError:
-            logger.info(
-                "transaction file ingest left to another run",
-                extra={"file_id": str(file_id)},
-            )
-            return
+            walked = self._walk(ctx, file_id, job if leased else None)
         except Exception as exc:
             self._fail(ctx, file_id, exc)
             raise
@@ -764,6 +757,26 @@ class IngestFileJob:
         # failure now rolls back with the runner's session; the retry finds the
         # cursor at the end and completes.
         self._complete(session, file_id)
+
+    def _walk(self, ctx: TenantContext, file_id: UUID, job: Job | None) -> bool:
+        # True when the pages are all in and the file is to be completed.
+        while True:
+            opened = self._open(ctx, file_id)
+            if opened is None:
+                return False
+            try:
+                return self._pages(ctx, file_id, opened, job)
+            except FileCursorMovedError:
+                if job is None:
+                    logger.info(
+                        "transaction file ingest left to another run",
+                        extra={"file_id": str(file_id)},
+                    )
+                    return False
+                logger.info(
+                    "transaction file ingest resumes from a moved cursor",
+                    extra={"file_id": str(file_id)},
+                )
 
     def _fail(self, ctx: TenantContext, file_id: UUID, exc: Exception) -> None:
         # Only a file this run could still be walking: a run that lost a race never

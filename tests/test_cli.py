@@ -47,6 +47,7 @@ from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
 from xolotl.modules.monitoring.enums import FileStatus
+from xolotl.modules.monitoring.txn import files
 from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
 from xolotl.modules.party import documents
 from xolotl.modules.party import service as party_service
@@ -2127,7 +2128,7 @@ def test_monitoring_ingest_file_uploads_and_processes_synchronously(
     assert result.exit_code == 0, result.output
     (row,) = _transaction_files(created.tenant_id)
     assert result.stdout == (
-        f"file {row.id}: 10 rows, 8 accepted, 0 duplicates, 2 rejected "
+        f"file {row.id}: 10 rows, 8 accepted, 0 duplicates, 2 rejected, COMPLETED "
         f"(errors: transactions/files/{row.id}.errors.csv)\n"
     )
     assert row.status is FileStatus.COMPLETED
@@ -2155,8 +2156,8 @@ def test_monitoring_ingest_file_reports_an_already_uploaded_file(
     )
     assert first.exit_code == 0, first.output
     (row,) = _transaction_files(created.tenant_id)
-    assert (
-        first.stdout == f"file {row.id}: 4 rows, 4 accepted, 0 duplicates, 0 rejected\n"
+    assert first.stdout == (
+        f"file {row.id}: 4 rows, 4 accepted, 0 duplicates, 0 rejected, COMPLETED\n"
     )
     # The same bytes under another name, typed by hand.
     renamed = tmp_path / "deposits.txt"
@@ -2180,3 +2181,36 @@ def test_monitoring_ingest_file_reports_an_already_uploaded_file(
     )
     assert untyped.exit_code == 1
     assert "pass --content-type" in untyped.stderr
+
+
+def test_monitoring_ingest_file_that_loses_the_file_to_another_run_says_so(
+    engine: Engine, list_objects: Path, monkeypatch: pytest.MonkeyPatch
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    real_rows = files.iter_rows
+
+    def another_run_moves_the_cursor(
+        data: bytes, content_type: str, *, start: int, limit: int
+    ) -> Generator[files.FileRow]:
+        with db.tenant_session(system_ctx(created.tenant_id)) as s:
+            (file,) = s.scalars(select(TransactionFile))
+            file.cursor = 2
+        return real_rows(data, content_type, start=start, limit=limit)
+
+    monkeypatch.setattr(files, "iter_rows", another_run_moves_the_cursor)
+    result = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            str(MONITORING_FIXTURES / "deposits.jsonl"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert result.stdout == (
+        f"file {row.id}: 4 rows, 0 accepted, 0 duplicates, 0 rejected, PROCESSING\n"
+    )
