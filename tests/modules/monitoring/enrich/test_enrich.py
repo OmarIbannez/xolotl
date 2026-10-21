@@ -39,12 +39,13 @@ from xolotl.modules.monitoring.txn.schema import (
     TransactionInput,
     UnitAmount,
     amount_minor,
+    counterparty_of,
 )
 from xolotl.modules.party.enums import CustomerRelationshipStatus, PartyType
 from xolotl.modules.party.models import CustomerRelationship, Party
 from xolotl.modules.party.service import RelationshipRef
 from xolotl.modules.screening.counterparty.models import Counterparty
-from xolotl.modules.screening.counterparty.resolve import dedup_hash_of
+from xolotl.modules.screening.counterparty.resolve import dedup_hash_of, resolve
 from xolotl.modules.screening.counterparty.schema import CounterpartyScreeningStatus
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.calendar import Holidays, load_holidays
@@ -123,18 +124,11 @@ def _relationship(
     )
 
 
-def _counterparty(s: Session, tenant_id: UUID, item: TransactionInput) -> UUID:
-    assert item.counterparty is not None
-    row = Counterparty(
-        tenant_id=tenant_id,
-        kind=item.counterparty.kind,
-        account_hash=b"\x02" * 32,
-        dedup_hash=dedup_hash_of(s, item.counterparty),
-        country=item.counterparty.country,
-    )
-    s.add(row)
-    s.flush()
-    return row.id
+def _counterparty(s: Session, item: TransactionInput) -> UUID | None:
+    counterparty = counterparty_of(item)
+    if counterparty is None:
+        return None
+    return resolve(s, counterparty).id
 
 
 def _store(
@@ -180,9 +174,7 @@ def _store(
         channel=item.channel,
         amount_minor=amount_minor(item.amount),
         currency=item.currency,
-        counterparty_id=(
-            None if item.counterparty is None else _counterparty(s, tenant_id, item)
-        ),
+        counterparty_id=_counterparty(s, item),
         device_hash=(
             None
             if device_id is None
@@ -534,3 +526,47 @@ def test_the_counterparty_key_covers_every_component(
     assert keys[0].counterparty_key == keys[1].counterparty_key
     assert len({txn.counterparty_key for txn in keys}) == 4
     assert keys[0].device_key is None
+
+
+def test_enrich_input_keys_the_counterparty_as_ingest_does(
+    tenant: CreatedTenant, admin_engine: Engine
+):
+    _ = itf_tenant(tenant, admin_engine)
+    crypto = {
+        "network": "bitcoin",
+        "address": "bc1qWalletProbe",
+        "asset_code": "BTC",
+        "asset_qty": "0.25",
+    }
+    stand_in = _item(
+        instrument="CRYPTO", rail="CRYPTO_ONCHAIN", counterparty=None, crypto=crypto
+    )
+    unindexable = _item(counterparty={"kind": "PERSON", "name": "..."})
+    with _session(tenant) as s:
+        relationship = _relationship(s, tenant.tenant_id)
+        enriched = [
+            enrich_input(
+                s,
+                item,
+                relationship=relationship,
+                account_id=None,
+                units=UnitService(s),
+                holidays=_holidays(s),
+                snapshot=_snapshot(s, "EMONEY"),
+                now=ON,
+            )
+            for item in (stand_in, unindexable)
+        ]
+        wallet = counterparty_of(stand_in)
+        assert wallet is not None
+        expected = dedup_hash_of(s, wallet).hex()
+    # The crypto address stands in for the wallet the counterparty does not name.
+    assert enriched[0].counterparty_key == expected
+    assert (
+        enriched[0].counterparty_screening_status
+        is CounterpartyScreeningStatus.UNSCREENED
+    )
+    # A counterparty with nothing to index is no counterparty, as at ingest.
+    assert enriched[1].counterparty_key is None
+    assert enriched[1].counterparty_screening_status is None
+    assert enriched[1].counterparty_country is None

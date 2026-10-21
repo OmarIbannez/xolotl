@@ -35,9 +35,11 @@ from xolotl.modules.monitoring.txn.schema import (
     TransactionInput,
     UnitAmount,
     amount_minor,
+    counterparty_of,
 )
 from xolotl.modules.party.service import RelationshipRef
 from xolotl.modules.screening.counterparty.resolve import (
+    CounterpartyUnindexableError,
     dedup_hash_of,
     status_by_dedup_hash,
     status_of,
@@ -194,9 +196,11 @@ def enrich_input(
 ) -> EnrichedTransaction:
     """Enrich a validated item that has no row (the decide path).
 
-    The counterparty is found by its dedup hash and nothing is written: a
-    counterparty never seen is ``UNSCREENED`` with no id. A missing unit value
-    raises ``ParkTransaction``, as in ``enrich`` (C5 maps it to the fail mode).
+    The counterparty is ``counterparty_of(item)``, found by its dedup hash as
+    ingest keys it, and nothing is written: a counterparty never seen is
+    ``UNSCREENED`` with no id, and one with nothing to index is no counterparty.
+    A missing unit value raises ``ParkTransaction``, as in ``enrich`` (C5 maps it
+    to the fail mode).
 
     Args:
         session: The caller's session.
@@ -216,10 +220,17 @@ def enrich_input(
     counterparty_key: str | None = None
     country: str | None = None
     status: CounterpartyScreeningStatus | None = None
-    if item.counterparty is not None:
-        dedup_hash = dedup_hash_of(session, item.counterparty)
+    counterparty = counterparty_of(item)
+    dedup_hash: bytes | None = None
+    if counterparty is not None:
+        try:
+            dedup_hash = dedup_hash_of(session, counterparty)
+        except CounterpartyUnindexableError:
+            # Ingest stores no counterparty for such an input; neither does this.
+            dedup_hash = None
+    if counterparty is not None and dedup_hash is not None:
         counterparty_key = dedup_hash.hex()
-        country = item.counterparty.country
+        country = counterparty.country
         status = status_by_dedup_hash(session, dedup_hash)
     valued = _valued(
         units,
