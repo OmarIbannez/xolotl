@@ -1,0 +1,1 @@
+Fires when the customer sends an operation and the sum of outgoing operations within 1 day is at least 80% of the sum of incoming virtual-asset operations within 1 day

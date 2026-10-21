@@ -1,0 +1,1 @@
+Fires when the customer makes a foreign-exchange operation in multiples of 1,000 and the number of foreign-exchange operations in multiples of 1,000 within 7 days is at least 5

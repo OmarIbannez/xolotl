@@ -349,6 +349,20 @@ reads and checks the file (a missing or unknown key, a malformed or repeated cod
 the SHA-256 of the file is recorded in every hit's evidence (`lists_hash`) and in
 each aggregate's id, so editing the lists starts new aggregates.
 
+### Typology library
+
+The Mexico monitoring rule templates are pack content too: one file per template in
+`policy-packs/MX/_typologies/<CODE>.yaml` (`{version, country_code, packs,
+definition}`, where `definition` is the typed rule document of spec §9.1), sixteen in
+all (spec §9.3). `packs` names the packs a template applies to, so a tenant only gets
+the templates of its packs. `uv run xolotl rules validate [directory]` checks every
+file without a database and prints `<code> v<n> <kind> <hash> <packs>` per template;
+an invalid file exits 1 naming it. A template version is immutable: change a loaded
+template by adding it again under a new `version`. The definition hashes are pinned
+in `tests/golden/monitoring/rules/hashes.yaml` and the sentence each renders in
+`tests/golden/monitoring/rules/render/`. Write every decimal quoted (`"5000"`; a float
+is refused) and quote the `"on"` key (YAML 1.1 reads a bare `on` as `true`).
+
 A tenant's ADMIN assigns a pack version, optionally per product, and may tighten it
 with an override; staff of any role read:
 

@@ -1,0 +1,16 @@
+# A large operation of a politically exposed person (FR-TM-014).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]
+definition:
+  code: PEP_LARGE_OPERATION
+  family: ALERT
+  kind: THRESHOLD
+  title: Operación relevante de PEP
+  typology: [PEP]
+  unit_key: USD/PRIOR_BANKING_DAY
+  params:
+    threshold: {value: "10000", unit: USD}
+    pep_status_not: {value: NONE, choices: [NONE]}
+  severity: HIGH
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}

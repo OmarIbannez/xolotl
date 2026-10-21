@@ -1,0 +1,1 @@
+Fires when the customer makes operations totalling 2,000 USD or more within 2 days after 180 days without activity

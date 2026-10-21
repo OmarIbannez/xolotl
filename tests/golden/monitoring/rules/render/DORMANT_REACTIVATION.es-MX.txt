@@ -1,0 +1,1 @@
+Dispara cuando el cliente realiza operaciones por un total de 2 000 USD o más en 2 días tras 180 días sin actividad

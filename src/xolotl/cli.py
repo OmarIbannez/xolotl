@@ -33,6 +33,7 @@ from xolotl.modules.monitoring.process.partitions import (
     maintain_partitions,
 )
 from xolotl.modules.monitoring.process.sweep import sweep
+from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_library
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
     JSONL_TYPE,
@@ -148,6 +149,10 @@ monitoring_app = typer.Typer(no_args_is_help=True, help="Transaction monitoring"
 app.add_typer(monitoring_app, name="monitoring")
 partitions_app = typer.Typer(no_args_is_help=True, help="Monthly table partitions")
 monitoring_app.add_typer(partitions_app, name="partitions")
+rules_app = typer.Typer(
+    no_args_is_help=True, help="Monitoring rule templates and tenant rules"
+)
+app.add_typer(rules_app, name="rules")
 
 # The library's evaluation corpus in a source checkout; absent from the image.
 EVALUATION_CORPUS = (
@@ -859,6 +864,23 @@ def packs_show(
             "config": row.config,
         }
     typer.echo(json.dumps(shown, indent=2, ensure_ascii=False))
+
+
+@rules_app.command("validate")
+def rules_validate(
+    path: Annotated[
+        Path,
+        typer.Argument(help="The typology library directory; default the MX library"),
+    ] = TYPOLOGIES_DIR,
+) -> None:
+    """Validate the typology library without a database, one line per template."""
+    with _cli_errors():
+        templates = read_library(path)
+    for template in templates:
+        packs = ",".join(template.packs)
+        digest = template.definition_hash.hex()[:12]
+        kind = template.definition.kind
+        typer.echo(f"{template.code} v{template.version} {kind} {digest} {packs}")
 
 
 @lists_app.command("seed")

@@ -1,0 +1,1 @@
+Dispara cuando el cliente realiza una operación de cambio de divisas por montos múltiplos de 1 000 y el número de operaciones de cambio de divisas por montos múltiplos de 1 000 en 7 días es de al menos 5

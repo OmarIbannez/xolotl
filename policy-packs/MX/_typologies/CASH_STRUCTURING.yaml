@@ -1,0 +1,41 @@
+# Several cash deposits just under the threshold whose sum reaches it (spec §9.3).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE]
+definition:
+  code: CASH_STRUCTURING
+  family: ALERT
+  kind: STRUCTURING
+  title: Estructuración de depósitos en efectivo
+  typology: [STRUCTURING]
+  "on": {direction: [IN], instrument: [CASH]}
+  unit_key: USD/PRIOR_BANKING_DAY
+  params:
+    threshold: {value: "5000", min: "1000", tighten: LOWER, unit: USD}
+    near_ratio: {value: "0.70", min: "0.50", max: "0.95"}
+    window: {value: P7D}
+    min_count: {value: 3, min: 2}
+  # The band is near_ratio x threshold up to the threshold: [3500, 5000) USD.
+  aggregates:
+    - name: near_count
+      function: COUNT
+      measure: ONE
+      unit_key: null
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P7D
+      where: {direction: [IN], instrument: [CASH], amount_unit_key: USD/PRIOR_BANKING_DAY, amount_gte: "3500", amount_lt: "5000"}
+    - name: near_sum
+      function: SUM
+      measure: UNIT_AMOUNT
+      unit_key: USD/PRIOR_BANKING_DAY
+      key_kind: RELATIONSHIP
+      window_kind: DURATION
+      window: P7D
+      where: {direction: [IN], instrument: [CASH], amount_unit_key: USD/PRIOR_BANKING_DAY, amount_gte: "3500", amount_lt: "5000"}
+  severity: MEDIUM
+  dedup: {key: RELATIONSHIP, window: P7D, cooldown: P7D}
+  evidence:
+    transactions_window: P7D
+    transactions_where: {direction: [IN], instrument: [CASH], amount_unit_key: USD/PRIOR_BANKING_DAY, amount_gte: "3500", amount_lt: "5000"}
+    aggregates: [near_count, near_sum]

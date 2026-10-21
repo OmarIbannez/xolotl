@@ -7,7 +7,14 @@ One ``ScreeningIndexHolder`` per process (API and worker) wraps the library's
   an ``ACTIVE`` version, read in one ``REPEATABLE READ`` snapshot. It is warmed in a
   background thread at start-up, and checked for newer versions at most every
   ``SCREENING_INDEX_REFRESH_SECONDS`` (at once when a screen requires a version the
-  shard lacks); a rebuilt shard is swapped in whole.
+  shard lacks); a rebuilt shard is swapped in whole. The rows are streamed, and a
+  rebuild lets go of the old shard before it reads the new one, so the process never
+  holds two (the 512 MB service could not). Meanwhile there is no shard: a screen
+  answers 503, as during the warm-up, rather than wait on the lock holding a pooled
+  connection (enough waiting screens would leave the rebuild's own session none);
+  a screen that requires a version (a delta job, one at a time) waits for it. After
+  a failed rebuild screens answer 503 until the refresh interval has passed, when
+  the next one loads the shard again.
 - a **private shard** per tenant holds its active private versions' entries,
   decrypted in that tenant's session. It is keyed by the tenant and its active
   version ids, so a new version is a new key, and the shards live in an LRU of
@@ -16,28 +23,30 @@ One ``ScreeningIndexHolder`` per process (API and worker) wraps the library's
   (Deviation 2) and kept in an LRU of 16 by the list set's content hash.
 """
 
+import ctypes
 import logging
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
+from functools import cache
 from types import MappingProxyType
+from typing import cast
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from xolotl.modules.screening.catalog.models import (
-    ListEntryRow,
     ListSource,
     ListVersion,
     PrivateListEntryRow,
 )
 from xolotl.modules.screening.catalog.private import active_private_versions
 from xolotl.modules.screening.engine.entries import (
+    current_shared_entries,
     indexed_private_entry,
-    indexed_shared_entry,
 )
 from xolotl.modules.screening.enums import VersionStatus
 from xolotl.modules.screening.errors import ScreeningIndexUnavailableError
@@ -67,7 +76,8 @@ class SharedShard:
     # Every shared screenable entry, built with blocking_idf.
     index: MemoryIndex
     blocking_idf: IdfTable
-    # By list code, for the per-list-set scoring IDF.
+    # By list code, for the per-list-set scoring IDF: the entry objects the index
+    # holds, not copies of them.
     entries: Mapping[str, tuple[ListEntry, ...]]
 
 
@@ -91,6 +101,22 @@ def _lacks(shard: SharedShard, require: Mapping[str, int] | None) -> bool:
         (held := shard.versions.get(code)) is None or held.seq < seq
         for code, seq in require.items()
     )
+
+
+@cache
+def _glibc() -> ctypes.CDLL:
+    return ctypes.CDLL("libc.so.6")
+
+
+def _trim_heap() -> None:
+    # A shard build frees most of what it allocates (rows, JSON, normalisation), but
+    # glibc keeps the freed heap pages, so the process would stay at the build's
+    # peak; malloc_trim hands them back to the system. Other C libraries have no
+    # such library or call, and nothing is done.
+    try:
+        _ = cast("int", _glibc().malloc_trim(0))
+    except (OSError, AttributeError):
+        return
 
 
 def _signature(versions: Mapping[str, HeldVersion]) -> dict[str, tuple[UUID, int]]:
@@ -117,6 +143,9 @@ class ScreeningIndexHolder:
         self._shared: SharedShard | None = None
         self._checked_at: float = 0.0
         self._warming: bool = False
+        # No shard is installed while a rebuild runs, or after one failed.
+        self._rebuilding: bool = False
+        self._rebuild_failed: bool = False
         self._private: OrderedDict[_PrivateKey, PrivateShard] = OrderedDict()
         self._idf: OrderedDict[bytes, IdfTable] = OrderedDict()
 
@@ -162,48 +191,85 @@ class ScreeningIndexHolder:
 
         Raises:
             ScreeningIndexUnavailableError: While the start-up warm-up runs and
-                nothing is loaded yet, or when a required version is still missing
-                after a refresh.
+                nothing is loaded yet; while a rebuild runs, unless the screen
+                requires a version; within the refresh interval after a failed
+                rebuild; or when a required version is still missing after a
+                refresh.
 
         """
         shard = self._shared
         if shard is None:
-            if self._warming:
+            if self._warming or self._unavailable(require):
                 raise ScreeningIndexUnavailableError
-            shard = self._refresh(s, None, wait=True)
+            seen, wait = None, True
         else:
-            due = self._monotonic() - self._checked_at >= self._refresh_seconds
-            missing = _lacks(shard, require)
-            if due or missing:
-                shard = self._refresh(s, shard, wait=missing)
+            wait = _lacks(shard, require)
+            if not (self._due() or wait):
+                return shard
+            seen = shard.versions
+            # A rebuild frees the shard it replaces before it reads the new one, which
+            # it cannot while this frame still holds it.
+            del shard
+        shard = self._refresh(s, seen, wait=wait)
         if _lacks(shard, require):
             raise ScreeningIndexUnavailableError
         return shard
 
+    def _due(self) -> bool:
+        return self._monotonic() - self._checked_at >= self._refresh_seconds
+
+    def _unavailable(self, require: Mapping[str, int] | None) -> bool:
+        # With no shard installed: a screen does not queue behind a rebuild, and does
+        # not retry a failed one before the interval, each a full load in series.
+        if self._rebuilding:
+            return not require
+        return self._rebuild_failed and not self._due()
+
     def _refresh(
-        self, s: Session, seen: SharedShard | None, *, wait: bool
+        self, s: Session, seen: Mapping[str, HeldVersion] | None, *, wait: bool
     ) -> SharedShard:
-        # Without wait, a screen that finds another one rebuilding keeps using the
-        # shard it has until the swap; with no shard yet there is nothing to keep.
-        if seen is None or wait:
+        # ``seen`` is the versions of the shard the caller found (they name it without
+        # keeping it alive). Without wait, a screen that finds another one checking
+        # keeps using the shard that is still installed; once a rebuild has let go of
+        # it, there is none, and the screen answers 503 as it would on arriving then.
+        if not wait and not self._lock.acquire(blocking=False):
+            if (installed := self._shared) is not None:
+                return installed
+            raise ScreeningIndexUnavailableError
+        if wait:
             _ = self._lock.acquire()
-        elif not self._lock.acquire(blocking=False):
-            return seen
         try:
             current = self._shared
-            if current is not None and current is not seen:
+            if current is not None and current.versions is not seen:
                 # Another screen swapped in a new shard while this one waited.
                 return current
+            if current is None and self._rebuild_failed and not self._due():
+                # The rebuild this screen waited for failed: no load in series.
+                raise ScreeningIndexUnavailableError
             active = self._active_signature(s)
             self._checked_at = self._monotonic()
             if current is not None and _signature(current.versions) == active:
                 return current
-            return self._install(self._load_shared())
+            # Let go of the old shard first: building the new one beside it would
+            # hold two shards at once. Screens arriving meanwhile answer 503 (or
+            # wait, requiring a version); one already screening keeps the old shard
+            # alive until it is done.
+            self._shared = None
+            self._rebuilding = True
+            del current
+            try:
+                return self._install(self._load_shared())
+            except Exception:
+                self._rebuild_failed = True
+                raise
+            finally:
+                self._rebuilding = False
         finally:
             self._lock.release()
 
     def _install(self, shard: SharedShard) -> SharedShard:
         self._shared = shard
+        self._rebuild_failed = False
         self._checked_at = self._monotonic()
         return shard
 
@@ -229,6 +295,7 @@ class ScreeningIndexHolder:
         finally:
             session.rollback()
             session.close()
+            _trim_heap()
 
     @staticmethod
     def _read_shared(s: Session) -> SharedShard:
@@ -245,18 +312,7 @@ class ScreeningIndexHolder:
                 .where(ListVersion.status == VersionStatus.ACTIVE)
             )
         }
-        # The current rows of a list with an active version are that version's
-        # members (3a's construction).
-        rows = s.scalars(
-            select(ListEntryRow)
-            .where(
-                ListEntryRow.list_code.in_(versions),
-                ListEntryRow.to_seq.is_(None),
-                ListEntryRow.screenable,
-            )
-            .order_by(ListEntryRow.list_code, ListEntryRow.id)
-        )
-        indexed = [indexed_shared_entry(row) for row in rows]
+        indexed = list(current_shared_entries(s, versions))
         entries: dict[str, list[ListEntry]] = {}
         for item in indexed:
             entries.setdefault(item.shard, []).append(item.entry)
@@ -274,7 +330,10 @@ class ScreeningIndexHolder:
         """Return the session tenant's private shard, building it on a miss.
 
         The entries are decrypted in ``s``, for processing only. The index blocks
-        with the shared shard's IDF table; private entries never weigh tokens.
+        with the shared shard's IDF table; private entries never weigh tokens. A
+        miss therefore asks ``shared`` for it, and answers what ``shared`` does:
+        ``ScreeningIndexUnavailableError`` during the warm-up, a rebuild, or the
+        interval after a failed rebuild.
 
         Returns:
             The shard, or None when the tenant has no active private version.
