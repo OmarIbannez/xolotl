@@ -20,6 +20,9 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from xolotl.app import build_key_provider, build_object_store, build_worker
+from xolotl.modules.monitoring.enums import TransactionStatus
+from xolotl.modules.monitoring.process.job import ProcessReport, process_party
+from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.party.retention import RetentionSweeper
 from xolotl.modules.screening import evaluation_report
 from xolotl.modules.screening.catalog import (
@@ -119,6 +122,8 @@ lists_app = typer.Typer(no_args_is_help=True, help="Shared sanctions lists")
 app.add_typer(lists_app, name="lists")
 screening_app = typer.Typer(no_args_is_help=True, help="Screening")
 app.add_typer(screening_app, name="screening")
+monitoring_app = typer.Typer(no_args_is_help=True, help="Transaction monitoring")
+app.add_typer(monitoring_app, name="monitoring")
 
 # The library's evaluation corpus in a source checkout; absent from the image.
 EVALUATION_CORPUS = (
@@ -1340,3 +1345,59 @@ def screening_eval(
             evaluation_report.canonical_json(report), encoding="utf-8"
         )
         typer.echo(f"wrote {target}")
+
+
+def _drain_line(party_id: UUID, report: ProcessReport) -> str:
+    line = f"party {party_id}: {report.processed} processed, {report.parked} parked"
+    if report.stopped_at is not None:
+        line += f" (stopped at {report.stopped_at})"
+    return line
+
+
+@monitoring_app.command("process")
+def monitoring_process(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    party: Annotated[
+        UUID | None,
+        typer.Option("--party", help="One party's id; by default every pending one"),
+    ] = None,
+) -> None:
+    """Drain the processing of a party, or of every party with a pending row, here.
+
+    The same code as the worker's ``monitoring.process`` job, row by row in
+    ``occurred_at`` order; a parked row ends its party's drain.
+    """
+    actor = _cli_actor()
+    settings = get_settings()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        factory = get_sessionmaker()
+        if party is None:
+            with tenant_session(TenantContext.system(tenant_id, actor)) as s:
+                parties = sorted(
+                    s.scalars(
+                        select(Transaction.party_id)
+                        .where(
+                            Transaction.status.in_((
+                                TransactionStatus.RECEIVED,
+                                TransactionStatus.PARKED,
+                            ))
+                        )
+                        .distinct()
+                    )
+                )
+        else:
+            parties = [party]
+        queue = PostgresJobQueue(factory)
+        for party_id in parties:
+            report = process_party(
+                factory,
+                tenant_id,
+                party_id,
+                queue=queue,
+                job=None,
+                settings=settings,
+                actor=actor,
+            )
+            typer.echo(_drain_line(party_id, report))

@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
+from xolotl.modules.monitoring.composition import register_monitoring
 from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
 from xolotl.modules.party import routes_relationships as party_relationship_routes
@@ -176,6 +177,10 @@ def wire_platform(
     # The re-screen batches: list deltas, private-list versions, periodic and
     # re-index walks.
     register_rescreen(queue=queue)
+    # The staff-only monitoring events and the monitoring.process job.
+    register_monitoring(
+        session_factory=session_factory, settings=settings, queue=queue, store=store
+    )
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,

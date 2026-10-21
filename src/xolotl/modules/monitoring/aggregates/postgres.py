@@ -55,6 +55,7 @@ from xolotl.modules.monitoring.aggregates.windows import (
     window_bounds,
 )
 from xolotl.modules.monitoring.enums import BucketKind
+from xolotl.modules.monitoring.kinds import AGG_BACKFILL_KIND
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
 from xolotl.platform.crypto.blind_index import blind_index
 from xolotl.platform.db import bound_context
@@ -63,9 +64,6 @@ from xolotl.platform.jobs.queue import PostgresJobQueue
 if TYPE_CHECKING:
     from pydantic import JsonValue
 
-# The job that walks a new declaration's history; the value of A4's
-# ``monitoring.kinds.AGG_BACKFILL_KIND``, which merges beside this task.
-AGG_BACKFILL_KIND = "monitoring.agg_backfill"
 _BUCKET_KEY = ("tenant_id", "key_kind", "key", "agg_id", "bucket_start")
 
 
@@ -105,6 +103,15 @@ class PostgresAggregateStore:
             None if complete_ids is None else frozenset(complete_ids)
         )
         self._queue: PostgresJobQueue | None = queue
+
+    @property
+    def complete_ids(self) -> frozenset[str] | None:
+        """The declarations this store reads as complete, as it now stands.
+
+        A declaration whose accumulator this store could not split has left the
+        set; the processing job hands it to the next row's store.
+        """
+        return self._complete
 
     def _tenant(self) -> UUID:
         return bound_context(self._s).require_tenant_id()

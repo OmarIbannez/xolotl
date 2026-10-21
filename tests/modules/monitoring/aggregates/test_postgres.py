@@ -22,7 +22,6 @@ from xolotl.modules.monitoring.aggregates.models import (
     AggDistinct,
 )
 from xolotl.modules.monitoring.aggregates.postgres import (
-    AGG_BACKFILL_KIND,
     PostgresAggregateStore,
     backfilled_ids,
     ensure_declarations,
@@ -30,6 +29,7 @@ from xolotl.modules.monitoring.aggregates.postgres import (
 )
 from xolotl.modules.monitoring.aggregates.store import AccumulatorSplitError
 from xolotl.modules.monitoring.enums import BucketKind
+from xolotl.modules.monitoring.kinds import AGG_BACKFILL_KIND
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import JobStatus
