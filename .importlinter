@@ -72,6 +72,10 @@ name = the monitoring core imports no database, web framework or other module (S
 type = forbidden
 source_modules =
     xolotl.modules.monitoring.txn.schema
+    xolotl.modules.monitoring.aggregates.declarations
+    xolotl.modules.monitoring.aggregates.windows
+    xolotl.modules.monitoring.aggregates.store
+    xolotl.modules.monitoring.aggregates.memory
     xolotl.modules.screening.counterparty.schema
 forbidden_modules =
     sqlalchemy
@@ -86,6 +90,7 @@ ignore_imports =
     xolotl.modules.monitoring.txn.schema -> xolotl.modules.party.schemas
     xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.schemas
     xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.enums
+    xolotl.modules.monitoring.aggregates.windows -> xolotl.platform.policy.durations
 
 [importlinter:contract:monitoring-boundaries]
 name = monitoring reads parties and counterparties through services and never imports reporting

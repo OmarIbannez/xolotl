@@ -15,8 +15,8 @@ Constraints "Keys and hashes"):
 An absent component, or one with nothing left to index, contributes ``b""``.
 ``resolve`` upserts the row in one statement and, for a new row, indexes its name
 and enqueues its first-sight screen (``first_sight.on_counterparty_created``, plan
-4c); ``dedup_hash_of`` and ``status_by_dedup_hash`` read without writing, for the
-decide path.
+4c); ``dedup_hash_of``, ``status_by_dedup_hash`` and
+``country_and_status_by_dedup_hash`` read without writing, for the decide path.
 """
 
 import hmac
@@ -317,3 +317,37 @@ def status_by_dedup_hash(
         )
     )
     return CounterpartyScreeningStatus.UNSCREENED if status is None else status
+
+
+def status_of(
+    session: Session, counterparty_id: UUID
+) -> tuple[bytes, str | None, CounterpartyScreeningStatus]:
+    """Read what enrichment records of a stored counterparty, at this moment.
+
+    The row is read through the session's identity map, so a replay over many
+    transactions of one counterparty reads it once.
+
+    Returns:
+        Its dedup hash, country and screening status.
+
+    """
+    row = session.get_one(Counterparty, (_tenant(session), counterparty_id))
+    return row.dedup_hash, row.country, row.screening_status
+
+
+def country_and_status_by_dedup_hash(
+    session: Session, dedup_hash: bytes
+) -> tuple[str | None, CounterpartyScreeningStatus] | None:
+    """Read a stored counterparty's country and cached status by its key.
+
+    Returns:
+        The stored country and screening status, or None for a counterparty
+        never seen.
+
+    """
+    found = session.execute(
+        select(Counterparty.country, Counterparty.screening_status).where(
+            Counterparty.dedup_hash == dedup_hash
+        )
+    ).one_or_none()
+    return None if found is None else (found[0], found[1])
