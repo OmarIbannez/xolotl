@@ -18,12 +18,32 @@ from xolotl.modules.monitoring.aggregates.models import (
     AggDeclaration,
     AggDistinct,
 )
+from xolotl.modules.monitoring.captures.enums import CaptureKind
+from xolotl.modules.monitoring.captures.models import (
+    CaptureGroup,
+    CapturePeriod,
+    ReportableEvent,
+)
 from xolotl.modules.monitoring.enums import (
     AccountKind,
     BatchSource,
     BucketKind,
     FileStatus,
     ParkReason,
+)
+from xolotl.modules.monitoring.rules.enums import (
+    HitTransactionRole,
+    NoticeSource,
+    SimulationStatus,
+)
+from xolotl.modules.monitoring.rules.models import (
+    MonitoringRule,
+    MonitoringRuleVersion,
+    RuleAssignment,
+    RuleHit,
+    RuleHitTransaction,
+    RuleSimulation,
+    TierLimitNotice,
 )
 from xolotl.modules.monitoring.txn.models import (
     Account,
@@ -70,7 +90,10 @@ from xolotl.modules.screening.catalog.models import (
     PrivateListVersion,
     TenantListSubscription,
 )
-from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.models import (
+    Counterparty,
+    CounterpartyNameIndex,
+)
 from xolotl.modules.screening.counterparty.schema import CounterpartyKind
 from xolotl.modules.screening.engine.enums import (
     BatchKind,
@@ -162,7 +185,7 @@ from xolotl.platform.workflows.models import (
 def _staff_user(session: Session, tenant_id: UUID) -> StaffUser:
     user = StaffUser(
         tenant_id=tenant_id,
-        email=f"{uuid7().hex[:8]}@test.local",
+        email=f"{uuid7().hex[-12:]}@test.local",
         display_name="Test User",
         roles=["ANALYST"],
         status=StaffStatus.ACTIVE,
@@ -673,7 +696,7 @@ def _customer_relationship(session: Session, tenant_id: UUID) -> CustomerRelatio
     relationship = CustomerRelationship(
         tenant_id=tenant_id,
         party_id=row.id,
-        external_ref=f"ref-{uuid7().hex[:8]}",
+        external_ref=f"ref-{uuid7().hex[-12:]}",
         status=CustomerRelationshipStatus.ACTIVE,
     )
     session.add(relationship)
@@ -1179,6 +1202,215 @@ def agg_declaration(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def _monitoring_rule(session: Session, tenant_id: UUID) -> MonitoringRule:
+    row = MonitoringRule(
+        tenant_id=tenant_id,
+        code=f"RULE_{uuid7().hex[-12:].upper()}",
+        family="ALERT",
+        kind="THRESHOLD",
+        title="Test rule",
+        created_by=_staff_user(session, tenant_id).id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def monitoring_rule(session: Session, tenant_id: UUID) -> None:
+    _ = _monitoring_rule(session, tenant_id)
+
+
+def _rule_version(session: Session, tenant_id: UUID) -> MonitoringRuleVersion:
+    # A DRAFT with no template version: the app role cannot insert a template row.
+    rule = _monitoring_rule(session, tenant_id)
+    row = MonitoringRuleVersion(
+        tenant_id=tenant_id,
+        rule_id=rule.id,
+        version=1,
+        definition={"code": rule.code},
+        definition_hash=b"\x02" * 32,
+        author_id=_staff_user(session, tenant_id).id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def monitoring_rule_version(session: Session, tenant_id: UUID) -> None:
+    _ = _rule_version(session, tenant_id)
+
+
+def rule_simulation(session: Session, tenant_id: UUID) -> None:
+    version = _rule_version(session, tenant_id)
+    session.add(
+        RuleSimulation(
+            tenant_id=tenant_id,
+            rule_version_id=version.id,
+            requested_by=_staff_user(session, tenant_id).id,
+            range_start=date(2026, 7, 1),
+            range_end=date(2026, 9, 30),
+            status=SimulationStatus.QUEUED,
+            definition_hash=version.definition_hash,
+        )
+    )
+    session.flush()
+
+
+def _rule_assignment(session: Session, tenant_id: UUID) -> RuleAssignment:
+    row = RuleAssignment(
+        tenant_id=tenant_id,
+        rule_version_id=_rule_version(session, tenant_id).id,
+        effective_from=date(2026, 10, 1),
+        approved_by=_staff_user(session, tenant_id).id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def rule_assignment(session: Session, tenant_id: UUID) -> None:
+    _ = _rule_assignment(session, tenant_id)
+
+
+def _rule_hit(session: Session, tenant_id: UUID) -> RuleHit:
+    assignment = _rule_assignment(session, tenant_id)
+    trigger = _transaction(session, tenant_id)
+    row = RuleHit(
+        tenant_id=tenant_id,
+        rule_version_id=assignment.rule_version_id,
+        rule_code="CASH_STRUCTURING",
+        key_kind=KeyKind.PARTY,
+        key=str(trigger.party_id),
+        dedup_key=f"PARTY:{trigger.party_id}:2026-10",
+        party_id=trigger.party_id,
+        relationship_id=trigger.relationship_id,
+        severity="HIGH",
+        window_start=trigger.occurred_at - timedelta(days=7),
+        window_end=trigger.occurred_at,
+        evidence={"v": 1},
+        policy_snapshot_id=_policy_snapshot(session, tenant_id).id,
+        definition_hash=b"\x02" * 32,
+        assignment_id=assignment.id,
+        first_transaction_id=trigger.id,
+        first_occurred_at=trigger.occurred_at,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def rule_hit(session: Session, tenant_id: UUID) -> None:
+    _ = _rule_hit(session, tenant_id)
+
+
+def rule_hit_transaction(session: Session, tenant_id: UUID) -> None:
+    hit = _rule_hit(session, tenant_id)
+    member = _transaction(session, tenant_id)
+    session.add(
+        RuleHitTransaction(
+            tenant_id=tenant_id,
+            hit_id=hit.id,
+            transaction_id=member.id,
+            occurred_at=member.occurred_at,
+            role=HitTransactionRole.WINDOW,
+        )
+    )
+    session.flush()
+
+
+def tier_limit_notice(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        TierLimitNotice(
+            tenant_id=tenant_id,
+            relationship_id=_customer_relationship(session, tenant_id).id,
+            limit_code="monthly_ops",
+            period_key="2026-10",
+            source=NoticeSource.PROCESS,
+        )
+    )
+    session.flush()
+
+
+def capture_group(session: Session, tenant_id: UUID) -> None:
+    start = clock.now()
+    session.add(
+        CaptureGroup(
+            tenant_id=tenant_id,
+            capture_code="AVI_XVI_A",
+            key_kind=KeyKind.RELATIONSHIP,
+            key=str(uuid7()),
+            period_key="2026-10",
+            window_start=start,
+            window_end=start + timedelta(days=180),
+        )
+    )
+    session.flush()
+
+
+def reportable_event(session: Session, tenant_id: UUID) -> None:
+    row = _transaction(session, tenant_id)
+    session.add(
+        ReportableEvent(
+            tenant_id=tenant_id,
+            capture_code="ITF_ROR_CASH",
+            report_code="MX_F41_ROR",
+            capture_kind=CaptureKind.THRESHOLD,
+            transaction_id=row.id,
+            occurred_at=row.occurred_at,
+            party_id=row.party_id,
+            relationship_id=row.relationship_id,
+            period_key="2026-Q4",
+            fields={"tipo_operacion": "01"},
+            unit_values={"threshold": {"amount": "7500", "unit": "USD"}},
+            policy_snapshot_id=_policy_snapshot(session, tenant_id).id,
+        )
+    )
+    session.flush()
+
+
+def capture_period(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        CapturePeriod(
+            tenant_id=tenant_id,
+            capture_code="ITF_ROR_CASH",
+            report_code="MX_F41_ROR",
+            period_key=f"Q-{uuid7().hex[-12:]}",
+            period_start=date(2026, 10, 1),
+            period_end=date(2026, 12, 31),
+        )
+    )
+    session.flush()
+
+
+def counterparty_name_index(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        CounterpartyNameIndex(
+            tenant_id=tenant_id,
+            counterparty_id=_counterparty(session, tenant_id).id,
+            norm_name="probe sa",
+            tokens=["probe", "sa"],
+            phonetic_keys=["PRP", "S"],
+            matcher_version="test/1",
+        )
+    )
+    session.flush()
+
+
+def _register_rules_and_captures() -> None:
+    # The SP-04 rule and capture tables (plan 4b) and the counterparty name index.
+    register_isolation_factory("monitoring_rule", monitoring_rule)
+    register_isolation_factory("monitoring_rule_version", monitoring_rule_version)
+    register_isolation_factory("rule_simulation", rule_simulation)
+    register_isolation_factory("rule_assignment", rule_assignment)
+    register_isolation_factory("rule_hit", rule_hit)
+    register_isolation_factory("rule_hit_transaction", rule_hit_transaction)
+    register_isolation_factory("tier_limit_notice", tier_limit_notice)
+    register_isolation_factory("capture_group", capture_group)
+    register_isolation_factory("reportable_event", reportable_event)
+    register_isolation_factory("capture_period", capture_period)
+    register_isolation_factory("counterparty_name_index", counterparty_name_index)
+
+
 def _register_monitoring() -> None:
     # The SP-04 monitoring tables (plan 4a), apart to keep register_all short.
     register_isolation_factory("account", account)
@@ -1191,6 +1423,8 @@ def _register_monitoring() -> None:
     register_isolation_factory("agg_bucket", agg_bucket)
     register_isolation_factory("agg_distinct", agg_distinct)
     register_isolation_factory("agg_declaration", agg_declaration)
+    # Plan 4b's tables; register_all stays under the statement limit.
+    _register_rules_and_captures()
 
 
 def register_all() -> None:

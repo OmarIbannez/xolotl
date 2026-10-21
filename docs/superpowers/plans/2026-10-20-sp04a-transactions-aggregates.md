@@ -524,6 +524,8 @@ def test_the_ip_lives_only_in_raw(): ...                                        
 
 Depends on: A4. Console: no. Branch `sp04a-a5-file-ingest`.
 
+Note from A4: a file page that meets `BatchInvalidError` reports the failing rows, drops those indexes and re-ingests the rest of the page within it (under a savepoint), per spec §6.2.
+
 Note from A3: the monitoring composition root must `register_pii_model` `CounterpartyInput`, `CounterpartyIdentifier`, `DeviceContext` and `CryptoContext`, because a nested model's PII tags take effect only once registered and the pure core cannot register them.
 
 **Files:**
@@ -602,6 +604,8 @@ def test_a_chunk_is_one_transaction(): ...                                      
 ### Task A6: Enrichment: the policy snapshot per date and product, unit amounts keyed by unit and rule, period keys, the counterparty status and device hash, parking, and the enrichment goldens
 
 Depends on: A2, A3 (runs beside A4). Console: no. Branch `sp04a-a6-enrichment`.
+
+Note from A4: the counterparty key is `dedup_hash_of(session, counterparty_of(item))`, with `counterparty_of` from `xolotl.modules.monitoring.txn.schema` (the crypto address stands in for a wallet the counterparty does not name, which changes the hash). `dedup_hash_of` raises `CounterpartyUnindexableError` for an input with nothing to index, which callers must catch (the decide path treats it as no counterparty).
 
 **Files:**
 - Create: `src/xolotl/modules/monitoring/enrich/__init__.py`, `policy.py`, `units.py`, `periods.py`, `service.py`, `tests/golden/monitoring/enrichment/cases.yaml`, `tests/golden/monitoring/enrichment/README.md`

@@ -17,6 +17,8 @@ SHARED_TABLES: frozenset[str] = frozenset({
     "list_version",
     "policy_pack",
     "policy_pack_version",
+    "rule_template",
+    "rule_template_version",
     "unit_value",
 })
 

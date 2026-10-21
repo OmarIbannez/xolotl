@@ -413,6 +413,8 @@ Depends on **C4**, on 4a (A3 `TransactionInput`, `parse_item`; A4 `relationship_
 
 Note from A7: build the memory store's `incomplete_ids` as `{d.agg_id() for d in declarations} - backfilled_ids(s)` (`aggregates/postgres.py`, `backfilled_ids(session) -> frozenset[str]`: the `agg_id`s whose `backfilled_through` is set), so a declaration with no `agg_declaration` row yet reads incomplete too.
 
+Note from A4: the counterparty key is `dedup_hash_of(session, counterparty_of(item))`, with `counterparty_of` from `xolotl.modules.monitoring.txn.schema` (the crypto address stands in for a wallet the counterparty does not name, which changes the hash). `dedup_hash_of` raises `CounterpartyUnindexableError` for an input with nothing to index, which callers must catch (the decide path treats it as no counterparty).
+
 **Files:**
 - Create: `src/xolotl/modules/monitoring/decide/{service,linkage,views}.py`
 - Modify: `routes_decide.py` (two routes), `monitoring/schemas.py` (`DecideResponse`, `DecisionReason`, `DecisionClientResponse`, `DecisionStaffResponse`, `DecisionSummary`; `HitDetail.decision`), `monitoring/events.py` (`DECISION_ISSUED`, appended to A4's `STAFF_ONLY_EVENT_TYPES`), `monitoring/txn/ingest.py` (A4; `link_decisions` between steps 2 and 4), `monitoring/routes_hits.py` (B12; fills `HitDetail.decision`)
