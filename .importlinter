@@ -97,11 +97,11 @@ forbidden_modules =
     xolotl.modules.party.models
     xolotl.modules.screening.counterparty.models
     xolotl.modules.screening.engine.models
-# A4 adds "xolotl.modules.screening.counterparty.resolve -> ...counterparty.models"
-# and A10 "...counterparty.views -> ...counterparty.models" with the modules: an
+# A10 adds "...counterparty.views -> ...counterparty.models" with the modules: an
 # ignore line that matches nothing fails the gate.
 ignore_imports =
     xolotl.modules.party.service -> xolotl.modules.party.models
+    xolotl.modules.screening.counterparty.resolve -> xolotl.modules.screening.counterparty.models
 
 [importlinter:contract:screening-never-imports-monitoring]
 name = screening never imports monitoring (SP-04 spec Decision 18)

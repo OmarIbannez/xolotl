@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from xolotl.modules.party.enums import (
     ContactKind,
+    CustomerRelationshipStatus,
     IdentifierType,
     PartyStatus,
     PartyType,
@@ -973,3 +974,14 @@ def screening_profile(s: Session, party_id: UUID) -> PartyScreeningProfile:
             for row in _identifiers(s, party.id)
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipRef:
+    """What monitoring reads of a customer relationship (SP-04 plan 4a, A4)."""
+
+    id: UUID
+    party_id: UUID
+    product: str | None
+    account_tier: str | None
+    status: CustomerRelationshipStatus
