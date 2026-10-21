@@ -177,10 +177,14 @@ def wire_platform(
     # The re-screen batches: list deltas, private-list versions, periodic and
     # re-index walks.
     register_rescreen(queue=queue)
-    # The staff-only monitoring events and the monitoring.ingest_file and
-    # monitoring.process jobs.
+    # The staff-only monitoring events and the monitoring jobs: ingest_file,
+    # process, the per-minute sweep, both backfills and the daily partitions.
     register_monitoring(
-        session_factory=session_factory, settings=settings, queue=queue, store=store
+        session_factory=session_factory,
+        settings=settings,
+        queue=queue,
+        store=store,
+        notifier=InAppNotifier(),
     )
     return PlatformServices(
         session_factory=session_factory,

@@ -482,6 +482,38 @@ serve. Commit that file. A matcher change that bumps `MATCHER_VERSION` must rege
 it in the same PR: a test fails while the committed report names another version. The
 corpus is not in the container image, so the command only runs from a source checkout.
 
+## Monitoring
+
+Transactions arrive through `POST /v1/transactions` batches or files. Each party's
+`monitoring.process` job takes its received rows in `occurred_at` order, one database
+transaction per row: it enriches the row with the effective policy's units and periods,
+adds it to the declared aggregates and marks it `PROCESSED`. A row whose unit value or
+policy is not there yet is `PARKED` and the party's later rows wait behind it. A row
+received more than `XOLOTL_MONITORING_LATE_DAYS` after it occurred is held as
+`BACKFILL` until staff request a backfill of its days.
+
+The per-minute `monitoring.sweep` (`XOLOTL_MONITORING_SWEEP_CRON`) enqueues every party
+with a received row over 30 seconds old, un-parks the rows whose unit value arrived and
+retries the policy ones hourly (at once after a new pack assignment), notifies ADMIN and
+MLRO once a Mexico City day while a parked row has waited over six hours, re-enqueues the
+backfill of a declaration left incomplete, and logs files left `PROCESSING` with no job.
+A new aggregate declaration is rebuilt by `monitoring.agg_backfill` from the last six
+months of processed rows, `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` per page; until then its
+reads are incomplete. The daily `monitoring.partitions` (`XOLOTL_MONITORING_PARTITIONS_CRON`)
+keeps every partitioned table `XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD` months ahead.
+
+```bash
+uv run xolotl monitoring ingest-file --tenant acme transactions.csv   # dev and demo: ingest here
+uv run xolotl monitoring process --tenant acme [--party <party_id>]  # drain now
+uv run xolotl monitoring sweep --tenant acme                          # run the sweep now
+uv run xolotl monitoring backfill --tenant acme --from 2026-01-20 --to 2026-01-21 [--party <id>]
+uv run xolotl monitoring partitions ensure                            # create the months ahead now
+```
+
+`monitoring backfill` audits the request (`monitoring.backfill_requested`), queues its
+job as the API does and runs it in place: the held rows of those Mexico City days are
+processed, late, with the same code as the worker.
+
 ## Connectors
 
 A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a

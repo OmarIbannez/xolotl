@@ -1,6 +1,7 @@
 import pytest
 
 from xolotl.modules.monitoring.errors import (
+    BackfillRangeInvalidError,
     BatchInvalidError,
     BatchTooLargeError,
     ExternalIdConflictError,
@@ -82,6 +83,7 @@ from xolotl.platform.units.errors import (
         (ExternalIdConflictError, 409, "EXTERNAL_ID_CONFLICT"),
         (FileTooLargeError, 413, "TRANSACTION_FILE_TOO_LARGE"),
         (FileInvalidError, 422, "TRANSACTION_FILE_INVALID"),
+        (BackfillRangeInvalidError, 422, "BACKFILL_RANGE_INVALID"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):

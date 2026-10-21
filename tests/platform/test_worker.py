@@ -30,8 +30,19 @@ from tests.platform.jobs_support import eventually, unique_kind
 from xolotl import worker as worker_module
 from xolotl.app import build_app, build_worker, wire_platform
 from xolotl.cli import app as cli
-from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND, PROCESS_KIND
+from xolotl.modules.monitoring.aggregates.backfill import AggBackfillJob
+from xolotl.modules.monitoring.kinds import (
+    AGG_BACKFILL_KIND,
+    BACKFILL_KIND,
+    INGEST_FILE_KIND,
+    PARTITIONS_KIND,
+    PROCESS_KIND,
+)
+from xolotl.modules.monitoring.kinds import SWEEP_KIND as MONITORING_SWEEP_KIND
+from xolotl.modules.monitoring.process.backfill import BackfillJob
 from xolotl.modules.monitoring.process.job import ProcessJob
+from xolotl.modules.monitoring.process.partitions import PartitionsJob
+from xolotl.modules.monitoring.process.sweep import SweepJob
 from xolotl.modules.monitoring.txn.files import IngestFileJob
 from xolotl.modules.screening.catalog.poll import LISTS_POLL_KIND, ListsPollJob
 from xolotl.modules.screening.rescreen.party_events import (
@@ -616,6 +627,13 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     assert isinstance(
         getattr(job_handler(INGEST_FILE_KIND), "__self__", None), IngestFileJob
     )
+    for kind, handler in (
+        (MONITORING_SWEEP_KIND, SweepJob),
+        (BACKFILL_KIND, BackfillJob),
+        (AGG_BACKFILL_KIND, AggBackfillJob),
+        (PARTITIONS_KIND, PartitionsJob),
+    ):
+        assert isinstance(getattr(job_handler(kind), "__self__", None), handler)
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):
@@ -668,6 +686,8 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
         "screening.periodic_rescreen": JobStatus.DONE,
         UNITS_FETCH_KIND: JobStatus.DONE,
         SWEEP_KIND: JobStatus.DONE,
+        MONITORING_SWEEP_KIND: JobStatus.DONE,
+        PARTITIONS_KIND: JobStatus.DONE,
     }
 
 
@@ -731,6 +751,8 @@ def test_the_worker_command_refuses_a_role_that_can_bypass_rls(
 PLATFORM_SCHEDULES = [
     ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", True),
     ("lists.poll", "* * * * *", "UTC", "lists.poll", True),
+    ("monitoring.partitions", "0 1 * * *", "UTC", "monitoring.partitions", True),
+    ("monitoring.sweep", "* * * * *", "UTC", "monitoring.sweep", True),
     ("party.retention_sweep", "0 3 * * *", "UTC", "party.retention_sweep", True),
     (
         "screening.periodic_rescreen",
