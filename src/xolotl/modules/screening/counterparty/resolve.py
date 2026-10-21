@@ -13,9 +13,10 @@ Constraints "Keys and hashes"):
 - the identifier, indexed under its type with the party module's rules.
 
 An absent component, or one with nothing left to index, contributes ``b""``.
-``resolve`` upserts the row in one statement; ``dedup_hash_of``,
-``status_by_dedup_hash`` and ``country_and_status_by_dedup_hash`` read without
-writing, for the decide path.
+``resolve`` upserts the row in one statement and, for a new row, indexes its name
+and enqueues its first-sight screen (``first_sight.on_counterparty_created``, plan
+4c); ``dedup_hash_of``, ``status_by_dedup_hash`` and
+``country_and_status_by_dedup_hash`` read without writing, for the decide path.
 """
 
 import hmac
@@ -27,6 +28,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from xolotl.modules.party.enums import IdentifierType
+from xolotl.modules.screening.counterparty.first_sight import on_counterparty_created
 from xolotl.modules.screening.counterparty.models import Counterparty
 from xolotl.modules.screening.counterparty.schema import (
     CounterpartyInput,
@@ -220,7 +222,8 @@ def resolve(
     A new row stores the name, account, wallet and identifier as ciphertext under
     the tenant's DATA key beside their tags and starts ``txn_count`` at ``count``;
     a known one gains ``last_seen_at`` and ``count`` more and keeps what it first
-    stored. An input with nothing to index raises ``CounterpartyUnindexableError``.
+    stored, and gets its name index row and its first-sight screen enqueued. An
+    input with nothing to index raises ``CounterpartyUnindexableError``.
 
     Returns:
         The row's id, key, country and cached screening status, and whether this
@@ -276,6 +279,8 @@ def resolve(
         )
     )
     row = session.execute(statement).one()
+    if row[3]:
+        on_counterparty_created(session, row[0])
     return CounterpartyRef(
         id=row[0],
         dedup_hash=dedup_hash,

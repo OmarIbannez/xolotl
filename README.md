@@ -110,6 +110,7 @@ driver is added.
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` | `5000` | Transactions each page of an aggregate backfill reads (1 or more). |
 | `XOLOTL_MONITORING_BATCH_MAX_ITEMS` | `1000` | Most transactions in one `POST /v1/transactions` batch (1 to 10000). |
+| `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` | `100` | New counterparties each first-sight `screening.screen_counterparties` job screens in one transaction (1 or more). |
 | `XOLOTL_MONITORING_FILE_CHUNK_ROWS` | `1000` | Rows of a transactions file ingested per page of the `monitoring.ingest_file` job (1 or more). |
 | `XOLOTL_MONITORING_FILE_MAX_MB` | `50` | Largest transactions file upload, in MB (1 to 1024). |
 | `XOLOTL_MONITORING_FILE_MAX_ROWS` | `500000` | Most rows in one transactions file. |
@@ -424,8 +425,17 @@ Creating a party, changing it or adding an identifier re-indexes its names and
 re-screens it through one `screening.screen_party` job per event (mode `NEW_SUBJECT`
 or `DATA_CHANGE`); the job skips when a later run already covered the event.
 
+Counterparties are screened on first sight: a transaction naming a counterparty never
+seen before indexes its name and enqueues a `screening.screen_counterparties` job,
+which screens new counterparties `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` per
+page (mode `COUNTERPARTY`; a wallet address matches a listed digital-currency address
+exactly and whole), and their findings appear in the screening queue. The counterparty
+row caches its subject's status (`UNSCREENED` until the first run) for the decide path,
+and every change publishes the staff-only `screening.counterparty_status_changed.v1`.
+
 ```bash
 uv run xolotl screening check --tenant acme --party <party_id>   # screen one party now
+uv run xolotl screening screen-counterparties --tenant acme       # screen new counterparties now
 uv run xolotl screening replay <run_id> --tenant acme             # re-score a run's hits
 uv run xolotl screening rescreen --tenant acme [--kind REINDEX]  # start a full re-screen
 ```

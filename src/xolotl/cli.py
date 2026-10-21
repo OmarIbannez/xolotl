@@ -46,6 +46,7 @@ from xolotl.modules.screening.catalog import (
     read_sources,
     seed_list_sources,
 )
+from xolotl.modules.screening.counterparty.runs import screen_unscreened
 from xolotl.modules.screening.engine.enums import BatchKind, RunMode, TriggerType
 from xolotl.modules.screening.engine.holder import (
     ScreeningIndexHolder,
@@ -1286,6 +1287,32 @@ def screening_rescreen(
         typer.echo("nothing to do")
         return
     typer.echo(f"batch {batch_id} started for tenant {slug}")
+
+
+@screening_app.command("screen-counterparties")
+def screening_screen_counterparties(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+) -> None:
+    """Screen every counterparty never screened yet, one page per transaction."""
+    actor = _cli_actor()
+    limit = get_settings().monitoring_counterparty_screen_batch
+    screened = 0
+    with _cli_errors():
+        tenant_id, slug = _resolve_tenant(actor, tenant)
+        _ensure_key_provider()
+        _ensure_index_holder()
+        while True:
+            with tenant_session(
+                TenantContext.platform(actor, tenant_id=tenant_id)
+            ) as s:
+                page = screen_unscreened(
+                    s, trigger=Trigger(TriggerType.CLI, actor), limit=limit
+                )
+            screened += page
+            if page < limit:
+                break
+    typer.echo(f"screened {screened} counterparties for tenant {slug}")
 
 
 def _ratio(value: Decimal | None) -> str:
