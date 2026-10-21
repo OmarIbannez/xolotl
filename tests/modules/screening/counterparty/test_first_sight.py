@@ -38,6 +38,7 @@ from xolotl.modules.screening.counterparty.schema import (
 )
 from xolotl.modules.screening.engine.enums import RunMode, SubjectKind, TriggerType
 from xolotl.modules.screening.engine.models import ScreeningMatch, ScreeningSubject
+from xolotl.modules.screening.engine.replay import replay_run
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
@@ -189,6 +190,22 @@ def test_an_unknown_kind_is_screened_as_person_and_organization(
     assert row_of(tenant, ref.id).screening_status is (
         CounterpartyScreeningStatus.PENDING_REVIEW
     )
+
+
+def test_both_runs_of_an_unknown_kind_replay_unchanged(
+    tenant: CreatedTenant, screened: Screened
+):
+    _ = resolve_one(tenant, CounterpartyInput(name="Copa de Plata SA de CV"))
+    assert screened.runner.run_once() == 1
+
+    runs = runs_of(tenant)
+    with job_session(tenant) as s:
+        reports = [replay_run(s, run.id) for run in runs]
+
+    assert len(reports) == 2
+    assert [r.subject_changed for r in reports] == [False, False]
+    assert any(r.rows for r in reports)
+    assert all(row.same for r in reports for row in r.rows)
 
 
 def test_a_clear_counterparty_is_marked_clear_and_screened_at(

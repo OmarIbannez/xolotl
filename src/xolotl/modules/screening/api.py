@@ -43,12 +43,18 @@ from xolotl.modules.screening.engine.queries import (
     query_for_ad_hoc,
     query_for_party,
 )
-from xolotl.modules.screening.engine.screen import RunResult, Trigger, screen
+from xolotl.modules.screening.engine.screen import (
+    RunResult,
+    Trigger,
+    screen,
+    subject_query,
+)
 from xolotl.modules.screening.engine.subjects import (
     create_ad_hoc_subject,
     subject_for_party,
 )
 from xolotl.modules.screening.enums import ListKind
+from xolotl.modules.screening.lists import IdType
 from xolotl.modules.screening.matching import NameQuery
 from xolotl.modules.screening.review.actions import escalated_by, evaluate_actions
 from xolotl.modules.screening.review.models import (
@@ -82,6 +88,8 @@ if TYPE_CHECKING:
     from xolotl.platform.crypto.encrypted import Encrypted
 
 _STAFF_ONLY_LISTS = "only staff narrow a check to some lists"
+# The masked label of a counterparty known only by its wallet.
+WALLET_LABEL = "WALLET"
 
 
 class CheckRequest(BaseModel):
@@ -220,7 +228,8 @@ def run_view(
         Status fields for an API client; the list set, versions and hits for staff.
 
     Raises:
-        NotFoundError: When the tenant has no such run.
+        NotFoundError: When the tenant has no such run, or an API client asks for a
+            counterparty's run (tipping-off, SP-04 spec §15).
 
     """
     run = s.get(ScreeningRun, (bound_context(s).require_tenant_id(), run_id))
@@ -228,6 +237,9 @@ def run_view(
         msg = "run not found"
         raise NotFoundError(msg)
     subject = s.get_one(ScreeningSubject, (run.tenant_id, run.subject_id))
+    if not staff and subject.counterparty_id is not None:
+        msg = "run not found"
+        raise NotFoundError(msg)
     base = RunResponse(
         id=run.id,
         subject_id=subject.id,
@@ -431,8 +443,20 @@ def _subject_query(s: Session, subject: ScreeningSubject) -> NameQuery:
     # Decrypted for processing: the caller decides what a person is shown.
     if subject.party_id is not None:
         return query_for_party(s, subject.party_id)
+    if subject.counterparty_id is not None:
+        # The minimal counterparty branch (SP-04 plan 4c, C1); C3 extends it.
+        return subject_query(s, subject)
     stored = cast("Encrypted[dict[str, object]]", subject.input)
     return query_for_ad_hoc(AdHocSubjectInput.model_validate(stored.reveal(session=s)))
+
+
+def _label(query: NameQuery) -> str:
+    # A name-less counterparty is labelled by where it came from, never by a value.
+    if query.names:
+        return initials(query.names[0])
+    if any(i.id_type is IdType.DIGITAL_CURRENCY_ADDRESS for i in query.identifiers):
+        return WALLET_LABEL
+    return ""
 
 
 def _masked(s: Session, subject: ScreeningSubject) -> MaskedSubject:
@@ -441,7 +465,7 @@ def _masked(s: Session, subject: ScreeningSubject) -> MaskedSubject:
         kind=subject.kind,
         party_id=subject.party_id,
         entity_type=query.entity_type.value,
-        initials=initials(query.names[0]) if query.names else "",
+        initials=_label(query),
         identifiers=[
             f"{i.id_type.value} {mask_identifier(i.normalized)}"
             for i in query.identifiers

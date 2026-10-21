@@ -3,8 +3,9 @@
 A ``PARTY`` subject is created on first use, once per party. An ``AD_HOC`` subject
 stores its input encrypted, for reproducibility, until the policy's KYC retention
 period has passed. A subject's status follows its findings, and a change is
-published as ``screening.status_changed.v1``. A ``COUNTERPARTY`` subject's status
-is also written to its ``counterparty`` row whenever the row differs, the status
+published as ``screening.status_changed.v1``, except a ``COUNTERPARTY`` subject's,
+which never reaches a webhook (tipping-off). A ``COUNTERPARTY`` subject's status is
+written to its ``counterparty`` row whenever the row differs, the status
 cache the decide path reads (SP-04 spec §11.2, plan 4c Deviation 4).
 """
 
@@ -122,6 +123,10 @@ def refresh_subject_status(s: Session, subject: ScreeningSubject) -> SubjectStat
         return status
     subject.status = status
     s.flush()
+    if subject.counterparty_id is not None:
+        # A counterparty's status stays off webhooks (tipping-off, SP-04 spec §15);
+        # the staff-only screening.counterparty_status_changed.v1 carries it.
+        return status
     _ = publish_screening_event(
         s,
         STATUS_CHANGED,

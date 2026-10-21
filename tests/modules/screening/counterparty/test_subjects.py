@@ -6,7 +6,6 @@ Deviation 4), and every change publishes one staff-only event.
 """
 
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import Engine, select, text
@@ -32,11 +31,24 @@ from xolotl.modules.screening.counterparty.schema import (
     CounterpartyScreeningStatus,
 )
 from xolotl.modules.screening.counterparty.subjects import subject_for_counterparty
-from xolotl.modules.screening.engine.enums import Decision, SubjectKind
+from xolotl.modules.screening.engine.enums import (
+    Decision,
+    RunMode,
+    SubjectKind,
+    TriggerType,
+)
 from xolotl.modules.screening.engine.holder import set_index_holder
 from xolotl.modules.screening.engine.models import ScreeningMatch, ScreeningSubject
-from xolotl.modules.screening.engine.subjects import refresh_subject_status
-from xolotl.modules.screening.events import COUNTERPARTY_STATUS_CHANGED
+from xolotl.modules.screening.engine.screen import Trigger, screen
+from xolotl.modules.screening.engine.subjects import (
+    refresh_subject_status,
+    subject_for_party,
+)
+from xolotl.modules.screening.events import (
+    COUNTERPARTY_STATUS_CHANGED,
+    RUN_COMPLETED,
+    STATUS_CHANGED,
+)
 from xolotl.modules.screening.matching import MATCHER_VERSION
 from xolotl.modules.screening.review.dispositions import disposition_match
 from xolotl.modules.tenants.service import CreatedTenant
@@ -49,12 +61,10 @@ from xolotl.platform.events.event import event_from_row
 from xolotl.platform.events.models import OutboxRow
 from xolotl.platform.events.registry import reset_subscribers
 
-if TYPE_CHECKING:
-    from uuid import UUID
-
 ALARCON = CounterpartyInput(
     kind=CounterpartyKind.PERSON, name="Rodrigo Alarcón Palomarez", country="MX"
 )
+FERNANDA = CounterpartyInput(kind=CounterpartyKind.PERSON, name="Fernanda López Ruiz")
 RATIONALE = "Coincide con el listado de OFAC"
 INSERT_SUBJECT = """
 INSERT INTO screening_subject (tenant_id, id, kind, party_id, counterparty_id, status)
@@ -214,16 +224,45 @@ def _dispatch(tenant: CreatedTenant, stack: Stack) -> None:
         pass
 
 
-def test_the_status_event_is_staff_only(tenant: CreatedTenant, webhook_stack: Stack):
+def _events_of(tenant: CreatedTenant, *types: str) -> list[Event]:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        rows = s.scalars(
+            select(OutboxRow).where(OutboxRow.type.in_(types)).order_by(OutboxRow.seq)
+        ).all()
+        return [event_from_row(row) for row in rows]
+
+
+@pytest.mark.parametrize(
+    ("counterparty", "outcome"),
+    [(FERNANDA, "CLEAR"), (ALARCON, "PENDING_REVIEW")],
+    ids=["clear", "pending-review"],
+)
+def test_the_status_event_is_staff_only(
+    tenant: CreatedTenant,
+    webhook_stack: Stack,
+    counterparty: CounterpartyInput,
+    outcome: str,
+):
     webhook_stack.settle(tenant.tenant_id)
     _ = make_endpoint(tenant.tenant_id, event_types=["*"])
 
-    _ = resolve_one(tenant, ALARCON)
+    ref = resolve_one(tenant, counterparty)
     assert webhook_stack.run_jobs() == 1
     _dispatch(tenant, webhook_stack)
 
-    (event,) = _status_events(tenant)
-    delivered: set[UUID] = {d.event_id for d in deliveries(tenant.tenant_id)}
-    # The run's own webhook-safe events reach the endpoint; the status cache's never.
-    assert delivered
-    assert event.id not in delivered
+    # A first-sight screen reaches no client endpoint at all (tipping-off).
+    assert row_of(tenant, ref.id).screening_status == outcome
+    assert _status_events(tenant)
+    assert not _events_of(tenant, RUN_COMPLETED, STATUS_CHANGED)
+    assert deliveries(tenant.tenant_id) == []
+
+    # A party's screen still delivers its webhook-safe run event.
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party_id = service.create_party(s, ANA).id
+        subject = subject_for_party(s, party_id, for_update=True)
+        _ = screen(
+            s, subject, mode=RunMode.AD_HOC, trigger=Trigger(TriggerType.CONSOLE, "r")
+        )
+    _dispatch(tenant, webhook_stack)
+    (completed,) = _events_of(tenant, RUN_COMPLETED)
+    assert completed.id in {d.event_id for d in deliveries(tenant.tenant_id)}

@@ -12,6 +12,10 @@ page enqueues the next one (key ``screen_counterparties:continue:<job id>``). A 
 page that leaves a counterparty behind enqueues it after ``SKIPPED_RETRY``: the row
 was locked by an ingest, or committed while the page ran under a minute key this job
 already held, and would otherwise wait for the next new counterparty.
+
+A page holds the row locks of up to ``MONITORING_COUNTERPARTY_SCREEN_BATCH``
+counterparties until it commits, so an ingest that sights one of them again waits
+for the page; accepted for the MVP.
 """
 
 from datetime import timedelta
@@ -80,7 +84,12 @@ def screen_unscreened(s: Session, *, trigger: Trigger, limit: int) -> int:
 
 
 def handle_first_sight(s: Session, job: Job) -> None:
-    """Screen one page of new counterparties and enqueue the next page if any."""
+    """Screen one page of new counterparties and enqueue the next page if any.
+
+    The page is one transaction, so one counterparty whose screen fails rolls the
+    whole page back, and first sight stalls on it until the job dead-letters; the
+    ``screening screen-counterparties`` command and C2's walk get around it.
+    """
     limit = get_settings().monitoring_counterparty_screen_batch
     screened = screen_unscreened(
         s, trigger=Trigger(TriggerType.JOB, str(job.id)), limit=limit

@@ -38,6 +38,7 @@ from xolotl.modules.screening.engine.enums import (
     HitBand,
     MatchStatus,
     RunMode,
+    SubjectStatus,
     TriggerType,
 )
 from xolotl.modules.screening.engine.features import hit_features
@@ -403,6 +404,20 @@ class _Run:
         subject.last_screened_at = clock.now()
         subject.last_run_id = run.id
         self.s.flush()
+        if subject.counterparty_id is None:
+            self._publish_completed(run, subject, status)
+        return RunResult(
+            run=run,
+            subject=subject,
+            hits=tuple(self.hits),
+            new_matches=tuple(self.new_matches),
+        )
+
+    def _publish_completed(
+        self, run: ScreeningRun, subject: ScreeningSubject, status: SubjectStatus
+    ) -> None:
+        # A counterparty's run stays off webhooks (tipping-off, SP-04 spec §15): the
+        # staff-only screening.counterparty_status_changed.v1 carries its outcome.
         _ = publish_screening_event(
             self.s,
             RUN_COMPLETED,
@@ -416,12 +431,6 @@ class _Run:
                 "mode": run.mode.value,
                 "outcome": status.value,
             },
-        )
-        return RunResult(
-            run=run,
-            subject=subject,
-            hits=tuple(self.hits),
-            new_matches=tuple(self.new_matches),
         )
 
     def _finding(

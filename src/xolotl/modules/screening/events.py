@@ -1,8 +1,9 @@
 """The screening events: ids and codes only, never a name or a score (D8, spec §11).
 
 ``screening.run_completed.v1`` and ``screening.status_changed.v1`` may reach a
-customer's webhook. The rest tell staff what a screening found and are staff-only
-(FR-SC-013, PRV-303): ``register_screening`` marks every type of
+customer's webhook, so the engine never publishes them for a counterparty subject
+(tipping-off, SP-04 spec §15). The rest tell staff what a screening found and are
+staff-only (FR-SC-013, PRV-303): ``register_screening`` marks every type of
 ``STAFF_ONLY_EVENT_TYPES`` with ``register_staff_only``, so no webhook carries them.
 """
 

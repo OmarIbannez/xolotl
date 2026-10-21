@@ -57,7 +57,9 @@ def _identifiers(s: Session, row: Counterparty) -> tuple[QueryIdentifier, ...]:
         if not isinstance(result, IdentifierError):
             found.append(
                 QueryIdentifier(
-                    SCREENED_ID_TYPES[row.identifier_type], normalized=result.value
+                    SCREENED_ID_TYPES[row.identifier_type],
+                    normalized=result.value,
+                    country=row.country,
                 )
             )
     if row.wallet is not None:
