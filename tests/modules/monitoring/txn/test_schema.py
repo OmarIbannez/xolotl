@@ -23,6 +23,7 @@ from xolotl.modules.monitoring.txn.schema import (
     UnitAmount,
     amount_minor,
     content_hash,
+    counterparty_of,
     parse_item,
     validate_batch,
 )
@@ -244,6 +245,38 @@ def test_a_counterparty_needs_one_of_name_account_wallet_or_identifier() -> None
     parsed = valid(parse(item(counterparty={"wallet_address": "0xAbC"})))
     assert parsed.counterparty is not None
     assert parsed.counterparty.wallet_address == "0xAbC"
+
+
+def test_a_wallet_address_loses_its_whitespace_and_keeps_its_case() -> None:
+    crypto = {
+        "network": "bitcoin",
+        "address": " bc1qAbc Def\t9 ",
+        "asset_code": "BTC",
+        "asset_qty": "1",
+    }
+    parsed = valid(parse(item(instrument="CRYPTO", crypto=crypto)))
+    assert parsed.crypto is not None
+    assert parsed.crypto.address == "bc1qAbcDef9"
+    standing_in = counterparty_of(parsed)
+    assert standing_in is not None
+    assert standing_in.wallet_address == "bc1qAbcDef9"
+
+    named = valid(parse(item(counterparty={"wallet_address": " 0xAb C "})))
+    assert named.counterparty is not None
+    assert named.counterparty.wallet_address == "0xAbC"
+
+
+def test_a_crypto_address_of_whitespace_only_is_absent() -> None:
+    crypto = {
+        "network": "bitcoin",
+        "address": "  ",
+        "asset_code": "BTC",
+        "asset_qty": "1",
+    }
+    parsed = valid(parse(item(instrument="CRYPTO", crypto=crypto)))
+    assert parsed.crypto is not None
+    assert parsed.crypto.address is None
+    assert counterparty_of(parsed) is None
 
 
 def test_duplicate_external_ids_in_a_batch_are_reported_on_the_later_index() -> None:

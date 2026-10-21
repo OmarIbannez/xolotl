@@ -70,6 +70,39 @@ def test_a_wallet_only_counterparty_alerts_on_an_exact_ofac_address(
     )
 
 
+def _spaced(address: str) -> str:
+    return f"  {address[:8]} {address[8:20]}\t{address[20:]} "
+
+
+def test_a_wallet_sent_with_whitespace_alerts_on_the_listed_address(
+    tenant: CreatedTenant, screened: Screened
+):
+    ref = resolve_one(tenant, _wallet(_spaced(VALERIAN_XBT)))
+
+    assert screened.runner.run_once() == 1
+
+    hits = _hits(tenant)
+    assert {h.source_entry_key for h in hits} == {"45314"}
+    assert {h.band for h in hits} == {HitBand.ALERT}
+    assert row_of(tenant, ref.id).screening_status is (
+        CounterpartyScreeningStatus.PENDING_REVIEW
+    )
+
+
+@pytest.mark.parametrize(
+    "address", [VALERIAN_XBT.upper(), VALERIAN_XBT[:-1] + "e"], ids=["upper", "one"]
+)
+def test_a_spaced_wallet_still_matches_only_with_its_case_and_every_character(
+    tenant: CreatedTenant, screened: Screened, address: str
+):
+    ref = resolve_one(tenant, _wallet(_spaced(address)))
+
+    assert screened.runner.run_once() == 1
+
+    assert _hits(tenant) == []
+    assert row_of(tenant, ref.id).screening_status is CounterpartyScreeningStatus.CLEAR
+
+
 def test_a_one_character_difference_does_not_match(
     tenant: CreatedTenant, screened: Screened
 ):
