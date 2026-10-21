@@ -289,7 +289,7 @@ ignore_imports =
     xolotl.modules.screening.counterparty.schema -> xolotl.modules.party.enums
 ```
 
-(A7 adds the four `aggregates` modules and `platform.policy.durations`; 4b's pure modules get their own contract `monitoring-evaluator-is-pure` in B1.)
+(A7 adds the four `aggregates` modules and `platform.policy.durations`; 4b's pure modules get their own contract `monitoring-evaluator-is-pure` in B1. import-linter fails on an unmatched ignore line, so A3 ships without the three txn.schema -> platform.* lines; the first task whose pure module imports platform.errors, platform.enums, platform.units.rules or platform.policy.durations adds that line.)
 
 - [ ] **Step 1: Write the failing tests.** `test_schema.py` (no database; `now = datetime(2026, 12, 13, 12, tzinfo=UTC)`; a helper `item(**overrides)` giving a valid cash deposit):
 
@@ -521,6 +521,8 @@ def test_the_ip_lives_only_in_raw(): ...                                        
 ### Task A5: File ingest: CSV, JSON Lines and XLSX readers, the sealed upload, the paged `monitoring.ingest_file` job with resume and the row error report, the composition root, `monitoring ingest-file`
 
 Depends on: A4. Console: no. Branch `sp04a-a5-file-ingest`.
+
+Note from A3: the monitoring composition root must `register_pii_model` `CounterpartyInput`, `CounterpartyIdentifier`, `DeviceContext` and `CryptoContext`, because a nested model's PII tags take effect only once registered and the pure core cannot register them.
 
 **Files:**
 - Create: `src/xolotl/platform/crypto/blobs.py`, `src/xolotl/modules/monitoring/txn/files.py`, `src/xolotl/modules/monitoring/composition.py`, `tests/modules/monitoring/txn/fixtures/` (`deposits.csv`, `deposits_semicolon_bom.csv`, `deposits.jsonl`, `deposits.xlsx`, `bad_rows.csv`, `README.md`; synthetic names and refs only)
