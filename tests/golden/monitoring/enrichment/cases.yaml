@@ -37,6 +37,7 @@
       pairs: [USD/PRIOR_BANKING_DAY]
       expected:
         MXN/PRIOR_BANKING_DAY: {amount: "91250.00", row: [USD_MXN_FIX, 2025-12-11], resolved_date: "2025-12-11"}
+        MXN/SAME_DAY: {amount: "91250.00", row: [USD_MXN_FIX, 2025-12-11], resolved_date: "2025-12-11"}
         USD/PRIOR_BANKING_DAY: {amount: "5000.00", row: null, resolved_date: "2025-12-15"}
     - kind: units
       on: 2025-12-12
@@ -45,6 +46,7 @@
       pairs: [USD/PRIOR_BANKING_DAY]
       expected:
         MXN/PRIOR_BANKING_DAY: {amount: "91250.00", row: [USD_MXN_FIX, 2025-12-11], resolved_date: "2025-12-11"}
+        MXN/SAME_DAY: {amount: "91250.00", row: [USD_MXN_FIX, 2025-12-11], resolved_date: "2025-12-11"}
         USD/PRIOR_BANKING_DAY: {amount: "5000.00", row: null, resolved_date: "2025-12-12"}
 
 - id: udi-last-day-prev-month-january
