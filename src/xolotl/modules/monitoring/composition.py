@@ -1,15 +1,17 @@
-"""The monitoring module's composition root (SP-04 spec §6, §14).
+"""The monitoring module's composition root (SP-04 spec §6, §8.5, §14).
 
 ``wire_platform`` calls ``register_monitoring`` once per process, after
 ``register_rescreen`` and before plan 4b's ``register_rules``. It marks the
 staff-only monitoring events, registers the PII tags of the nested input models
-(the pure core cannot), and routes ``monitoring.ingest_file`` to
-``IngestFileJob``. Plans 4a (A8, A9) and 4c (C5, C7, C8) append their handlers.
+(the pure core cannot), routes ``monitoring.ingest_file`` to ``IngestFileJob``
+and ``monitoring.process`` to ``ProcessJob``. Plans 4a (A9) and 4c (C5, C7, C8)
+append their handlers.
 Calling it again replaces every registration, so composing twice is harmless.
 """
 
 from xolotl.modules.monitoring.events import STAFF_ONLY_EVENT_TYPES
-from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
+from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND, PROCESS_KIND
+from xolotl.modules.monitoring.process.job import ProcessJob
 from xolotl.modules.monitoring.txn.files import IngestFileJob
 from xolotl.modules.monitoring.txn.schema import CryptoContext, DeviceContext
 from xolotl.modules.screening.counterparty.schema import (
@@ -31,7 +33,7 @@ def register_monitoring(
     queue: PostgresJobQueue,
     store: ObjectStore,
 ) -> None:
-    """Mark the staff-only events, tag the nested PII and wire the file job."""
+    """Mark the staff-only events, tag the nested PII and wire the two jobs."""
     for event_type in STAFF_ONLY_EVENT_TYPES:
         register_staff_only(event_type)
     # A nested model's PII tags redact only once registered.
@@ -42,7 +44,11 @@ def register_monitoring(
         CryptoContext,
     ):
         register_pii_model(model)
-    job = IngestFileJob(
+    ingest = IngestFileJob(
         session_factory=session_factory, store=store, queue=queue, settings=settings
     )
-    register_job_handler(INGEST_FILE_KIND, job.run)
+    register_job_handler(INGEST_FILE_KIND, ingest.run)
+    process = ProcessJob(
+        session_factory=session_factory, queue=queue, settings=settings
+    )
+    register_job_handler(PROCESS_KIND, process.run)
