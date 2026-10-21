@@ -1,0 +1,1 @@
+Fires when the customer sends a virtual-asset operation of 1,000 USD or more to a self-custody wallet

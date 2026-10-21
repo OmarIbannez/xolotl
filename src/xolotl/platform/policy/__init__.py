@@ -13,6 +13,10 @@ from xolotl.platform.policy.errors import (
     PolicyLooseningError,
     PolicyNotAssignedError,
 )
+from xolotl.platform.policy.jurisdictions import (
+    JurisdictionLists,
+    load_jurisdictions,
+)
 from xolotl.platform.policy.loader import (
     content_hash,
     install_pack,
@@ -70,6 +74,7 @@ __all__ = [
     "Capture",
     "EffectivePolicy",
     "GovernancePolicy",
+    "JurisdictionLists",
     "KycPolicy",
     "KycTier",
     "PackConfig",
@@ -109,6 +114,7 @@ __all__ = [
     "get_snapshot",
     "install_pack",
     "iso_duration_days",
+    "load_jurisdictions",
     "load_pack",
     "merge_packs",
     "pack_files",

@@ -21,6 +21,7 @@ from testcontainers.community.postgres import PostgresContainer
 
 from tests.helpers import first_login, new_tenant, require_server_admin
 from xolotl.app import build_app, build_key_provider
+from xolotl.modules.screening.counterparty.first_sight import set_first_sight_queue
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import db, migrate
 from xolotl.platform.config import get_settings
@@ -86,7 +87,13 @@ def engines(
 
 @pytest.fixture
 def clean_db(engines: tuple[Engine, Engine]) -> None:
-    """Truncate every table except alembic_version before the test runs."""
+    """Truncate every table except alembic_version before the test runs.
+
+    Also removes the first-sight queue a previous test's composition installed.
+    """
+    # Composing the platform installs a process-wide first-sight queue; a test that
+    # composed must not make a later test's counterparty resolutions enqueue jobs.
+    set_first_sight_queue(None)
     with db.get_admin_engine().begin() as conn:
         names = cast(
             "list[str]",

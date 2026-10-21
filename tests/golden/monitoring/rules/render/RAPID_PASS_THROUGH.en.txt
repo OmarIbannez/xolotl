@@ -1,0 +1,1 @@
+Fires when the customer sends an operation and the sum of outgoing operations within 2 days is at least 90% of the sum of incoming operations within 2 days and the sum of incoming operations within 2 days is at least 2,000 USD

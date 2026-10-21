@@ -1,0 +1,1 @@
+Dispara cuando el cliente recibe una operación y el número de contrapartes distintas en operaciones recibidas en 7 días es de al menos 10 y la suma de operaciones recibidas en 7 días es de al menos 5 000 USD

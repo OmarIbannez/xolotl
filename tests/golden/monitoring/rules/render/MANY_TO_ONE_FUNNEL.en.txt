@@ -1,0 +1,1 @@
+Fires when the customer receives an operation and the number of distinct counterparties in incoming operations within 7 days is at least 10 and the sum of incoming operations within 7 days is at least 5,000 USD

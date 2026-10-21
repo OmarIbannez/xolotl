@@ -1,0 +1,1 @@
+Fires when the number of distinct devices in operations in the calendar quarter exceeds 3 and the largest of foreign-exchange operations in the 6 months from the first operation is below 150% of the number of operations within 1 hour and the number of operations within 1 hour is at most 3

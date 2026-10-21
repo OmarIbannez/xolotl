@@ -1,0 +1,14 @@
+# Any operation with a counterparty confirmed on a sanctions list (spec §9.3).
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE, MX/LFPIORPI-AVI]
+definition:
+  code: COUNTERPARTY_TRUE_MATCH
+  family: ALERT
+  kind: THRESHOLD
+  title: Contraparte en lista confirmada
+  typology: [SCREENING]
+  "on": {counterparty_screening_status: [TRUE_MATCH]}
+  params: {}
+  severity: CRITICAL
+  dedup: {key: RELATIONSHIP, window: P1D, cooldown: P7D}

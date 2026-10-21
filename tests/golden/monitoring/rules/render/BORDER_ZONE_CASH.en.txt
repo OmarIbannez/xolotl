@@ -1,0 +1,1 @@
+Fires when the customer makes a cash operation from BORDER_ZONE_MX and the sum of cash operations from BORDER_ZONE_MX within 30 days is at least 3,000 USD

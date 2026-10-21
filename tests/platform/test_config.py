@@ -277,6 +277,7 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_agg_backfill_batch",
         "monitoring_partitions_cron",
         "monitoring_partition_months_ahead",
+        "monitoring_counterparty_screen_batch",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -696,6 +697,7 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_agg_backfill_batch == 5000
     assert s.monitoring_partitions_cron == "0 1 * * *"
     assert s.monitoring_partition_months_ahead == 3
+    assert s.monitoring_counterparty_screen_batch == 100
 
 
 @pytest.mark.parametrize(
@@ -714,6 +716,7 @@ def test_the_monitoring_crons_are_validated(monkeypatch, name):
         ("XOLOTL_MONITORING_FILE_MAX_MB", "0"),
         ("XOLOTL_MONITORING_PROCESS_LEASE_SECONDS", "29"),
         ("XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD", "13"),
+        ("XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH", "0"),
     ],
 )
 def test_monitoring_limits_reject_nonsense(monkeypatch, name, value):

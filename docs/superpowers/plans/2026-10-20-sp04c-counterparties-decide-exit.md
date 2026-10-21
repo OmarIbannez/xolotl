@@ -92,7 +92,8 @@ src/xolotl/modules/screening/counterparty/          (A3, A2, A4 and A10 create _
   subjects.py       subject_for_counterparty (C1)
   status.py         sync_counterparty_status, mark_screened (C1; imports no engine module)
   first_sight.py    FIRST_SIGHT_KIND, set_first_sight_queue, on_counterparty_created, enqueue_first_sight,
-                    screen_counterparty, handle_first_sight, unscreened_page (C1)
+                    unscreened_page (C1; imports no engine module)
+  runs.py           screen_counterparty, screen_unscreened, handle_first_sight (C1)
   blocking.py       BlockedCounterparty, reverse_counterparty_candidates (C2)
   walk.py           DORMANT_MONTHS, counterparty_ids_after, active_counterparty_count (C2)
   api.py            counterparties_query, counterparty_row, counterparty_detail (C3; the reveal is A10's reveal_counterparty)
@@ -203,8 +204,12 @@ def enqueue_first_sight(s: Session) -> UUID | None
 def on_counterparty_created(s: Session, counterparty_id: UUID) -> None   # loads the row; index_counterparty_name, then enqueue_first_sight
 def unscreened_page(s: Session, *, limit: int) -> list[Counterparty]
     # rows with screening_subject_id IS NULL ORDER BY first_seen_at, id LIMIT limit  (FOR UPDATE SKIP LOCKED)
+
+# runs.py  (the engine half: monitoring reaches first_sight.py through resolve, and monitoring-boundaries
+# forbids any monitoring path to screening.engine.models)
 def screen_counterparty(s: Session, row: Counterparty, *, mode: RunMode, trigger: Trigger, **options: Unpack[ScreenOptions]) -> list[RunResult]
     # one screen() per entity_types_for(row) with entity_type=…, on subject_for_counterparty(s, row.id); then mark_screened
+def screen_unscreened(s: Session, *, trigger: Trigger, limit: int) -> int   # one unscreened_page, screened; returns its length
 def handle_first_sight(s: Session, job: Job) -> None
     # page = unscreened_page(limit=get_settings().monitoring_counterparty_screen_batch); screen_counterparty(mode=COUNTERPARTY,
     # trigger=Trigger(JOB, str(job.id))) each; a full page enqueues FIRST_SIGHT_KIND with key f"screen_counterparties:continue:{job.id}"
@@ -255,7 +260,7 @@ Depends on C1 and on SP-03c's `rescreen/` (on `main`). Touches `rescreen/list_de
 - Modify: `rescreen/blocking.py` (the `table` parameter of `blocking_query` and `stop_keys`, default `PartyNameIndex`), `rescreen/list_delta.py` (`_blocked_by_counterparty`; runs after the party runs in `handle_list_delta`), `rescreen/walkers.py` (counterparty pages of `handle_periodic_rescreen`; `active_party_count` plus `active_counterparty_count` in the batch `total`)
 - Test: `tests/modules/screening/counterparty/test_blocking.py`, `test_rescreen.py`
 
-**Consumes:** `reverse_candidates`'s building blocks `name_plans`, `stop_keys`, `blocking_query`, `BLOCKING_CAP`, `TRIGRAM_THRESHOLD` (as `rescreen/blocking.py` defines them; `blocking_query` and `stop_keys` take the index model as a parameter after this task: `table: type[PartyNameIndex] | type[CounterpartyNameIndex]`, default `PartyNameIndex`, so SP-03c's callers are unchanged); A4's `wallet_hash_of`, `identifier_hash_of`; `CounterpartyNameIndex` (B4), `Counterparty` (A2); C1's `screen_counterparty`, `subject_for_counterparty`; `advance_batch`, `complete_batch`, `page_already_done`, `WALKER_START`.
+**Consumes:** `reverse_candidates`'s building blocks `name_plans`, `stop_keys`, `blocking_query`, `BLOCKING_CAP`, `TRIGRAM_THRESHOLD` (as `rescreen/blocking.py` defines them; `blocking_query` and `stop_keys` take the index model as a parameter after this task: `table: type[PartyNameIndex] | type[CounterpartyNameIndex]`, default `PartyNameIndex`, so SP-03c's callers are unchanged); A4's `wallet_hash_of`, `identifier_hash_of`; `CounterpartyNameIndex` (B4), `Counterparty` (A2); C1's `counterparty.runs.screen_counterparty`, `subject_for_counterparty`; `advance_batch`, `complete_batch`, `page_already_done`, `WALKER_START`.
 
 **Produces:**
 
@@ -315,6 +320,8 @@ Depends on **C1** (subjects, status), **A10** (`counterparty/schemas.py` and `co
   - Create: `console/src/features/counterparties/{queries.ts, CounterpartiesPage.tsx, CounterpartiesPage.test.tsx, CounterpartyPage.tsx, CounterpartyPage.test.tsx, StatusBadge.tsx}`
   - Modify: `features/screening/MatchPage.tsx` (a "Abrir contraparte" link beside "Abrir persona" when `subject.counterparty_id` is set), `features/screening/MatchesPage.tsx` (a `Contraparte` chip on counterparty rows), `App.tsx` (routes `/counterparties`, `/counterparties/:id`), `components/layout/nav.ts` (flat entry `nav.counterparties`, icon `Handshake`, `roles: ACCESS.screening`, after `nav.screeningCheck`), `auth/access.ts` (no new key: `ACCESS.screening` reads, `ACCESS.screeningCheck` reveals), `i18n/{es-MX,en}.json`, `api/types.ts`, `api/schema.d.ts` (regenerated)
 - Test: `tests/modules/screening/counterparty/test_routes_counterparties.py`, `tests/modules/screening/test_routes_screening.py` (+)
+
+Note from C1: `screening/api.py` already has a minimal `COUNTERPARTY` branch (approved for C1 under the 2026-10-19 blanket approval): `_subject_query` returns the engine's `subject_query` for a counterparty subject, `_masked` shows the initials of its name, or `WALLET` for a counterparty known only by its wallet, with masked identifiers, and `run_view` answers 404 to an API client for a counterparty's run. The queue, the match detail and the reveal already answer 200 on a counterparty finding (`tests/modules/screening/counterparty/test_routes.py`). C3 extends that branch (`counterparty_id` on `MaskedSubject` and `MatchSummary`) rather than adding it.
 
 **Produces:**
 
@@ -393,6 +400,8 @@ PUT  /monitoring/rails/{rail}   put_rail_setting    (staff ADMIN; Idempotency-Ke
 ```
 
 Migration 0014: `rail_setting`, `txn_decision` (`PARTITION BY RANGE (decided_at)`, `txn_decision_default`, `ensure_partitions(conn, table="txn_decision", months_ahead=3)`, every partition hardened), `ux_txn_decision_external`, `ix_txn_decision_relationship`, `ix_txn_decision_id` (Deviation 7), `fk_transaction_decision` on `transaction`, `behaviour_profile`, `customer_relationship.declared_profile jsonb`; `enable_rls` on the three tables; downgrade in reverse. Isolation factories `rail_setting`, `txn_decision`, `behaviour_profile` registered in `register_all`.
+
+Note from C2: please have migration 0014 also add `ix_counterparty_identifier_hash` on `counterparty (tenant_id, identifier_hash)`, with the matching `Index` in the `Counterparty` model's `__table_args__` so the schema-sync test stays green. C2's reverse blocking (`counterparty/blocking.py`) looks counterparties up by `identifier_hash` for a delta entry's identifiers; without the index each lookup scans the tenant's counterparties. Add a line for it to `test_migration_0014.py`'s downgrade test.
 
 - [ ] **Step 1: Write the failing tests.**
   - `test_migration_0014.py`: `test_the_chain_ends_at_0014` (`CHAIN[-1] == "0014_decide_profiles"`), `test_txn_decision_has_a_default_and_three_months_of_partitions_with_forced_rls`, `test_the_app_role_may_write_the_three_tables`, `test_a_transaction_may_point_at_its_decision_and_not_at_another_tenants` (composite FK; cross-tenant insert refused), `test_downgrade_removes_everything_0014_added`.

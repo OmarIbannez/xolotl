@@ -1,0 +1,34 @@
+# The N2 account's monthly deposits against kyc.tiers[N2].limits.monthly_ops
+# (3,000 UDI in MX/ITF-IFPE v1), read from the transaction's snapshot (FR-TM-008,
+# spec Decision 17). month_in is declared here in the pack's unit and
+# tier_limit_rule (reconciliation finding 24); a pack that changes either needs a
+# new version of this template.
+version: 1
+country_code: MX
+packs: [MX/ITF-IFPE]
+definition:
+  code: TIER_N2_MONTHLY_OPS
+  family: ALERT
+  kind: TIER_LIMIT
+  title: Límite mensual de operaciones del nivel N2
+  typology: [LIMIT]
+  "on": {direction: [IN]}
+  segment: {tier: [N2]}
+  params:
+    outcome: {value: REVIEW, choices: [BLOCK, REVIEW]}
+  aggregates:
+    - name: month_in
+      function: SUM
+      measure: UNIT_AMOUNT
+      unit_key: UDI/LAST_DAY_PREV_MONTH
+      key_kind: RELATIONSHIP
+      window_kind: MONTH
+      window: MONTH
+      where: {direction: [IN]}
+  severity: HIGH
+  sync: true
+  dedup: {key: RELATIONSHIP, window: MONTH, cooldown: P0D}
+  evidence:
+    transactions_window: MONTH
+    transactions_where: {direction: [IN]}
+    aggregates: [month_in]

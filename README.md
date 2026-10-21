@@ -110,6 +110,7 @@ driver is added.
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` | `5000` | Transactions each page of an aggregate backfill reads (1 or more). |
 | `XOLOTL_MONITORING_BATCH_MAX_ITEMS` | `1000` | Most transactions in one `POST /v1/transactions` batch (1 to 10000). |
+| `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` | `100` | New counterparties each first-sight `screening.screen_counterparties` job screens in one transaction (1 or more). |
 | `XOLOTL_MONITORING_FILE_CHUNK_ROWS` | `1000` | Rows of a transactions file ingested per page of the `monitoring.ingest_file` job (1 or more). |
 | `XOLOTL_MONITORING_FILE_MAX_MB` | `50` | Largest transactions file upload, in MB (1 to 1024). |
 | `XOLOTL_MONITORING_FILE_MAX_ROWS` | `500000` | Most rows in one transactions file. |
@@ -335,6 +336,33 @@ A pack version is immutable: loading a changed file at the same version is refus
 (`PACK_VERSION_IMMUTABLE`). Without `--allow-unverified` (refused in prod) `packs load`
 and `units seed` refuse values still marked `UNVERIFIED` and name them.
 
+`policy-packs/_jurisdictions.yaml` holds the named jurisdiction lists that monitoring
+rules refer to as `$NAME`: three country sets (`FATF_BLACK` from `call_for_action`,
+`FATF_GREY` from `increased_monitoring`, `TAX_HAVEN` from `tax_haven`, ISO 3166-1
+alpha-2) and one region set (`BORDER_ZONE_MX`, ISO 3166-2 codes under `regions`),
+with the `as_of` date of the FATF statements they copy. `TAX_HAVEN` is empty until a
+source is chosen, so a rule naming it is refused when its rule set loads, and
+`BORDER_ZONE_MX` defaults to the six northern border states
+(`regions_confidence: UNVERIFIED`). `xolotl.platform.policy.load_jurisdictions()`
+reads and checks the file (a missing or unknown key, a malformed or repeated code is
+`VALIDATION_FAILED`); a rule set resolves its list names to codes when it loads, and
+the SHA-256 of the file is recorded in every hit's evidence (`lists_hash`) and in
+each aggregate's id, so editing the lists starts new aggregates.
+
+### Typology library
+
+The Mexico monitoring rule templates are pack content too: one file per template in
+`policy-packs/MX/_typologies/<CODE>.yaml` (`{version, country_code, packs,
+definition}`, where `definition` is the typed rule document of spec §9.1), sixteen in
+all (spec §9.3). `packs` names the packs a template applies to, so a tenant only gets
+the templates of its packs. `uv run xolotl rules validate [directory]` checks every
+file without a database and prints `<code> v<n> <kind> <hash> <packs>` per template;
+an invalid file exits 1 naming it. A template version is immutable: change a loaded
+template by adding it again under a new `version`. The definition hashes are pinned
+in `tests/golden/monitoring/rules/hashes.yaml` and the sentence each renders in
+`tests/golden/monitoring/rules/render/`. Write every decimal quoted (`"5000"`; a float
+is refused) and quote the `"on"` key (YAML 1.1 reads a bare `on` as `true`).
+
 A tenant's ADMIN assigns a pack version, optionally per product, and may tighten it
 with an override; staff of any role read:
 
@@ -424,8 +452,17 @@ Creating a party, changing it or adding an identifier re-indexes its names and
 re-screens it through one `screening.screen_party` job per event (mode `NEW_SUBJECT`
 or `DATA_CHANGE`); the job skips when a later run already covered the event.
 
+Counterparties are screened on first sight: a transaction naming a counterparty never
+seen before indexes its name and enqueues a `screening.screen_counterparties` job,
+which screens new counterparties `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` per
+page (mode `COUNTERPARTY`; a wallet address matches a listed digital-currency address
+exactly and whole), and their findings appear in the screening queue. The counterparty
+row caches its subject's status (`UNSCREENED` until the first run) for the decide path,
+and every change publishes the staff-only `screening.counterparty_status_changed.v1`.
+
 ```bash
 uv run xolotl screening check --tenant acme --party <party_id>   # screen one party now
+uv run xolotl screening screen-counterparties --tenant acme       # screen new counterparties now
 uv run xolotl screening replay <run_id> --tenant acme             # re-score a run's hits
 uv run xolotl screening rescreen --tenant acme [--kind REINDEX]  # start a full re-screen
 ```

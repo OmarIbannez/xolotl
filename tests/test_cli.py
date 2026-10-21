@@ -22,7 +22,7 @@ import respx
 import uvicorn
 from psycopg import sql
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, event, make_url, select, text
+from sqlalchemy import Engine, create_engine, event, func, make_url, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
@@ -42,9 +42,15 @@ from tests.helpers import (
     system_ctx,
     wrapped_keys,
 )
+from tests.modules.monitoring import support as monitoring_support
+from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
+from xolotl.modules.monitoring.enums import FileStatus
+from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
+from xolotl.modules.monitoring.txn import files
+from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
 from xolotl.modules.party import documents
 from xolotl.modules.party import service as party_service
 from xolotl.modules.party.enums import (
@@ -60,6 +66,13 @@ from xolotl.modules.party.schemas import (
     PersonInput,
 )
 from xolotl.modules.screening import evaluation_report
+from xolotl.modules.screening.counterparty.models import Counterparty
+from xolotl.modules.screening.counterparty.resolve import resolve
+from xolotl.modules.screening.counterparty.schema import (
+    CounterpartyInput,
+    CounterpartyKind,
+    CounterpartyScreeningStatus,
+)
 from xolotl.modules.screening.engine.enums import (
     BatchKind,
     BatchStatus,
@@ -88,6 +101,7 @@ from xolotl.modules.screening.rescreen.walkers import (
     REINDEX_KIND,
 )
 from xolotl.modules.tenants import service
+from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock, db, migrate
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
 from xolotl.platform.crypto import (
@@ -1269,6 +1283,31 @@ def test_packs_validate_refuses_an_invalid_file_in_one_line(tmp_path: Path):
     assert missing.stderr == "error: PACK_INVALID: nope.yaml: not a pack\n"
 
 
+def test_rules_validate_lists_the_library_without_a_database(tmp_path: Path):
+    cash = TYPOLOGIES_DIR / "CASH_STRUCTURING.yaml"
+    result = runner.invoke(app, ["rules", "validate"])
+    assert (result.exit_code, result.stderr) == (0, ""), result.stderr
+    lines = result.stdout.splitlines()
+    assert len(lines) == 16
+    assert lines[2] == (
+        "CASH_STRUCTURING v1 STRUCTURING "
+        f"{read_typology(cash).definition_hash.hex()[:12]} MX/ITF-IFPE"
+    )
+    assert all(
+        re.fullmatch(r"[A-Z0-9_]+ v1 [A-Z_]+ [0-9a-f]{12} MX/[A-Z/,-]+", line)
+        for line in lines
+    )
+    _ = shutil.copy(
+        TYPOLOGIES_DIR / "TIER_N1_MONTHLY_OPS.yaml", tmp_path / "TIER_N3.yaml"
+    )
+    bad = runner.invoke(app, ["rules", "validate", str(tmp_path)])
+    assert (bad.exit_code, bad.stdout) == (1, "")
+    assert bad.stderr == (
+        "error: VALIDATION_FAILED: TIER_N3.yaml: the code TIER_N1_MONTHLY_OPS "
+        "differs from the file name\n"
+    )
+
+
 def test_packs_load_refuses_unverified_values_without_the_flag(admin_engine: Engine):
     result = runner.invoke(app, ["packs", "load"])
     assert (result.exit_code, result.stdout) == (1, "")
@@ -1828,6 +1867,70 @@ def test_screening_check_and_replay(admin_engine: Engine, tmp_path: Path):
         set_index_holder(None)
 
 
+def test_screening_screen_counterparties_screens_every_new_counterparty(
+    admin_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    created = new_tenant()
+    seed_sources(admin_engine)
+    _ = load_shared(
+        "OFAC_SDN",
+        [
+            ListEntry(
+                list_code="OFAC_SDN",
+                entry_key="7001",
+                entity_type=EntityType.PERSON,
+                primary_name=EntryName("JUAN CARLOS PEREZ GOMEZ", NameQuality.PRIMARY),
+                source_ref="sdn 7001",
+            )
+        ],
+        store=LocalFsObjectStore(tmp_path / "objects"),
+    )
+    assign_itf(created, admin_engine)
+    # Two pages of two, and a third that comes up short.
+    monkeypatch.setattr(get_settings(), "monitoring_counterparty_screen_batch", 2)
+    with db.tenant_session(system_ctx(created.tenant_id)) as s:
+        juan = resolve(
+            s,
+            CounterpartyInput(
+                kind=CounterpartyKind.PERSON, name="Juan Carlos Pérez Gómez"
+            ),
+        ).id
+        for name in ("Comercial Uno", "Comercial Dos", "Comercial Tres"):
+            _ = resolve(s, CounterpartyInput(name=name))
+    set_index_holder(None)
+    try:
+        result = runner.invoke(
+            app, ["screening", "screen-counterparties", "--tenant", "acme"]
+        )
+        assert result.exit_code == 0, result.output
+        assert result.stdout == "screened 4 counterparties for tenant acme\n"
+        with db.tenant_session(system_ctx(created.tenant_id)) as s:
+            rows = s.scalars(select(Counterparty)).all()
+            runs = s.scalars(select(ScreeningRun)).all()
+        assert all(r.screened_at is not None for r in rows)
+        assert {
+            r.id
+            for r in rows
+            if r.screening_status is not CounterpartyScreeningStatus.CLEAR
+        } == {juan}
+        assert {(r.trigger_type, r.trigger_ref) for r in runs} == {
+            (TriggerType.CLI, f"cli:{getpass.getuser()}")
+        }
+
+        again = runner.invoke(
+            app, ["screening", "screen-counterparties", "--tenant", "acme"]
+        )
+        assert again.stdout == "screened 0 counterparties for tenant acme\n"
+
+        unknown = runner.invoke(
+            app, ["screening", "screen-counterparties", "--tenant", "nope"]
+        )
+        assert unknown.exit_code == 1
+        assert unknown.stderr == "error: NOT_FOUND: no tenant 'nope'\n"
+    finally:
+        set_index_holder(None)
+
+
 def test_screening_rescreen_help_needs_no_database():
     result = runner.invoke(
         app,
@@ -2094,3 +2197,164 @@ def test_screening_eval_refuses_a_corpus_dir_not_named_corpus(tmp_path: Path):
 
     assert result.exit_code == 1
     assert result.stderr == f"error: NOT_FOUND: no evaluation corpus at {renamed}\n"
+
+
+def test_monitoring_process_drains_a_party_and_reports_counts(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _ = monitoring_support.itf_tenant(tenant, admin_engine)
+    customer = monitoring_support.add_customer(tenant, "cust-1")
+    other = monitoring_support.add_customer(tenant, "cust-2")
+    # 2026-01-20 has every unit value of the fixture; 2026-01-22 has no UDI.
+    items = [
+        monitoring_support.make_item(external_id=external_id, occurred_at=at, **extra)
+        for external_id, at, extra in (
+            ("tx-1", "2026-01-20T12:00:00Z", {}),
+            ("tx-2", "2026-01-22T12:00:00Z", {}),
+            ("tx-3", "2026-01-22T13:00:00Z", {}),
+            ("tx-4", "2026-01-20T12:00:00Z", {"customer_ref": "cust-2"}),
+        )
+    ]
+    with monkeypatch.context() as patched:
+        patched.setattr(clock, "now", lambda: datetime(2026, 1, 22, 20, tzinfo=UTC))
+        with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+            report = monitoring_support.ingest_items(
+                s, items, queue=PostgresJobQueue(db.get_sessionmaker())
+            )
+    parked = report.transaction_ids[1]
+
+    one = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "process",
+            "--tenant",
+            tenant.slug,
+            "--party",
+            str(other.party_id),
+        ],
+    )
+    assert one.exit_code == 0, one.output
+    assert one.stdout == f"party {other.party_id}: 1 processed, 0 parked\n"
+
+    every = runner.invoke(app, ["monitoring", "process", "--tenant", tenant.slug])
+    assert every.exit_code == 0, every.output
+    assert every.stdout == (
+        f"party {customer.party_id}: 1 processed, 1 parked (stopped at {parked})\n"
+    )
+
+
+# ---- monitoring ingest-file ----------------------------------------------------------
+
+MONITORING_FIXTURES = Path("tests/modules/monitoring/txn/fixtures")
+
+
+def _transaction_files(tenant_id: UUID) -> list[TransactionFile]:
+    with db.tenant_session(system_ctx(tenant_id)) as s:
+        return list(s.scalars(select(TransactionFile)))
+
+
+def test_monitoring_ingest_file_uploads_and_processes_synchronously(
+    engine: Engine, list_objects: Path
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    result = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            str(MONITORING_FIXTURES / "bad_rows.csv"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert result.stdout == (
+        f"file {row.id}: 10 rows, 8 accepted, 0 duplicates, 2 rejected, COMPLETED "
+        f"(errors: transactions/files/{row.id}.errors.csv)\n"
+    )
+    assert row.status is FileStatus.COMPLETED
+    assert row.uploaded_by.startswith("cli:")
+    report = (
+        list_objects
+        / str(created.tenant_id)
+        / f"transactions/files/{row.id}.errors.csv"
+    )
+    assert report.read_bytes() == (
+        b"row,column,code\n4,amount,INVALID\n8,customer_ref,CUSTOMER_REF_UNKNOWN\n"
+    )
+    with db.tenant_session(system_ctx(created.tenant_id)) as s:
+        assert s.scalar(select(func.count()).select_from(Transaction)) == 8
+
+
+def test_monitoring_ingest_file_reports_an_already_uploaded_file(
+    engine: Engine, list_objects: Path, tmp_path: Path
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    jsonl = MONITORING_FIXTURES / "deposits.jsonl"
+    first = runner.invoke(
+        app, ["monitoring", "ingest-file", "--tenant", "acme", str(jsonl)]
+    )
+    assert first.exit_code == 0, first.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert first.stdout == (
+        f"file {row.id}: 4 rows, 4 accepted, 0 duplicates, 0 rejected, COMPLETED\n"
+    )
+    # The same bytes under another name, typed by hand.
+    renamed = tmp_path / "deposits.txt"
+    _ = renamed.write_bytes(jsonl.read_bytes())
+    again = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            "--content-type",
+            "application/x-ndjson",
+            str(renamed),
+        ],
+    )
+    assert again.exit_code == 0, again.output
+    assert again.stdout == f"file {row.id}: already uploaded (COMPLETED)\n"
+    untyped = runner.invoke(
+        app, ["monitoring", "ingest-file", "--tenant", "acme", str(renamed)]
+    )
+    assert untyped.exit_code == 1
+    assert "pass --content-type" in untyped.stderr
+
+
+def test_monitoring_ingest_file_that_loses_the_file_to_another_run_says_so(
+    engine: Engine, list_objects: Path, monkeypatch: pytest.MonkeyPatch
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    real_rows = files.iter_rows
+
+    def another_run_moves_the_cursor(
+        data: bytes, content_type: str, *, start: int, limit: int
+    ) -> Generator[files.FileRow]:
+        with db.tenant_session(system_ctx(created.tenant_id)) as s:
+            (file,) = s.scalars(select(TransactionFile))
+            file.cursor = 2
+        return real_rows(data, content_type, start=start, limit=limit)
+
+    monkeypatch.setattr(files, "iter_rows", another_run_moves_the_cursor)
+    result = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            str(MONITORING_FIXTURES / "deposits.jsonl"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert result.stdout == (
+        f"file {row.id}: 4 rows, 0 accepted, 0 duplicates, 0 rejected, PROCESSING\n"
+    )
