@@ -300,7 +300,7 @@ def gated(engine: Engine, monkeypatch) -> _Gated:
     return _Gated(held, factory, clock, lock)
 
 
-def test_a_rebuild_frees_the_old_shard_first_and_screens_wait_for_the_new_one(
+def test_a_rebuild_frees_the_old_shard_first_and_screens_answer_unavailable(
     gated: _Gated, admin_engine: Engine, un_entries, store
 ):
     holder, factory = gated.holder, gated.factory
@@ -312,28 +312,22 @@ def test_a_rebuild_frees_the_old_shard_first_and_screens_wait_for_the_new_one(
     gated.clock.advance(31)
     factory.armed = True
     rebuild, rebuilt = _screen_in_thread(holder, "screen-a")
-    waits = gated.lock.waited_by["screen-b"] = threading.Event()
-    waiter = None
     try:
         assert factory.entered.wait(timeout=WAIT)
         # The rebuild is about to read the new shard: the old one is gone already,
         # so the process never holds both.
         _ = gc.collect()
         assert first() is None
-        # A screen arriving meanwhile, due or not, waits for the new shard.
+        # A screen arriving meanwhile, due or not, answers 503 at once instead of
+        # waiting on the lock with a pooled connection.
         gated.clock.advance(31)
-        waiter, waited = _screen_in_thread(holder, "screen-b")
-        assert waits.wait(timeout=WAIT)
+        with pytest.raises(ScreeningIndexUnavailableError), _platform() as s:
+            _ = holder.shared(s)
     finally:
         factory.release.set()
         rebuild.join(timeout=WAIT)
-        if waiter is not None:
-            waiter.join(timeout=WAIT)
-    assert waiter is not None
     assert not rebuild.is_alive()
-    assert not waiter.is_alive()
     assert [shard.versions[UN].seq for shard in rebuilt] == [2]
-    assert waited == rebuilt
     with _platform() as s:
         assert holder.shared(s) is rebuilt[0]
 
@@ -383,6 +377,49 @@ def test_a_due_screen_keeps_the_installed_shard_while_another_checks_for_version
     gated.clock.advance(31)
     with gated.lock, _platform() as s:
         assert holder.shared(s) is first
+
+
+def test_after_a_failed_rebuild_screens_answer_unavailable_until_the_interval(
+    engine: Engine, admin_engine: Engine, un_entries, store
+):
+    seed_sources(admin_engine)
+    _ = load_shared(UN, un_entries, store=store)
+    clock = FakeMonotonic()
+    opened: list[int] = []
+    failing = {"on": False}
+
+    def factory() -> Session:
+        opened.append(1)
+        if failing["on"]:
+            msg = "database down"
+            raise RuntimeError(msg)
+        return get_sessionmaker()()
+
+    holder = ScreeningIndexHolder(
+        factory, refresh_seconds=30, private_shards=4, monotonic=clock
+    )
+    with _platform() as s:
+        _ = holder.shared(s)
+    _ = load_shared(UN, (*un_entries, un_entry("1004", "Nuevo Listado")), store=store)
+    clock.advance(31)
+    failing["on"] = True
+    with pytest.raises(RuntimeError, match="database down"), _platform() as s:
+        _ = holder.shared(s)
+    failing["on"] = False
+    tried = len(opened)
+    # Within the interval no screen retries the load, whether it requires a version
+    # or not.
+    clock.advance(29)
+    with pytest.raises(ScreeningIndexUnavailableError), _platform() as s:
+        _ = holder.shared(s)
+    with pytest.raises(ScreeningIndexUnavailableError), _platform() as s:
+        _ = holder.shared(s, require={UN: 2})
+    assert len(opened) == tried
+    # Once it has passed, the next screen loads the shard again.
+    clock.advance(1)
+    with _platform() as s:
+        assert holder.shared(s).versions[UN].seq == 2
+    assert len(opened) == tried + 1
 
 
 def test_a_holder_still_warming_answers_unavailable(holder, monkeypatch):

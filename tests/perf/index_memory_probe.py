@@ -1,8 +1,9 @@
 """The child process of the index memory measurement (test_screening_index_memory).
 
 It runs in a fresh interpreter (``spawn``), as the Render service does: it builds the
-application, then reads the shared lists the parent ingested and reports what each
-step cost. Peak RSS is the process's high-water mark (``ru_maxrss``), so a mode
+application, then warms the holder over the shared lists the parent ingested,
+refreshes it after a new version, and reports what each cost. Peak RSS is the
+process's high-water mark (``ru_maxrss`` on macOS, ``VmHWM`` on Linux), so a mode
 measures one path from a clean start; ``tracemalloc`` slows the build and adds its
 own bookkeeping, so the RSS headline comes from a mode that does not trace.
 """
@@ -16,21 +17,13 @@ import tracemalloc
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from pathlib import Path
-from types import MappingProxyType
 
 from sqlalchemy import func, select
 
 from tests.modules.screening.catalog.support import make_version
 from xolotl.app import build_app
-from xolotl.modules.screening.catalog.models import ListEntryRow, ListVersion
-from xolotl.modules.screening.engine.entries import (
-    current_shared_entries,
-    indexed_shared_entry,
-)
+from xolotl.modules.screening.catalog.models import ListVersion
 from xolotl.modules.screening.engine.holder import get_index_holder
-from xolotl.modules.screening.enums import VersionStatus
-from xolotl.modules.screening.lists import ListEntry
-from xolotl.modules.screening.matching import IdfTable, MemoryIndex
 from xolotl.platform.db import get_admin_engine, tenant_session
 from xolotl.platform.tenancy.context import TenantContext
 
@@ -38,7 +31,6 @@ type Measures = dict[str, float | int | str]
 
 _MB = 1024 * 1024
 _CTX = TenantContext.platform("perf:index-memory")
-LIST_CODES = ("EU_FSF", "MX_SAT_69B", "OFAC_SDN", "UK_FCDO", "UN_CONSOLIDATED")
 
 
 def peak_rss_mb() -> float:
@@ -109,55 +101,6 @@ def _step[T](measures: Measures, name: str, run: Callable[[], T]) -> T:
     return result
 
 
-def _current_rows():
-    return (
-        select(ListEntryRow)
-        .where(
-            ListEntryRow.list_code.in_(
-                select(ListVersion.list_code).where(
-                    ListVersion.status == VersionStatus.ACTIVE
-                )
-            ),
-            ListEntryRow.to_seq.is_(None),
-            ListEntryRow.screenable,
-        )
-        .order_by(ListEntryRow.list_code, ListEntryRow.id)
-    )
-
-
-def _stages(measures: Measures) -> None:
-    # The steps of the holder's read of the shared shard, one at a time.
-    tracemalloc.start()
-    with tenant_session(_CTX) as s:
-        rows = _step(measures, "orm_rows", lambda: list(s.scalars(_current_rows())))
-        measures["rows_read"] = len(rows)
-        indexed = _step(
-            measures, "convert", lambda: [indexed_shared_entry(r) for r in rows]
-        )
-        s.expunge_all()
-        _ = _step(measures, "drop_orm_rows", rows.clear)
-        indexed.clear()
-        # The holder's read: three columns streamed, no ORM objects.
-        indexed = _step(
-            measures,
-            "stream_read",
-            lambda: list(current_shared_entries(s, LIST_CODES)),
-        )
-    blocking = _step(
-        measures, "idf_build", lambda: IdfTable.build(i.entry for i in indexed)
-    )
-    _ = _step(measures, "index_build", lambda: MemoryIndex.build(indexed, idf=blocking))
-
-    def copy() -> MappingProxyType[str, tuple[ListEntry, ...]]:
-        entries: dict[str, list[ListEntry]] = {}
-        for item in indexed:
-            entries.setdefault(item.shard, []).append(item.entry)
-        return MappingProxyType({c: tuple(e) for c, e in entries.items()})
-
-    _ = _step(measures, "entries_copy", copy)
-    tracemalloc.stop()
-
-
 def _holder(measures: Measures) -> None:
     # The real path: warm the shared shard, then refresh it after a new version.
     holder = get_index_holder()
@@ -186,21 +129,18 @@ def _holder(measures: Measures) -> None:
 def probe(mode: str, conn: Connection) -> None:
     """Build the application, run one measurement mode and send its numbers back.
 
-    ``stages`` traces each step of the shard read; ``holder-traced`` traces the
-    holder's warm-up and refresh; ``holder`` runs them untraced for the RSS peak.
+    ``holder-traced`` traces the holder's warm-up and refresh; ``holder`` runs them
+    untraced for the RSS peak and the RSS kept after each.
     """
     os.environ["XOLOTL_SCREENING_INDEX_WARM"] = "false"
     measures: Measures = {"mode": mode, "import_rss_mb": peak_rss_mb()}
     _ = build_app()
     measures["app_rss_mb"] = peak_rss_mb()
     measures["app_kept_rss_mb"] = current_rss_mb()
-    if mode == "stages":
-        _stages(measures)
-    else:
-        if mode == "holder-traced":
-            tracemalloc.start()
-        _holder(measures)
-        tracemalloc.stop()
+    if mode == "holder-traced":
+        tracemalloc.start()
+    _holder(measures)
+    tracemalloc.stop()
     measures["final_rss_mb"] = peak_rss_mb()
     conn.send(measures)
     conn.close()

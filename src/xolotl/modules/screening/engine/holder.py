@@ -9,7 +9,12 @@ One ``ScreeningIndexHolder`` per process (API and worker) wraps the library's
   ``SCREENING_INDEX_REFRESH_SECONDS`` (at once when a screen requires a version the
   shard lacks); a rebuilt shard is swapped in whole. The rows are streamed, and a
   rebuild lets go of the old shard before it reads the new one, so the process never
-  holds two (the 512 MB service could not): screens wait for the rebuild meanwhile.
+  holds two (the 512 MB service could not). Meanwhile there is no shard: a screen
+  answers 503, as during the warm-up, rather than wait on the lock holding a pooled
+  connection (enough waiting screens would leave the rebuild's own session none);
+  a screen that requires a version (a delta job, one at a time) waits for it. After
+  a failed rebuild screens answer 503 until the refresh interval has passed, when
+  the next one loads the shard again.
 - a **private shard** per tenant holds its active private versions' entries,
   decrypted in that tenant's session. It is keyed by the tenant and its active
   version ids, so a new version is a new key, and the shards live in an LRU of
@@ -25,6 +30,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
+from functools import cache
 from types import MappingProxyType
 from typing import cast
 from uuid import UUID
@@ -97,16 +103,20 @@ def _lacks(shard: SharedShard, require: Mapping[str, int] | None) -> bool:
     )
 
 
+@cache
+def _glibc() -> ctypes.CDLL:
+    return ctypes.CDLL("libc.so.6")
+
+
 def _trim_heap() -> None:
     # A shard build frees most of what it allocates (rows, JSON, normalisation), but
     # glibc keeps the freed heap pages, so the process would stay at the build's
     # peak; malloc_trim hands them back to the system. Other C libraries have no
-    # such call, and nothing is done.
+    # such library or call, and nothing is done.
     try:
-        libc = ctypes.CDLL("libc.so.6")
-    except OSError:
+        _ = cast("int", _glibc().malloc_trim(0))
+    except (OSError, AttributeError):
         return
-    _ = cast("int", libc.malloc_trim(0))
 
 
 def _signature(versions: Mapping[str, HeldVersion]) -> dict[str, tuple[UUID, int]]:
@@ -133,6 +143,9 @@ class ScreeningIndexHolder:
         self._shared: SharedShard | None = None
         self._checked_at: float = 0.0
         self._warming: bool = False
+        # No shard is installed while a rebuild runs, or after one failed.
+        self._rebuilding: bool = False
+        self._rebuild_failed: bool = False
         self._private: OrderedDict[_PrivateKey, PrivateShard] = OrderedDict()
         self._idf: OrderedDict[bytes, IdfTable] = OrderedDict()
 
@@ -178,19 +191,20 @@ class ScreeningIndexHolder:
 
         Raises:
             ScreeningIndexUnavailableError: While the start-up warm-up runs and
-                nothing is loaded yet, or when a required version is still missing
-                after a refresh.
+                nothing is loaded yet; while a rebuild runs, unless the screen
+                requires a version; within the refresh interval after a failed
+                rebuild; or when a required version is still missing after a
+                refresh.
 
         """
         shard = self._shared
         if shard is None:
-            if self._warming:
+            if self._warming or self._unavailable(require):
                 raise ScreeningIndexUnavailableError
             seen, wait = None, True
         else:
-            due = self._monotonic() - self._checked_at >= self._refresh_seconds
             wait = _lacks(shard, require)
-            if not (due or wait):
+            if not (self._due() or wait):
                 return shard
             seen = shard.versions
             # A rebuild frees the shard it replaces before it reads the new one, which
@@ -201,17 +215,27 @@ class ScreeningIndexHolder:
             raise ScreeningIndexUnavailableError
         return shard
 
+    def _due(self) -> bool:
+        return self._monotonic() - self._checked_at >= self._refresh_seconds
+
+    def _unavailable(self, require: Mapping[str, int] | None) -> bool:
+        # With no shard installed: a screen does not queue behind a rebuild, and does
+        # not retry a failed one before the interval, each a full load in series.
+        if self._rebuilding:
+            return not require
+        return self._rebuild_failed and not self._due()
+
     def _refresh(
         self, s: Session, seen: Mapping[str, HeldVersion] | None, *, wait: bool
     ) -> SharedShard:
         # ``seen`` is the versions of the shard the caller found (they name it without
-        # keeping it alive). Without wait, a screen that finds another one rebuilding
-        # keeps using the shard that is still installed; once the rebuild has let go
-        # of it, there is none to keep, and the screen waits for the new one.
+        # keeping it alive). Without wait, a screen that finds another one checking
+        # keeps using the shard that is still installed; once a rebuild has let go of
+        # it, there is none, and the screen answers 503 as it would on arriving then.
         if not wait and not self._lock.acquire(blocking=False):
             if (installed := self._shared) is not None:
                 return installed
-            wait = True
+            raise ScreeningIndexUnavailableError
         if wait:
             _ = self._lock.acquire()
         try:
@@ -224,16 +248,25 @@ class ScreeningIndexHolder:
             if current is not None and _signature(current.versions) == active:
                 return current
             # Let go of the old shard first: building the new one beside it would
-            # hold two shards at once. Screens arriving meanwhile wait on the lock;
-            # one already screening keeps the old shard alive until it is done.
+            # hold two shards at once. Screens arriving meanwhile answer 503 (or
+            # wait, requiring a version); one already screening keeps the old shard
+            # alive until it is done.
             self._shared = None
+            self._rebuilding = True
             del current
-            return self._install(self._load_shared())
+            try:
+                return self._install(self._load_shared())
+            except Exception:
+                self._rebuild_failed = True
+                raise
+            finally:
+                self._rebuilding = False
         finally:
             self._lock.release()
 
     def _install(self, shard: SharedShard) -> SharedShard:
         self._shared = shard
+        self._rebuild_failed = False
         self._checked_at = self._monotonic()
         return shard
 
