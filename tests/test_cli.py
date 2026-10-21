@@ -22,7 +22,7 @@ import respx
 import uvicorn
 from psycopg import sql
 from pydantic import SecretStr
-from sqlalchemy import Engine, create_engine, event, make_url, select, text
+from sqlalchemy import Engine, create_engine, event, func, make_url, select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool
 from typer.testing import CliRunner
@@ -43,9 +43,13 @@ from tests.helpers import (
     wrapped_keys,
 )
 from tests.modules.monitoring import support as monitoring_support
+from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
+from xolotl.modules.monitoring.enums import FileStatus
+from xolotl.modules.monitoring.txn import files
+from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
 from xolotl.modules.party import documents
 from xolotl.modules.party import service as party_service
 from xolotl.modules.party.enums import (
@@ -2140,4 +2144,120 @@ def test_monitoring_process_drains_a_party_and_reports_counts(
     assert every.exit_code == 0, every.output
     assert every.stdout == (
         f"party {customer.party_id}: 1 processed, 1 parked (stopped at {parked})\n"
+    )
+
+
+# ---- monitoring ingest-file ----------------------------------------------------------
+
+MONITORING_FIXTURES = Path("tests/modules/monitoring/txn/fixtures")
+
+
+def _transaction_files(tenant_id: UUID) -> list[TransactionFile]:
+    with db.tenant_session(system_ctx(tenant_id)) as s:
+        return list(s.scalars(select(TransactionFile)))
+
+
+def test_monitoring_ingest_file_uploads_and_processes_synchronously(
+    engine: Engine, list_objects: Path
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    result = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            str(MONITORING_FIXTURES / "bad_rows.csv"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert result.stdout == (
+        f"file {row.id}: 10 rows, 8 accepted, 0 duplicates, 2 rejected, COMPLETED "
+        f"(errors: transactions/files/{row.id}.errors.csv)\n"
+    )
+    assert row.status is FileStatus.COMPLETED
+    assert row.uploaded_by.startswith("cli:")
+    report = (
+        list_objects
+        / str(created.tenant_id)
+        / f"transactions/files/{row.id}.errors.csv"
+    )
+    assert report.read_bytes() == (
+        b"row,column,code\n4,amount,INVALID\n8,customer_ref,CUSTOMER_REF_UNKNOWN\n"
+    )
+    with db.tenant_session(system_ctx(created.tenant_id)) as s:
+        assert s.scalar(select(func.count()).select_from(Transaction)) == 8
+
+
+def test_monitoring_ingest_file_reports_an_already_uploaded_file(
+    engine: Engine, list_objects: Path, tmp_path: Path
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    jsonl = MONITORING_FIXTURES / "deposits.jsonl"
+    first = runner.invoke(
+        app, ["monitoring", "ingest-file", "--tenant", "acme", str(jsonl)]
+    )
+    assert first.exit_code == 0, first.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert first.stdout == (
+        f"file {row.id}: 4 rows, 4 accepted, 0 duplicates, 0 rejected, COMPLETED\n"
+    )
+    # The same bytes under another name, typed by hand.
+    renamed = tmp_path / "deposits.txt"
+    _ = renamed.write_bytes(jsonl.read_bytes())
+    again = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            "--content-type",
+            "application/x-ndjson",
+            str(renamed),
+        ],
+    )
+    assert again.exit_code == 0, again.output
+    assert again.stdout == f"file {row.id}: already uploaded (COMPLETED)\n"
+    untyped = runner.invoke(
+        app, ["monitoring", "ingest-file", "--tenant", "acme", str(renamed)]
+    )
+    assert untyped.exit_code == 1
+    assert "pass --content-type" in untyped.stderr
+
+
+def test_monitoring_ingest_file_that_loses_the_file_to_another_run_says_so(
+    engine: Engine, list_objects: Path, monkeypatch: pytest.MonkeyPatch
+):
+    created = new_tenant()
+    _ = add_customer(created, "cust-1")
+    real_rows = files.iter_rows
+
+    def another_run_moves_the_cursor(
+        data: bytes, content_type: str, *, start: int, limit: int
+    ) -> Generator[files.FileRow]:
+        with db.tenant_session(system_ctx(created.tenant_id)) as s:
+            (file,) = s.scalars(select(TransactionFile))
+            file.cursor = 2
+        return real_rows(data, content_type, start=start, limit=limit)
+
+    monkeypatch.setattr(files, "iter_rows", another_run_moves_the_cursor)
+    result = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "ingest-file",
+            "--tenant",
+            "acme",
+            str(MONITORING_FIXTURES / "deposits.jsonl"),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    (row,) = _transaction_files(created.tenant_id)
+    assert result.stdout == (
+        f"file {row.id}: 4 rows, 0 accepted, 0 duplicates, 0 rejected, PROCESSING\n"
     )

@@ -4,6 +4,8 @@ from xolotl.modules.monitoring.errors import (
     BatchInvalidError,
     BatchTooLargeError,
     ExternalIdConflictError,
+    FileInvalidError,
+    FileTooLargeError,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.screening.errors import (
@@ -78,6 +80,8 @@ from xolotl.platform.units.errors import (
         (BatchInvalidError, 422, "TRANSACTION_BATCH_INVALID"),
         (BatchTooLargeError, 413, "TRANSACTION_BATCH_TOO_LARGE"),
         (ExternalIdConflictError, 409, "EXTERNAL_ID_CONFLICT"),
+        (FileTooLargeError, 413, "TRANSACTION_FILE_TOO_LARGE"),
+        (FileInvalidError, 422, "TRANSACTION_FILE_INVALID"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):
