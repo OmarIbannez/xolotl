@@ -5,9 +5,10 @@
 one party, one counterparty (migration 0013), or one ad hoc query whose input is
 ciphertext. A run records the exact list set it screened (``screening_list_set``
 and its members), and every non-trivial score it produced (``screening_hit``). A
-``screening_match`` is a finding: one per subject and entry content. Parties are referenced by table name, so this module does
-not import the party models. The foreign keys whose conventional name would pass
-Postgres's 63 bytes are named by hand.
+``screening_match`` is a finding: one per subject and entry content. Parties are
+referenced by table name, so this module does not import the party models. The
+foreign keys whose conventional name would pass Postgres's 63 bytes are named by
+hand.
 """
 
 from datetime import date, datetime
