@@ -9,17 +9,19 @@ policy or unit value is not there yet is parked and ends the drain, so the rows
 behind it wait in order until the sweep sets it ``RECEIVED`` again.
 
 A run whose lease was reaped may still be draining while another run of the same
-job starts. Each row is locked and its status read again in its own transaction,
-so a row is processed once, a row another run processed is passed over, and a row
-another run parked stops this one too; and a run that sees its heartbeat refused
-stops after the page.
+job starts, and the CLI drains without a lease. Each row's transaction first takes
+the party's advisory lock, so two drains of one party never fold rows at once, and
+then locks the row and reads its status and the party's latest processed instant
+again: a row is processed once, a row another run processed is passed over, a row
+another run parked stops this one too, and a row that lands behind another run's
+row is flagged late. A run that sees its heartbeat refused stops after the page.
 """
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Select, delete, func, select, text
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.aggregates.declarations import AggregateDeclaration
@@ -66,6 +68,7 @@ from xolotl.platform.units import UnitService
 # A row received more than a day after it occurred is late (spec §8.5 step 2).
 LATE_RECEIPT = timedelta(days=1)
 _LAST_ERROR_MAX = 200
+_PARTY_LOCK = text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))")
 
 # The declarations each hook reported, by the snapshot id they were asked for.
 type HookDeclarations = dict[UUID, tuple[AggregateDeclaration, ...]]
@@ -95,6 +98,31 @@ def latest_processed_at(session: Session, party_id: UUID) -> datetime | None:
     )
 
 
+def lock_party(session: Session, tenant_id: UUID, party_id: UUID) -> None:
+    """Take the party's processing lock until the caller's transaction ends.
+
+    Every row transaction of a drain takes it first, so two drains of one party
+    (a reaped run and its successor, or the CLI beside the worker) take turns.
+    """
+    key = f"monitoring.process:{tenant_id}:{party_id}"
+    _ = session.execute(_PARTY_LOCK, {"key": key})
+
+
+def _pending[*Ts](stmt: Select[*Ts], party_id: UUID, *, limit: int) -> Select[*Ts]:
+    return (
+        stmt
+        .where(
+            Transaction.party_id == party_id,
+            Transaction.status.in_((
+                TransactionStatus.RECEIVED,
+                TransactionStatus.PARKED,
+            )),
+        )
+        .order_by(Transaction.occurred_at, Transaction.id)
+        .limit(limit)
+    )
+
+
 def pending_rows(session: Session, party_id: UUID, *, limit: int) -> list[Transaction]:
     """Read the party's next ``RECEIVED`` and ``PARKED`` rows, in order.
 
@@ -102,20 +130,7 @@ def pending_rows(session: Session, party_id: UUID, *, limit: int) -> list[Transa
         Up to ``limit`` rows ordered by ``occurred_at`` then ``id``.
 
     """
-    return list(
-        session.scalars(
-            select(Transaction)
-            .where(
-                Transaction.party_id == party_id,
-                Transaction.status.in_((
-                    TransactionStatus.RECEIVED,
-                    TransactionStatus.PARKED,
-                )),
-            )
-            .order_by(Transaction.occurred_at, Transaction.id)
-            .limit(limit)
-        )
-    )
+    return list(session.scalars(_pending(select(Transaction), party_id, limit=limit)))
 
 
 def _is_late(row: Transaction, latest: datetime | None) -> bool:
@@ -127,8 +142,9 @@ def _is_late(row: Transaction, latest: datetime | None) -> bool:
 class DrainState:
     """What one drain carries from row to row.
 
-    ``declarations``, ``complete`` and ``latest`` are read again for each page;
-    the snapshots and the hooks' declarations are kept for the whole drain.
+    ``declarations`` and ``complete`` are read again for each page and ``latest``
+    for each row, under the party's lock; the snapshots and the hooks'
+    declarations are kept for the whole drain.
     """
 
     queue: PostgresJobQueue
@@ -344,15 +360,18 @@ def _page(
         # A declaration activated or backfilled mid-drain applies from here on.
         drain.declarations = load_declarations(s)
         drain.complete = backfilled_ids(s)
-        drain.latest = latest_processed_at(s, party_id)
+        # Only the keys: the row itself is read again, locked, in its transaction.
         keys = [
-            (row.occurred_at, row.id) for row in pending_rows(s, party_id, limit=limit)
+            (occurred_at, row_id)
+            for occurred_at, row_id in s.execute(
+                _pending(
+                    select(Transaction.occurred_at, Transaction.id),
+                    party_id,
+                    limit=limit,
+                )
+            )
         ]
     return drain, keys
-
-
-def _later(latest: datetime | None, at: datetime) -> datetime:
-    return at if latest is None or at > latest else latest
 
 
 def _drain_row(
@@ -361,14 +380,21 @@ def _drain_row(
     drain: DrainState,
     *,
     tenant_id: UUID,
+    party_id: UUID,
 ) -> UUID | None:
     """Process, pass over or park one row in its own transaction.
+
+    The party's lock comes first, then the row's: another drain of the party
+    finishes its row before this one reads the row's status and the party's
+    latest processed instant.
 
     Returns:
         The row's id when the drain stops at it (it is ``PARKED``), else None.
 
     """
     occurred_at, row_id = key
+    lock_party(s, tenant_id, party_id)
+    drain.latest = latest_processed_at(s, party_id)
     row = s.get(
         Transaction,
         (tenant_id, occurred_at, row_id),
@@ -380,8 +406,6 @@ def _drain_row(
         TransactionStatus.BACKFILL,
     }:
         # Another run of this job processed it while this one waited.
-        if row is not None and row.status is TransactionStatus.PROCESSED:
-            drain.latest = _later(drain.latest, row.occurred_at)
         return None
     if row.status is TransactionStatus.PARKED:
         return row.id
@@ -403,7 +427,6 @@ def _drain_row(
         drain.parked += 1
         return row.id
     drain.processed += 1
-    drain.latest = _later(drain.latest, row.occurred_at)
     drain.complete = store.complete_ids or frozenset()
     return None
 
@@ -423,7 +446,9 @@ def process_party(
     Each row is its own transaction under a system context: ``job:<id>`` when
     ``job`` is given, else ``actor`` (the CLI passes ``cli:<user>``). After each
     page the job's lease is extended; a refused heartbeat means another run owns
-    the job now, and this one stops.
+    the job now, and this one stops. When the job was reaped to ``DEAD`` rather
+    than handed on, no run owns it and the rows left ``RECEIVED`` wait for A9's
+    sweep, which enqueues the party again.
 
     Returns:
         How many rows were processed and parked, and the row the drain stopped at.
@@ -445,7 +470,9 @@ def process_party(
             # One transaction per row (TS-05 §5): a failure leaves the rows
             # before it processed and this one RECEIVED.
             with tenant_session(ctx, factory=session_factory) as s:
-                stopped = _drain_row(s, key, drain, tenant_id=tenant_id)
+                stopped = _drain_row(
+                    s, key, drain, tenant_id=tenant_id, party_id=party_id
+                )
             if stopped is not None:
                 return ProcessReport(drain.processed, drain.parked, stopped)
         if not keys:

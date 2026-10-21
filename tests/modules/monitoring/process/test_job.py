@@ -29,7 +29,11 @@ from xolotl.modules.monitoring.aggregates.declarations import (
     TxnFilter,
     WindowKind,
 )
-from xolotl.modules.monitoring.aggregates.models import AggDeclaration
+from xolotl.modules.monitoring.aggregates.models import (
+    AggBucket,
+    AggDeclaration,
+    AggDistinct,
+)
 from xolotl.modules.monitoring.aggregates.postgres import PostgresAggregateStore
 from xolotl.modules.monitoring.aggregates.store import AggregateKey, AggregateValue
 from xolotl.modules.monitoring.enrich.policy import SnapshotRef
@@ -47,6 +51,8 @@ from xolotl.modules.monitoring.process.hooks import (
 from xolotl.modules.monitoring.process.job import (
     ProcessJob,
     ProcessReport,
+    lock_party,
+    pending_rows,
     process_party,
 )
 from xolotl.modules.monitoring.txn.models import Transaction, TransactionParked
@@ -85,6 +91,17 @@ CASH_SUM_P7D = AggregateDeclaration(
     window="P7D",
     where=TxnFilter(instrument=frozenset({Instrument.CASH})),
 )
+COUNTERPARTIES_P7D = AggregateDeclaration(
+    name="counterparties_p7d",
+    function=AggregateFunction.DISTINCT_COUNT,
+    measure=Measure.ONE,
+    unit_key=None,
+    key_kind=KeyKind.PARTY,
+    window_kind=WindowKind.DURATION,
+    window="P7D",
+    distinct_of="COUNTERPARTY",
+)
+COUNTERPARTY = {"kind": "PERSON", "name": "Juan Pérez", "country": "MX"}
 HOOK_COUNT_P7D = AggregateDeclaration(
     name="hook_count_p7d",
     function=AggregateFunction.COUNT,
@@ -505,11 +522,18 @@ def test_a_park_raised_after_add_takes_the_rows_aggregates_back(
     declared: AggregateDeclaration,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        _ = declare(s, COUNTERPARTIES_P7D, queue=queue)
     hook: ProcessingHook = _Parking()
     register_processing_hook(hook)
-    (row_id,) = _ingest(tenant, queue, monkeypatch, [_item(1, DAY)])
+    (row_id,) = _ingest(
+        tenant, queue, monkeypatch, [_item(1, DAY, counterparty=COUNTERPARTY)]
+    )
     report = _drain(tenant, customer.party_id, queue)
     assert report == ProcessReport(processed=0, parked=1, stopped_at=row_id)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assert s.scalar(select(func.count()).select_from(AggBucket)) == 0
+        assert s.scalar(select(func.count()).select_from(AggDistinct)) == 0
     (row,) = _rows(tenant)
     assert (row.status, row.unit_amounts, row.processed_at) == (
         TransactionStatus.PARKED,
@@ -821,3 +845,48 @@ def test_two_runners_never_process_one_party_at_once(
             .where(JobRow.kind == PROCESS_KIND, JobRow.status != JobStatus.DONE)
         )
     assert failed == 0
+
+
+def test_a_drain_waits_on_the_party_lock_and_flags_a_row_another_drain_passed(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    declared: AggregateDeclaration,
+    admin_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Two drains of one party (the CLI beside the worker, or a reaped run) take
+    # turns on the party's lock; the one that waited reads the party's latest
+    # processed instant again, so the earlier row it processes after the other
+    # drain's later one is flagged late.
+    ids = _ingest(
+        tenant, queue, monkeypatch, [_item(n, DAY + timedelta(hours=n)) for n in (1, 2)]
+    )
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        pending = pending_rows(s, customer.party_id, limit=10)
+        assert [row.id for row in pending] == ids
+    second = pending[1]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with tenant_session(system_ctx(tenant.tenant_id)) as s:
+            pid = s.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            lock_party(s, tenant.tenant_id, customer.party_id)
+            future = pool.submit(_drain, tenant, customer.party_id, queue)
+            _until(
+                lambda: _blocked_by(admin_engine, pid), "the drain waits on the party"
+            )
+            # Nothing of the party moved while the lock was held.
+            assert {row.status for row in _rows(tenant)} == {TransactionStatus.RECEIVED}
+            # The other drain processes the later row before it lets go.
+            _ = s.execute(
+                update(Transaction)
+                .where(
+                    Transaction.occurred_at == second.occurred_at,
+                    Transaction.id == second.id,
+                )
+                .values(status=TransactionStatus.PROCESSED, processed_at=clock.now())
+            )
+        _ = wait([future], timeout=30)
+    assert future.result() == ProcessReport(processed=1, parked=0, stopped_at=None)
+    first, later = _rows(tenant)
+    assert (first.status, first.late) == (TransactionStatus.PROCESSED, True)
+    assert later.status is TransactionStatus.PROCESSED
