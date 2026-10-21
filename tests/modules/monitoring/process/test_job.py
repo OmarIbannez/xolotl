@@ -10,7 +10,7 @@ from itertools import pairwise
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, func, select, text, update
+from sqlalchemy import Engine, event, func, select, text, update
 from sqlalchemy.orm import Session
 
 from tests.helpers import staff_session, system_ctx
@@ -65,7 +65,7 @@ from xolotl.modules.party.models import CustomerRelationship
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.config import Settings, get_settings
-from xolotl.platform.db import get_sessionmaker, tenant_session
+from xolotl.platform.db import get_engine, get_sessionmaker, tenant_session
 from xolotl.platform.enums import JobStatus
 from xolotl.platform.events import is_staff_only
 from xolotl.platform.events.event import Event, event_from_row
@@ -869,7 +869,7 @@ def test_a_drain_waits_on_the_party_lock_and_flags_a_row_another_drain_passed(
     with ThreadPoolExecutor(max_workers=1) as pool:
         with tenant_session(system_ctx(tenant.tenant_id)) as s:
             pid = s.execute(text("SELECT pg_backend_pid()")).scalar_one()
-            lock_party(s, tenant.tenant_id, customer.party_id)
+            assert not lock_party(s, tenant.tenant_id, customer.party_id)
             future = pool.submit(_drain, tenant, customer.party_id, queue)
             _until(
                 lambda: _blocked_by(admin_engine, pid), "the drain waits on the party"
@@ -890,3 +890,42 @@ def test_a_drain_waits_on_the_party_lock_and_flags_a_row_another_drain_passed(
     first, later = _rows(tenant)
     assert (first.status, first.late) == (TransactionStatus.PROCESSED, True)
     assert later.status is TransactionStatus.PROCESSED
+
+
+def test_an_uncontended_drain_reads_the_latest_processed_instant_once_per_page(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    declared: AggregateDeclaration,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # The read walks the party's newer rows, so once per row would make a long
+    # backlog quadratic; only a wait for the party's lock reads it again.
+    _ = _ingest(
+        tenant,
+        queue,
+        monkeypatch,
+        [_item(n, DAY + timedelta(hours=n)) for n in range(1, 6)],
+    )
+    statements: list[str] = []
+
+    def record(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        settings = get_settings().model_copy(update={"monitoring_process_page": 2})
+        report = _drain(tenant, customer.party_id, queue, settings=settings)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert report == ProcessReport(processed=5, parked=0, stopped_at=None)
+    latest_reads = [
+        sql for sql in statements if "max(transaction.occurred_at)" in sql.lower()
+    ]
+    # Pages of 2, 2, 1 and the empty one that ends the drain.
+    assert len(latest_reads) == 4
+    assert sum("pg_try_advisory_xact_lock" in sql for sql in statements) == 5
+    assert not any(
+        "SELECT pg_advisory_xact_lock(hashtextextended" in sql for sql in statements
+    )
