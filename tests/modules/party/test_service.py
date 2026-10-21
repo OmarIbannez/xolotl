@@ -11,7 +11,7 @@ from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, event, func, select
 
 from tests.helpers import (
     audit_events,
@@ -33,6 +33,7 @@ from xolotl.modules.party import service
 from xolotl.modules.party.enums import (
     AddressType,
     ContactKind,
+    CustomerRelationshipStatus,
     IdentifierType,
     PartyStatus,
     PartyType,
@@ -40,7 +41,12 @@ from xolotl.modules.party.enums import (
     RelationshipType,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
-from xolotl.modules.party.models import Party, PartyIdentifier, Person
+from xolotl.modules.party.models import (
+    CustomerRelationship,
+    Party,
+    PartyIdentifier,
+    Person,
+)
 from xolotl.modules.party.schemas import (
     AddressInput,
     AddressLines,
@@ -650,3 +656,67 @@ def test_party_ids_after_pages_active_parties_in_id_order(
         assert service.party_ids_after(s, after=ids[0], limit=10) == active[1:]
         assert service.party_ids_after(s, after=ids[1], limit=10) == active[1:]
         assert service.party_ids_after(s, after=ids[3], limit=10) == []
+
+
+def test_relationship_by_external_ref_returns_the_found_refs_in_one_query(
+    tenant: CreatedTenant,
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party = service.create_party(s, ANA)
+        for ref, status in (
+            ("cust-a", CustomerRelationshipStatus.ACTIVE),
+            ("cust-b", CustomerRelationshipStatus.EXITED),
+        ):
+            s.add(
+                CustomerRelationship(
+                    tenant_id=tenant.tenant_id,
+                    party_id=party.id,
+                    external_ref=ref,
+                    product="EMONEY",
+                    account_tier="N1",
+                    status=status,
+                )
+            )
+        s.flush()
+        statements: list[str] = []
+
+        def count(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        bind = s.connection()
+        event.listen(bind, "before_cursor_execute", count)
+        try:
+            found = service.relationship_by_external_ref(
+                s, ["cust-a", "cust-b", "cust-missing"]
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", count)
+        assert service.relationship_by_external_ref(s, []) == {}
+    assert len(statements) == 1
+    assert set(found) == {"cust-a", "cust-b"}
+    assert found["cust-a"].party_id == party.id
+    assert found["cust-a"].product == "EMONEY"
+    assert found["cust-a"].account_tier == "N1"
+    assert found["cust-b"].status is CustomerRelationshipStatus.EXITED
+
+
+def test_relationship_ref_of_another_tenant_is_not_found(
+    engine: Engine, tenant: CreatedTenant
+):
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        party = service.create_party(s, ANA)
+        row = CustomerRelationship(
+            tenant_id=tenant.tenant_id,
+            party_id=party.id,
+            external_ref="cust-a",
+            status=CustomerRelationshipStatus.ACTIVE,
+        )
+        s.add(row)
+        s.flush()
+        assert service.relationship_ref(s, row.id).id == row.id
+    other = new_tenant("otra", "admin@otra.mx")
+    with (
+        pytest.raises(NotFoundError),
+        staff_session(other.tenant_id, other.admin_user_id) as s,
+    ):
+        _ = service.relationship_ref(s, row.id)
