@@ -50,6 +50,7 @@ const SAME_IN_BOTH = new Set([
   'transactions.rail.CODI',
   'transactions.rail.SWIFT',
   'transactions.channel.API',
+  'rules.versions.version', // "v2": a version number, the same in both languages
 ])
 
 describe('translation catalogues', () => {
@@ -111,6 +112,10 @@ describe('translation catalogues', () => {
       'TRANSACTION_FILE_INVALID',
       'BACKFILL_RANGE_INVALID',
       'RAIL_UNKNOWN',
+      'RULE_PARAM_OUT_OF_BOUNDS',
+      'RULE_TRANSITION_NOT_ALLOWED',
+      'SIMULATION_RANGE_TOO_LONG',
+      'RULE_TEMPLATE_UNKNOWN',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

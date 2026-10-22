@@ -40,6 +40,12 @@ export const ACCESS = {
   rails: ['ADMIN'],
   // Every staff role reads the rule hits and may reveal a hit's personal data (each reveal is audited).
   monitoring: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
+  // Every staff role reads the monitoring rules, their versions and simulations (Reglas › Monitoreo).
+  rules: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
+  // Who may create, tune and simulate a rule version, and submit the one they wrote (spec section 9.4).
+  rulesWrite: ['SENIOR_ANALYST', 'MLRO', 'ADMIN'],
+  // Who may approve, reject, activate and retire a version; never its author (the API says why).
+  rulesApprove: ['MLRO', 'ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */

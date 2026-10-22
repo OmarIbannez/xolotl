@@ -21,6 +21,9 @@ const NEW_PASSWORD = 'correct-horse-battery-staple'
 const ROTATED_PASSWORD = 'another-long-passphrase-1234'
 const KEY_NAME = 'smoke key'
 const KEY_PREFIX_LENGTH = 15 // `key_prefix` is the first 15 characters of the key
+// What the library renders for CASH_STRUCTURING in es-MX (the backend's render golden).
+const CASH_STRUCTURING_SENTENCE =
+  'Dispara cuando el cliente recibe 3 o más depósitos en efectivo entre 70 % y 100 % del umbral en 7 días y su suma alcanza el umbral'
 // The headers the API puts on the console's pages. Spelled out here on purpose: loosening
 // the policy should be a visible change to a test, not only to the server.
 const CONSOLE_HEADERS = {
@@ -306,6 +309,19 @@ test('a new tenant administrator signs in, secures the account and works in the 
     await page.getByRole('button', { name: es.screening.check.submit, exact: true }).click()
     const statuses = Object.values(es.screening.subjectStatus)
     await expect(page.getByText(new RegExp(`^(${statuses.join('|')})$`))).toBeVisible()
+
+    // Back to the audit page, where the next step refreshes.
+    await page.getByRole('link', { name: es.nav.audit, exact: true }).click()
+    await expect(page.getByRole('heading', { name: es.audit.title, level: 1 })).toBeVisible()
+  })
+
+  await test.step('the rules library lists the Mexico typologies', async () => {
+    // The image loads the typology library on `db upgrade` and `serve`, so every tenant sees it.
+    await page.getByRole('link', { name: es.nav.monitoringRules, exact: true }).click()
+    await expect(page.getByRole('heading', { name: es.rules.title, level: 1 })).toBeVisible()
+    await expect(page.getByRole('tab', { name: es.rules.tabs.library })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByText('CASH_STRUCTURING', { exact: true })).toBeVisible()
+    await expect(page.getByText(CASH_STRUCTURING_SENTENCE, { exact: true })).toBeVisible()
 
     // Back to the audit page, where the next step refreshes.
     await page.getByRole('link', { name: es.nav.audit, exact: true }).click()

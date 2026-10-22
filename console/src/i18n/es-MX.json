@@ -48,6 +48,7 @@
     "lists": "Listas",
     "privateLists": "Listas privadas",
     "ruleHits": "Hallazgos de reglas",
+    "monitoringRules": "Reglas de monitoreo",
     "screeningEvaluation": "Evaluación del motor",
     "screeningCheck": "Consulta ad hoc",
     "transactions": "Transacciones",
@@ -1803,6 +1804,220 @@
       "empty": "Esta transacción no está ligada a ningún hallazgo."
     }
   },
+  "rules": {
+    "title": "Reglas de monitoreo",
+    "description": "La biblioteca de tipologías y las reglas de esta institución: cada versión se ajusta dentro de sus límites, se simula y la aprueba otra persona antes de entrar en vigor.",
+    "tabs": {
+      "label": "Vista",
+      "library": "Biblioteca",
+      "tenant": "Reglas de la institución"
+    },
+    "create": "Crear regla",
+    "createFrom": "Crear regla desde {{code}}",
+    "creating": "Creando…",
+    "libraryEmpty": "La biblioteca de tipologías no está cargada.",
+    "empty": "Todavía no hay reglas. Crea una desde la biblioteca.",
+    "table": {
+      "rule": "Regla",
+      "kind": "Tipo",
+      "typology": "Tipología",
+      "sentence": "Qué detecta",
+      "libraryLabel": "Plantillas de la biblioteca",
+      "tenantLabel": "Reglas de la institución",
+      "latest": "Última versión",
+      "active": "En vigor",
+      "noActive": "Ninguna",
+      "simulation": "Última simulación",
+      "noSimulation": "Sin simular"
+    },
+    "filters": {
+      "status": "Estado de alguna versión",
+      "statusAll": "Todos"
+    },
+    "kind": {
+      "THRESHOLD": "Umbral",
+      "AGGREGATE": "Acumulado",
+      "STRUCTURING": "Estructuración",
+      "VELOCITY": "Velocidad",
+      "HIGH_RISK_JURISDICTION": "Jurisdicción de alto riesgo",
+      "PROFILE_DEVIATION": "Desviación del perfil",
+      "TIER_LIMIT": "Límite de nivel"
+    },
+    "status": {
+      "DRAFT": "Borrador",
+      "SIMULATED": "Simulada",
+      "IN_REVIEW": "En revisión",
+      "APPROVED": "Aprobada",
+      "ACTIVE": "Activa",
+      "RETIRED": "Retirada"
+    },
+    "simulationStatus": {
+      "QUEUED": "En cola",
+      "RUNNING": "En curso",
+      "COMPLETED": "Completada",
+      "FAILED": "Falló"
+    },
+    "keyKind": {
+      "PARTY": "Cliente",
+      "RELATIONSHIP": "Relación",
+      "ACCOUNT": "Cuenta",
+      "COUNTERPARTY": "Contraparte",
+      "DEVICE": "Dispositivo"
+    },
+    "editor": {
+      "title": "Versión {{version}}",
+      "description": "Ajusta los parámetros dentro de sus límites, el segmento, la severidad y la deduplicación. Guardar devuelve la versión a borrador.",
+      "readOnly": "Esta versión no se puede editar.",
+      "sentence": "Regla",
+      "params": "Parámetros",
+      "segment": "Segmento",
+      "segmentHint": "Códigos separados por comas. Vacío: la regla aplica a todos los clientes.",
+      "segmentField": {
+        "tier": "Niveles de cuenta",
+        "risk_rating": "Calificaciones de riesgo",
+        "monitoring_profile": "Perfiles de monitoreo"
+      },
+      "segmentPlaceholder": {
+        "tier": "p. ej. N1, N2",
+        "risk_rating": "p. ej. HIGH",
+        "monitoring_profile": "p. ej. RETAIL"
+      },
+      "severity": "Severidad",
+      "dedupKey": "Deduplicar por",
+      "dedupWindow": "Ventana de deduplicación",
+      "cooldown": "Enfriamiento",
+      "durationHint": "Duración ISO 8601 (P1D, P7D) o MONTH.",
+      "decimalHint": "Punto decimal (0.75); la coma solo agrupa miles (5,000).",
+      "save": "Guardar cambios",
+      "saving": "Guardando…",
+      "saved": "Versión guardada.",
+      "resets": "Un cambio borra la simulación: hay que simular de nuevo.",
+      "excludesApproval": "Si guardas un cambio, no podrás aprobar esta versión: la aprueba otra persona.",
+      "outOfBounds": "Fuera de los límites: {{bounds}}",
+      "invalid": {
+        "DECIMAL": "Escribe un número con punto decimal (la coma solo agrupa miles).",
+        "INT": "Escribe un número entero.",
+        "STR": "Este valor es obligatorio.",
+        "BOOL": "Elige sí o no."
+      }
+    },
+    "bound": {
+      "min": "mín. {{value}}",
+      "max": "máx. {{value}}",
+      "choices": "valores: {{values}}",
+      "tighten": {
+        "LOWER": "solo puede bajar",
+        "RAISE": "solo puede subir"
+      },
+      "source": "límites de {{source}}"
+    },
+    "simulation": {
+      "title": "Simulación",
+      "description": "Reproduce la versión sobre las transacciones ya procesadas, sin crear hallazgos. Una simulación completada cuenta 30 días para enviar y aprobar.",
+      "run": "Simular últimos 6 meses",
+      "saveFirst": "Guarda los cambios antes de simular: la simulación usa la versión guardada.",
+      "runRange": "Del {{start}} al {{end}}, días de la Ciudad de México.",
+      "queued": "Simulación en cola…",
+      "running": "Simulando…",
+      "stuck": "Si la simulación no avanza, pide otra: una simulación interrumpida no se reanuda.",
+      "failed": "La simulación falló. Pide otra simulación.",
+      "none": "Esta versión no se ha simulado.",
+      "otherDefinition": "Esta simulación es de otra definición de la versión: simula de nuevo antes de enviarla.",
+      "range": "Periodo",
+      "transactionsRead": "Transacciones leídas",
+      "hits": "Hallazgos",
+      "customers": "Clientes",
+      "age": "Vigencia",
+      "week": "Semana",
+      "hitsPerWeek": "Hallazgos por semana",
+      "noHits": "La simulación no produjo hallazgos.",
+      "overlap": {
+        "title": "Coincidencia con lo ya conocido",
+        "existing_hits": "Hallazgos existentes en la misma ventana",
+        "same_customers": "Clientes que ya tenían hallazgos",
+        "later_true_match": "Clientes confirmados después en screening"
+      },
+      "sample": "Muestra",
+      "sampleHint": "Solo identificadores. Esta información se descarta al salir de la página.",
+      "sampleParty": "Cliente",
+      "sampleTransaction": "Transacción disparadora",
+      "sampleDedup": "Llave de deduplicación",
+      "validUntil": "Válida hasta el {{date}}",
+      "expired": "Vencida el {{date}}",
+      "notes": {
+        "PROFILE_HISTORY_SHORT": "El periodo es menor a cuatro meses: la comparación con el historial del cliente no pudo disparar."
+      }
+    },
+    "action": {
+      "label": "Ciclo de vida",
+      "SUBMIT": "Enviar a revisión",
+      "APPROVE": "Aprobar",
+      "REJECT": "Rechazar",
+      "ACTIVATE": "Activar",
+      "RETIRE": "Retirar",
+      "running": "Enviando…",
+      "none": "No hay acciones disponibles para esta versión.",
+      "done": {
+        "SUBMIT": "Versión enviada a revisión.",
+        "APPROVE": "Versión aprobada.",
+        "REJECT": "Versión rechazada: vuelve a borrador.",
+        "ACTIVATE": "Versión activada.",
+        "RETIRE": "Versión retirada."
+      }
+    },
+    "blocked": {
+      "STATE": "La versión no está en el estado que esta acción requiere.",
+      "ROLE_REQUIRED": "Tu rol no permite esta acción.",
+      "NOT_AUTHOR": "Solo el autor de la versión puede enviarla.",
+      "SAME_AUTHOR": "El aprobador debe ser distinto del autor y de quien editó la versión.",
+      "SIMULATION_MISSING": "La versión necesita una simulación completada.",
+      "SIMULATION_STALE": "La simulación venció o es de otra definición: simula de nuevo.",
+      "PARAM_OUT_OF_BOUNDS": "Un parámetro quedó fuera de los límites de la plantilla."
+    },
+    "reject": {
+      "title": "Rechazar la versión",
+      "description": "La versión vuelve a borrador para que su autor la corrija.",
+      "reason": "Motivo",
+      "notStored": "Obligatorio, hasta 500 caracteres. El motivo no se guarda: la auditoría registra solo que se dio uno.",
+      "reasonRequired": "Escribe el motivo del rechazo."
+    },
+    "activate": {
+      "title": "Activar la versión",
+      "description": "La versión empieza a evaluar transacciones desde la fecha elegida y retira la versión que reemplaza.",
+      "effectiveFrom": "En vigor desde",
+      "effectiveFromHint": "Hoy o una fecha posterior (Ciudad de México).",
+      "product": "Producto",
+      "productHint": "Opcional. Vacío: aplica a todos los productos."
+    },
+    "retire": {
+      "title": "Retirar la versión",
+      "description": "La versión deja de evaluar transacciones a partir de hoy. Los hallazgos que ya produjo se conservan."
+    },
+    "versions": {
+      "title": "Versiones",
+      "description": "De la más reciente a la más antigua.",
+      "create": "Nueva versión",
+      "version": "v{{version}}",
+      "inForce": "En vigor"
+    },
+    "state": {
+      "title": "Estado de la versión",
+      "description": "Cuatro ojos: quien aprueba no puede ser quien escribió o editó la versión.",
+      "status": "Estado",
+      "submittedAt": "Enviada",
+      "approvedAt": "Aprobada",
+      "activatedAt": "Activada",
+      "retiredAt": "Retirada",
+      "assignment": "Asignación",
+      "assignmentText": "Del {{from}} al {{to}} · {{product}}",
+      "everyProduct": "todos los productos"
+    },
+    "detail": {
+      "title": "Regla",
+      "description": "Versiones, parámetros, simulación y ciclo de vida.",
+      "back": "Reglas"
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -1853,7 +2068,11 @@
     "TRANSACTION_FILE_TOO_LARGE": "El archivo supera el tamaño máximo permitido.",
     "TRANSACTION_FILE_INVALID": "El archivo no se pudo leer: revisa el formato y los encabezados.",
     "BACKFILL_RANGE_INVALID": "El rango de fechas del backfill no es válido.",
-    "RAIL_UNKNOWN": "Ese riel no existe."
+    "RAIL_UNKNOWN": "Ese riel no existe.",
+    "RULE_PARAM_OUT_OF_BOUNDS": "Un parámetro está fuera de los límites de su plantilla.",
+    "RULE_TRANSITION_NOT_ALLOWED": "Esta acción no está permitida para esta versión ahora.",
+    "SIMULATION_RANGE_TOO_LONG": "El periodo de la simulación es demasiado largo.",
+    "RULE_TEMPLATE_UNKNOWN": "No existe esa plantilla en la biblioteca."
   },
   "counterparties": {
     "title": "Contrapartes",
