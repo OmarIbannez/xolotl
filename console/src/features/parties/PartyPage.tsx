@@ -10,6 +10,7 @@ import { ErrorBlock, LoadingBlock } from '@/components/common/states'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { PartyHitsCard } from '@/features/hits/PartyHitsCard'
 import { PartyScreeningCard } from '@/features/screening/PartyScreeningCard'
 import { PartyTransactionsCard } from '@/features/transactions/PartyTransactionsCard'
 import { useFormat } from '@/i18n/use-locale'
@@ -97,6 +98,7 @@ function PartyDetail({ partyId }: { partyId: string }) {
         {hasRole(ACCESS.legalHold) && <LegalHoldCard partyId={partyId} legalHold={party.data.legal_hold} />}
         {hasRole(ACCESS.screening) && <PartyScreeningCard partyId={partyId} />}
         {hasRole(ACCESS.transactions) && <PartyTransactionsCard partyId={partyId} />}
+        {hasRole(ACCESS.monitoring) && <PartyHitsCard partyId={partyId} />}
         {staff && <PartyCollections party={staff} />}
       </div>
     )

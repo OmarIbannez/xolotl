@@ -812,6 +812,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/relationships/{relationship_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Patch Customer Relationship */
+        patch: operations["patch_customer_relationship"];
+        trace?: never;
+    };
     "/v1/lists": {
         parameters: {
             query?: never;
@@ -1376,6 +1393,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/profiles/{relationship_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Behaviour Profiles */
+        get: operations["behaviour_profiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/monitoring/hits": {
         parameters: {
             query?: never;
@@ -1828,6 +1862,36 @@ export interface components {
             transactions: {
                 [key: string]: components["schemas"]["JsonValue"];
             }[];
+        };
+        /**
+         * BehaviourProfileResponse
+         * @description One month of a relationship's behaviour profile (staff only, spec §13.3).
+         *
+         *     ``metrics`` holds MXN amounts as strings of minor units, counts and shares;
+         *     ``deviation`` the actual-over-declared ratios, null without a declaration.
+         */
+        BehaviourProfileResponse: {
+            /** Month */
+            month: string;
+            /** Metrics */
+            metrics: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Declared Profile */
+            declared_profile: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Deviation */
+            deviation: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Deviated */
+            deviated: boolean;
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
         };
         /**
          * BlockedReason
@@ -2298,6 +2362,10 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Declared Profile */
+            declared_profile?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
         };
         /**
          * CustomerRelationshipStatus
@@ -2335,6 +2403,29 @@ export interface components {
          * @enum {string}
          */
         Decision: "FALSE_POSITIVE" | "POSSIBLE_TRUE_MATCH" | "TRUE_MATCH" | "DELISTED" | "SUPERSEDED";
+        /**
+         * DeclaredProfile
+         * @description What the customer declared it would move in a month (SP-04 spec §13.3).
+         *
+         *     Amounts are MXN minor units: the pack's quote currency, so the monthly profile
+         *     compares them with no conversion (plan 4c Deviation 12). Staff set it until
+         *     onboarding fills it (SP-08).
+         */
+        DeclaredProfile: {
+            /** Monthly Inflow Minor */
+            monthly_inflow_minor: number;
+            /** Monthly Outflow Minor */
+            monthly_outflow_minor: number;
+            /**
+             * Currency
+             * @constant
+             */
+            currency: "MXN";
+            /** Expected Countries */
+            expected_countries?: string[];
+            /** Expected Instruments */
+            expected_instruments?: string[];
+        };
         /**
          * DeliveryStatus
          * @enum {string}
@@ -4325,6 +4416,13 @@ export interface components {
             account_tier?: string | null;
             /** Started At */
             started_at?: string | null;
+        };
+        /**
+         * RelationshipPatchRequest
+         * @description ``PATCH /v1/relationships/{id}``: null clears the declared profile.
+         */
+        RelationshipPatchRequest: {
+            declared_profile: components["schemas"]["DeclaredProfile"] | null;
         };
         /**
          * RelationshipType
@@ -7083,6 +7181,41 @@ export interface operations {
             };
         };
     };
+    patch_customer_relationship: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                relationship_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelationshipPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerRelationshipResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_lists: {
         parameters: {
             query?: never;
@@ -8213,6 +8346,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonitoringStatus"];
+                };
+            };
+        };
+    };
+    behaviour_profiles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                relationship_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BehaviourProfileResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
