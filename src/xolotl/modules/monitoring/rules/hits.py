@@ -79,6 +79,9 @@ def dedup_bucket(txn: EnrichedTransaction, dedup: Dedup) -> str:
         year, month = divmod(index - index % months, _MONTHS_PER_YEAR)
         return datetime(year, month + 1, 1, tzinfo=UTC).isoformat()
     span = timedelta(days=months * _DAYS_PER_MONTH + days)
+    if span <= timedelta(0):
+        # The validator refuses a zero window; a stored one buckets per instant.
+        return at.isoformat()
     return (at - (at - _ANCHOR) % span).isoformat()
 
 
@@ -119,21 +122,37 @@ def _of_key(firing: Firing, txn: EnrichedTransaction) -> ColumnElement[bool]:
 
 
 def evidence_transactions(
-    s: Session, rule: LoadedRule, firing: Firing, txn: EnrichedTransaction
-) -> list[Transaction]:
-    """List the window's processed transactions of the firing's key.
+    s: Session,
+    rule: LoadedRule,
+    firing: Firing,
+    txn: EnrichedTransaction,
+    *,
+    in_flight: Sequence[EnrichedTransaction] = (),
+) -> list[tuple[UUID, datetime]]:
+    """List the window's transactions of the firing's key.
 
     The window is ``evidence.transactions_window`` before ``txn.occurred_at``
     (the trigger itself excluded); rows must match ``evidence.transactions_where``.
+    They are the key's processed rows plus ``in_flight``: the row being
+    processed, not yet ``PROCESSED`` while a late row's re-evaluation runs.
 
     Returns:
-        Up to 500 rows, newest first; none when the rule names no window.
+        Up to 500 ``(id, occurred_at)`` pairs, newest first; none when the rule
+        names no window.
 
     """
     evidence = rule.definition.evidence
     if evidence.transactions_window is None:
         return []
     start = _evidence_start(evidence.transactions_window, txn.occurred_at)
+    pending = [
+        (item.occurred_at, item.id)
+        for item in in_flight
+        if item.id != txn.id
+        and start <= item.occurred_at <= txn.occurred_at
+        and item.key_for(firing.key_kind) == firing.key
+        and matches(evidence.transactions_where, item)
+    ]
     rows = s.scalars(
         select(Transaction)
         .where(
@@ -145,13 +164,14 @@ def evidence_transactions(
         )
         .order_by(Transaction.occurred_at.desc(), Transaction.id.desc())
     )
-    found: list[Transaction] = []
+    found: list[tuple[datetime, UUID]] = []
     for row in rows:
         if matches(evidence.transactions_where, enriched_from_row(row)):
-            found.append(row)
+            found.append((row.occurred_at, row.id))
             if len(found) == EVIDENCE_LIMIT:
                 break
-    return found
+    newest = sorted([*pending, *found], reverse=True)[:EVIDENCE_LIMIT]
+    return [(row_id, occurred_at) for occurred_at, row_id in newest]
 
 
 def link_transaction(
@@ -159,12 +179,17 @@ def link_transaction(
     hit_id: UUID,
     rows: Sequence[tuple[UUID, datetime]],
     role: HitTransactionRole,
-) -> None:
-    """Link transactions to a hit; a transaction already linked keeps its role."""
+) -> int:
+    """Link transactions to a hit; a transaction already linked keeps its role.
+
+    Returns:
+        How many links this call inserted.
+
+    """
     if not rows:
-        return
+        return 0
     tenant_id = bound_context(s).require_tenant_id()
-    _ = s.execute(
+    inserted = s.scalars(
         insert(RuleHitTransaction)
         .values([
             {
@@ -177,7 +202,9 @@ def link_transaction(
             for transaction_id, occurred_at in rows
         ])
         .on_conflict_do_nothing()
-    )
+        .returning(RuleHitTransaction.transaction_id)
+    ).all()
+    return len(inserted)
 
 
 def _existing(s: Session, rule: LoadedRule, dedup_key: str) -> UUID | None:
@@ -190,7 +217,11 @@ def _existing(s: Session, rule: LoadedRule, dedup_key: str) -> UUID | None:
 
 
 def _count_firing(s: Session, hit_id: UUID, txn: EnrichedTransaction) -> None:
-    link_transaction(s, hit_id, [(txn.id, txn.occurred_at)], HitTransactionRole.WINDOW)
+    # A transaction counts once: a re-evaluation or a replay of one already
+    # linked adds nothing (B7 review I1).
+    linked = [(txn.id, txn.occurred_at)]
+    if not link_transaction(s, hit_id, linked, HitTransactionRole.WINDOW):
+        return
     _ = s.execute(
         update(RuleHit)
         .where(RuleHit.id == hit_id)
@@ -247,8 +278,12 @@ def record_firing(
     *,
     txn: EnrichedTransaction,
     lists_hash: bytes,
+    in_flight: Sequence[EnrichedTransaction] = (),
 ) -> RuleHit | None:
     """Turn a firing into a hit, or into a link to the hit it repeats.
+
+    ``in_flight`` names the row being processed when ``txn`` is a later row
+    re-evaluated for it, so a new hit's evidence includes it (B7 review I2).
 
     Returns:
         The new hit, or None when the firing was linked to an existing hit
@@ -263,7 +298,7 @@ def record_firing(
         return None
     cooling = _cooling(s, rule, firing, txn)
     if cooling is not None:
-        link_transaction(
+        _ = link_transaction(
             s, cooling, [(txn.id, txn.occurred_at)], HitTransactionRole.COOLDOWN
         )
         return None
@@ -310,12 +345,14 @@ def record_firing(
         if winner is not None:
             _count_firing(s, winner, txn)
         return None
-    link_transaction(s, hit_id, [(txn.id, txn.occurred_at)], HitTransactionRole.TRIGGER)
-    window = evidence_transactions(s, rule, firing, txn)
-    link_transaction(
+    _ = link_transaction(
+        s, hit_id, [(txn.id, txn.occurred_at)], HitTransactionRole.TRIGGER
+    )
+    window = evidence_transactions(s, rule, firing, txn, in_flight=in_flight)
+    _ = link_transaction(
         s,
         hit_id,
-        [(row.id, row.occurred_at) for row in window],
+        window,
         HitTransactionRole.WINDOW,
     )
     hit = s.get_one(RuleHit, (bound_context(s).require_tenant_id(), hit_id))

@@ -12,6 +12,7 @@ from tests.modules.monitoring.rules.samples import definition, document
 from xolotl.modules.monitoring.aggregates.declarations import TxnFilter
 from xolotl.modules.monitoring.rules.definitions import (
     REQUIRED_PARAMS,
+    Dedup,
     HitOutcome,
     Param,
     RuleDefinition,
@@ -154,6 +155,18 @@ def test_conditions_name_declared_aggregates_and_params() -> None:
     data["aggregates"][0]["window"] = "P1M2D"
     with pytest.raises(ValidationError, match="months or days"):
         _ = _validate(data)
+
+
+def test_a_dedup_window_is_never_zero() -> None:
+    # A zero window has no bucket: processing would divide by it (B7 review I3).
+    for window in ("P0D", "P0M", "P0Y", "P0Y0M0D"):
+        with pytest.raises(ValidationError, match="dedup window"):
+            _ = Dedup(window=window)
+        data = document(RuleKind.THRESHOLD)
+        data["dedup"] = {"window": window}
+        with pytest.raises(ValidationError, match="dedup window"):
+            _ = _validate(data)
+    assert Dedup(window="P1D", cooldown="P0D").cooldown == "P0D"
 
 
 def test_durations_are_iso_or_the_calendar_month() -> None:

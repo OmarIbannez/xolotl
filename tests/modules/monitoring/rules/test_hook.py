@@ -45,7 +45,7 @@ from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import get_sessionmaker, tenant_session
-from xolotl.platform.events import is_staff_only
+from xolotl.platform.events import is_staff_only, registry
 from xolotl.platform.events.models import OutboxRow
 from xolotl.platform.jobs.queue import PostgresJobQueue
 
@@ -169,7 +169,12 @@ def no_hooks() -> Iterator[None]:
 
 
 @pytest.mark.usefixtures("no_hooks")
-def test_register_rules_marks_every_staff_only_type(queue: PostgresJobQueue):
+def test_register_rules_marks_every_staff_only_type(
+    queue: PostgresJobQueue, monkeypatch: pytest.MonkeyPatch
+):
+    # An empty registry, so only register_rules can mark the types (review M3).
+    monkeypatch.setattr(registry, "_staff_only", set[str]())
+    assert not is_staff_only(RULES_STAFF_ONLY_EVENT_TYPES[0])
     register_rules(queue=queue, screening_status=None)
     for event_type in RULES_STAFF_ONLY_EVENT_TYPES:
         assert is_staff_only(event_type)

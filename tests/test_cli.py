@@ -53,11 +53,13 @@ from tests.helpers import (
     wrapped_keys,
 )
 from tests.modules.monitoring import support as monitoring_support
+from tests.modules.monitoring.rules import hook_support
 from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
 from xolotl.modules.monitoring.enums import FileStatus, TransactionStatus
+from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.process.job import process_party
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
 from xolotl.modules.monitoring.txn import files
@@ -2330,6 +2332,39 @@ def test_monitoring_process_drains_a_party_and_reports_counts(
     assert every.stdout == (
         f"party {customer.party_id}: 1 processed, 1 parked (stopped at {parked})\n"
     )
+
+
+def test_monitoring_process_runs_the_rules_hook(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    stage = hook_support.build_stage(tenant, admin_engine, monkeypatch)
+    ref = "cust-n3"
+    _ = hook_support.add_relationship(tenant, ref, "N3")
+    # Nothing registered in this process: the command must wire the hook itself.
+    reset_processing_hooks()
+    try:
+        _ = hook_support.ingest(
+            stage,
+            [
+                hook_support.deposit(
+                    f"dep-{day}",
+                    hook_support.local(day),
+                    amount,
+                    customer_ref="cust-n3",
+                )
+                for day, amount in ((7, "3600.00"), (8, "3700.00"), (9, "3800.00"))
+            ],
+        )
+
+        result = runner.invoke(app, ["monitoring", "process", "--tenant", tenant.slug])
+
+        assert result.exit_code == 0, result.output
+        assert "3 processed" in result.stdout
+        assert [
+            hit.rule_code for hit in hook_support.hits(stage, hook_support.CASH)
+        ] == [hook_support.CASH]
+    finally:
+        reset_processing_hooks()
 
 
 # ---- monitoring ingest-file ----------------------------------------------------------

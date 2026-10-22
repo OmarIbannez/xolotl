@@ -98,6 +98,17 @@ def party_screening_status(s: Session, party_id: UUID) -> str | None:
     return None if status is None else status.value
 
 
+def register_processing(*, queue: PostgresJobQueue) -> None:
+    """Register what processing runs on each row beyond its aggregates.
+
+    ``wire_platform`` calls it, and so do the CLI commands that drain rows in
+    their own process (``monitoring process`` and ``monitoring backfill``), so a
+    row is evaluated the same way wherever it is processed. Plan 4b's captures
+    hook (B10) is registered from ``register_rules`` too.
+    """
+    register_rules(queue=queue, screening_status=party_screening_status)
+
+
 def build_object_store(settings: Settings) -> ObjectStore:
     """Pick the object store adapter that ``XOLOTL_OBJECT_STORE`` names.
 
@@ -211,7 +222,7 @@ def wire_platform(
     )
     # The rules' staff-only events and their processing hook, which reads the
     # party's screening status through screening's API.
-    register_rules(queue=queue, screening_status=party_screening_status)
+    register_processing(queue=queue)
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,

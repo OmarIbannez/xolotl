@@ -21,7 +21,12 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from xolotl.app import build_key_provider, build_object_store, build_worker
+from xolotl.app import (
+    build_key_provider,
+    build_object_store,
+    build_worker,
+    register_processing,
+)
 from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
 from xolotl.modules.monitoring.process.backfill import (
@@ -1608,6 +1613,8 @@ def monitoring_process(
         else:
             parties = [party]
         queue = PostgresJobQueue(factory)
+        # The rules hook, as the worker runs it.
+        register_processing(queue=queue)
         for party_id in parties:
             report = process_party(
                 factory,
@@ -1683,6 +1690,8 @@ def monitoring_backfill(
                 party_id=party,
                 queue=queue,
             )
+        # The rules hook, as the worker runs it.
+        register_processing(queue=queue)
         job = BackfillJob(session_factory=factory, queue=queue, settings=settings)
         report = job.backfill(tenant_id, payload, job=None, actor=actor)
     parties = "party" if report.parties == 1 else "parties"

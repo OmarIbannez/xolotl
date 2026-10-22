@@ -8,7 +8,8 @@ UTC week starting on Monday (7 to 13 December 2026) and the cooldown seven days.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, timedelta
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -16,8 +17,11 @@ from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from tests.helpers import everything_stored, system_ctx
+from tests.modules.monitoring.rules.conftest import enriched
 from tests.modules.monitoring.rules.hook_support import (
     CASH,
+    TIER_N1,
+    TRUE_MATCH,
     Stage,
     add_relationship,
     count_rows,
@@ -39,11 +43,17 @@ from xolotl.modules.monitoring.kinds import AGG_BACKFILL_KIND
 from xolotl.modules.monitoring.process.hooks import ProcessingContext
 from xolotl.modules.monitoring.process.job import process_party
 from xolotl.modules.monitoring.rules import hook as hook_module
-from xolotl.modules.monitoring.rules.assignments import RuleSet, active_rules
-from xolotl.modules.monitoring.rules.definitions import HitOutcome, Severity
-from xolotl.modules.monitoring.rules.hits import record_firing
+from xolotl.modules.monitoring.rules.assignments import (
+    LoadedRule,
+    RuleSet,
+    active_rules,
+)
+from xolotl.modules.monitoring.rules.definitions import Dedup, HitOutcome, Severity
+from xolotl.modules.monitoring.rules.evaluate import evaluate_rules
+from xolotl.modules.monitoring.rules.hits import dedup_bucket, record_firing
 from xolotl.modules.monitoring.rules.kinds import Firing
 from xolotl.modules.monitoring.rules.models import RuleHit, RuleHitTransaction
+from xolotl.modules.monitoring.txn import ingest as ingest_module
 from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
 from xolotl.platform.config import get_settings
@@ -199,8 +209,9 @@ def test_two_sessions_firing_at_once_create_one_hit(stage: Stage):
 
     assert sum(result is not None for result in results) == 1
     [hit] = hits(stage, CASH)
-    assert hit.fired_count == 2
-    assert len(links(stage, hit.id)) <= 2
+    # One transaction, linked once and counted once (B7 review I1).
+    assert hit.fired_count == 1
+    assert links(stage, hit.id) == {row_id: "TRIGGER"}
 
 
 @pytest.mark.usefixtures("n3")
@@ -276,6 +287,7 @@ def test_a_late_row_refires_nothing_already_recorded(
 ):
     _ = feed(stage, [*THREE, _near(4, 11, "3650.00")])
     [hit] = hits(stage, CASH)
+    assert hit.fired_count == 2
     returned: list[int] = []
     original = hook_module.reevaluate_later
 
@@ -295,3 +307,78 @@ def test_a_late_row_refires_nothing_already_recorded(
     assert [h.id for h in hits(stage, CASH)] == [hit.id]
     assert links(stage, hit.id)[late] == "WINDOW"
     assert len(events_of(stage.tenant_id, RULE_HIT_CREATED)) == 1
+    # The late row is one more transaction; re-evaluating the 11 December row,
+    # already linked, counts nothing (B7 review I1).
+    [after] = hits(stage, CASH)
+    assert after.fired_count == 3
+
+
+@pytest.mark.usefixtures("n3")
+def test_a_hit_found_by_re_evaluation_links_the_late_row(stage: Stage):
+    # 7 and 9 December are two near deposits: no hit. The 8 December one arrives
+    # on 12 December; on its own date it sees two, but the 9 December row now
+    # sees three and fires, and the late row is part of its evidence (review I2).
+    seventh, ninth = feed(stage, [THREE[0], THREE[2]])
+    assert hits(stage, CASH) == []
+
+    [eighth] = feed(stage, [THREE[1]], received=local(12))
+
+    [hit] = hits(stage, CASH)
+    assert hit.first_transaction_id == ninth
+    assert links(stage, hit.id) == {
+        ninth: "TRIGGER",
+        eighth: "WINDOW",
+        seventh: "WINDOW",
+    }
+    assert hit.fired_count == 1
+
+
+def test_a_zero_dedup_window_buckets_by_instant():
+    # The validator refuses a zero window; a stored one still never divides by it.
+    txn = enriched()
+    zero = Dedup.model_construct(window="P0D", cooldown="P0D", key=KeyKind.RELATIONSHIP)
+    assert dedup_bucket(txn, zero) == txn.occurred_at.astimezone(UTC).isoformat()
+
+
+@pytest.mark.usefixtures("n3")
+def test_re_evaluation_runs_only_the_rules_whose_reach_holds_the_late_row(
+    stage: Stage, monkeypatch: pytest.MonkeyPatch
+):
+    small = "100.00"
+    same, fifth, twentieth = feed(
+        stage,
+        [
+            deposit("same", local(2), small, customer_ref=REF, currency="MXN"),
+            deposit("fifth", local(5), small, customer_ref=REF, currency="MXN"),
+            deposit("twentieth", local(20), small, customer_ref=REF, currency="MXN"),
+        ],
+    )
+    seen: list[tuple[UUID, frozenset[str]]] = []
+
+    def spy(ruleset: RuleSet, **kwargs: Any) -> list[tuple[LoadedRule, Firing]]:
+        txn = kwargs["txn"]
+        assert isinstance(txn, EnrichedTransaction)
+        seen.append((txn.id, frozenset(r.rule_code for r in ruleset.rules)))
+        return evaluate_rules(ruleset, **kwargs)
+
+    monkeypatch.setattr(hook_module, "evaluate_rules", spy)
+    # Nineteen days late, yet processed rather than held for a backfill.
+    patient = get_settings().model_copy(update={"monitoring_late_days": 30})
+    monkeypatch.setattr(ingest_module, "get_settings", lambda: patient)
+    # Late: occurred at the same instant as "same", received on 21 December.
+    [late] = feed(
+        stage,
+        [deposit("late", local(2), small, customer_ref=REF, currency="MXN")],
+        received=local(21),
+    )
+
+    every = {CASH, TIER_N1, TRUE_MATCH}
+    assert seen[0] == (late, frozenset(every))
+    # The row at the late row's instant and the 5 December one are inside both
+    # reaches (CASH's seven days, TIER's month); the 20 December one only inside
+    # TIER's month. TRUE_MATCH reads no aggregate, so a late row never changes it.
+    assert seen[1:] == [
+        (same, frozenset({CASH, TIER_N1})),
+        (fifth, frozenset({CASH, TIER_N1})),
+        (twentieth, frozenset({TIER_N1})),
+    ]
