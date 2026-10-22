@@ -7,7 +7,7 @@ import esMX from '@/i18n/es-MX.json'
 import { json } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { neverScreened } from '@/features/screening/fixtures'
-import { fullStaffView, OTHER_PARTY, relationship, RFC, staffView } from './fixtures'
+import { customerRelationship, fullStaffView, OTHER_PARTY, relationship, RFC, staffView } from './fixtures'
 import { PartyPage } from './PartyPage'
 
 const text = esMX.parties
@@ -25,6 +25,7 @@ function setup(roles: Role[] = ['ANALYST'], view: PartyStaffResponse = fullStaff
         'GET /v1/parties/p1': () => json(view),
         'GET /v1/screening/parties/p1': () => json(neverScreened()),
         'GET /v1/transactions': () => json({ items: [], next_cursor: null }),
+        'GET /v1/monitoring/profiles/r1': () => json([]),
       },
     },
   )
@@ -115,5 +116,21 @@ describe('PartyCollections', () => {
     expect(within(await openTab(user, tabs.relationships)).getByText(text.relationships.empty)).toBeTruthy()
     expect(within(await openTab(user, tabs.documents)).getByText(text.documents.empty)).toBeTruthy()
     expect(within(await openTab(user, tabs.customer)).getByText(text.customer.empty)).toBeTruthy()
+  })
+
+  it('shows the behaviour profile of each opened customer relationship to every staff role', async () => {
+    const { user, fakeApi } = setup(['AUDITOR_RO'])
+
+    const profile = await openTab(user, tabs.profile)
+    expect(await within(profile).findByText(text.profile.title.replace('{{ref}}', 'CTA-0001'))).toBeTruthy()
+    expect(await within(profile).findByText(text.profile.empty)).toBeTruthy()
+    expect(fakeApi.calls('GET /v1/monitoring/profiles/r1')).toHaveLength(1)
+  })
+
+  it('says so when no customer relationship is opened yet', async () => {
+    const { user, fakeApi } = setup(['ANALYST'], staffView({ customer_relationships: [customerRelationship({ status: 'PENDING' })] }))
+
+    expect(within(await openTab(user, tabs.profile)).getByText(text.profile.noRelationships)).toBeTruthy()
+    expect(fakeApi.calls('GET /v1/monitoring/profiles/r1')).toHaveLength(0)
   })
 })

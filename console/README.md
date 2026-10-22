@@ -186,6 +186,8 @@ src/
   components/   ui/ (shadcn) · layout/ (AppShell, sidebar, header) · common/ (DataTable, CursorPager,
                 OneTimeSecretDialog, ConfirmDialog, CheckboxGroup, badges, ...)
   features/     auth/ · home/ · api-keys/ · staff/ · audit/ · security/
+                parties/ (the Perfil de comportamiento tab: BehaviourProfileCard, DeclaredProfileDialog) ·
+                rails/ (Admin › Rieles, /admin/rails, ADMIN) · ...
   i18n/         index.ts · es-MX.json · en.json · errors.ts · validation.ts · use-locale.ts
   lib/          clipboard.ts · format.ts · utils.ts
   test/         setup.ts · render.tsx · fake-api.ts · fake-network.ts · render-app.tsx · time-cells.ts
