@@ -451,8 +451,11 @@ def _against_declaration(
         if ctx.txn.direction is Direction.IN
         else declared.monthly_outflow_minor
     )
-    if monthly is None or monthly <= 0:
+    if monthly is None:
         return False
+    # Activity against a declared zero is unbounded deviation (plan 4c C8).
+    if monthly <= 0:
+        return mtd > 0
     return mtd / (Decimal(monthly) / _MINOR_PER_MAJOR) >= ratio
 
 

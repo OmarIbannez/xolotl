@@ -450,6 +450,23 @@ def test_profile_deviation_is_silent_without_a_declaration_and_history() -> None
     assert evaluate(definition, context(mtd, txn=outflow, who=who)) is None
 
 
+def test_profile_deviation_fires_on_activity_against_a_declared_zero() -> None:
+    # Declaring nothing in a direction and moving money in it is unbounded
+    # deviation (plan 4c C8 fix round, I-2); no activity there is none.
+    definition = rule(RuleKind.PROFILE_DEVIATION)
+    zero = profile(
+        declared_profile=DeclaredProfile(0, 10_000_000, "MXN"), history_months=2
+    )
+    some = {"mtd_in": value("0.01", count=1)}
+    assert evaluate(definition, context(some, who=zero)) is not None
+    none = {"mtd_in": value("0", count=0)}
+    assert evaluate(definition, context(none, who=zero)) is None
+    unset = profile(
+        declared_profile=DeclaredProfile(None, 10_000_000, "MXN"), history_months=2
+    )
+    assert evaluate(definition, context(some, who=unset)) is None
+
+
 def test_profile_deviation_compares_with_the_trailing_average() -> None:
     definition = rule(RuleKind.PROFILE_DEVIATION, on={})
     seasoned = profile(history_months=4)
