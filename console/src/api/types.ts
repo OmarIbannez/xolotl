@@ -172,11 +172,19 @@ export type ParkedInfo = Schemas['ParkedInfo']
 export type ParkReason = Schemas['ParkReason']
 /** A counterparty, masked: which values are on record, never the values themselves. */
 export type CounterpartySummary = Schemas['CounterpartySummary']
-export type RevealedCounterparty = Schemas['RevealedCounterparty']
-export type CounterpartyKind = Schemas['CounterpartyKind']
-export type CounterpartyScreeningStatus = Schemas['CounterpartyScreeningStatus']
 export type Instrument = Schemas['Instrument']
 export type Rail = Schemas['Rail']
+
+// Counterparties (SP-04 plan 4c, C3): masked rows and detail, and the audited reveal.
+export type CounterpartyKind = Schemas['CounterpartyKind']
+export type CounterpartyScreeningStatus = Schemas['CounterpartyScreeningStatus']
+/** A counterparty as the Contrapartes list shows it: initials and last-four tails only. */
+export type CounterpartyResponse = Schemas['CounterpartyResponse']
+/** A counterparty with its findings (links into the queue) and its last runs. */
+export type CounterpartyDetail = Schemas['CounterpartyDetail']
+/** A counterparty's values in plaintext; each one was audited as `VIEW_PII`. */
+export type RevealedCounterparty = Schemas['RevealedCounterparty']
+export type RunResponse = Schemas['RunResponse']
 
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).

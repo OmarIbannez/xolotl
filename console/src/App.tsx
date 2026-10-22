@@ -89,6 +89,20 @@ const router = createBrowserRouter([
                     lazy: () =>
                       import('@/features/screening/EvaluationPage').then((m) => ({ Component: m.EvaluationPage })),
                   },
+                  {
+                    path: '/counterparties',
+                    lazy: () =>
+                      import('@/features/counterparties/CounterpartiesPage').then((m) => ({
+                        Component: m.CounterpartiesPage,
+                      })),
+                  },
+                  {
+                    path: '/counterparties/:counterpartyId',
+                    lazy: () =>
+                      import('@/features/counterparties/CounterpartyPage').then((m) => ({
+                        Component: m.CounterpartyPage,
+                      })),
+                  },
                 ],
               },
               {

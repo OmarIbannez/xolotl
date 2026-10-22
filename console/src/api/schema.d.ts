@@ -1120,6 +1120,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/counterparties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Counterparties */
+        get: operations["list_counterparties"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/counterparties/{counterparty_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Counterparty */
+        get: operations["get_counterparty"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/counterparties/{counterparty_id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reveal Counterparty Endpoint */
+        get: operations["reveal_counterparty_endpoint"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/transactions": {
         parameters: {
             query?: never;
@@ -1947,10 +1998,123 @@ export interface components {
          */
         ConversionRule: "SAME_DAY" | "PRIOR_BANKING_DAY" | "LAST_DAY_PREV_MONTH" | "PREV_MONTH_AVG" | "SEMIANNUAL_SNAPSHOT";
         /**
+         * CounterpartyDetail
+         * @description A counterparty with its findings (newest first) and its last ten runs.
+         */
+        CounterpartyDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["CounterpartyKind"];
+            /** Has Name */
+            has_name: boolean;
+            /** Has Account */
+            has_account: boolean;
+            /** Has Wallet */
+            has_wallet: boolean;
+            /** Has Identifier */
+            has_identifier: boolean;
+            /** Institution */
+            institution: string | null;
+            /** Country */
+            country: string | null;
+            /** Wallet Network */
+            wallet_network: string | null;
+            screening_status: components["schemas"]["CounterpartyScreeningStatus"];
+            /** Txn Count */
+            txn_count: number;
+            /** Initials */
+            initials: string;
+            /** Account Masked */
+            account_masked: string | null;
+            /** Wallet Masked */
+            wallet_masked: string | null;
+            /** Identifier Masked */
+            identifier_masked: string | null;
+            /** Identifier Type */
+            identifier_type: string | null;
+            /** Screened At */
+            screened_at: string | null;
+            /** Subject Id */
+            subject_id: string | null;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Findings */
+            findings: components["schemas"]["MatchSummary"][];
+            /** Runs */
+            runs: components["schemas"]["RunResponse"][];
+        };
+        /**
          * CounterpartyKind
          * @enum {string}
          */
         CounterpartyKind: "PERSON" | "ORGANIZATION" | "UNKNOWN";
+        /**
+         * CounterpartyResponse
+         * @description A row of the Contrapartes list (plan 4c C3): the summary plus masked values.
+         *
+         *     ``initials`` and the ``*_masked`` tails are computed by decrypting for processing
+         *     (D6), never shown whole; ``initials`` is empty for a counterparty without a name.
+         */
+        CounterpartyResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["CounterpartyKind"];
+            /** Has Name */
+            has_name: boolean;
+            /** Has Account */
+            has_account: boolean;
+            /** Has Wallet */
+            has_wallet: boolean;
+            /** Has Identifier */
+            has_identifier: boolean;
+            /** Institution */
+            institution: string | null;
+            /** Country */
+            country: string | null;
+            /** Wallet Network */
+            wallet_network: string | null;
+            screening_status: components["schemas"]["CounterpartyScreeningStatus"];
+            /** Txn Count */
+            txn_count: number;
+            /** Initials */
+            initials: string;
+            /** Account Masked */
+            account_masked: string | null;
+            /** Wallet Masked */
+            wallet_masked: string | null;
+            /** Identifier Masked */
+            identifier_masked: string | null;
+            /** Identifier Type */
+            identifier_type: string | null;
+            /** Screened At */
+            screened_at: string | null;
+            /** Subject Id */
+            subject_id: string | null;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+        };
         /**
          * CounterpartyScreeningStatus
          * @enum {string}
@@ -2614,6 +2778,8 @@ export interface components {
             kind: components["schemas"]["SubjectKind"];
             /** Party Id */
             party_id: string | null;
+            /** Counterparty Id */
+            counterparty_id: string | null;
             /** Entity Type */
             entity_type: string;
             /** Initials */
@@ -2635,6 +2801,8 @@ export interface components {
             subject_id: string;
             /** Party Id */
             party_id: string | null;
+            /** Counterparty Id */
+            counterparty_id: string | null;
             subject: components["schemas"]["MaskedSubject"];
             /** List Code */
             list_code: string;
@@ -2709,6 +2877,8 @@ export interface components {
             subject_id: string;
             /** Party Id */
             party_id: string | null;
+            /** Counterparty Id */
+            counterparty_id: string | null;
             subject: components["schemas"]["MaskedSubject"];
             /** List Code */
             list_code: string;
@@ -2952,6 +3122,13 @@ export interface components {
         Page_BranchResponse_: {
             /** Items */
             items: components["schemas"]["BranchResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[CounterpartyResponse] */
+        Page_CounterpartyResponse_: {
+            /** Items */
+            items: components["schemas"]["CounterpartyResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -7116,6 +7293,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluationReportResponse"];
+                };
+            };
+        };
+    };
+    list_counterparties: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["CounterpartyScreeningStatus"] | null;
+                kind?: components["schemas"]["CounterpartyKind"] | null;
+                seen_after?: string | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_CounterpartyResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_counterparty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                counterparty_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CounterpartyDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reveal_counterparty_endpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                counterparty_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevealedCounterparty"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

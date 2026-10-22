@@ -49,7 +49,8 @@
     "privateLists": "Private lists",
     "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check",
-    "transactions": "Transactions"
+    "transactions": "Transactions",
+    "counterparties": "Counterparties"
   },
   "header": {
     "tenant": "Workspace",
@@ -1081,7 +1082,8 @@
         "band": "Band",
         "score": "Score",
         "status": "Status",
-        "createdAt": "Created"
+        "createdAt": "Created",
+        "counterparty": "Counterparty"
       }
     },
     "band": {
@@ -1191,7 +1193,8 @@
       "timelineEmpty": "No decisions yet.",
       "decidedBy": "Decided by",
       "system": "System",
-      "staffMember": "Staff"
+      "staffMember": "Staff",
+      "openCounterparty": "Open counterparty"
     },
     "decision": {
       "FALSE_POSITIVE": "False positive",
@@ -1577,5 +1580,73 @@
     "TRANSACTION_FILE_TOO_LARGE": "The file exceeds the maximum size allowed.",
     "TRANSACTION_FILE_INVALID": "The file could not be read: check its format and headers.",
     "BACKFILL_RANGE_INVALID": "The backfill date range is not valid."
+  },
+  "counterparties": {
+    "title": "Counterparties",
+    "description": "The other side of each transaction, masked, with its screening status. Open one to see its findings.",
+    "empty": "No counterparties with this status.",
+    "unnamed": "No name",
+    "tabs": {
+      "label": "Status",
+      "PENDING_REVIEW": "Pending review",
+      "TRUE_MATCH": "Confirmed match",
+      "CLEAR": "No alert",
+      "UNSCREENED": "Not screened"
+    },
+    "status": {
+      "UNSCREENED": "Not screened",
+      "CLEAR": "No alert",
+      "PENDING_REVIEW": "Pending review",
+      "TRUE_MATCH": "Confirmed match"
+    },
+    "kind": {
+      "PERSON": "Person",
+      "ORGANIZATION": "Organization",
+      "UNKNOWN": "Unspecified"
+    },
+    "table": {
+      "label": "Counterparties",
+      "name": "Name",
+      "kind": "Kind",
+      "country": "Country",
+      "institution": "Institution",
+      "value": "Account or wallet",
+      "accountPrefix": "Account",
+      "walletPrefix": "Wallet",
+      "status": "Status",
+      "firstSeen": "First seen",
+      "lastSeen": "Last seen",
+      "transactions": "Transactions"
+    },
+    "detail": {
+      "title": "Counterparty detail",
+      "back": "Counterparties",
+      "card": "Counterparty",
+      "account": "Account",
+      "wallet": "Wallet",
+      "identifier": "Identifier",
+      "screenedAt": "Last screened",
+      "findings": "Findings",
+      "findingsEmpty": "This counterparty has no findings."
+    },
+    "runs": {
+      "title": "Screenings",
+      "createdAt": "Date",
+      "run": "Screening",
+      "outcome": "Outcome",
+      "empty": "This counterparty has not been screened."
+    },
+    "reveal": {
+      "title": "Personal data",
+      "button": "Reveal",
+      "running": "Revealing…",
+      "hide": "Hide",
+      "notice": "This lookup was recorded in the audit log.",
+      "name": "Name",
+      "account": "Account",
+      "wallet": "Wallet",
+      "identifier": "Identifier",
+      "empty": "No personal data to show."
+    }
   }
 }

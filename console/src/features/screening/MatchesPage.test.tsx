@@ -104,6 +104,37 @@ describe('MatchesPage', () => {
     )
   })
 
+  it('marks a counterparty finding with a Contraparte chip', async () => {
+    setup({
+      [MATCHES]: () =>
+        json({
+          items: [
+            matchSummary({
+              id: 'm5',
+              party_id: null,
+              counterparty_id: 'c1',
+              subject: maskedSubject({
+                kind: 'COUNTERPARTY',
+                party_id: null,
+                counterparty_id: 'c1',
+                initials: 'WALLET',
+                identifiers: ['DIGITAL_CURRENCY_ADDRESS ****mcfd'],
+              }),
+            }),
+          ],
+          next_cursor: null,
+        }),
+    })
+
+    const table = await loadedTable()
+
+    const [, row] = within(table).getAllByRole('row')
+    expect(within(row as HTMLElement).getByRole('link', { name: 'WALLET' }).getAttribute('href')).toBe('/screening/matches/m5')
+    expect(within(row as HTMLElement).getByText(text.matches.table.counterparty)).toBeTruthy()
+    expect(within(row as HTMLElement).getByText('DIGITAL_CURRENCY_ADDRESS ****mcfd')).toBeTruthy()
+    expect(within(row as HTMLElement).queryByText(text.matches.table.party)).toBeNull()
+  })
+
   it('sends the status, list kind, list code and age filters', async () => {
     const { user, fakeApi } = setup()
     await loadedTable()
