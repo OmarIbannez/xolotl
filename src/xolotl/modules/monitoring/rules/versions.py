@@ -521,19 +521,18 @@ def create_rule(
     return _first_version(s, rule, definition, author_id=author_id, template=template)
 
 
-def create_custom_rule(
-    s: Session, *, definition: RuleDefinition
-) -> MonitoringRuleVersion:
-    """Create a rule from a bare kind, without a template (spec §21 Q2).
+def require_custom_author(s: Session) -> UUID:
+    """Check that custom rules are enabled and the actor is an ADMIN.
+
+    The API checks this before it reads the definition, so a refused author
+    learns nothing about the document's validity.
 
     Returns:
-        Version 1 of the new rule, ``DRAFT``, with no template.
+        The actor's id.
 
     Raises:
-        ValidationFailedError: When custom rules are disabled, the definition is
-            not an ALERT rule or its declarations disagree with its parameters.
+        ValidationFailedError: When custom rules are disabled.
         ForbiddenError: When the actor is not an ADMIN (``ROLE_FORBIDDEN``).
-        DomainError: When the tenant already has a rule with the code.
 
     """
     if not get_settings().monitoring_allow_custom_rules:
@@ -543,6 +542,25 @@ def create_custom_rule(
     if Role.ADMIN not in ctx.roles:
         msg = "only an admin authors a custom rule"
         raise ForbiddenError(msg, code="ROLE_FORBIDDEN")
+    return UUID(ctx.actor_id)
+
+
+def create_custom_rule(
+    s: Session, *, definition: RuleDefinition
+) -> MonitoringRuleVersion:
+    """Create a rule from a bare kind, without a template (spec §21 Q2).
+
+    Returns:
+        Version 1 of the new rule, ``DRAFT``, with no template.
+
+    Raises:
+        ValidationFailedError: When the definition is not an ALERT rule or its
+            declarations disagree with its parameters (``require_custom_author``
+            refuses a disabled flag or a non-ADMIN first).
+        DomainError: When the tenant already has a rule with the code.
+
+    """
+    author_id = require_custom_author(s)
     if definition.family is not RuleFamily.ALERT:
         msg = "a custom rule is an ALERT rule"
         raise ValidationFailedError(msg)
@@ -550,7 +568,6 @@ def create_custom_rule(
     if problem is not None:
         msg = f"rule {definition.code!r}: {problem}"
         raise ValidationFailedError(msg)
-    author_id = UUID(ctx.actor_id)
     rule = None
     if _rule_by_code(s, definition.code) is None:
         rule = _new_rule(s, definition, author_id=author_id, template=None)
