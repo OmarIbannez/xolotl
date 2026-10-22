@@ -767,3 +767,66 @@ class RejectRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=1, max_length=500)
+
+
+class RuleMetrics(BaseModel):
+    """One rule version's hits of the month (spec §13.2, OPS-503).
+
+    The time to hit is ``created_at - first_occurred_at`` in seconds.
+    """
+
+    rule_version_id: UUID
+    rule_code: str
+    version: int
+    typology: list[str]
+    hits: int
+    parties_hit: int
+    hits_by_severity: dict[Severity, int]
+    median_seconds_to_hit: Decimal | None
+    p95_seconds_to_hit: Decimal | None
+
+
+class CaptureMetrics(BaseModel):
+    """A report code's captures for one period that overlaps the month (OPS-504).
+
+    ``captured`` counts the live events (``CAPTURED``, ``INCLUDED``);
+    ``reconciled_count`` is what the period close expected, null until every
+    capture code of the report code has closed that period; ``discrepancies``
+    counts the transactions the closes found missing or extra.
+    """
+
+    report_code: str
+    period_key: str
+    captured: int
+    reconciled_count: int | None
+    discrepancies: int
+
+
+class DecisionMetrics(BaseModel):
+    """The month's synchronous decisions (OPS-502); latencies in milliseconds."""
+
+    count: int
+    p50_ms: int | None
+    p95_ms: int | None
+    p99_ms: int | None
+    fail_open: int
+    fail_closed: int
+
+
+class MetricsResponse(BaseModel):
+    """Effectiveness metrics of a Mexico City month, computed on read (staff only).
+
+    ``typology_coverage`` counts the rules in force on the month's last day (or
+    today, if earlier) per typology tag. The case rates are null until SP-06.
+    """
+
+    period: str
+    hits: int
+    parties_hit: int
+    hits_by_severity: dict[Severity, int]
+    typology_coverage: dict[str, int]
+    rules: list[RuleMetrics]
+    captures: list[CaptureMetrics]
+    decisions: DecisionMetrics
+    alert_to_case_rate: None = None
+    case_to_report_rate: None = None

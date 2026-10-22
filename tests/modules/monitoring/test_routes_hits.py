@@ -304,7 +304,7 @@ def test_a_partys_hits_are_listed_on_the_party(client: TestClient, scenario: Sce
     assert client.get(f"/v1/parties/{uuid7()}/hits", headers=admin).status_code == 404
 
 
-def _declared_scopes(app: FastAPI) -> set[str]:
+def declared_scopes(app: FastAPI) -> set[str]:
     scopes: set[str] = set()
     for context in iter_route_contexts(app.routes):
         if not isinstance(context.original_route, APIRoute):
@@ -324,7 +324,7 @@ def test_hits_are_staff_only_and_hidden_from_api_clients(
 ):
     tenant_id = scenario.tenant.tenant_id
     every_scope = machine_headers(
-        scenario.tenant, *sorted(_declared_scopes(app) | set(EXTRA_SCOPES))
+        scenario.tenant, *sorted(declared_scopes(app) | set(EXTRA_SCOPES))
     )
     before = _audit_count(tenant_id)
     for path in _hit_routes(scenario):

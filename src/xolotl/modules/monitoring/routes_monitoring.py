@@ -4,7 +4,9 @@
 held rows of a range of Mexico City days; ``GET /v1/monitoring/status`` (ADMIN) reads
 the processing counters. Both are staff only. Plan 4c appends ``GET /metrics`` (C6)
 and ``GET /profiles/{relationship_id}`` (C8): a relationship's last twelve
-behaviour profiles, newest first, for every staff role and no API key.
+behaviour profiles, newest first, for every staff role and no API key. The
+metrics of a month name rules and count hits and captures, so they are for every
+staff role and no API key either (tipping-off, D20; plan 4c Deviation 15).
 """
 
 from typing import Annotated
@@ -15,10 +17,12 @@ from fastapi import Depends, Request
 from xolotl.modules.monitoring.process import status
 from xolotl.modules.monitoring.process.backfill import request_backfill
 from xolotl.modules.monitoring.profiles.job import recent_profiles
+from xolotl.modules.monitoring.profiles.metrics import metrics_for_period
 from xolotl.modules.monitoring.schemas import (
     BackfillAccepted,
     BackfillRequest,
     BehaviourProfileResponse,
+    MetricsResponse,
     MonitoringStatus,
 )
 from xolotl.platform import clock
@@ -75,3 +79,19 @@ def behaviour_profiles(
         BehaviourProfileResponse.model_validate(row)
         for row in recent_profiles(session, relationship_id)
     ]
+
+
+@router.get("/metrics")
+def get_monitoring_metrics(
+    period: str,
+    _staff: StaffReader,
+    session: SessionDep,
+    rule_version_id: UUID | None = None,
+) -> MetricsResponse:
+    """Compute the effectiveness metrics of a Mexico City month (``YYYY-MM``).
+
+    Returns:
+        The month's hits, typology coverage, captures and decision latencies.
+
+    """
+    return metrics_for_period(session, period=period, rule_version_id=rule_version_id)

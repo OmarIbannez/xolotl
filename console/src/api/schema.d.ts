@@ -1444,6 +1444,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Monitoring Metrics
+         * @description Compute the effectiveness metrics of a Mexico City month (``YYYY-MM``).
+         *
+         *     Returns:
+         *         The month's hits, typology coverage, captures and decision latencies.
+         */
+        get: operations["get_monitoring_metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/monitoring/hits": {
         parameters: {
             query?: never;
@@ -2409,6 +2432,27 @@ export interface components {
             source: string;
         };
         /**
+         * CaptureMetrics
+         * @description A report code's captures for one period that overlaps the month (OPS-504).
+         *
+         *     ``captured`` counts the live events (``CAPTURED``, ``INCLUDED``);
+         *     ``reconciled_count`` is what the period close expected, null until every
+         *     capture code of the report code has closed that period; ``discrepancies``
+         *     counts the transactions the closes found missing or extra.
+         */
+        CaptureMetrics: {
+            /** Report Code */
+            report_code: string;
+            /** Period Key */
+            period_key: string;
+            /** Captured */
+            captured: number;
+            /** Reconciled Count */
+            reconciled_count: number | null;
+            /** Discrepancies */
+            discrepancies: number;
+        };
+        /**
          * CapturePeriodQuery
          * @description The filters of ``GET /v1/monitoring/captures/periods``.
          */
@@ -2970,6 +3014,24 @@ export interface components {
             decided_at: string;
             /** External Id */
             external_id: string;
+        };
+        /**
+         * DecisionMetrics
+         * @description The month's synchronous decisions (OPS-502); latencies in milliseconds.
+         */
+        DecisionMetrics: {
+            /** Count */
+            count: number;
+            /** P50 Ms */
+            p50_ms: number | null;
+            /** P95 Ms */
+            p95_ms: number | null;
+            /** P99 Ms */
+            p99_ms: number | null;
+            /** Fail Open */
+            fail_open: number;
+            /** Fail Closed */
+            fail_closed: number;
         };
         /**
          * DecisionMode
@@ -4096,6 +4158,38 @@ export interface components {
             must_change_password: boolean;
             /** Totp Enabled */
             totp_enabled: boolean;
+        };
+        /**
+         * MetricsResponse
+         * @description Effectiveness metrics of a Mexico City month, computed on read (staff only).
+         *
+         *     ``typology_coverage`` counts the rules in force on the month's last day (or
+         *     today, if earlier) per typology tag. The case rates are null until SP-06.
+         */
+        MetricsResponse: {
+            /** Period */
+            period: string;
+            /** Hits */
+            hits: number;
+            /** Parties Hit */
+            parties_hit: number;
+            /** Hits By Severity */
+            hits_by_severity: {
+                [key: string]: number;
+            };
+            /** Typology Coverage */
+            typology_coverage: {
+                [key: string]: number;
+            };
+            /** Rules */
+            rules: components["schemas"]["RuleMetrics"][];
+            /** Captures */
+            captures: components["schemas"]["CaptureMetrics"][];
+            decisions: components["schemas"]["DecisionMetrics"];
+            /** Alert To Case Rate */
+            alert_to_case_rate?: null;
+            /** Case To Report Rate */
+            case_to_report_rate?: null;
         };
         /** MfaRequired */
         MfaRequired: {
@@ -5480,6 +5574,37 @@ export interface components {
          * @enum {string}
          */
         RuleKind: "THRESHOLD" | "AGGREGATE" | "STRUCTURING" | "VELOCITY" | "HIGH_RISK_JURISDICTION" | "PROFILE_DEVIATION" | "TIER_LIMIT";
+        /**
+         * RuleMetrics
+         * @description One rule version's hits of the month (spec §13.2, OPS-503).
+         *
+         *     The time to hit is ``created_at - first_occurred_at`` in seconds.
+         */
+        RuleMetrics: {
+            /**
+             * Rule Version Id
+             * Format: uuid
+             */
+            rule_version_id: string;
+            /** Rule Code */
+            rule_code: string;
+            /** Version */
+            version: number;
+            /** Typology */
+            typology: string[];
+            /** Hits */
+            hits: number;
+            /** Parties Hit */
+            parties_hit: number;
+            /** Hits By Severity */
+            hits_by_severity: {
+                [key: string]: number;
+            };
+            /** Median Seconds To Hit */
+            median_seconds_to_hit: string | null;
+            /** P95 Seconds To Hit */
+            p95_seconds_to_hit: string | null;
+        };
         /**
          * RuleQuery
          * @description The filters of ``GET /v1/monitoring/rules``.
@@ -9680,6 +9805,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BehaviourProfileResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_monitoring_metrics: {
+        parameters: {
+            query: {
+                period: string;
+                rule_version_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricsResponse"];
                 };
             };
             /** @description Validation Error */
