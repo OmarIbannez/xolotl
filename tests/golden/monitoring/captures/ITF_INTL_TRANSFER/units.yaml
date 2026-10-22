@@ -1,0 +1,21 @@
+# The unit rows of the golden week, 7 to 13 December 2026 (fixture values, plan
+# 4b B10): USD_MXN_FIX on the banking days only (no row for Saturday 12 and
+# Sunday 13 December), UDI every day and on 30 November (the tier limits' last day
+# of the previous month), and the 2026 UMA.
+fetched_at: "2026-12-14T12:00:00+00:00"
+rows:
+  - {unit_code: UMA, valid_from: 2026-02-01, valid_to: 2027-01-31, value: "117.31"}
+  - {unit_code: UDI, valid_from: 2026-11-30, value: "8.600000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-04, value: "18.0500"}
+  - {unit_code: UDI, valid_from: 2026-12-07, value: "8.610000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-07, value: "18.1000"}
+  - {unit_code: UDI, valid_from: 2026-12-08, value: "8.611000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-08, value: "18.1200"}
+  - {unit_code: UDI, valid_from: 2026-12-09, value: "8.612000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-09, value: "18.1500"}
+  - {unit_code: UDI, valid_from: 2026-12-10, value: "8.613000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-10, value: "18.2000"}
+  - {unit_code: UDI, valid_from: 2026-12-11, value: "8.614000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-11, value: "18.0000"}
+  - {unit_code: UDI, valid_from: 2026-12-12, value: "8.615000"}
+  - {unit_code: UDI, valid_from: 2026-12-13, value: "8.616000"}

@@ -1,0 +1,9 @@
+# Crypto operations with fees of a CRYPTO customer. avb-1 is 255.73 UMA with a fee
+# of exactly 4 UMA (469.24 pesos at 117.31): both captures fire and only the
+# AVI_XVI_A event is written, naming AVI_XVI_B (one aviso). avb-2 is below 210
+# UMA with a fee of 4.26 UMA: the fee capture is written on its own.
+relationships:
+  - {ref: crypto-1, product: CRYPTO}
+items:
+  - {external_id: avb-1, occurred_at: "2026-12-09T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "30000.00", fee_amount: "469.24", currency: MXN, channel: APP, crypto: {network: ethereum, asset_code: ETH, asset_qty: "0.5"}}
+  - {external_id: avb-2, occurred_at: "2026-12-10T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "1000.00", fee_amount: "500.00", currency: MXN, channel: APP, crypto: {network: ethereum, asset_code: ETH, asset_qty: "0.02"}}

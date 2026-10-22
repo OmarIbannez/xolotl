@@ -1,0 +1,288 @@
+events:
+- transaction: avi-07
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-07
+  capture_group: G1
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 400000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0030000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-07
+      QUARTER: 2026-Q3
+    counterparty: null
+    operation_date: '2026-07-15'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-07-15'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '34.097690'
+      resolved_date: '2026-07-15'
+      unit_value_id: UMA 2026-02-01
+- transaction: avi-08
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-08
+  capture_group: G1
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 400000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0030000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-08
+      QUARTER: 2026-Q3
+    counterparty: null
+    operation_date: '2026-08-14'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-08-14'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '34.097690'
+      resolved_date: '2026-08-14'
+      unit_value_id: UMA 2026-02-01
+- transaction: avi-09
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-09
+  capture_group: G1
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 400000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0030000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-09
+      QUARTER: 2026-Q3
+    counterparty: null
+    operation_date: '2026-09-15'
+    operation_type: COMPRA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-09-15'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '34.097690'
+      resolved_date: '2026-09-15'
+      unit_value_id: UMA 2026-02-01
+- transaction: avi-10
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-10
+  capture_group: G1
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 400000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0030000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-10
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-10-15'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-10-15'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '34.097690'
+      resolved_date: '2026-10-15'
+      unit_value_id: UMA 2026-02-01
+- transaction: avi-11
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-11
+  capture_group: G1
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 400000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0030000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-11
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-11-18'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-11-18'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '34.097690'
+      resolved_date: '2026-11-18'
+      unit_value_id: UMA 2026-02-01
+- transaction: avi-12
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-12
+  capture_group: G1
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 500000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0040000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-09'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-12-09'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '42.622112'
+      resolved_date: '2026-12-09'
+      unit_value_id: UMA 2026-02-01
+groups:
+- group: G1
+  capture_code: AVI_XVI_A
+  status: CROSSED
+  period_key: 2026-07
+  window_start: '2026-07-15T06:00:00+00:00'
+  window_end: '2027-01-15T06:00:00+00:00'
+  threshold_crossed_at: '2026-12-09T16:00:00+00:00'
+  accumulated_minor: 2500000
+  accumulated_unit: '213.110562'
+  superseded_by: null

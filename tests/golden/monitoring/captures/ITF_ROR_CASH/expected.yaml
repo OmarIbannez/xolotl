@@ -1,0 +1,88 @@
+events:
+- transaction: ror-1
+  capture_code: ITF_ROR_CASH
+  capture_kind: THRESHOLD
+  report_code: MX_F41_ROR
+  period_key: 2026-Q4
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 500000
+      currency: USD
+    branch: '0000'
+    crypto: null
+    locality: null
+    instrument: '01'
+    account_ref: acct-1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-13'
+    operation_type: '01'
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: PRIOR_BANKING_DAY
+      amount: '90000.00'
+      currency: MXN
+      resolved_date: '2026-12-11'
+      unit_value_id: USD_MXN_FIX 2026-12-11
+    threshold:
+      unit: USD
+      amount: '5000'
+    transaction:
+      unit: USD
+      amount: '5000.00'
+      resolved_date: '2026-12-13'
+      unit_value_id: null
+- transaction: ror-3
+  capture_code: ITF_ROR_CASH
+  capture_kind: THRESHOLD
+  report_code: MX_F41_ROR
+  period_key: 2026-Q4
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 9000000
+      currency: MXN
+    branch: '0000'
+    crypto: null
+    locality: null
+    instrument: '01'
+    account_ref: acct-1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-13'
+    operation_type: '02'
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: PRIOR_BANKING_DAY
+      amount: '90000.00'
+      currency: MXN
+      resolved_date: '2026-12-11'
+      unit_value_id: USD_MXN_FIX 2026-12-11
+    threshold:
+      unit: USD
+      amount: '5000'
+    transaction:
+      unit: USD
+      amount: '5000.000000'
+      resolved_date: '2026-12-11'
+      unit_value_id: USD_MXN_FIX 2026-12-11
+groups: []

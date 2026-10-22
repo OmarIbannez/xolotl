@@ -158,15 +158,13 @@ request (audited).
   `/simulations`, `/assignments`) and the CLI (`xolotl rules ...`); no console
   screen yet.
 - **Rule screens:** the rule editor and simulation pages.
-- **Regulatory captures and period close** (Formato 41 and avisos).
+- **Regulatory captures:** each transaction a report must carry (Formato 41 and
+  avisos) is recorded as it is processed; the period close, its API and the
+  Capturas y límites page come next.
 - **The real-time decide endpoint** for payment rails (`POST
-  /v1/transactions/decide`, in review); the per-rail fail-mode settings API
-  (`/v1/monitoring/rails`) already exists.
-- **Behaviour profiles** per customer (in review): the monthly job, the declared
-  profile (`PATCH /v1/relationships/{id}`) and the profiles API exist; the console tab
-  does not yet.
+  /v1/transactions/decide`), with per-rail fail-mode settings
+  (`/v1/monitoring/rails`).
 - **Effectiveness metrics** for screening and monitoring.
-- **Retention of monitoring data** (in review).
 
 ## Status
 
@@ -943,6 +941,38 @@ lists their hits. There is no disposition in SP-04: hits become alerts later.
 | `GET /v1/monitoring/hits/{id}/transactions` | staff | every transaction linked to the hit (trigger, window and cooldown links), newest first, with cursor pages |
 | `GET /v1/monitoring/hits/{id}/reveal` | staff | the party's personal values and, in plaintext, the counterparties of the transactions the detail shows; `VIEW_PII` on the hit per group (`party`, `counterparties`), then the party and counterparty rows, all before decryption |
 | `GET /v1/parties/{id}/hits` | staff | the party's hits, newest first |
+
+### Captures
+
+A capture is the legal fact "this transaction must appear in report R for period
+P", recorded whether or not anything looks suspicious, so it never opens a hit and
+never reaches an API client or a webhook. Captures are policy, not rules: each
+capture of the transaction's policy snapshot (`ITF_ROR_CASH`, `ITF_FX_CASH`,
+`ITF_INTL_TRANSFER`, `ITF_VA_OPS` under ITF; `AVI_XVI_A`, `AVI_XVI_B` under AVI)
+brings its threshold, unit, conversion rule, window and period, and
+`captures/triggers.yaml` says which transactions it looks at (cash, cash foreign
+exchange, cross-border transfers, crypto). Processing runs them after the rules, in
+the row's database transaction: a transaction at or above the threshold in the
+threshold's unit (USD at the prior banking day's FIX, UDI or UMA on the day) gets a
+`reportable_event` with its period key (`2026-12` or `2026-Q4`), pre-mapped report
+fields (codes from the report's field map in `captures/field_maps/`, amounts, the
+account reference, the counterparty's country, never a name, account or wallet) and
+the unit values on both sides of the comparison. A fee capture compares the fee.
+
+An accumulation capture (`AVI_XVI_A`, 210 UMA over six months from the first
+operation) adds a relationship's operations below the threshold in a
+`capture_group`; when the group crosses, every operation in it is captured, each
+with its own month, and later operations of the window as they arrive. An operation
+that also triggers a capture merging into it (`AVI_XVI_B`, a fee of 4 UMA or more)
+yields one event naming both. A late operation that moves a group's window
+earlier or its crossing point groups the relationship's operations again, in
+order, as processing in order would have: replaced groups are superseded, the
+events of every group that crosses are captured again in place (one row per
+transaction and capture) and published as superseded and captured again, an event
+whose operation no longer belongs to a crossed group is retired (and a fee capture
+merged into it comes back), and a closed period touched is reopened
+(`monitoring.capture_period_changed.v1`). Retention deletes groups left without
+events once their window has ended.
 
 ## Connectors
 
