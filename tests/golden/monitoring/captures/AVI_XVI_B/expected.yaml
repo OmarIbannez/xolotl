@@ -29,6 +29,7 @@ events:
     counterparty: null
     operation_date: '2026-12-09'
     operation_type: VENTA
+    unmapped: []
     merged_captures:
     - AVI_XVI_B
   unit_values:
@@ -77,6 +78,7 @@ events:
     counterparty: null
     operation_date: '2026-12-10'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee:

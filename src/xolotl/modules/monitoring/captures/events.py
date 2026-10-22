@@ -10,19 +10,20 @@ targets before the captures that merge into them):
   own; one below joins the key's group, which is captured whole when the
   ``ACCUM`` aggregate (read from the store, the transaction included) reaches the
   threshold, and whose later operations are captured as they arrive. A late
-  operation that moves a group's window earlier, or its crossing point,
-  supersedes the group (``supersede.py``).
+  operation that moves a group's window earlier, or its crossing point, groups
+  the key's operations again (``supersede.regroup``).
 - ``merge_into``: a capture whose target already holds an event for the
   transaction writes nothing and is named in the target's
   ``fields.merged_captures``; a target written later voids it (Deviation 10).
 
-A capture never opens a hit and never reaches an API client (spec §10.1).
+A transaction without the capture's unit amount parks (``UNIT_VALUE_MISSING``)
+rather than skip the capture. A capture never opens a hit and never reaches an
+API client (spec §10.1).
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,7 @@ from xolotl.modules.monitoring.aggregates.windows import accum_window
 from xolotl.modules.monitoring.captures.definitions import CaptureDefinition
 from xolotl.modules.monitoring.captures.enums import CaptureGroupStatus, CaptureKind
 from xolotl.modules.monitoring.captures.groups import (
+    accumulated,
     add_to_group,
     cross_group,
     crossing_at,
@@ -39,17 +41,20 @@ from xolotl.modules.monitoring.captures.groups import (
     group_containing,
     group_members,
     new_group,
+    window_of,
 )
-from xolotl.modules.monitoring.captures.models import ReportableEvent
+from xolotl.modules.monitoring.captures.models import CaptureGroup, ReportableEvent
 from xolotl.modules.monitoring.captures.record import (
     LIVE,
     CaptureRun,
     event_of,
+    fee_amount,
+    note_merged,
+    reopen_touched,
+    unit_amount_of,
     write_event,
 )
-from xolotl.modules.monitoring.captures.supersede import supersede_group
-from xolotl.modules.monitoring.enrich.policy import policy_date
-from xolotl.modules.monitoring.enrich.units import unit_amounts_for
+from xolotl.modules.monitoring.captures.supersede import regroup
 from xolotl.modules.monitoring.txn.schema import (
     EnrichedTransaction,
     KeyKind,
@@ -58,18 +63,13 @@ from xolotl.modules.monitoring.txn.schema import (
 from xolotl.platform.calendar import Holidays
 from xolotl.platform.units import UnitService
 
-if TYPE_CHECKING:
-    from pydantic import JsonValue
-
-_CENTS = Decimal(100)
-
 
 @dataclass(frozen=True, slots=True)
 class CaptureOutcome:
     """What capturing one transaction wrote.
 
-    ``events`` were written or re-captured, ``voided`` were merged away and
-    ``superseded`` were retired by a supersession without a successor.
+    ``events`` were written or captured again, ``voided`` were merged away and
+    ``superseded`` were retired by a regrouping (no crossed group holds them).
     """
 
     events: tuple[ReportableEvent, ...]
@@ -77,39 +77,30 @@ class CaptureOutcome:
     superseded: tuple[ReportableEvent, ...] = ()
 
 
-def _fee_amount(
+def _store_total(
+    store: AggregateStore,
     definition: CaptureDefinition,
     txn: EnrichedTransaction,
-    *,
-    units: UnitService,
-    holidays: Holidays,
-) -> UnitAmount | None:
-    """Convert the fee into the threshold's unit, as 4a converts amounts.
+    group: CaptureGroup,
+) -> Decimal | None:
+    """Read the group's total from the store's accumulator (Deviation 9).
 
     Returns:
-        The fee's unit amount, or None when the transaction carries no fee.
+        The accumulator's value when it is complete and its window is the
+        group's, else None (a backfill pending, or a window the store keeps
+        otherwise after a regrouping or for rows older than it keeps).
 
     """
-    if txn.fee_minor is None:
-        return None
-    converted = unit_amounts_for(
-        units,
-        amount=Decimal(txn.fee_minor) / _CENTS,
-        currency=txn.currency,
-        on=policy_date(txn.occurred_at),
-        pairs={(definition.threshold.unit, definition.conversion_rule)},
-        holidays=holidays,
+    (declaration,) = definition.declarations()
+    value = store.accumulator_read(
+        AggregateKey(KeyKind.RELATIONSHIP, str(txn.relationship_id)),
+        declaration,
+        at=txn.occurred_at,
     )
-    return converted.get(definition.unit_key)
-
-
-def _note_merged(target: ReportableEvent, code: str) -> None:
-    names = target.fields.get("merged_captures")
-    known = [str(name) for name in names] if isinstance(names, list) else []
-    if code in known:
-        return
-    fields: dict[str, JsonValue] = {**target.fields, "merged_captures": [*known, code]}
-    target.fields = fields
+    if not value.complete or value.first_at is None:
+        return None
+    start, _ = accum_window(value.first_at, declaration.window)
+    return value.value if start == group.window_start else None
 
 
 def _accumulate(
@@ -120,44 +111,52 @@ def _accumulate(
     store: AggregateStore,
     late: bool,
 ) -> None:
-    """Capture an operation for an ``ACCUMULATION`` capture (spec §10.2, §10.5)."""
-    amount = txn.unit_amount(definition.unit_key)
-    if amount is None:
-        return
-    if amount >= definition.threshold.amount:
+    """Capture an operation for an ``ACCUMULATION`` capture (spec §10.2, §10.5).
+
+    An operation in order adds to the group holding it, or opens one on its day,
+    and the group's total is the store's accumulator when the two agree. A late
+    operation is judged on the group's rows: it joins the group holding it
+    (crossing where the running sum in ``occurred_at`` order reaches the
+    threshold), or regroups the key when it reaches a later group or moves a
+    crossing point.
+    """
+    amount = unit_amount_of(definition, txn)
+    threshold = definition.threshold.amount
+    if amount >= threshold:
         _ = write_event(run, definition, txn, late=late)
         return
-    (declaration,) = definition.declarations()
-    value = store.accumulator_read(
-        AggregateKey(KeyKind.RELATIONSHIP, str(txn.relationship_id)),
-        declaration,
-        at=txn.occurred_at,
-    )
-    first_at = value.first_at or txn.occurred_at
     s = run.s
     group = group_containing(s, definition, txn)
     if group is None:
-        _, window_end = accum_window(first_at, declaration.window)
-        displaced = group_after(s, definition, txn, until=window_end)
-        if displaced is not None:
-            # The late operation opens the window earlier (spec §10.5).
-            _ = supersede_group(run, definition, displaced, late=txn, first_at=first_at)
-            return
-        group = new_group(s, definition, txn, first_at=first_at)
-    add_to_group(group, txn, value.value)
-    if group.status is CaptureGroupStatus.OPEN:
-        if value.value >= definition.threshold.amount:
-            members = group_members(s, definition, group, in_flight=(txn,))
-            at = (crossing_at(definition, members) if late else None) or txn.occurred_at
-            _ = cross_group(run, definition, group, at=at, members=members, late=late)
-        return
-    crossed = group.threshold_crossed_at
-    if late and crossed is not None and txn.occurred_at < crossed:
+        if late:
+            _, window_end = accum_window(txn.occurred_at, window_of(definition))
+            displaced = group_after(s, definition, txn, until=window_end)
+            if displaced is not None:
+                # The late operation opens a window earlier (spec §10.5).
+                _ = regroup(run, definition, late=txn, first=displaced)
+                return
+        group = new_group(s, definition, txn, first_at=txn.occurred_at)
+    total = None if late else _store_total(store, definition, txn, group)
+    members: list[EnrichedTransaction] | None = None
+    if total is None:
         members = group_members(s, definition, group, in_flight=(txn,))
-        if crossing_at(definition, members) != crossed:
-            # The late operation moves the crossing point (spec §10.5).
-            _ = supersede_group(run, definition, group, late=txn, first_at=first_at)
-            return
+        total = accumulated(definition, members)
+        crossing = crossing_at(definition, members)
+    else:
+        crossing = txn.occurred_at if total >= threshold else None
+    add_to_group(group, txn, total)
+    if group.status is CaptureGroupStatus.OPEN:
+        if crossing is not None:
+            if members is None:
+                members = group_members(s, definition, group, in_flight=(txn,))
+            _ = cross_group(
+                run, definition, group, at=crossing, members=members, late=late
+            )
+        return
+    if late and crossing != group.threshold_crossed_at:
+        # The late operation moves the crossing point (spec §10.5).
+        _ = regroup(run, definition, late=txn, first=group)
+        return
     _ = write_event(run, definition, txn, late=late, group=group)
 
 
@@ -184,10 +183,10 @@ def capture_transaction(
             superseded.
 
     Returns:
-        The events written or re-captured, voided and superseded.
+        The events written or captured again, voided and superseded.
 
     """
-    run = CaptureRun(s, {d.code: d for d in definitions}, units)
+    run = CaptureRun(s, {d.code: d for d in definitions}, units, holidays)
     ordered = sorted(definitions, key=lambda d: d.merge_into is not None)
     for definition in ordered:
         if not matches(definition.on, txn):
@@ -197,11 +196,13 @@ def capture_transaction(
             continue
         fee: UnitAmount | None = None
         if definition.kind is CaptureKind.FEE_THRESHOLD:
-            fee = _fee_amount(definition, txn, units=units, holidays=holidays)
-            measured = None if fee is None else fee.amount
+            fee = fee_amount(definition, txn, units=units, holidays=holidays)
+            if fee is None:
+                continue
+            measured = fee.amount
         else:
-            measured = txn.unit_amount(definition.unit_key)
-        if measured is None or measured < definition.threshold.amount:
+            measured = unit_amount_of(definition, txn)
+        if measured < definition.threshold.amount:
             continue
         target = (
             None
@@ -210,9 +211,10 @@ def capture_transaction(
         )
         if target is not None and target.status in LIVE:
             # One report for both: the target's event names this capture.
-            _note_merged(target, definition.code)
+            note_merged(target, [definition.code])
             continue
         _ = write_event(run, definition, txn, late=late, fee=fee)
+    reopen_touched(run)
     return CaptureOutcome(
         events=tuple(run.events),
         voided=tuple(run.voided),

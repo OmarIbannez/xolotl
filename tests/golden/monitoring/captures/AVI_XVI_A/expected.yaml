@@ -27,6 +27,7 @@ events:
     counterparty: null
     operation_date: '2026-07-15'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null
@@ -72,6 +73,7 @@ events:
     counterparty: null
     operation_date: '2026-08-14'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null
@@ -117,6 +119,7 @@ events:
     counterparty: null
     operation_date: '2026-09-15'
     operation_type: COMPRA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null
@@ -162,6 +165,7 @@ events:
     counterparty: null
     operation_date: '2026-10-15'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null
@@ -207,6 +211,7 @@ events:
     counterparty: null
     operation_date: '2026-11-18'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null
@@ -252,6 +257,7 @@ events:
     counterparty: null
     operation_date: '2026-12-09'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null

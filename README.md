@@ -830,11 +830,15 @@ operation) adds a relationship's operations below the threshold in a
 `capture_group`; when the group crosses, every operation in it is captured, each
 with its own month, and later operations of the window as they arrive. An operation
 that also triggers a capture merging into it (`AVI_XVI_B`, a fee of 4 UMA or more)
-yields one event naming both. A late operation that moves a group's window earlier
-or its crossing point supersedes the group: a new group is rebuilt from the
-transactions, the old group's events are re-captured into it in place (one row per
-transaction and capture) and published as superseded and captured again, and a
-closed period they fall in is reopened (`monitoring.capture_period_changed.v1`).
+yields one event naming both. A late operation that moves a group's window
+earlier or its crossing point groups the relationship's operations again, in
+order, as processing in order would have: replaced groups are superseded, the
+events of every group that crosses are captured again in place (one row per
+transaction and capture) and published as superseded and captured again, an event
+whose operation no longer belongs to a crossed group is retired (and a fee capture
+merged into it comes back), and a closed period touched is reopened
+(`monitoring.capture_period_changed.v1`). Retention deletes groups left without
+events once their window has ended.
 
 ## Connectors
 

@@ -9,6 +9,9 @@ ITF_ROR_CASH: {instrument: [CASH]}
 ITF_FX_CASH: {instrument: [FX], rail: [CASH]}
 ITF_INTL_TRANSFER: {instrument: [TRANSFER], cross_border: true}
 ITF_VA_OPS: {instrument: [CRYPTO]}
+# Spec §9.2 also names product CRYPTO for the AVI captures. TxnFilter has no
+# product field: the product is the pack's assignment (MX/LFPIORPI-AVI is
+# assigned to CRYPTO, D21), so only CRYPTO transactions carry these captures.
 AVI_XVI_A: {instrument: [CRYPTO]}
 # The fee threshold cannot fire without fee_minor.
 AVI_XVI_B: {instrument: [CRYPTO]}

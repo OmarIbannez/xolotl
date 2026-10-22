@@ -13,6 +13,18 @@ period (SP-04 spec §10). The captures are the policy snapshot's, evaluated by
   events and opens or reopens periods; `groups.py` keeps accumulation groups;
   `supersede.py` rebuilds a group a late operation changes.
 
+## For reporting (SP-05)
+
+- One row per transaction and capture: supersession captures an event again in
+  place. `monitoring.reportable_event_superseded.v1` carries `superseded_by_id`
+  equal to the event's own id when it moved to a new group (a
+  `reportable_event_captured` follows), and null when it was retired: its
+  transaction is in no crossed group any more and is not reportable for the
+  capture. An `INCLUDED` event captured again goes back to `CAPTURED`, so a
+  report must record the events it took in its own report lines.
+- `fields.unmapped` names the fields the report's map has no code for (written
+  as null).
+
 ## Adding a capture code
 
 1. Add the capture to the pack (`policy-packs/<COUNTRY>/<PACK>/vN.yaml`, a new

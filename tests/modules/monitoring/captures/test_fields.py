@@ -18,6 +18,9 @@ from xolotl.modules.monitoring.captures.fields import (
     read_field_map,
     unit_values,
 )
+from xolotl.modules.monitoring.captures.record import unit_amount_of
+from xolotl.modules.monitoring.enrich.units import ParkTransactionError
+from xolotl.modules.monitoring.enums import ParkReason
 from xolotl.modules.monitoring.txn.schema import Direction, Instrument, Rail
 from xolotl.platform.units import Conversion, ConversionRule
 
@@ -92,6 +95,7 @@ def test_event_fields_carry_codes_amounts_and_ids_only():
         "locality": None,
         "counterparty": {"country": "US", "institution": None, "account_hash": None},
         "crypto": None,
+        "unmapped": [],
         "merged_captures": [],
         "period_keys": {"MONTH": "2026-12", "QUARTER": "2026-Q4"},
     }
@@ -161,3 +165,28 @@ def test_unit_values_record_both_sides_of_the_conversion():
         },
         "fee": None,
     }
+
+
+def test_a_code_the_map_lacks_is_named_as_unmapped():
+    txn = enriched(direction=Direction.INTERNAL)
+
+    fields = event_fields(txn, "acct-1", read_field_map("MX_F41_ROR"))
+
+    assert fields["operation_type"] is None
+    assert fields["instrument"] == "01"
+    assert fields["unmapped"] == ["operation_type"]
+
+
+def test_a_missing_unit_amount_parks_the_row_rather_than_skip_the_capture():
+    (va_ops,) = [
+        d
+        for d in capture_definitions(pack_policy("MX/ITF-IFPE"))
+        if d.code == "ITF_VA_OPS"
+    ]
+
+    with pytest.raises(ParkTransactionError) as parked:
+        _ = unit_amount_of(va_ops, enriched())
+
+    assert parked.value.reason is ParkReason.UNIT_VALUE_MISSING
+    assert parked.value.unit_code == "UDI"
+    assert parked.value.needed_on == date(2026, 12, 13)

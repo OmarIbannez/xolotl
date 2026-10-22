@@ -27,6 +27,7 @@ events:
     counterparty: null
     operation_date: '2026-12-10'
     operation_type: VENTA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null

@@ -1392,3 +1392,56 @@ def test_a_held_partys_rows_are_never_deleted_even_unlocked(
     assert count(itf, ReportableEvent) == 2
     assert count(itf, TxnDecision) == 1
     assert len(partitions_left(admin_engine, OLD)) == 2
+
+
+def test_ended_groups_without_events_go_with_their_superseded_chain(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+):
+    # Plan 4b B10 fix round (review I2): a group that elapsed without crossing,
+    # and one a regrouping superseded after moving its events, hold no event, so
+    # only their window tells retention they are done with.
+    seeder = Seeder(itf, queue)
+    _ = seeder.month(OLD)
+    ended = seeder.group(_at(OLD, 1) - timedelta(days=200))
+    successor = seeder.group(_at(OLD, 2) - timedelta(days=190))
+    superseded = seeder.group(_at(OLD, 3) - timedelta(days=195))
+    running = seeder.group(_at(OLD, 5))
+    held_customer = add_customer(itf, "cust-held")
+    with seeder.session() as s:
+        _ = s.execute(
+            update(CaptureGroup)
+            .where(CaptureGroup.id == superseded)
+            .values(status="SUPERSEDED", superseded_by_id=successor)
+        )
+        held = CaptureGroup(
+            tenant_id=itf.tenant_id,
+            capture_code="AVI_XVI_A",
+            key_kind=KeyKind.RELATIONSHIP,
+            key=str(held_customer.id),
+            period_key="2016-04",
+            window_start=_at(OLD, 1) - timedelta(days=210),
+            window_end=_at(OLD, 1) - timedelta(days=30),
+        )
+        s.add(held)
+        s.flush()
+        held_id = held.id
+        _ = s.execute(
+            update(Party)
+            .where(Party.id == held_customer.party_id)
+            .values(legal_hold=True)
+        )
+
+    run_retention(itf)
+
+    with tenant_session(system_ctx(itf.tenant_id)) as s:
+        left = set(s.scalars(select(CaptureGroup.id)))
+    assert ended not in left
+    assert successor not in left
+    assert superseded not in left
+    assert {running, held_id} <= left
+    (detail,) = audits(itf)
+    # The month's own emptied group and the three ended ones.
+    assert detail["retired"][0]["groups"] == 4

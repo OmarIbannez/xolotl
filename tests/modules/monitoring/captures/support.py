@@ -51,9 +51,10 @@ from xolotl.platform.policy import assign_pack
 from xolotl.platform.policy.loader import install_pack, load_pack
 from xolotl.platform.services import PlatformServices
 
-UNIT_VALUES_2026 = (
-    Path(__file__).resolve().parents[1] / "fixtures/unit_values_2026.yaml"
-)
+FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+UNIT_VALUES_2026 = FIXTURES / "unit_values_2026.yaml"
+# June 2026 and January and February 2027, for the backfill scenarios.
+UNIT_VALUES_EXTRA = FIXTURES / "unit_values_extra.yaml"
 AVI_FROM = date(2026, 6, 1)
 RECEIPT_DELAY = timedelta(hours=1)
 
@@ -82,9 +83,13 @@ class CaptureStage:
 
 
 def build_stage(
-    tenant: CreatedTenant, admin_engine: Engine, units: Path = UNIT_VALUES_2026
+    tenant: CreatedTenant,
+    admin_engine: Engine,
+    units: Path = UNIT_VALUES_2026,
+    *,
+    more_units: Sequence[Path] = (),
 ) -> CaptureStage:
-    """Install the packs, holidays and ``units``, and wire the platform.
+    """Install the packs, holidays, ``units`` and ``more_units``; wire the platform.
 
     Returns:
         The stage.
@@ -103,6 +108,8 @@ def build_stage(
         )
         avi = install_pack(s, avi_config, source_path=str(AVI_FILE), loaded_by="test")
         unit_ids = load_unit_values(s, units)
+        for path in more_units:
+            unit_ids |= load_unit_values(s, path)
     seed_mx_holidays(admin_engine)
     with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
         for version_id, product in ((itf, "EMONEY"), (avi, "CRYPTO")):

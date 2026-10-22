@@ -24,6 +24,7 @@ events:
     counterparty: null
     operation_date: '2026-12-09'
     operation_type: COMPRA
+    unmapped: []
     merged_captures: []
   unit_values:
     fee: null

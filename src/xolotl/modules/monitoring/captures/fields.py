@@ -112,13 +112,15 @@ def event_fields(
 
     The counterparty's institution and account hash are not on the enriched
     transaction, so they are written as None for SP-05 to fill from the
-    counterparty row.
+    counterparty row. A code the report's map lacks is written as None and named
+    in ``unmapped``.
 
     Returns:
         The fields: codes, amounts, ids and the period keys, nothing personal.
 
     """
-    operation = f"{txn.direction.value}/{txn.instrument.value}"
+    operation = fmap.operation_type.get(f"{txn.direction.value}/{txn.instrument.value}")
+    instrument = fmap.instrument.get(txn.instrument.value)
     counterparty: dict[str, JsonValue] | None = None
     if txn.counterparty_id is not None:
         counterparty = {
@@ -128,8 +130,18 @@ def event_fields(
         }
     return {
         "operation_date": policy_date(txn.occurred_at).isoformat(),
-        "operation_type": fmap.operation_type.get(operation),
-        "instrument": fmap.instrument.get(txn.instrument.value),
+        "operation_type": operation,
+        "instrument": instrument,
+        # The fields the report's map has no code for: SP-05 asks the analyst for
+        # them rather than file a null (an INTERNAL cash operation under F41).
+        "unmapped": [
+            name
+            for name, value in (
+                ("operation_type", operation),
+                ("instrument", instrument),
+            )
+            if value is None
+        ],
         "amount": _money(txn.amount_minor, txn.currency),
         "fee": _money(txn.fee_minor, txn.currency),
         "account_ref": account_ref,

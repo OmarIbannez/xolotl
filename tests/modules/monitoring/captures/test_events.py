@@ -4,7 +4,7 @@ from datetime import date
 from uuid import UUID
 
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, text
+from sqlalchemy import Engine, func, select, text
 
 from tests.helpers import system_ctx
 from tests.modules.monitoring.captures.support import (
@@ -18,20 +18,26 @@ from tests.modules.monitoring.captures.support import (
     periods,
 )
 from tests.modules.monitoring.captures.test_groups import MONTHLY
-from tests.modules.monitoring.support import make_item
+from tests.modules.monitoring.support import both_packs_tenant, make_item
 from tests.modules.party.route_support import machine_headers
 from tests.platform.webhooks_support import deliveries, make_endpoint
+from xolotl.app import wire_platform
 from xolotl.modules.monitoring.captures.enums import (
     CapturePeriodStatus,
     ReportableEventStatus,
 )
+from xolotl.modules.monitoring.enums import ParkReason
 from xolotl.modules.monitoring.events import (
     REPORTABLE_EVENT_CAPTURED,
     RULES_STAFF_ONLY_EVENT_TYPES,
     TRANSACTION_BATCH_ACCEPTED,
 )
+from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.rules.models import RuleHit
-from xolotl.platform.db import tenant_session
+from xolotl.modules.monitoring.txn.models import TransactionParked
+from xolotl.modules.tenants.service import CreatedTenant
+from xolotl.platform.config import get_settings
+from xolotl.platform.db import get_sessionmaker, tenant_session
 from xolotl.platform.events.models import OutboxRow
 
 CLIENT_KEYS = {"id", "external_id", "occurred_at", "status", "late"}
@@ -179,3 +185,23 @@ def test_capture_events_never_reach_a_webhook(stage: CaptureStage):
         for t in types
         if t.startswith(("monitoring.reportable_event", "monitoring.capture_period"))
     ]
+
+
+def test_a_july_operation_parks_under_the_shipped_avi_pack(
+    tenant: CreatedTenant, admin_engine: Engine
+):
+    # The shipped MX/LFPIORPI-AVI v1 is in force from 2026-11-30 (Open question
+    # 14): the capture stage's earlier date must not hide that.
+    _ = both_packs_tenant(tenant, admin_engine)
+    stage = CaptureStage(tenant, wire_platform(get_sessionmaker(), get_settings()), {})
+    try:
+        _ = add_relationship(stage, "crypto-1", product="CRYPTO")
+        (row,) = feed(stage, [crypto_item("avi-07", local(7, 15), "4000.00")])
+        with tenant_session(system_ctx(stage.tenant_id)) as s:
+            parked = s.scalars(
+                select(TransactionParked).where(TransactionParked.transaction_id == row)
+            ).one()
+        assert parked.reason is ParkReason.POLICY_NOT_ASSIGNED
+        assert events(stage) == []
+    finally:
+        reset_processing_hooks()

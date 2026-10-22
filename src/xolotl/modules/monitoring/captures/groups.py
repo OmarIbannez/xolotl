@@ -24,7 +24,7 @@ from xolotl.modules.monitoring.aggregates.windows import accum_window
 from xolotl.modules.monitoring.captures.definitions import CaptureDefinition
 from xolotl.modules.monitoring.captures.enums import CaptureGroupStatus
 from xolotl.modules.monitoring.captures.models import CaptureGroup, ReportableEvent
-from xolotl.modules.monitoring.captures.record import CaptureRun, write_event
+from xolotl.modules.monitoring.captures.record import CaptureRun, capture_member
 from xolotl.modules.monitoring.enrich.service import enriched_from_row
 from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.txn.models import Transaction
@@ -34,7 +34,16 @@ from xolotl.platform.db import bound_context
 _LIVE_GROUPS = (CaptureGroupStatus.OPEN, CaptureGroupStatus.CROSSED)
 
 
-def _window(definition: CaptureDefinition) -> str:
+def window_of(definition: CaptureDefinition) -> str:
+    """Read an accumulation capture's window.
+
+    Returns:
+        The ISO duration (``P6M``).
+
+    Raises:
+        ValueError: When the capture has none.
+
+    """
     if definition.window is None:
         msg = f"capture {definition.code} accumulates without a window"
         raise ValueError(msg)
@@ -111,7 +120,7 @@ def new_group(
         The group, flushed.
 
     """
-    start, end = accum_window(first_at, _window(definition))
+    start, end = accum_window(first_at, window_of(definition))
     group = CaptureGroup(
         tenant_id=bound_context(s).require_tenant_id(),
         capture_code=definition.code,
@@ -137,6 +146,40 @@ def add_to_group(
     group.accumulated_unit = accumulated
 
 
+def members_between(
+    s: Session,
+    definition: CaptureDefinition,
+    relationship_id: UUID,
+    *,
+    start: datetime,
+    end: datetime,
+    in_flight: Sequence[EnrichedTransaction] = (),
+) -> list[EnrichedTransaction]:
+    """List the relationship's transactions the capture accumulates in a range.
+
+    ``in_flight`` are rows being processed (not ``PROCESSED`` yet) that belong
+    too when the capture accumulates them and ``[start, end)`` holds them.
+
+    Returns:
+        The members, by ``occurred_at`` then id.
+
+    """
+    rows = s.scalars(
+        select(Transaction).where(
+            Transaction.relationship_id == relationship_id,
+            Transaction.status == TransactionStatus.PROCESSED,
+            Transaction.occurred_at >= start,
+            Transaction.occurred_at < end,
+        )
+    )
+    found = {txn.id: txn for txn in (enriched_from_row(row) for row in rows)}
+    for txn in in_flight:
+        if start <= txn.occurred_at < end:
+            found[txn.id] = txn
+    members = [txn for txn in found.values() if matches(definition.accumulates, txn)]
+    return sorted(members, key=lambda txn: (txn.occurred_at, txn.id))
+
+
 def group_members(
     s: Session,
     definition: CaptureDefinition,
@@ -146,27 +189,18 @@ def group_members(
 ) -> list[EnrichedTransaction]:
     """List the key's transactions the group accumulates, in order.
 
-    ``in_flight`` are rows being processed (not ``PROCESSED`` yet) that belong
-    too when the capture accumulates them and the window holds them.
-
     Returns:
-        The members, by ``occurred_at`` then id.
+        The members in the group's window, by ``occurred_at`` then id.
 
     """
-    rows = s.scalars(
-        select(Transaction).where(
-            Transaction.relationship_id == UUID(group.key),
-            Transaction.status == TransactionStatus.PROCESSED,
-            Transaction.occurred_at >= group.window_start,
-            Transaction.occurred_at < group.window_end,
-        )
+    return members_between(
+        s,
+        definition,
+        UUID(group.key),
+        start=group.window_start,
+        end=group.window_end,
+        in_flight=in_flight,
     )
-    found = {txn.id: txn for txn in (enriched_from_row(row) for row in rows)}
-    for txn in in_flight:
-        if group.window_start <= txn.occurred_at < group.window_end:
-            found[txn.id] = txn
-    members = [txn for txn in found.values() if matches(definition.accumulates, txn)]
-    return sorted(members, key=lambda txn: (txn.occurred_at, txn.id))
 
 
 def accumulated(
@@ -212,18 +246,19 @@ def cross_group(
 ) -> list[ReportableEvent]:
     """Mark the group ``CROSSED`` at ``at`` and capture every member.
 
-    Each member gets its own event with the group's id and its own period key; a
-    member that already has an event of the capture keeps it.
+    Each member gets its own event with the group's id and its own period key;
+    a member whose event was retired or left in a superseded group is captured
+    again (``capture_member``).
 
     Returns:
-        The events written.
+        The events written or captured again.
 
     """
     group.status = CaptureGroupStatus.CROSSED
     group.threshold_crossed_at = at
     written: list[ReportableEvent] = []
     for txn in members:
-        event = write_event(run, definition, txn, late=late, group=group)
+        event = capture_member(run, definition, txn, group, late=late)
         if event is not None:
             written.append(event)
     return written

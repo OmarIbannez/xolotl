@@ -1,153 +1,198 @@
-"""Supersession of an accumulation group by a late operation (spec §10.5, FR-TM-009).
+"""Regrouping a key's accumulation after a late operation (spec §10.2, §10.5).
 
 A late operation that moves a group's window earlier, or the point where it
-crosses, supersedes the group: the group becomes ``SUPERSEDED`` and points at a
-new group rebuilt from the key's transactions (the late one included), whose
-crossing is found again in ``occurred_at`` order.
+crosses, supersedes the groups it changes. The key's operations are grouped
+again from the earlier of the late operation and the first changed group, the
+way processing in order would have grouped them (§10.2): a window opens on the
+day of the first operation not in a window yet and runs for the capture's window,
+and the next operation past it opens the next one. Regrouping stops at the first
+window, after the late operation's own, that starts where a live group already
+starts: from there on the groups are what they were.
 
-``reportable_event`` keeps one row per transaction and capture (its unique key),
-so an event of the old group is re-captured in place rather than copied: it
-moves to the new group, becomes ``CAPTURED`` again (an ``INCLUDED`` one too, so
-reporting takes it anew) with ``late`` set, keeps its fields and unit values, and
-``monitoring.reportable_event_superseded.v1`` (``superseded_by_id`` the event
-itself) and ``monitoring.reportable_event_captured.v1`` are published. An event
-whose transaction the new group no longer captures becomes ``SUPERSEDED`` with
-no successor. Every period touched that was ``CLOSED`` is ``REOPENED``.
+Every replaced group becomes ``SUPERSEDED`` and points at the rebuilt group that
+holds its start (or the last one). In each rebuilt group that crosses, every
+member is captured: an event of a replaced group is captured again in place
+(``capture_member``; one row per transaction and capture, plan 4b Deviation 20),
+an event retired earlier is brought back, and a member without one gets one. An
+event of a replaced group whose transaction is in no crossed group any more is
+retired (``SUPERSEDED`` with no successor: not reportable for the capture) and
+what merged into it is captured again. Closed periods touched are reopened at
+the end of the run, in order.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
-from uuid import UUID
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
+from xolotl.modules.monitoring.aggregates.windows import accum_window
 from xolotl.modules.monitoring.captures.definitions import CaptureDefinition
-from xolotl.modules.monitoring.captures.enums import (
-    CaptureGroupStatus,
-    ReportableEventStatus,
-)
+from xolotl.modules.monitoring.captures.enums import CaptureGroupStatus
 from xolotl.modules.monitoring.captures.groups import (
     accumulated,
     crossing_at,
-    group_members,
+    members_between,
     new_group,
+    window_of,
 )
 from xolotl.modules.monitoring.captures.models import CaptureGroup, ReportableEvent
 from xolotl.modules.monitoring.captures.record import (
     LIVE,
     CaptureRun,
-    event_of,
-    publish_captured,
-    reopen_period,
-    touch_period,
-    write_event,
+    capture_member,
+    retire_event,
 )
-from xolotl.modules.monitoring.events import (
-    REPORTABLE_EVENT_SUPERSEDED,
-    publish_monitoring_event,
-)
-from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
+from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 
-def _publish_superseded(
-    run: CaptureRun, event: ReportableEvent, successor: UUID | None
-) -> None:
-    _ = publish_monitoring_event(
-        run.s,
-        REPORTABLE_EVENT_SUPERSEDED,
-        entity="reportable_event",
-        entity_id=event.id,
-        key=str(event.party_id),
-        data={
-            "reportable_event_id": str(event.id),
-            "superseded_by_id": None if successor is None else str(successor),
-            "period_key": event.period_key,
-        },
-        policy_snapshot_id=event.policy_snapshot_id,
+def partition(
+    definition: CaptureDefinition,
+    members: Sequence[EnrichedTransaction],
+    *,
+    late: EnrichedTransaction,
+    kept_starts: frozenset[datetime],
+) -> tuple[list[list[EnrichedTransaction]], datetime | None]:
+    """Split ordered members into consecutive accumulation windows.
+
+    Windows after the one holding ``late`` stop at the first that would start at
+    one of ``kept_starts`` (a live group's start, unchanged from there on).
+
+    Returns:
+        The members of each window, in order, and the start where it stopped
+        (None when every member is in a window).
+
+    """
+    window = window_of(definition)
+    windows: list[list[EnrichedTransaction]] = []
+    index = 0
+    seen_late = False
+    while index < len(members):
+        start, end = accum_window(members[index].occurred_at, window)
+        if seen_late and start in kept_starts:
+            return windows, start
+        chunk: list[EnrichedTransaction] = []
+        while index < len(members) and members[index].occurred_at < end:
+            chunk.append(members[index])
+            index += 1
+        seen_late = seen_late or any(txn.id == late.id for txn in chunk)
+        windows.append(chunk)
+    return windows, None
+
+
+def _live_groups(
+    run: CaptureRun,
+    definition: CaptureDefinition,
+    late: EnrichedTransaction,
+    start: datetime,
+) -> list[CaptureGroup]:
+    return list(
+        run.s.scalars(
+            select(CaptureGroup)
+            .where(
+                CaptureGroup.capture_code == definition.code,
+                CaptureGroup.key_kind == KeyKind.RELATIONSHIP,
+                CaptureGroup.key == str(late.relationship_id),
+                CaptureGroup.status.in_((
+                    CaptureGroupStatus.OPEN,
+                    CaptureGroupStatus.CROSSED,
+                )),
+                CaptureGroup.window_end > start,
+            )
+            .order_by(CaptureGroup.window_start)
+            .with_for_update()
+        )
     )
 
 
-def _recapture(
+def _build(
     run: CaptureRun,
     definition: CaptureDefinition,
-    event: ReportableEvent,
-    group: CaptureGroup,
-) -> None:
-    """Move ``event`` to ``group`` as a fresh ``CAPTURED`` event, in place."""
-    event.capture_group_id = group.id
-    event.status = ReportableEventStatus.CAPTURED
-    event.superseded_by_id = None
-    event.void_reason = None
-    event.late = True
-    _publish_superseded(run, event, event.id)
-    touch_period(run.s, definition, event.period_key)
-    publish_captured(run.s, event)
-    run.events.append(event)
+    chunk: Sequence[EnrichedTransaction],
+) -> CaptureGroup:
+    group = new_group(run.s, definition, chunk[0], first_at=chunk[0].occurred_at)
+    group.accumulated_unit = accumulated(definition, chunk)
+    group.accumulated_minor = sum(txn.amount_minor for txn in chunk)
+    crossed = crossing_at(definition, chunk)
+    if crossed is not None:
+        group.status = CaptureGroupStatus.CROSSED
+        group.threshold_crossed_at = crossed
+    return group
 
 
-def supersede_group(
+def regroup(
     run: CaptureRun,
     definition: CaptureDefinition,
-    group: CaptureGroup,
     *,
     late: EnrichedTransaction,
-    first_at: datetime,
-) -> CaptureGroup:
-    """Replace ``group`` by one rebuilt with the late operation.
+    first: CaptureGroup,
+) -> list[CaptureGroup]:
+    """Group the key's operations again from ``late`` or ``first``.
 
     Args:
         run: The capture evaluation's session and outcome.
         definition: The accumulation capture.
-        group: The live group the late operation changes, locked.
         late: The late operation, being processed.
-        first_at: The first operation of the new window (the store's).
+        first: The first live group it changes (holding it, or reached by its
+            window), locked.
 
     Returns:
-        The new group: ``CROSSED`` with its members captured when they reach the
-        threshold, else ``OPEN``.
+        The rebuilt groups, in order.
 
     """
     s = run.s
+    start = min(late.occurred_at, first.window_start)
+    live = _live_groups(run, definition, late, start)
+    horizon = max(group.window_end for group in [first, *live])
+    members = members_between(
+        s,
+        definition,
+        late.relationship_id,
+        start=start,
+        end=horizon,
+        in_flight=(late,),
+    )
+    windows, stopped_at = partition(
+        definition,
+        members,
+        late=late,
+        kept_starts=frozenset(group.window_start for group in live),
+    )
+    replaced = [
+        group for group in live if stopped_at is None or group.window_start < stopped_at
+    ]
     old_events = list(
         s.scalars(
             select(ReportableEvent)
             .where(
-                ReportableEvent.capture_group_id == group.id,
+                ReportableEvent.capture_group_id.in_([g.id for g in replaced]),
                 ReportableEvent.status.in_(LIVE),
             )
+            .order_by(ReportableEvent.occurred_at, ReportableEvent.id)
             .with_for_update()
         )
     )
-    group.status = CaptureGroupStatus.SUPERSEDED
-    # Out of the partial unique index before the new group takes its key.
+    for group in replaced:
+        group.status = CaptureGroupStatus.SUPERSEDED
+    # Out of the partial unique index before the new groups take their keys.
     s.flush()
-    rebuilt = new_group(s, definition, late, first_at=first_at)
-    group.superseded_by_id = rebuilt.id
-    members = group_members(s, definition, rebuilt, in_flight=(late,))
-    if members:
-        rebuilt.period_key = definition.period_key_of(members[0])
-    rebuilt.accumulated_unit = accumulated(definition, members)
-    rebuilt.accumulated_minor = sum(txn.amount_minor for txn in members)
-    kept: set[UUID] = set()
-    crossed = crossing_at(definition, members)
-    if crossed is not None:
-        rebuilt.status = CaptureGroupStatus.CROSSED
-        rebuilt.threshold_crossed_at = crossed
-        for txn in members:
-            existing = event_of(s, definition.code, txn.id)
-            if existing is None:
-                _ = write_event(run, definition, txn, late=True, group=rebuilt)
-            elif existing.capture_group_id == group.id or (
-                existing.status is ReportableEventStatus.SUPERSEDED
-            ):
-                _recapture(run, definition, existing, rebuilt)
-                kept.add(existing.id)
-    for event in old_events:
-        if event.id in kept:
+    rebuilt = [_build(run, definition, chunk) for chunk in windows]
+    for group in replaced:
+        group.superseded_by_id = next(
+            (new.id for new in rebuilt if new.window_end > group.window_start),
+            rebuilt[-1].id,
+        )
+    captured: set[UUID] = set()
+    for group, chunk in zip(rebuilt, windows, strict=True):
+        if group.status is not CaptureGroupStatus.CROSSED:
             continue
-        event.status = ReportableEventStatus.SUPERSEDED
-        event.superseded_by_id = None
-        event.late = True
-        _publish_superseded(run, event, None)
-        _ = reopen_period(s, event.capture_code, event.period_key)
-        run.superseded.append(event)
+        for txn in chunk:
+            _ = capture_member(run, definition, txn, group, late=True)
+            captured.add(txn.id)
+    for event in old_events:
+        if event.transaction_id not in captured:
+            retire_event(run, event)
     return rebuilt
