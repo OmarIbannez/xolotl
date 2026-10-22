@@ -21,6 +21,7 @@ import type {
   PartyStatus,
   PartyUpdateRequest,
   RelationshipOpenRequest,
+  RelationshipPatchRequest,
 } from '@/api/types'
 import { useIdempotentMutation } from '@/api/use-idempotent-mutation'
 import { useAuth } from '@/auth/use-auth'
@@ -278,6 +279,39 @@ export function useCloseRelationship() {
           body: {},
           headers: { 'Idempotency-Key': idempotencyKey },
         }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [PARTIES] })
+    },
+  })
+}
+
+/**
+ * A customer relationship's behaviour profiles: up to the last 12 months, newest first (staff only).
+ * Keyed under the parties root, so a declared profile change refreshes them with the party.
+ */
+export function useBehaviourProfiles(relationshipId: string) {
+  const { user, mustChangePassword } = useAuth()
+  return useQuery({
+    queryKey: [PARTIES, 'profiles', user?.tenant_id, relationshipId],
+    queryFn: () =>
+      unwrap(
+        api.GET('/monitoring/profiles/{relationship_id}', { params: { path: { relationship_id: relationshipId } } }),
+      ),
+    enabled: user !== undefined && !mustChangePassword,
+  })
+}
+
+/**
+ * Set (or, with `{declared_profile: null}`, clear) a relationship's declared profile (staff writers;
+ * audited without the values). A PATCH: the API needs no `Idempotency-Key` for it.
+ */
+export function useSetDeclaredProfile(relationshipId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: RelationshipPatchRequest) =>
+      unwrap(
+        api.PATCH('/relationships/{relationship_id}', { params: { path: { relationship_id: relationshipId } }, body }),
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: [PARTIES] })

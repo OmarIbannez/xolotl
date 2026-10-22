@@ -23,6 +23,7 @@ from pydantic import JsonValue
 from sqlalchemy import Select, and_, func, select, tuple_
 from sqlalchemy.orm import Session
 
+from xolotl.modules.monitoring.decide.views import decision_summary
 from xolotl.modules.monitoring.rules.definitions import (
     HitOutcome,
     RuleDefinition,
@@ -274,6 +275,7 @@ def _detail(session: Session, hit: RuleHit) -> HitDetail:
         "definition_hash": hit.definition_hash.hex(),
         "dedup_key": hit.dedup_key,
         "sentence": definition.render(SENTENCE_LOCALE),
+        "decision": decision_summary(session, summary.decision_id),
     })
 
 

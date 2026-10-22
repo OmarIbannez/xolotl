@@ -1,7 +1,7 @@
 """Batch ingest: each ``external_id`` kept exactly once (SP-04 spec §6.1, D11).
 
-``ingest_batch`` runs in the caller's transaction, in plan 4a's order (Deviation
-4: spec step 3, decision linking, is plan 4c's):
+``ingest_batch`` runs in the caller's transaction, in the spec's order (plan 4a
+Deviation 4 left step 3, decision linking, to plan 4c):
 
 1. Resolve every item's ``customer_ref`` (one query) and check every
    ``account_ref`` against the accounts already bound (one query) and the items
@@ -15,8 +15,10 @@
    then its ``transaction_ref`` with ``ON CONFLICT DO NOTHING``. The ref's foreign
    key to the partitioned primary key is not deferrable, so the row goes first;
    when a concurrent batch won the ref, the row is deleted again, its
-   counterparty count taken back, and the item is classified as above. (Plan
-   4c's C5 links decisions here, over ``created`` rows.)
+   counterparty count taken back, and the item is classified as above.
+3. Link the created rows to their decisions (plan 4c C5's ``link_decisions``):
+   the latest decision of each ``external_id`` and relationship from the last
+   seven days.
 4. Enqueue one ``monitoring.process`` job per party with a ``RECEIVED`` row.
 5. Publish ``monitoring.transaction_batch_accepted.v1``.
 
@@ -40,6 +42,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from xolotl.modules.monitoring.decide.linkage import link_decisions
 from xolotl.modules.monitoring.enums import BatchSource, TransactionStatus
 from xolotl.modules.monitoring.errors import (
     BatchInvalidError,
@@ -459,6 +462,13 @@ def ingest_batch(
     batch.accepted = len(created)
     batch.duplicates = len(items) - len(created)
     session.flush()
+    _ = link_decisions(
+        session,
+        [
+            (row.id, row.occurred_at, row.external_id, row.relationship_id)
+            for row in created
+        ],
+    )
     party_ids = frozenset(row.party_id for row in received)
     _ = enqueue_processing(session, queue, party_ids)
     _ = publish_monitoring_event(
