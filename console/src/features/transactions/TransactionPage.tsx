@@ -4,10 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { isApiError } from '@/api/errors'
 import type { ParkedInfo, PeriodKeys, TransactionStaffView } from '@/api/types'
+import { ACCESS } from '@/auth/access'
+import { useAuth } from '@/auth/use-auth'
 import { KeyValues, PageHeader } from '@/components/common/page'
 import { ErrorBlock, LoadingBlock } from '@/components/common/states'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { TransactionHitsCard } from '@/features/hits/TransactionHitsCard'
 import { useFormat } from '@/i18n/use-locale'
 import { NotFound } from '@/NotFound'
 import { formatMinor } from './amount'
@@ -135,11 +138,12 @@ function ParkedCard({ parked }: { parked: ParkedInfo }) {
 
 /**
  * Detalle de transacción: the canonical fields, the unit amounts with the unit values used,
- * the period keys, the masked counterparty, why it is parked if it is, and the payload as
- * sent. The counterparty's values and the payload come from one audited reveal.
+ * the period keys, the masked counterparty, why it is parked if it is, the hits it is linked to
+ * and the payload as sent. The counterparty's values and the payload come from one audited reveal.
  */
 function TransactionDetail({ transactionId }: { transactionId: string }) {
   const { t } = useTranslation()
+  const { hasRole } = useAuth()
   const txn = useTransaction(transactionId)
   const reveal = useRevealTransaction(transactionId)
 
@@ -165,6 +169,7 @@ function TransactionDetail({ transactionId }: { transactionId: string }) {
           </div>
         </div>
         <UnitAmountsCard amounts={data.unit_amounts} />
+        {hasRole(ACCESS.monitoring) && <TransactionHitsCard transactionId={data.id} />}
         {/* A failed reveal is announced once: in the counterparty card when there is one. */}
         <RawPayloadCard reveal={reveal} showError={data.counterparty === null} />
       </div>

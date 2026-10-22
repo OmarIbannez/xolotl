@@ -5,11 +5,13 @@ import { describe, expect, it } from 'vitest'
 import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
+import { hitSummary } from '@/features/hits/fixtures'
 import { parkedInfo, transactionRevealedView, transactionStaffView } from './fixtures'
 import { TransactionPage } from './TransactionPage'
 
 const text = esMX.transactions
 const DETAIL = 'GET /v1/transactions/t1'
+const HITS = 'GET /v1/monitoring/hits'
 const INJECTION = '<img src=x onerror="window.__pwned=1">'
 
 function setup(routes: FakeRoutes = {}) {
@@ -28,6 +30,7 @@ function setup(routes: FakeRoutes = {}) {
           new URL(request.url).searchParams.get('reveal') === 'true'
             ? json(transactionRevealedView({ raw: { note: INJECTION, amount: '12500.00' } }))
             : json(transactionStaffView()),
+        [HITS]: () => json({ items: [], next_cursor: null }),
         ...routes,
       },
     },
@@ -184,5 +187,14 @@ describe('TransactionPage', () => {
     setup({ [DETAIL]: () => problem(500, 'INTERNAL') })
 
     expect((await screen.findByRole('alert')).textContent).toContain(esMX.errors.INTERNAL)
+  })
+
+  it('lists the hits this transaction is linked to', async () => {
+    const { fakeApi } = setup({ [HITS]: () => json({ items: [hitSummary()], next_cursor: null }) })
+
+    const card = await screen.findByRole('region', { name: esMX.hits.transaction.title })
+    const link = await within(card).findByRole('link', { name: 'CASH_STRUCTURING' })
+    expect(link.getAttribute('href')).toBe('/monitoring/hits/h1')
+    expect(fakeApi.queries(HITS)[0]?.get('transaction_id')).toBe('t1')
   })
 })
