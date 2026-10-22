@@ -23,6 +23,7 @@ from starlette.types import Lifespan
 from xolotl.modules.monitoring import routes_decide as decide_routes
 from xolotl.modules.monitoring import routes_hits as hit_routes
 from xolotl.modules.monitoring import routes_monitoring as monitoring_routes
+from xolotl.modules.monitoring import routes_rules as rule_routes
 from xolotl.modules.monitoring import routes_transactions as transaction_routes
 from xolotl.modules.monitoring.composition import register_monitoring
 from xolotl.modules.monitoring.rules.wiring import register_rules
@@ -385,6 +386,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             monitoring_routes.router,
             hit_routes.router,
             hit_routes.party_router,
+            rule_routes.router,
             audit_routes.router,
         ],
     )
