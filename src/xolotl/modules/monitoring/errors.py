@@ -123,6 +123,13 @@ class RailUnknownError(NotFoundError):
     default_detail: ClassVar[str] = "the rail is not known"
 
 
+class PeriodInvalidError(ValidationFailedError):
+    """A metrics period is not a month written ``YYYY-MM``."""
+
+    default_code: ClassVar[str] = "PERIOD_INVALID"
+    default_detail: ClassVar[str] = "the period must be a month written YYYY-MM"
+
+
 class RuleTemplateUnknownError(NotFoundError):
     """No rule template of the library has this code (or this version)."""
 

@@ -7,6 +7,7 @@ from xolotl.modules.monitoring.errors import (
     ExternalIdConflictError,
     FileInvalidError,
     FileTooLargeError,
+    PeriodInvalidError,
     PeriodNotEndedError,
     RailUnknownError,
     RuleParamOutOfBoundsError,
@@ -98,6 +99,7 @@ from xolotl.platform.units.errors import (
         (RuleTransitionNotAllowedError, 409, "RULE_TRANSITION_NOT_ALLOWED"),
         (SimulationRangeTooLongError, 422, "SIMULATION_RANGE_TOO_LONG"),
         (PeriodNotEndedError, 409, "PERIOD_NOT_ENDED"),
+        (PeriodInvalidError, 422, "PERIOD_INVALID"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):

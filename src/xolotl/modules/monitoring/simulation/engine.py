@@ -173,13 +173,21 @@ def range_bounds(range_start: date, range_end: date) -> tuple[datetime, datetime
 
 
 def _page_rows(
-    s: Session, *, start: datetime, end: datetime, after: UUID | None, page: int
+    s: Session,
+    *,
+    start: datetime,
+    end: datetime,
+    after: UUID | None,
+    page: int,
+    product: str | None,
 ) -> list[Transaction]:
     in_range = select(Transaction).where(
         Transaction.status == TransactionStatus.PROCESSED,
         Transaction.occurred_at >= start,
         Transaction.occurred_at < end,
     )
+    if product is not None:
+        in_range = in_range.where(Transaction.product == product)
     query = in_range if after is None else in_range.where(Transaction.party_id > after)
     rows = list(
         s.scalars(
@@ -253,11 +261,13 @@ def replay_pages(
     range_end: date,
     page: int,
     after: UUID | None = None,
+    product: str | None = None,
 ) -> Iterator[ReplayPage]:
     """Replay the range's processed rows party by party, a page at a time.
 
-    ``after`` resumes after that party id. Each page is read whole before it is
-    replayed, so the caller may commit between pages.
+    ``after`` resumes after that party id; ``product`` keeps only that product's
+    rows (plan 4c's dry run replays a product's own rules over them). Each page is
+    read whole before it is replayed, so the caller may commit between pages.
 
     Yields:
         One page per batch of whole parties, in party id order.
@@ -274,7 +284,9 @@ def replay_pages(
         return policy
 
     now = clock.now()
-    while rows := _page_rows(s, start=start, end=end, after=after, page=page):
+    while rows := _page_rows(
+        s, start=start, end=end, after=after, page=page, product=product
+    ):
         found: list[SimulatedHit] = []
         with _holding_loads(s):
             for _, party_rows in groupby(rows, key=lambda row: row.party_id):
@@ -309,15 +321,28 @@ def _replay_rows(
 
 
 def replay_rule_set(
-    s: Session, ruleset: RuleSet, *, range_start: date, range_end: date, page: int
+    s: Session,
+    ruleset: RuleSet,
+    *,
+    range_start: date,
+    range_end: date,
+    page: int,
+    product: str | None = None,
 ) -> Iterator[SimulatedHit]:
     """Replay the range's processed rows through ``ruleset`` without side effects.
+
+    ``product`` keeps only that product's rows; None replays every row.
 
     Yields:
         Every simulated hit, party by party.
 
     """
     for replayed in replay_pages(
-        s, ruleset, range_start=range_start, range_end=range_end, page=page
+        s,
+        ruleset,
+        range_start=range_start,
+        range_end=range_end,
+        page=page,
+        product=product,
     ):
         yield from replayed.hits
