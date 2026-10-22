@@ -258,6 +258,7 @@ def test_a_per_product_tenant_resolves_the_merge_of_its_packs(
     tenant: CreatedTenant, per_product, monkeypatch: pytest.MonkeyPatch
 ):
     # Before AVI's effective_from only ITF is in force; from 30 November both are.
+    monkeypatch.setattr(clock, "now", lambda: datetime(2026, 10, 22, 18, tzinfo=UTC))
     with _staff(tenant) as s:
         october = policy_for_run(s)
     monkeypatch.setattr(clock, "now", lambda: datetime(2026, 12, 1, 18, tzinfo=UTC))

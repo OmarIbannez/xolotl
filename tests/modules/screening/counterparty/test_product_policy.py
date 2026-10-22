@@ -42,7 +42,7 @@ from xolotl.platform.config import get_settings
 from xolotl.platform.db import get_sessionmaker
 from xolotl.platform.events.registry import reset_subscribers
 from xolotl.platform.jobs import JobRunner, PostgresJobQueue
-from xolotl.platform.policy import assign_pack, get_snapshot
+from xolotl.platform.policy import assign_pack, get_snapshot, strictest_policy
 from xolotl.platform.storage.local import LocalFsObjectStore
 
 ALARCON = CounterpartyInput(
@@ -95,5 +95,8 @@ def test_a_per_product_tenant_screens_a_new_counterparty_on_first_sight(
     assert run.subject_id == row.screening_subject_id
     with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
         policy = get_snapshot(s, run.policy_snapshot_id).policy
+        in_force = strictest_policy(s, on=policy.on)
+    # ITF alone until AVI takes effect on 2026-11-30, both from then on.
     assert policy.product is None
-    assert policy.pack_codes == ["MX/ITF-IFPE"]
+    assert policy.pack_codes == in_force.pack_codes
+    assert policy.pack_codes[0] == "MX/ITF-IFPE"
