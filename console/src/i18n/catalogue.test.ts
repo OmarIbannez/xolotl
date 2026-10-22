@@ -110,6 +110,7 @@ describe('translation catalogues', () => {
       'TRANSACTION_FILE_TOO_LARGE',
       'TRANSACTION_FILE_INVALID',
       'BACKFILL_RANGE_INVALID',
+      'RAIL_UNKNOWN',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

@@ -193,6 +193,22 @@ export type TransactionBatchResponse = Schemas['xolotl__modules__monitoring__sch
 export type BackfillRequest = Schemas['BackfillRequest']
 export type BackfillAccepted = Schemas['BackfillAccepted']
 
+// Rails and behaviour profiles (SP-04 plan 4c, C4 and C8): staff only, never shown to a client.
+export type FailMode = Schemas['FailMode']
+/** A rail's fail mode; `explicit` is false while the rail follows the deployment's default. */
+export type RailSettingResponse = Schemas['RailSettingResponse']
+export type RailSettingRequest = Schemas['RailSettingRequest']
+/**
+ * One month of a relationship's behaviour. `metrics`, `declared_profile` and `deviation` are free
+ * JSON in the OpenAPI document: amounts are strings of whole MXN centavos, shares strings with
+ * four decimals, ratios strings or null (`features/parties/profile-form.ts` reads them).
+ */
+export type BehaviourProfileResponse = Schemas['BehaviourProfileResponse']
+/** The declared monthly profile a staff writer sets on a customer relationship (MXN only). */
+export type DeclaredProfile = Schemas['DeclaredProfile']
+/** `{declared_profile: null}` clears the declaration. */
+export type RelationshipPatchRequest = Schemas['RelationshipPatchRequest']
+
 // Rule hits (SP-04 plan 4b, B12): staff only, never shown to an API client (tipping-off, spec section 15).
 export type Severity = Schemas['Severity']
 export type HitOutcome = Schemas['HitOutcome']
