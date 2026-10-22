@@ -124,6 +124,10 @@ MONITORING_RETENTION_SCHEDULE = "monitoring.retention"
 # The monitoring module's monthly behaviour profiles, on XOLOTL_MONITORING_PROFILE_CRON
 # in Mexico City, named by its job kind (a literal, as above).
 MONITORING_PROFILES_SCHEDULE = "monitoring.profiles"
+# The monitoring module's monthly close of the capture periods that ended, on
+# XOLOTL_MONITORING_PERIOD_CLOSE_CRON in Mexico City, named by its job kind (a
+# literal, as above).
+MONITORING_PERIOD_CLOSE_SCHEDULE = "monitoring.period_close"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -323,6 +327,14 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
         cron=get_settings().monitoring_profile_cron,
         tz="America/Mexico_City",
         kind=MONITORING_PROFILES_SCHEDULE,
+        payload={},
+    )
+    _ = queue.schedule(
+        s,
+        name=MONITORING_PERIOD_CLOSE_SCHEDULE,
+        cron=get_settings().monitoring_period_close_cron,
+        tz="America/Mexico_City",
+        kind=MONITORING_PERIOD_CLOSE_SCHEDULE,
         payload={},
     )
 

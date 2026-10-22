@@ -12,6 +12,10 @@ period (SP-04 spec §10). The captures are the policy snapshot's, evaluated by
 - `events.py` evaluates a transaction (`capture_transaction`); `record.py` writes
   events and opens or reopens periods; `groups.py` keeps accumulation groups;
   `supersede.py` rebuilds a group a late operation changes.
+- `periods.py` closes the periods that ended (`monitoring.period_close`): it re-runs
+  each capture over the period's processed transactions in check mode, writes what
+  is missing, voids what is extra (`RECONCILIATION`) and records the
+  reconciliation on the `capture_period` row.
 
 ## For reporting (SP-05)
 

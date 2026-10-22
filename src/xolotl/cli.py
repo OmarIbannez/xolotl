@@ -28,6 +28,12 @@ from xolotl.app import (
     build_worker,
     register_processing,
 )
+from xolotl.modules.monitoring.captures.models import CapturePeriod
+from xolotl.modules.monitoring.captures.periods import (
+    close_due_periods,
+    close_named_period,
+)
+from xolotl.modules.monitoring.captures.record import discrepancy_count
 from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.errors import RuleTransitionNotAllowedError
@@ -154,6 +160,7 @@ from xolotl.platform.units import (
     UNITS,
     BanxicoSieSource,
     SeedFileSource,
+    UnitService,
     UnitsFetchJob,
     fetch_missing,
     latest_valid_from,
@@ -2060,6 +2067,65 @@ def monitoring_profiles(
         with tenant_session(TenantContext.system(tenant_id, actor)) as s:
             count = compute_profiles(s, month=month)
     typer.echo(f"profiles: {count} relationships for {month}")
+
+
+def _period_line(period: CapturePeriod) -> str:
+    return (
+        f"{period.capture_code} {period.period_key} {period.status.value} "
+        f"events={period.event_count} reconciled={period.reconciled_count} "
+        f"discrepancies={discrepancy_count(period)}"
+    )
+
+
+@monitoring_app.command("period-close")
+def monitoring_period_close(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    capture: Annotated[
+        str | None,
+        typer.Option("--capture", help="Close only this capture code's period"),
+    ] = None,
+    period: Annotated[
+        str | None,
+        typer.Option("--period", help="The period to close, YYYY-MM or YYYY-Qn"),
+    ] = None,
+) -> None:
+    """Close capture periods here, as the monthly job does (spec §10.4).
+
+    Without ``--capture`` and ``--period`` every open or reopened period that ended
+    is reconciled by re-evaluation and closed; with both, that one. One line per
+    period closed; the exit status is 1 when any close found a discrepancy, which
+    is a defect.
+
+    Raises:
+        BadParameter: When only one of ``--capture`` and ``--period`` is given.
+        Exit: With status 1 when a discrepancy was found.
+
+    """
+    if (capture is None) != (period is None):
+        msg = "--capture and --period are given together"
+        raise typer.BadParameter(msg)
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        with tenant_session(TenantContext.system(tenant_id, actor)) as s:
+            units = UnitService(s)
+            if capture is not None and period is not None:
+                closed = [
+                    close_named_period(
+                        s, capture_code=capture, period_key=period, units=units
+                    )
+                ]
+            else:
+                closed = close_due_periods(s, units=units)
+            lines = [_period_line(row) for row in closed]
+            found = sum(discrepancy_count(row) for row in closed)
+    if not lines:
+        typer.echo("period-close: no period to close")
+    for line in lines:
+        typer.echo(line)
+    if found:
+        raise typer.Exit(code=1)
 
 
 @monitoring_app.command("show")

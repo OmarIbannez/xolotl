@@ -9,7 +9,8 @@ platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep
 the weekday ``units.fetch`` in Mexico City, the ``lists.poll`` and
 ``monitoring.sweep`` every minute, the daily ``monitoring.partitions``, the
 monthly ``monitoring.retention`` in UTC and the monthly
-``screening.periodic_rescreen`` and ``monitoring.profiles`` in Mexico City.
+``screening.periodic_rescreen``, ``monitoring.profiles`` and
+``monitoring.period_close`` in Mexico City.
 """
 
 import json
@@ -120,6 +121,14 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
             True,
         ),
         (
+            "monitoring.period_close",
+            "0 4 1 * *",
+            "America/Mexico_City",
+            "monitoring.period_close",
+            {},
+            True,
+        ),
+        (
             "monitoring.profiles",
             "0 3 2 * *",
             "America/Mexico_City",
@@ -165,6 +174,7 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     # The first run is the next slot, never the current one.
     daily = {"units.fetch", "party.retention_sweep", "screening.periodic_rescreen"}
     daily |= {"monitoring.partitions", "monitoring.retention", "monitoring.profiles"}
+    daily.add("monitoring.period_close")
     minutely = {"lists.poll", "monitoring.sweep"}
     hourly = [row for row in schedules if row.name not in {*daily, *minutely}]
     slots = {next_slot("0 * * * *", "UTC", after=moment) for moment in (before, after)}
@@ -173,8 +183,9 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     # Every other schedule's first run is its own next slot: a daily 03:00 UTC
     # slot is never the next full hour, the monthly re-screen runs at 02:00 on the
     # 1st in Mexico City, the lists poll and the monitoring sweep every minute,
-    # partitions daily at 01:00 UTC, retention monthly at 05:00 UTC on the 1st and
-    # behaviour profiles monthly at 03:00 on the 2nd in Mexico City.
+    # partitions daily at 01:00 UTC, retention monthly at 05:00 UTC on the 1st,
+    # behaviour profiles monthly at 03:00 on the 2nd and the capture period close
+    # monthly at 04:00 on the 1st, both in Mexico City.
     for name, cron, tz in (
         ("units.fetch", "0 18 * * 1-5", "America/Mexico_City"),
         ("party.retention_sweep", "0 3 * * *", "UTC"),
@@ -184,6 +195,7 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
         ("monitoring.partitions", "0 1 * * *", "UTC"),
         ("monitoring.retention", "0 5 1 * *", "UTC"),
         ("monitoring.profiles", "0 3 2 * *", "America/Mexico_City"),
+        ("monitoring.period_close", "0 4 1 * *", "America/Mexico_City"),
     ):
         assert by_name[name].next_run_at in {
             next_slot(cron, tz, after=m) for m in (before, after)
@@ -345,6 +357,7 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
             "idempotency.purge",
             "lists.poll",
             "monitoring.partitions",
+            "monitoring.period_close",
             "monitoring.profiles",
             "monitoring.retention",
             "monitoring.sweep",

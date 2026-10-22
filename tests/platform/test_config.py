@@ -287,6 +287,7 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_rule_cache_seconds",
         "monitoring_simulation_max_age_days",
         "monitoring_simulation_max_days",
+        "monitoring_period_close_cron",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -716,6 +717,7 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_rule_cache_seconds == 30
     assert s.monitoring_simulation_max_age_days == 30
     assert s.monitoring_simulation_max_days == 190
+    assert s.monitoring_period_close_cron == "0 4 1 * *"
 
 
 @pytest.mark.parametrize(
@@ -725,6 +727,7 @@ def test_monitoring_settings_default_to_the_spec_values():
         "XOLOTL_MONITORING_PARTITIONS_CRON",
         "XOLOTL_MONITORING_RETENTION_CRON",
         "XOLOTL_MONITORING_PROFILE_CRON",
+        "XOLOTL_MONITORING_PERIOD_CLOSE_CRON",
     ],
 )
 def test_the_monitoring_crons_are_validated(monkeypatch, name):

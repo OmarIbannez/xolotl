@@ -10,11 +10,17 @@ are screening's (reconciliation finding 13). Plans 4b and 4c append their models
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import ClassVar
+from typing import ClassVar, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from xolotl.modules.monitoring.captures.enums import (
+    CaptureGroupStatus,
+    CaptureKind,
+    CapturePeriodStatus,
+    ReportableEventStatus,
+)
 from xolotl.modules.monitoring.decide.enums import (
     DecisionMode,
     DecisionOutcome,
@@ -406,3 +412,127 @@ class BehaviourProfileResponse(BaseModel):
     deviation: dict[str, JsonValue] | None
     deviated: bool
     computed_at: datetime
+
+
+class CaptureQuery(BaseModel):
+    """The filters of ``GET /v1/monitoring/captures`` (plan 4b B11).
+
+    ``transaction_id`` lists a transaction's events (the console's card on the
+    transaction detail).
+    """
+
+    capture_code: str | None = Field(default=None, max_length=64)
+    report_code: str | None = Field(default=None, max_length=64)
+    period_key: str | None = Field(default=None, max_length=16)
+    status: ReportableEventStatus | None = None
+    relationship_id: UUID | None = None
+    transaction_id: UUID | None = None
+
+
+class ReportableEventSummary(BaseModel):
+    """A transaction captured for a report (spec §10; staff only, tipping-off)."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
+
+    id: UUID
+    capture_code: str
+    report_code: str
+    capture_kind: CaptureKind
+    transaction_id: UUID
+    occurred_at: datetime
+    party_id: UUID
+    relationship_id: UUID
+    product: str | None
+    period_key: str
+    capture_group_id: UUID | None
+    status: ReportableEventStatus
+    late: bool
+    captured_at: datetime
+
+
+class CaptureGroupView(BaseModel):
+    """An accumulation group: its window, total and crossing (spec §10.2).
+
+    ``accumulated_unit`` is the total in the threshold's unit; ``member_count``
+    counts the operations the group accumulates; ``superseded_by_id`` names the
+    group that replaced it after a late operation.
+    """
+
+    id: UUID
+    status: CaptureGroupStatus
+    window_start: datetime
+    window_end: datetime
+    threshold_crossed_at: datetime | None
+    accumulated_minor: int
+    accumulated_unit: Decimal
+    member_count: int
+    superseded_by_id: UUID | None
+
+
+class ReportableEventDetail(ReportableEventSummary):
+    """An event with its pre-mapped report fields, unit values and group.
+
+    ``fields`` and ``unit_values`` hold codes, amounts, units and ids, never a
+    name (PRV-501).
+    """
+
+    fields: dict[str, JsonValue]
+    unit_values: dict[str, JsonValue]
+    group: CaptureGroupView | None
+    supersedes_id: UUID | None
+    superseded_by_id: UUID | None
+    void_reason: str | None
+    policy_snapshot_id: UUID
+
+
+class CapturePeriodResponse(BaseModel):
+    """A capture code's period and its close (spec §10.4; staff only).
+
+    ``event_count`` is the live events (``CAPTURED``, ``INCLUDED``): counted now
+    for an open or reopened period, as the close counted them for a closed one.
+    ``discrepancies`` names the transactions the close found ``missing`` or
+    ``extra``.
+    """
+
+    id: UUID
+    capture_code: str
+    report_code: str
+    period_key: str
+    period_start: date
+    period_end: date
+    status: CapturePeriodStatus
+    event_count: int
+    reconciled_count: int | None
+    reconciled_at: datetime | None
+    discrepancies: dict[str, list[UUID]] | None
+    closed_at: datetime | None
+    reopened_at: datetime | None
+    change_count: int
+
+
+class CapturePeriodQuery(BaseModel):
+    """The filters of ``GET /v1/monitoring/captures/periods``."""
+
+    capture_code: str | None = Field(default=None, max_length=64)
+    status: CapturePeriodStatus | None = None
+
+
+class CaptureLimitView(BaseModel):
+    """One read-only row of Capturas y límites, with its provenance.
+
+    A capture of the effective policy, or a tier's monthly limit (``kind``
+    ``TIER_LIMIT``, ``code`` the tier and limit, ``report_code`` null).
+    ``source`` names the packs (and the override version) it was resolved from.
+    """
+
+    code: str
+    kind: CaptureKind | Literal["TIER_LIMIT"]
+    threshold: str
+    unit: str
+    conversion_rule: ConversionRule
+    window: str | None
+    period: str | None
+    report_code: str | None
+    legal_basis: str
+    confidence: str
+    source: str

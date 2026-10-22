@@ -20,12 +20,12 @@ into ``AVI_XVI_A``), their live events for the transaction are voided as
 ``MERGED`` and named in ``fields.merged_captures`` (Deviation 10); when it is
 retired, those are captured again.
 
-``open_period`` and ``reopen_period`` are the minimal period writers B11
-completes: the first inserts the ``capture_period`` row of an event's period when
-it is missing and never locks an existing one (every party's events share it),
-the second marks a closed period ``REOPENED``. A run reopens the periods it
-touched once, at its end, in ascending order, so two runs never lock them in
-opposite orders.
+``open_period`` inserts the ``capture_period`` row of an event's period when it is
+missing and never locks an existing one (every party's events share it);
+``reopen_period`` marks a closed period ``REOPENED``. They stay here rather than
+in ``periods.py``, which writes through this module (B11's close). A run reopens
+the periods it touched once, at its end, in ascending order, so two runs never
+lock them in opposite orders.
 """
 
 import calendar
@@ -212,22 +212,22 @@ def period_bounds(period_key: str) -> tuple[date, date]:
     return date(year, first, 1), date(year, last, calendar.monthrange(year, last)[1])
 
 
-def open_period(
-    s: Session, definition: CaptureDefinition, period_key: str
-) -> CapturePeriod:
-    """Make sure the capture's period row exists, without locking it.
+def insert_period(
+    s: Session, *, capture_code: str, report_code: str, period_key: str
+) -> bool:
+    """Insert a capture's period row unless it exists, without locking it.
 
     Returns:
-        The period row, as it stands.
+        Whether the row was created.
 
     """
     start, end = period_bounds(period_key)
-    _ = s.execute(
+    created = s.execute(
         insert(CapturePeriod)
         .values(
             tenant_id=bound_context(s).require_tenant_id(),
-            capture_code=definition.code,
-            report_code=definition.report_code,
+            capture_code=capture_code,
+            report_code=report_code,
             period_key=period_key,
             period_start=start,
             period_end=end,
@@ -235,6 +235,28 @@ def open_period(
         .on_conflict_do_nothing(
             index_elements=["tenant_id", "capture_code", "period_key"]
         )
+        .returning(CapturePeriod.id)
+    ).first()
+    return created is not None
+
+
+def open_period(
+    s: Session, definition: CaptureDefinition, period_key: str
+) -> CapturePeriod:
+    """Make sure the capture's period row exists, without locking it.
+
+    ``event_count`` is not kept here (every party's events share the row): the
+    close counts the events (B11).
+
+    Returns:
+        The period row, as it stands.
+
+    """
+    _ = insert_period(
+        s,
+        capture_code=definition.code,
+        report_code=definition.report_code,
+        period_key=period_key,
     )
     return s.scalars(
         select(CapturePeriod).where(
@@ -244,7 +266,13 @@ def open_period(
     ).one()
 
 
-def _discrepancy_count(period: CapturePeriod) -> int:
+def discrepancy_count(period: CapturePeriod) -> int:
+    """Count the transaction ids a close named missing or extra.
+
+    Returns:
+        The number of ids in ``discrepancies``, 0 when there are none.
+
+    """
     if period.discrepancies is None:
         return 0
     return sum(
@@ -304,7 +332,7 @@ def reopen_period(
             "report_code": period.report_code,
             "period_key": period.period_key,
             "status": period.status.value,
-            "discrepancy_count": _discrepancy_count(period),
+            "discrepancy_count": discrepancy_count(period),
         },
     )
     return period
@@ -529,9 +557,10 @@ def capture_member(
     run: CaptureRun,
     definition: CaptureDefinition,
     txn: EnrichedTransaction,
-    group: CaptureGroup,
+    group: CaptureGroup | None,
     *,
     late: bool,
+    fee: UnitAmount | None = None,
 ) -> ReportableEvent | None:
     """Capture a member of a crossed group, writing or capturing it again.
 
@@ -540,20 +569,23 @@ def capture_member(
     group, ``SUPERSEDED`` or ``VOIDED``) is captured again in place: it joins the
     group as ``CAPTURED`` with ``late`` set, keeping its fields and unit values;
     an event that was live elsewhere is published as superseded by itself first.
-    The captures merging into it are voided again.
+    The captures merging into it are voided again. With ``group`` None the
+    transaction is captured on its own (a threshold, or a member the period close
+    finds missing outside any crossed group); ``fee`` is a fee capture's amount.
 
     Returns:
         The event written or captured again, or None when it was already there.
 
     """
+    group_id = None if group is None else group.id
     existing = event_of(run.s, definition.code, txn.id)
     if existing is None:
-        return write_event(run, definition, txn, late=late, group=group)
-    if existing.status in LIVE and existing.capture_group_id == group.id:
+        return write_event(run, definition, txn, late=late, group=group, fee=fee)
+    if existing.status in LIVE and existing.capture_group_id == group_id:
         return None
     if existing.status in LIVE:
         publish_superseded(run, existing, existing.id)
-    existing.capture_group_id = group.id
+    existing.capture_group_id = group_id
     existing.status = ReportableEventStatus.CAPTURED
     existing.superseded_by_id = None
     existing.void_reason = None

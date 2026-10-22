@@ -167,3 +167,10 @@ class RuleTransitionNotAllowedError(DomainError):
     def __init__(self, reasons: Sequence[RuleBlockedReason] = ()) -> None:
         super().__init__()
         self.blocked_reasons: tuple[str, ...] = tuple(r.value for r in reasons)
+
+
+class PeriodNotEndedError(DomainError):
+    """A capture period is closed only once its last day has passed (spec §10.4)."""
+
+    default_code: ClassVar[str] = "PERIOD_NOT_ENDED"
+    default_detail: ClassVar[str] = "the period has not ended"

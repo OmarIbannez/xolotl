@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
+from xolotl.modules.monitoring import routes_captures as capture_routes
 from xolotl.modules.monitoring import routes_decide as decide_routes
 from xolotl.modules.monitoring import routes_hits as hit_routes
 from xolotl.modules.monitoring import routes_monitoring as monitoring_routes
@@ -385,6 +386,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             monitoring_routes.router,
             hit_routes.router,
             hit_routes.party_router,
+            capture_routes.router,
             audit_routes.router,
         ],
     )

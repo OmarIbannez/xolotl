@@ -158,8 +158,8 @@ request (audited).
   API or console screen yet.
 - **Rule screens:** the rule editor and simulation pages.
 - **Regulatory captures:** each transaction a report must carry (Formato 41 and
-  avisos) is recorded as it is processed; the period close, its API and the
-  Capturas y límites page come next.
+  avisos) is recorded as it is processed and each period is closed by
+  re-evaluation, with a staff API; the Capturas y límites page comes next.
 - **The real-time decide endpoint** for payment rails (`POST
   /v1/transactions/decide`), with per-rail fail-mode settings
   (`/v1/monitoring/rails`).
@@ -281,6 +281,7 @@ driver is added.
 | `XOLOTL_MONITORING_MAX_FUTURE_MINUTES` | `10` | How far in the future a transaction's `occurred_at` may be, in minutes, to allow for clock skew. |
 | `XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD` | `3` | Monthly partitions the daily partition job keeps ahead of the current month (1 to 12). |
 | `XOLOTL_MONITORING_PARTITIONS_CRON` | `0 1 * * *` | When the daily partition maintenance job runs (UTC). |
+| `XOLOTL_MONITORING_PERIOD_CLOSE_CRON` | `0 4 1 * *` | When the per-tenant monthly `monitoring.period_close` job runs (Mexico City): every capture period that ended is reconciled by re-evaluation and closed. |
 | `XOLOTL_MONITORING_PROCESS_LEASE_SECONDS` | `300` | Lease of one `monitoring.process` job, in seconds (30 or more). |
 | `XOLOTL_MONITORING_PROCESS_PAGE` | `200` | Transactions a `monitoring.process` job reads per page (1 or more). |
 | `XOLOTL_MONITORING_PROFILE_CRON` | `0 3 2 * *` | When the per-tenant monthly `monitoring.profiles` job runs (Mexico City): the behaviour profile of every relationship active in the previous month. |
@@ -771,6 +772,7 @@ uv run xolotl monitoring sweep --tenant acme                          # run the 
 uv run xolotl monitoring backfill --tenant acme --from 2026-01-20 --to 2026-01-21 [--party <id>]
 uv run xolotl monitoring partitions ensure                            # create the months ahead now
 uv run xolotl monitoring profiles --tenant acme --month 2027-01       # compute a month's profiles
+uv run xolotl monitoring period-close --tenant acme [--capture ITF_ROR_CASH --period 2026-Q4]
 ```
 
 `monitoring backfill` audits the request (`monitoring.backfill_requested`), queues its
@@ -948,6 +950,40 @@ whose operation no longer belongs to a crossed group is retired (and a fee captu
 merged into it comes back), and a closed period touched is reopened
 (`monitoring.capture_period_changed.v1`). Retention deletes groups left without
 events once their window has ended.
+
+#### Period close
+
+Every event opens its capture's `capture_period` (`2026-12` for a monthly capture,
+`2026-Q4` for a quarterly one). The monthly `monitoring.period_close` job
+(`XOLOTL_MONITORING_PERIOD_CLOSE_CRON`, 04:00 on the 1st in Mexico City) first gives
+every capture of every policy in force a row for each period that ended since the
+tenant's first processed transaction, so a period without events is reconciled
+too, then closes each open or reopened one whose last day has passed. The close
+re-runs the capture over the period's processed transactions without writing
+anything, each under its own policy snapshot (thresholds, fees and every member of
+an accumulation window that crosses, the windows chained in order as processing
+chains them), and compares the transactions it expects with the period's live
+events: a missing event is written (or captured again in place) as late, an extra
+one is voided (`void_reason = RECONCILIATION`). The period records
+`reconciled_count`, `event_count`, the ids of what it found (`discrepancies`), becomes
+`CLOSED` and publishes `monitoring.capture_period_closed.v1` with its
+`discrepancy_count`. A discrepancy is a defect, not a business event: on clean data
+the close finds nothing, and `xolotl monitoring period-close` exits 1 when it finds
+one. Voiding an event a report already included, or changing a period closed
+before, counts as a change (`change_count`, `monitoring.capture_period_changed.v1`)
+so reporting regenerates. A late event in a closed period reopens it, and the next
+close closes it again.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /v1/monitoring/captures` | staff | reportable events, newest first; filters `capture_code`, `report_code`, `period_key`, `status`, `relationship_id`, `transaction_id` |
+| `GET /v1/monitoring/captures/{id}` | staff | the event with its pre-mapped report fields, unit values and accumulation group (window, total, crossing, member count, the group that replaced it) |
+| `GET /v1/monitoring/captures/periods` | staff | capture periods, newest period key first, with their reconciliation; filters `capture_code`, `status` |
+| `POST /v1/monitoring/captures/periods/{id}/close` | staff MLRO, ADMIN | closes the period now; `409 PERIOD_NOT_ENDED` until its last day has passed |
+| `GET /v1/monitoring/captures/effective?on=&product=` | staff | the effective policy's captures and tier monthly limits with threshold, unit, conversion rule, window, period, report, legal basis, confidence and source packs |
+
+An API key never reaches these routes, whatever its scopes: a capture says a customer
+is being reported (tipping-off).
 
 ## Connectors
 

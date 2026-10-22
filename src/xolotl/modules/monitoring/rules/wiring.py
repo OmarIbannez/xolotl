@@ -1,11 +1,15 @@
 """Plan 4b's composition: the rules events, the processing hook and its readers.
 
 ``wire_platform`` calls ``register_rules`` right after ``register_monitoring``. B8
-added the simulation handler here, B10 adds the captures hook and B11 the period
-close.
+added the simulation handler here, B10 the captures hook and B11 the period
+close (``monitoring.period_close``).
 """
 
 from xolotl.modules.monitoring.captures.hook import CapturesHook
+from xolotl.modules.monitoring.captures.periods import (
+    PERIOD_CLOSE_KIND,
+    handle_period_close,
+)
 from xolotl.modules.monitoring.events import RULES_STAFF_ONLY_EVENT_TYPES
 from xolotl.modules.monitoring.process.hooks import register_processing_hook
 from xolotl.modules.monitoring.rules.evaluate import (
@@ -29,7 +33,7 @@ def register_rules(
     screening_status: ScreeningStatusReader | None,
     true_match: TrueMatchReader | None = None,
 ) -> None:
-    """Mark the staff-only rules events; register the hooks and simulation.
+    """Mark the staff-only rules events; register the hooks and the jobs.
 
     ``screening_status`` reads a party's screening status for the evaluator's
     profile, and ``true_match`` when a party found ``TRUE_MATCH`` was last
@@ -45,3 +49,4 @@ def register_rules(
     # After the rules: a capture never depends on a hit (spec §10.1).
     register_processing_hook(CapturesHook())
     register_job_handler(SIMULATE_KIND, handle_simulate)
+    register_job_handler(PERIOD_CLOSE_KIND, handle_period_close)

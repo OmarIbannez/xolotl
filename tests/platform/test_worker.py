@@ -31,6 +31,10 @@ from xolotl import worker as worker_module
 from xolotl.app import build_app, build_worker, wire_platform
 from xolotl.cli import app as cli
 from xolotl.modules.monitoring.aggregates.backfill import AggBackfillJob
+from xolotl.modules.monitoring.captures.periods import (
+    PERIOD_CLOSE_KIND,
+    handle_period_close,
+)
 from xolotl.modules.monitoring.kinds import (
     AGG_BACKFILL_KIND,
     BACKFILL_KIND,
@@ -636,6 +640,7 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
     ):
         assert isinstance(getattr(job_handler(kind), "__self__", None), handler)
     assert job_handler(SIMULATE_KIND) is handle_simulate
+    assert job_handler(PERIOD_CLOSE_KIND) is handle_period_close
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):
@@ -670,8 +675,9 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
             update(JobSchedule).values(next_run_at=now - timedelta(minutes=1))
         )
 
-    # The first tick enqueues both jobs, the second runs them.
-    assert build_worker().run(max_ticks=2) == 2
+    # The first tick enqueues the jobs; a tick runs ten of them, so the next two
+    # run the eleven.
+    assert build_worker().run(max_ticks=3) == 3
 
     with tenant_session(system_ctx(created.tenant_id)) as s:
         keys = set(s.scalars(select(IdempotencyKey.key)))
@@ -694,6 +700,8 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
         "monitoring.retention": JobStatus.DONE,
         # A tenant without processed rows profiles nothing.
         "monitoring.profiles": JobStatus.DONE,
+        # A tenant without processed rows has no period to close.
+        "monitoring.period_close": JobStatus.DONE,
     }
 
 
@@ -758,6 +766,13 @@ PLATFORM_SCHEDULES = [
     ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", True),
     ("lists.poll", "* * * * *", "UTC", "lists.poll", True),
     ("monitoring.partitions", "0 1 * * *", "UTC", "monitoring.partitions", True),
+    (
+        "monitoring.period_close",
+        "0 4 1 * *",
+        "America/Mexico_City",
+        "monitoring.period_close",
+        True,
+    ),
     (
         "monitoring.profiles",
         "0 3 2 * *",
