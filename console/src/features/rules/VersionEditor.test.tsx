@@ -55,6 +55,38 @@ describe('VersionEditor', () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(text.saved))
   })
 
+  it('clearing a populated segment sends empty lists, never null', async () => {
+    const { user, fakeApi } = setup(version({ segment: { tier: ['N1'], risk_rating: ['HIGH'], monitoring_profile: [] } }))
+
+    await user.clear(screen.getByLabelText(text.segmentField.tier))
+    await user.clear(screen.getByLabelText(text.segmentField.risk_rating))
+    await user.click(screen.getByRole('button', { name: text.save }))
+
+    await waitFor(() => expect(fakeApi.calls(PATCH)).toHaveLength(1))
+    const body = (await fakeApi.calls(PATCH)[0]?.json()) as { segment: unknown }
+    expect(body.segment).toEqual({ tier: [], risk_rating: [], monitoring_profile: [] })
+  })
+
+  it('reports unsaved changes to the page', async () => {
+    const changes: boolean[] = []
+    const { user } = renderApp(
+      <VersionEditor ruleId={RULE_ID} version={version()} onDirtyChange={(dirty) => changes.push(dirty)} />,
+      { me: makeMe({ roles: ['SENIOR_ANALYST'] }), routes: { [PATCH]: () => json(version()) } },
+    )
+
+    await user.type(screen.getByLabelText('near_ratio'), '5')
+    await waitFor(() => expect(changes.at(-1)).toBe(true))
+    await user.type(screen.getByLabelText('near_ratio'), '{Backspace}')
+    await waitFor(() => expect(changes.at(-1)).toBe(false))
+  })
+
+  it('states the decimal rule and that an edit excludes the editor from approving', () => {
+    setup()
+
+    expect(screen.getAllByText((content) => content.startsWith(text.decimalHint))).toHaveLength(2)
+    expect(screen.getByText(text.excludesApproval)).toBeTruthy()
+  })
+
   it('refuses a decimal comma before anything is sent', async () => {
     const { user, fakeApi } = setup()
 
@@ -88,7 +120,7 @@ describe('VersionEditor', () => {
     await waitFor(() => expect(fakeApi.calls(PATCH)).toHaveLength(1))
     const body = (await fakeApi.calls(PATCH)[0]?.json()) as { params: unknown; segment: unknown }
     expect(body.params).toEqual({ outcome: 'REVIEW', self_custody: false })
-    expect(body.segment).toBeNull()
+    expect(body.segment).toEqual({ tier: [], risk_rating: [], monitoring_profile: [] })
   })
 
   it('is read only without EDIT, and says why', () => {

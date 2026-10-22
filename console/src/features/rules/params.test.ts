@@ -15,7 +15,7 @@ describe('parseDecimal', () => {
   })
 
   it('refuses a decimal comma, a sign and anything that is not a number', () => {
-    for (const text of ['0,70', '5000,5', '-1', '+1', '1e3', '', '.5', '5.', '1,00']) {
+    for (const text of ['0,70', '0,700', '0,700.5', '01,000', '5000,5', '-1', '+1', '1e3', '', '.5', '5.', '1,00']) {
       expect(parseDecimal(text), text).toBeNull()
     }
   })
@@ -37,8 +37,12 @@ describe('the segment', () => {
     expect(splitCodes('n1, N2 n1,,')).toEqual(['N1', 'N2'])
   })
 
-  it('is null when every list is empty', () => {
-    expect(segmentOf({ tier: ' ', risk_rating: '', monitoring_profile: '' })).toBeNull()
+  it('sends three empty lists when every list is empty: null would keep the stored segment', () => {
+    expect(segmentOf({ tier: ' ', risk_rating: '', monitoring_profile: '' })).toEqual({
+      tier: [],
+      risk_rating: [],
+      monitoring_profile: [],
+    })
     expect(segmentOf({ tier: 'n1', risk_rating: 'high', monitoring_profile: '' })).toEqual({
       tier: ['N1'],
       risk_rating: ['HIGH'],

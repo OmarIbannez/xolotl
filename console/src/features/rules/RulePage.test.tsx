@@ -44,8 +44,8 @@ describe('RulePage', () => {
     expect(screen.getByText(SENTENCE_ES)).toBeTruthy()
     const threshold = screen.getByLabelText('threshold (USD)')
     expect((threshold as HTMLInputElement).value).toBe('5000')
-    expect(screen.getByText('mín. 1000 · solo puede bajar · límites de template CASH_STRUCTURING v1')).toBeTruthy()
-    expect(screen.getByText('mín. 0.50 · máx. 0.95 · límites de template CASH_STRUCTURING v1')).toBeTruthy()
+    expect(screen.getByText(`${text.editor.decimalHint} mín. 1000 · solo puede bajar · límites de template CASH_STRUCTURING v1`)).toBeTruthy()
+    expect(screen.getByText(`${text.editor.decimalHint} mín. 0.50 · máx. 0.95 · límites de template CASH_STRUCTURING v1`)).toBeTruthy()
     const minCount = screen.getByLabelText('min_count') as HTMLInputElement
     expect(minCount.type).toBe('number')
     expect(minCount.min).toBe('2')
@@ -110,7 +110,7 @@ describe('RulePage', () => {
 
     const actions = await screen.findByRole('group', { name: text.action.label })
     expect(within(actions).getByRole('button', { name: text.action.APPROVE })).toBeDisabled()
-    expect(within(actions).getByText('El aprobador debe ser distinto del autor.')).toBeTruthy()
+    expect(within(actions).getByText('El aprobador debe ser distinto del autor y de quien editó la versión.')).toBeTruthy()
     expect(within(actions).getByRole('button', { name: text.action.REJECT })).toBeEnabled()
     // Nothing is editable in review.
     expect(screen.getByLabelText('threshold (USD)')).toBeDisabled()
@@ -128,6 +128,41 @@ describe('RulePage', () => {
 
     expect(await screen.findByText(esMX.errors.RULE_TRANSITION_NOT_ALLOWED)).toBeTruthy()
     expect(screen.getByText(text.blocked.SIMULATION_STALE)).toBeTruthy()
+  })
+
+  it("another version's refusal does not follow the user to this one", async () => {
+    const { user } = setup(
+      [
+        version({ id: 'v1', status: 'IN_REVIEW', allowed_actions: ['APPROVE'], blocked_reasons: {} }),
+        version({ id: 'v2', version: 2, status: 'IN_REVIEW', allowed_actions: ['APPROVE'], blocked_reasons: {} }),
+      ],
+      {
+        [`POST /v1/monitoring/rules/${RULE_ID}/versions/2/approve`]: () =>
+          problem(409, 'RULE_TRANSITION_NOT_ALLOWED', { blocked_reasons: ['SIMULATION_STALE'] }),
+      },
+      'MLRO',
+    )
+
+    await user.click(await screen.findByRole('button', { name: text.action.APPROVE }))
+    expect(await screen.findByText(text.blocked.SIMULATION_STALE)).toBeTruthy()
+    await user.click(within(screen.getByRole('list', { name: text.versions.title })).getByRole('button', { name: /v1/ }))
+
+    expect(screen.queryByText(text.blocked.SIMULATION_STALE)).toBeNull()
+  })
+
+  it('keeps unsaved edits when the version moves on, and holds the simulation until they are saved', async () => {
+    let shown = version()
+    const { user, queryClient } = setup([], { [RULE]: () => json(rule({ versions: [shown] })) })
+    const ratio = await screen.findByLabelText('near_ratio')
+    await user.clear(ratio)
+    await user.type(ratio, '0.85')
+
+    expect(screen.getByRole('button', { name: text.simulation.run })).toBeDisabled()
+    shown = version({ status: 'SIMULATED', allowed_actions: ['EDIT', 'SIMULATE', 'SUBMIT'] })
+    await queryClient.invalidateQueries()
+    expect(await screen.findByRole('button', { name: text.action.SUBMIT })).toBeTruthy()
+
+    expect((screen.getByLabelText('near_ratio') as HTMLInputElement).value).toBe('0.85')
   })
 
   it('lists the versions newest first and opens the one chosen', async () => {

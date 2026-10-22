@@ -4,11 +4,12 @@ import type { ParamValue, ParamView, SegmentFilter } from '@/api/types'
 // API spells it as text and refuses a JSON float, so the editor keeps the digits and sends a string.
 
 /**
- * A decimal with an optional fraction after a point. A comma is accepted only as thousands
- * grouping ("5,000.50"), never as a decimal separator: "0,70" read as grouping would be 70, so it
- * is refused (the rule of the declared profile's amounts).
+ * A decimal with an optional fraction after a point. A comma is accepted only as well-formed
+ * thousands grouping ("5,000.50": a first group of one to three digits not starting with 0, then
+ * groups of three), never as a decimal separator: "0,70" and "0,700" are refused rather than read
+ * as 70 or 700 (the rule of the declared profile's amounts).
  */
-const DECIMAL = /^(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?$/
+const DECIMAL = /^([1-9]\d{0,2}(?:,\d{3})+|\d+)(?:\.(\d+))?$/
 const INTEGER = /^\d+$/
 
 /** "5,000.50" or "0.70" as the API spells it ("5000.50", "0.70"); null for anything else. */
@@ -67,14 +68,16 @@ export function segmentInputOf(segment: SegmentFilter | null): Record<SegmentFie
   }
 }
 
-/** The segment to send: null when every list is empty (the rule applies to every customer). */
-export function segmentOf(input: Record<SegmentField, string>): SegmentFilter | null {
-  const segment = {
+/**
+ * The segment to send, always with its three lists: empty lists mean every customer. Never null,
+ * which the API reads as "keep the stored segment", so a cleared segment would silently stay.
+ */
+export function segmentOf(input: Record<SegmentField, string>): SegmentFilter {
+  return {
     tier: splitCodes(input.tier),
     risk_rating: splitCodes(input.risk_rating),
     monitoring_profile: splitCodes(input.monitoring_profile),
   }
-  return SEGMENT_FIELDS.every((field) => segment[field].length === 0) ? null : segment
 }
 
 function dayString(date: Date): string {

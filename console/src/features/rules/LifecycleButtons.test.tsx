@@ -58,6 +58,21 @@ describe('LifecycleButtons', () => {
     expect(await fakeApi.calls(`POST ${VERSION}/reject`)[0]?.json()).toEqual({ reason: 'El umbral es demasiado bajo' })
   })
 
+  it('forgets a refused reason when the dialog is cancelled', async () => {
+    const { user } = setup(version({ status: 'IN_REVIEW', allowed_actions: ['REJECT'], blocked_reasons: {} }))
+
+    await user.click(screen.getByRole('button', { name: text.action.REJECT }))
+    let dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: text.action.REJECT }))
+    expect(within(dialog).getByText(text.reject.reasonRequired)).toBeTruthy()
+    await user.click(within(dialog).getByRole('button', { name: esMX.common.cancel }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+
+    await user.click(screen.getByRole('button', { name: text.action.REJECT }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByText(text.reject.reasonRequired)).toBeNull()
+  })
+
   it('activates from a date, for every product unless one is named', async () => {
     const { user, fakeApi } = setup(version({ status: 'APPROVED', allowed_actions: ['ACTIVATE'], blocked_reasons: {} }), {
       [`POST ${VERSION}/activate`]: () => json(version({ status: 'ACTIVE' })),

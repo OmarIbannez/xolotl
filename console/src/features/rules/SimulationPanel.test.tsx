@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SimulationResponse, VersionResponse } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
-import { json, type FakeRoutes } from '@/test/fake-network'
+import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { RULE_ID, simulation, version } from './fixtures'
 import { SimulationPanel } from './SimulationPanel'
@@ -12,8 +12,8 @@ const text = esMX.rules.simulation
 const SIMULATE = `POST /v1/monitoring/rules/${RULE_ID}/versions/1/simulate`
 const READ = 'GET /v1/monitoring/simulations/s1'
 
-function setup(shown: VersionResponse, routes: FakeRoutes = {}) {
-  return renderApp(<SimulationPanel ruleId={RULE_ID} version={shown} pollMs={10} />, {
+function setup(shown: VersionResponse, routes: FakeRoutes = {}, unsaved = false) {
+  return renderApp(<SimulationPanel ruleId={RULE_ID} version={shown} pollMs={10} unsaved={unsaved} />, {
     me: makeMe({ roles: ['SENIOR_ANALYST'] }),
     routes,
   })
@@ -93,6 +93,25 @@ describe('SimulationPanel', () => {
 
     expect(screen.getByText(text.notes.PROFILE_HISTORY_SHORT)).toBeTruthy()
     expect(screen.getByText(text.otherDefinition)).toBeTruthy()
+  })
+
+  it('says so when the simulation cannot be read, rather than wait forever', async () => {
+    const { user } = setup(version(), {
+      [SIMULATE]: () => json({ simulation_id: 's1' }, { status: 202 }),
+      [READ]: () => problem(500, 'INTERNAL'),
+    })
+
+    await user.click(screen.getByRole('button', { name: text.run }))
+
+    expect(await screen.findByText(esMX.errors.INTERNAL)).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('')
+  })
+
+  it('waits for unsaved changes to be saved before simulating', () => {
+    setup(version(), {}, true)
+
+    expect(screen.getByRole('button', { name: text.run })).toBeDisabled()
+    expect(screen.getByText(text.saveFirst)).toBeTruthy()
   })
 
   it('cannot run without SIMULATE', async () => {

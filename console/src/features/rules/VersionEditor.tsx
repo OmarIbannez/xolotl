@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { isApiError } from '@/api/errors'
@@ -114,6 +114,20 @@ function ParamControl({ param, value, onChange, control }: ParamControlProps) {
 interface VersionEditorProps {
   ruleId: string
   version: VersionResponse
+  /** Told whether the form holds changes not saved yet (the page holds the simulation until then). */
+  onDirtyChange?: (dirty: boolean) => void
+}
+
+/** The form's values as the version holds them. */
+function formOf(version: VersionResponse) {
+  return {
+    params: Object.fromEntries(version.params.map((param) => [param.name, inputOf(param)])) as Record<string, ParamInput>,
+    segment: segmentInputOf(version.segment),
+    severity: version.severity,
+    dedupKey: version.dedup.key ?? 'RELATIONSHIP',
+    dedupWindow: version.dedup.window ?? '',
+    cooldown: version.dedup.cooldown ?? '',
+  }
 }
 
 /**
@@ -122,20 +136,27 @@ interface VersionEditorProps {
  * the server's rendering, read again after each save. Only a version whose `allowed_actions`
  * has `EDIT` can be changed; any change sends it back to `DRAFT`, to be simulated again.
  */
-export function VersionEditor({ ruleId, version }: VersionEditorProps) {
+export function VersionEditor({ ruleId, version, onDirtyChange }: VersionEditorProps) {
   const { t } = useTranslation()
   const boundHint = useBoundHint()
   const update = useUpdateVersion(ruleId, version.version)
   const editable = version.allowed_actions.includes('EDIT')
-  const [params, setParams] = useState<Record<string, ParamInput>>(() =>
-    Object.fromEntries(version.params.map((param) => [param.name, inputOf(param)])),
-  )
-  const [segment, setSegment] = useState(() => segmentInputOf(version.segment))
-  const [severity, setSeverity] = useState<Severity>(version.severity)
-  const [dedupKey, setDedupKey] = useState<KeyKind>(version.dedup.key ?? 'RELATIONSHIP')
-  const [dedupWindow, setDedupWindow] = useState(version.dedup.window ?? '')
-  const [cooldown, setCooldown] = useState(version.dedup.cooldown ?? '')
+  const [initial] = useState(() => formOf(version))
+  const [params, setParams] = useState<Record<string, ParamInput>>(initial.params)
+  const [segment, setSegment] = useState(initial.segment)
+  const [severity, setSeverity] = useState<Severity>(initial.severity)
+  const [dedupKey, setDedupKey] = useState<KeyKind>(initial.dedupKey)
+  const [dedupWindow, setDedupWindow] = useState(initial.dedupWindow)
+  const [cooldown, setCooldown] = useState(initial.cooldown)
   const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set())
+  const dirty =
+    JSON.stringify({ params, segment, severity, dedupKey, dedupWindow, cooldown }) !== JSON.stringify(formOf(version))
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+  // A form that goes away holds nothing unsaved.
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const refused = refusedParams(update.error, version.params)
   const blocked = version.blocked_reasons.EDIT ?? []
@@ -197,7 +218,7 @@ export function VersionEditor({ ruleId, version }: VersionEditorProps) {
                   <Field
                     key={param.name}
                     label={param.unit === null ? param.name : `${param.name} (${param.unit})`}
-                    hint={boundHint(param)}
+                    hint={param.type === 'DECIMAL' ? `${t('rules.editor.decimalHint')} ${boundHint(param)}` : boundHint(param)}
                     error={paramError(param)}
                   >
                     {(control) => (
@@ -295,7 +316,10 @@ export function VersionEditor({ ruleId, version }: VersionEditorProps) {
             {editable && (
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="submit">{update.isPending ? t('rules.editor.saving') : t('rules.editor.save')}</Button>
-                <p className="text-xs text-muted-foreground">{t('rules.editor.resets')}</p>
+                <div className="space-y-0.5 text-xs text-muted-foreground">
+                  <p>{t('rules.editor.resets')}</p>
+                  <p>{t('rules.editor.excludesApproval')}</p>
+                </div>
               </div>
             )}
           </fieldset>

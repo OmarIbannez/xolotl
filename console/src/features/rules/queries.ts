@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, unwrap, unwrapReplayable } from '@/api/client'
+import { hasProblemCode } from '@/api/errors'
 import { PAGE_SIZE } from '@/api/queries'
 import type {
   ActivateRequest,
@@ -106,8 +107,9 @@ export function useRule(ruleId: string) {
 }
 
 /**
- * One simulation, read again every `pollMs` while it is `QUEUED` or `RUNNING`. When a read finds
- * it newly finished, the rules are read again: the version is `SIMULATED` now (or still not).
+ * One simulation, read again every `pollMs` while it is `QUEUED` or `RUNNING`. It is read only
+ * while one runs, so whenever a read finds it finished (the first read included: the job may end
+ * before it), the rules are read again: the version is `SIMULATED` now, or still not.
  */
 export function useSimulation(simulationId: string | undefined, { pollMs = SIMULATION_POLL_MS } = {}) {
   const { tenant, enabled } = useSignedIn()
@@ -122,7 +124,7 @@ export function useSimulation(simulationId: string | undefined, { pollMs = SIMUL
           params: { path: { simulation_id: simulationId ?? '' } },
         }),
       )) as SimulationResponse
-      if (simulationRunning(before) && !simulationRunning(simulation.status)) {
+      if ((before === undefined || simulationRunning(before)) && !simulationRunning(simulation.status)) {
         void qc.invalidateQueries({ queryKey: [RULES, tenant, 'one'] })
         void qc.invalidateQueries({ queryKey: [RULES, tenant, 'list'] })
       }
@@ -134,7 +136,7 @@ export function useSimulation(simulationId: string | undefined, { pollMs = SIMUL
   })
 }
 
-/** After a write: the list and every rule are read again. */
+/** After a write, or a refusal that says the page is out of date: the list and every rule are read again. */
 function useInvalidateRules() {
   const qc = useQueryClient()
   const { tenant } = useSignedIn()
@@ -238,6 +240,10 @@ export function useTransition(ruleId: string, v: number) {
   return useIdempotentMutation({
     mutationFn: (transition: Transition, idempotencyKey: string) => sendTransition(ruleId, v, transition, idempotencyKey),
     onSuccess: invalidate,
+    // A refusal means the version moved on (another approver, a stale simulation): read it again.
+    onError: (error) => {
+      if (hasProblemCode(error, 'RULE_TRANSITION_NOT_ALLOWED')) invalidate()
+    },
     gcTime: 0,
   })
 }

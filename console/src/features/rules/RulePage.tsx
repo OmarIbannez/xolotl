@@ -115,7 +115,8 @@ function VersionStateCard({ ruleId, version }: { ruleId: string; version: Versio
       </CardHeader>
       <CardContent className="space-y-5">
         <KeyValues items={rows} />
-        <LifecycleButtons ruleId={ruleId} version={version} />
+        {/* Keyed by the version, so a refusal or an open dialog never carries over to another. */}
+        <LifecycleButtons key={version.id} ruleId={ruleId} version={version} />
       </CardContent>
     </Card>
   )
@@ -125,6 +126,8 @@ function RuleDetailView({ ruleId }: { ruleId: string }) {
   const { t } = useTranslation()
   const rule = useRule(ruleId)
   const [chosen, setChosen] = useState<number | undefined>(undefined)
+  // Whether the editor holds changes not saved yet, which a simulation would not see.
+  const [unsaved, setUnsaved] = useState(false)
 
   if (isApiError(rule.error) && rule.error.status === 404) return <NotFound />
 
@@ -151,13 +154,17 @@ function RuleDetailView({ ruleId }: { ruleId: string }) {
           </div>
           {version !== undefined && (
             <div className="space-y-6">
-              {/* Keyed by what the server holds, so a save shows the server's values and sentence. */}
+              {/*
+                Keyed by the definition the server holds, so a save shows the server's values and
+                sentence, while a status change alone (a simulation finishing) keeps unsaved edits.
+              */}
               <VersionEditor
-                key={`${version.id}:${version.definition_hash}:${version.status}`}
+                key={`${version.id}:${version.definition_hash}`}
                 ruleId={data.id}
                 version={version}
+                onDirtyChange={setUnsaved}
               />
-              <SimulationPanel key={version.id} ruleId={data.id} version={version} />
+              <SimulationPanel key={version.id} ruleId={data.id} version={version} unsaved={unsaved} />
             </div>
           )}
         </div>

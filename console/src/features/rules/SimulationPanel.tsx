@@ -154,6 +154,8 @@ interface SimulationPanelProps {
   version: VersionResponse
   /** How often a running simulation is read again (tests shorten it). */
   pollMs?: number
+  /** The editor holds changes not saved yet: a simulation would replay the saved definition. */
+  unsaved?: boolean
 }
 
 /**
@@ -162,7 +164,7 @@ interface SimulationPanelProps {
  * badge from `valid_until`. The tallies and the sample say which customers the rule would hit,
  * so they live only as long as this page (the queries keep nothing once it closes).
  */
-export function SimulationPanel({ ruleId, version, pollMs = SIMULATION_POLL_MS }: SimulationPanelProps) {
+export function SimulationPanel({ ruleId, version, pollMs = SIMULATION_POLL_MS, unsaved = false }: SimulationPanelProps) {
   const { t } = useTranslation()
   const format = useFormat()
   const simulate = useSimulate(ruleId, version.version)
@@ -171,7 +173,8 @@ export function SimulationPanel({ ruleId, version, pollMs = SIMULATION_POLL_MS }
   const pollId = started ?? (simulationRunning(version.simulation?.status) ? version.simulation?.id : undefined)
   const read = useSimulation(pollId, { pollMs })
   const simulation = read.data ?? (started === undefined ? version.simulation : null)
-  const running = simulationRunning(simulation?.status) || (started !== undefined && read.data === undefined)
+  // A read that failed is not a simulation still running: its error is shown instead.
+  const running = !read.isError && (simulationRunning(simulation?.status) || (started !== undefined && read.data === undefined))
   const allowed = version.allowed_actions.includes('SIMULATE')
   const range = lastSixMonths(mexicoCityToday())
   const day = (value: string) => format.date(`${value}T12:00:00Z`)
@@ -188,14 +191,16 @@ export function SimulationPanel({ ruleId, version, pollMs = SIMULATION_POLL_MS }
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" onClick={run} disabled={!allowed || running || simulate.isPending}>
+          <Button type="button" onClick={run} disabled={!allowed || unsaved || running || simulate.isPending}>
             {t('rules.simulation.run')}
           </Button>
           <span className="text-xs text-muted-foreground">
             {t('rules.simulation.runRange', { start: day(range.range_start), end: day(range.range_end) })}
           </span>
         </div>
+        {allowed && unsaved && <p className="text-sm text-muted-foreground">{t('rules.simulation.saveFirst')}</p>}
         {simulate.isError && <FormAlert error={simulate.error} />}
+        {read.isError && <FormAlert error={read.error} />}
         <div role="status" aria-live="polite">
           {running && (
             <p className="flex items-center gap-2 text-sm">

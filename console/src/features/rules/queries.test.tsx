@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { installFakeApi, json } from '@/test/fake-network'
+import { installFakeApi, json, problem } from '@/test/fake-network'
 import { providers } from '@/test/render'
 import { RULE_ID, rule, simulation, version } from './fixtures'
 import { useCreateRule, useRule, useRules, useSimulation, useTransition, useUpdateVersion } from './queries'
@@ -78,6 +78,26 @@ describe('the writes', () => {
   })
 })
 
+describe('a refused transition', () => {
+  it('reads the rule again, so the buttons follow the server', async () => {
+    const fakeApi = installFakeApi({
+      [`POST ${VERSION}/approve`]: () => problem(409, 'RULE_TRANSITION_NOT_ALLOWED', { blocked_reasons: ['SIMULATION_STALE'] }),
+      [`GET /v1/monitoring/rules/${RULE_ID}`]: () => json(rule()),
+    })
+    const { Wrapper } = providers()
+    const { result } = renderHook(() => ({ rule: useRule(RULE_ID), transition: useTransition(RULE_ID, 1) }), {
+      wrapper: Wrapper,
+    })
+    await waitFor(() => expect(result.current.rule.isSuccess).toBe(true))
+
+    await act(async () => {
+      await result.current.transition.mutateAsync({ action: 'APPROVE' }).catch(() => undefined)
+    })
+
+    await waitFor(() => expect(fakeApi.calls(`GET /v1/monitoring/rules/${RULE_ID}`)).toHaveLength(2))
+  })
+})
+
 describe('useSimulation', () => {
   it('reads a running simulation again until it has finished, then stops', async () => {
     const answers = [simulation({ status: 'QUEUED' }), simulation({ status: 'RUNNING' }), simulation()]
@@ -89,6 +109,29 @@ describe('useSimulation', () => {
     await waitFor(() => expect(result.current.data?.status).toBe('COMPLETED'))
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(fakeApi.calls('GET /v1/monitoring/simulations/s1')).toHaveLength(3)
+  })
+
+  it.each([
+    ['already finished on its first read', [simulation()]],
+    ['finished after polling', [simulation({ status: 'RUNNING' }), simulation()]],
+    ['failed on its first read', [simulation({ status: 'FAILED', last_error: 'WorkerLost' })]],
+  ])('reads the rule again once the simulation has %s', async (_, answers) => {
+    const fakeApi = installFakeApi({
+      'GET /v1/monitoring/simulations/s1': () => json(answers.length > 1 ? answers.shift() : answers[0]),
+      [`GET /v1/monitoring/rules/${RULE_ID}`]: () => json(rule()),
+    })
+    const { Wrapper } = providers()
+
+    // The page has the rule before the panel reads the simulation it asked for.
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string | undefined }) => ({ rule: useRule(RULE_ID), simulation: useSimulation(id, { pollMs: 10 }) }),
+      { wrapper: Wrapper, initialProps: { id: undefined as string | undefined } },
+    )
+    await waitFor(() => expect(result.current.rule.isSuccess).toBe(true))
+    rerender({ id: 's1' })
+
+    await waitFor(() => expect(result.current.simulation.data?.status).toMatch(/COMPLETED|FAILED/))
+    await waitFor(() => expect(fakeApi.calls(`GET /v1/monitoring/rules/${RULE_ID}`)).toHaveLength(2))
   })
 
   it('asks nothing without a simulation', () => {

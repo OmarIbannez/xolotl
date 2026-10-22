@@ -177,6 +177,7 @@ export function LifecycleButtons({ ruleId, version }: { ruleId: string; version:
 
   function cancel() {
     setOpen(undefined)
+    setReasonProblem(undefined)
     transition.reset()
   }
 
