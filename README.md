@@ -154,8 +154,9 @@ request (audited).
 
 - **Monitoring rules.** The Mexico rule templates (sixteen typologies) and the rule
   version lifecycle (draft, simulated, in review, approved, active, retired, with
-  four eyes) exist; templates are managed from the CLI (`xolotl rules ...`), with no
-  API or console screen yet.
+  four eyes) exist, with the rules API (`/v1/monitoring/templates`, `/rules`,
+  `/simulations`, `/assignments`) and the CLI (`xolotl rules ...`); no console
+  screen yet.
 - **Rule screens:** the rule editor and simulation pages.
 - **Regulatory captures:** each transaction a report must carry (Formato 41 and
   avisos) is recorded as it is processed and each period is closed by
@@ -867,6 +868,30 @@ meanwhile; a failure leaves it `FAILED` with the exception's class only. Either 
 `monitoring.simulation_completed.v1` (staff-only) says so. A completed simulation is
 valid for submission and approval for `XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` (30
 days).
+
+### Rules API
+
+Staff and API keys with the `rules:read` scope read the library and the tenant's
+rules; simulations, every write, every lifecycle step and the assignments are staff
+only (an API key, whatever its scopes, gets 403 `ROLE_FORBIDDEN`). In a rule an API
+key reads, each simulation keeps its status, range and dates, but its tallies,
+weeks, overlap, sample and requester are null (even a count can tell which customer
+a rule would hit), and no staff user id or `allowed_actions` is shown. For staff,
+each version carries the `allowed_actions` and `blocked_reasons` of the caller, from
+the same matrix the lifecycle enforces (an MLRO who edited a version is shown
+`SAME_AUTHOR` on `APPROVE`). Every `POST` takes an `Idempotency-Key`; another
+tenant's rule, version or simulation is 404.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /v1/monitoring/templates` · `GET /v1/monitoring/templates/{code}` | staff; API key `rules:read` | the latest version of each library template: family, kind, typology, packs, each parameter with its value, bounds, `tighten` direction, unit and source, the definition and the sentence in `es-MX` and `en`; 404 `RULE_TEMPLATE_UNKNOWN` |
+| `GET /v1/monitoring/rules` · `GET /v1/monitoring/rules/{id}` | staff; API key `rules:read` | the tenant's rules, newest first with cursor pages, filtered by `kind`, `typology` and `status` (any version in it), each with every version (params, segment, severity, dedup, sentence, status and stamps, latest simulation, assignment), the active version and the last simulation |
+| `POST /v1/monitoring/rules` | staff `SENIOR_ANALYST`, `MLRO`, `ADMIN` | `{template_code, params?, segment?, severity?, dedup?}` → 201 the `DRAFT` version (a new version when the tenant has the rule already); `{definition}` alone authors a custom rule (`ADMIN`, with `XOLOTL_MONITORING_ALLOW_CUSTOM_RULES`); 422 `RULE_PARAM_OUT_OF_BOUNDS` with the parameter, bound and source in `errors[]` |
+| `POST /v1/monitoring/rules/{id}/versions` · `PATCH /v1/monitoring/rules/{id}/versions/{v}` | staff writers | a new `DRAFT` version from the latest one; an edit of a `DRAFT` or `SIMULATED` version (any change sends it back to `DRAFT`) |
+| `POST /v1/monitoring/rules/{id}/versions/{v}/simulate` | staff writers | `{range_start, range_end}` → 202 `{simulation_id}`; 422 `SIMULATION_RANGE_TOO_LONG` |
+| `GET /v1/monitoring/simulations/{id}` | staff | status, tallies, `hits_per_week`, `overlap`, `sample`, `valid_until` (the last day it counts for submission and approval) and `notes` (`PROFILE_HISTORY_SHORT` for a profile rule simulated over less than 120 days) |
+| `POST /v1/monitoring/rules/{id}/versions/{v}/submit` · `approve` · `reject` · `activate` · `retire` | staff (the lifecycle checks the roles) | the version; `reject` takes `{reason}` (1 to 500 characters, not stored), `activate` `{effective_from, product?}`; 409 `RULE_TRANSITION_NOT_ALLOWED` with `blocked_reasons` |
+| `GET /v1/monitoring/assignments?on=` | staff | the assignments in force on `on` (today by default), for every product, with the rule code |
 
 ### Rule hits
 

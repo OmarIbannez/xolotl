@@ -1529,6 +1529,245 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Templates */
+        get: operations["list_templates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/templates/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Template */
+        get: operations["get_template"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rules */
+        get: operations["list_rules"];
+        put?: never;
+        /** Create Rule */
+        post: operations["create_rule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Rule */
+        get: operations["get_rule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Rule Version */
+        post: operations["create_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Rule Version */
+        patch: operations["update_rule_version"];
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Simulate Rule Version */
+        post: operations["simulate_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/simulations/{simulation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Simulation */
+        get: operations["get_simulation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Rule Version */
+        post: operations["submit_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve Rule Version */
+        post: operations["approve_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject Rule Version */
+        post: operations["reject_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Rule Version */
+        post: operations["activate_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rules/{rule_id}/versions/{v}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire Rule Version */
+        post: operations["retire_rule_version"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Assignments */
+        get: operations["list_assignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/monitoring/captures": {
         parameters: {
             query?: never;
@@ -1652,6 +1891,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * ActivateRequest
+         * @description ``product`` null applies the version to every product.
+         */
+        ActivateRequest: {
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Product */
+            product?: string | null;
+        };
         /** AdHocIdentifier */
         AdHocIdentifier: {
             id_type: components["schemas"]["IdentifierType"];
@@ -2848,6 +3100,28 @@ export interface components {
             expected_countries?: string[];
             /** Expected Instruments */
             expected_instruments?: string[];
+        };
+        /**
+         * Dedup
+         * @description How firings of one key collapse into one hit.
+         *
+         *     ``window`` is an ISO duration (the bucket is ``occurred_at`` floored to it) or
+         *     ``MONTH`` (the calendar month in America/Mexico_City); ``cooldown`` suppresses
+         *     new hits for the key (``P0D`` for none).
+         */
+        Dedup: {
+            /** @default RELATIONSHIP */
+            key?: components["schemas"]["KeyKind"];
+            /**
+             * Window
+             * @default P1D
+             */
+            window?: string;
+            /**
+             * Cooldown
+             * @default P7D
+             */
+            cooldown?: string;
         };
         /**
          * DeliveryStatus
@@ -4129,6 +4403,13 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[RuleResponse] */
+        Page_RuleResponse_: {
+            /** Items */
+            items: components["schemas"]["RuleResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[StaffResponse] */
         Page_StaffResponse_: {
             /** Items */
@@ -4163,6 +4444,38 @@ export interface components {
             items: components["schemas"]["WebhookEndpointResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
+        };
+        ParamValue: number | string | boolean;
+        /**
+         * ParamView
+         * @description A rule parameter: its value and the bounds a tenant may move it within.
+         *
+         *     Values and bounds are spelled as text (decimals exactly, booleans ``true`` or
+         *     ``false``); ``source`` names where the bounds come from, ``template <code>
+         *     v<n>`` or, for a custom rule, ``rule <code> v<n>``.
+         */
+        ParamView: {
+            /** Name */
+            name: string;
+            /** Value */
+            value: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "DECIMAL" | "INT" | "STR" | "BOOL";
+            /** Min */
+            min: string | null;
+            /** Max */
+            max: string | null;
+            /** Choices */
+            choices: string[] | null;
+            /** Tighten */
+            tighten: ("LOWER" | "RAISE") | null;
+            /** Unit */
+            unit: string | null;
+            /** Source */
+            source: string;
         };
         /**
          * ParkReason
@@ -4835,6 +5148,14 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * RejectRequest
+         * @description The reason is required but its text is kept nowhere (plan 4b Deviation 18).
+         */
+        RejectRequest: {
+            /** Reason */
+            reason: string;
+        };
         /** RelationshipCloseRequest */
         RelationshipCloseRequest: {
             /** Ended At */
@@ -5083,6 +5404,136 @@ export interface components {
          */
         Role: "ANALYST" | "SENIOR_ANALYST" | "MLRO" | "AUDITOR_RO" | "ADMIN";
         /**
+         * RuleAction
+         * @enum {string}
+         */
+        RuleAction: "EDIT" | "SIMULATE" | "SUBMIT" | "APPROVE" | "REJECT" | "ACTIVATE" | "RETIRE";
+        /**
+         * RuleAssignmentResponse
+         * @description Where and from when a rule version applies (spec §9.5).
+         */
+        RuleAssignmentResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Rule Version Id
+             * Format: uuid
+             */
+            rule_version_id: string;
+            /** Rule Code */
+            rule_code: string;
+            /** Product */
+            product: string | null;
+            /** Segment Filter */
+            segment_filter: {
+                [key: string]: string[];
+            } | null;
+            /**
+             * Effective From
+             * Format: date
+             */
+            effective_from: string;
+            /** Effective To */
+            effective_to: string | null;
+            /** Approved By */
+            approved_by: string | null;
+        };
+        /**
+         * RuleBlockedReason
+         * @description Why a lifecycle action is refused, in the order they are reported.
+         * @enum {string}
+         */
+        RuleBlockedReason: "STATE" | "ROLE_REQUIRED" | "NOT_AUTHOR" | "SAME_AUTHOR" | "SIMULATION_MISSING" | "SIMULATION_STALE" | "PARAM_OUT_OF_BOUNDS";
+        /**
+         * RuleCreateRequest
+         * @description A rule from a library template, or a custom rule from a whole definition.
+         *
+         *     Exactly one of ``template_code`` and ``definition``; a custom definition
+         *     carries its own parameters, segment, severity and dedup, so none of those
+         *     may come with it.
+         */
+        RuleCreateRequest: {
+            /** Params */
+            params?: {
+                [key: string]: components["schemas"]["ParamValue"];
+            } | null;
+            segment?: components["schemas"]["SegmentFilter"] | null;
+            severity?: components["schemas"]["Severity"] | null;
+            dedup?: components["schemas"]["Dedup"] | null;
+            /** Template Code */
+            template_code?: string | null;
+            /** Definition */
+            definition?: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+        };
+        /**
+         * RuleFamily
+         * @enum {string}
+         */
+        RuleFamily: "ALERT" | "CAPTURE";
+        /**
+         * RuleKind
+         * @enum {string}
+         */
+        RuleKind: "THRESHOLD" | "AGGREGATE" | "STRUCTURING" | "VELOCITY" | "HIGH_RISK_JURISDICTION" | "PROFILE_DEVIATION" | "TIER_LIMIT";
+        /**
+         * RuleQuery
+         * @description The filters of ``GET /v1/monitoring/rules``.
+         *
+         *     ``status`` finds the rules with any version in that status.
+         */
+        RuleQuery: {
+            kind?: components["schemas"]["RuleKind"] | null;
+            /** Typology */
+            typology?: string | null;
+            status?: components["schemas"]["RuleVersionStatus"] | null;
+        };
+        /**
+         * RuleResponse
+         * @description A tenant rule with every version, oldest first.
+         *
+         *     ``created_by`` is null for an API client.
+         */
+        RuleResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Code */
+            code: string;
+            family: components["schemas"]["RuleFamily"];
+            kind: components["schemas"]["RuleKind"];
+            /** Template Code */
+            template_code: string | null;
+            /** Title */
+            title: string;
+            /** Typology */
+            typology: string[];
+            /** Created By */
+            created_by: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Versions */
+            versions: components["schemas"]["VersionResponse"][];
+            /** Active Version Id */
+            active_version_id: string | null;
+            last_simulation: components["schemas"]["SimulationResponse"] | null;
+        };
+        /**
+         * RuleVersionStatus
+         * @description The D19 lifecycle of a tenant rule version.
+         * @enum {string}
+         */
+        RuleVersionStatus: "DRAFT" | "SIMULATED" | "IN_REVIEW" | "APPROVED" | "ACTIVE" | "RETIRED";
+        /**
          * RunMode
          * @enum {string}
          */
@@ -5191,10 +5642,131 @@ export interface components {
             };
         };
         /**
+         * SegmentFilter
+         * @description The customers a rule applies to; an empty list means any.
+         */
+        SegmentFilter: {
+            /**
+             * Risk Rating
+             * @default []
+             */
+            risk_rating?: string[];
+            /**
+             * Tier
+             * @default []
+             */
+            tier?: string[];
+            /**
+             * Monitoring Profile
+             * @default []
+             */
+            monitoring_profile?: string[];
+        };
+        /**
          * Severity
          * @enum {string}
          */
         Severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        /** SimulateAccepted */
+        SimulateAccepted: {
+            /**
+             * Simulation Id
+             * Format: uuid
+             */
+            simulation_id: string;
+        };
+        /**
+         * SimulateRequest
+         * @description Mexico City days, both included.
+         */
+        SimulateRequest: {
+            /**
+             * Range Start
+             * Format: date
+             */
+            range_start: string;
+            /**
+             * Range End
+             * Format: date
+             */
+            range_end: string;
+        };
+        /**
+         * SimulationResponse
+         * @description A simulation of a rule version and its tallies (spec §13.1).
+         *
+         *     ``valid_until`` is the last Mexico City day on which a completed simulation
+         *     still counts for submission and approval: it counts until ``finished_at``
+         *     plus ``MONITORING_SIMULATION_MAX_AGE_DAYS``, which falls on that day.
+         *     ``notes`` are codes of what the simulation could not see
+         *     (``PROFILE_HISTORY_SHORT``: a range under about four months never fires a
+         *     profile rule's history branch).
+         *
+         *     Only staff read a simulation itself (spec §15). A rule read by an API client
+         *     shows its simulations' status and dates only: every tally, the sample, the
+         *     overlap and the requester are null, since even a count can tell which
+         *     customer a rule would hit (tipping-off, PRV-502).
+         */
+        SimulationResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Rule Version Id
+             * Format: uuid
+             */
+            rule_version_id: string;
+            status: components["schemas"]["SimulationStatus"];
+            /**
+             * Range Start
+             * Format: date
+             */
+            range_start: string;
+            /**
+             * Range End
+             * Format: date
+             */
+            range_end: string;
+            /** Definition Hash */
+            definition_hash: string;
+            /** Transactions Read */
+            transactions_read: number | null;
+            /** Hit Count */
+            hit_count: number | null;
+            /** Customers Hit */
+            customers_hit: number | null;
+            /** Hits Per Week */
+            hits_per_week: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[] | null;
+            /** Overlap */
+            overlap: {
+                [key: string]: number;
+            } | null;
+            /** Sample */
+            sample: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[] | null;
+            /** Requested By */
+            requested_by: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Valid Until */
+            valid_until: string | null;
+            /** Notes */
+            notes: string[];
+        };
+        /**
+         * SimulationStatus
+         * @enum {string}
+         */
+        SimulationStatus: "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
         /** StaffCreateRequest */
         StaffCreateRequest: {
             /** Email */
@@ -5267,6 +5839,38 @@ export interface components {
          * @enum {string}
          */
         SuggestedDisposition: "DELISTED";
+        /**
+         * TemplateResponse
+         * @description The latest version of a library template (spec §9.3).
+         *
+         *     ``sentences`` holds the rendered sentence by locale (``es-MX``, ``en``).
+         */
+        TemplateResponse: {
+            /** Code */
+            code: string;
+            family: components["schemas"]["RuleFamily"];
+            kind: components["schemas"]["RuleKind"];
+            /** Title */
+            title: string;
+            /** Typology */
+            typology: string[];
+            /** Country Code */
+            country_code: string;
+            /** Packs */
+            packs: string[];
+            /** Version */
+            version: number;
+            /** Params */
+            params: components["schemas"]["ParamView"][];
+            /** Definition */
+            definition: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Sentences */
+            sentences: {
+                [key: string]: string;
+            };
+        };
         /**
          * TenantEnv
          * @enum {string}
@@ -5847,6 +6451,80 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * VersionRequest
+         * @description What a new or edited version tunes; a field left out keeps its value.
+         */
+        VersionRequest: {
+            /** Params */
+            params?: {
+                [key: string]: components["schemas"]["ParamValue"];
+            } | null;
+            segment?: components["schemas"]["SegmentFilter"] | null;
+            severity?: components["schemas"]["Severity"] | null;
+            dedup?: components["schemas"]["Dedup"] | null;
+        };
+        /**
+         * VersionResponse
+         * @description A rule version under the D19 lifecycle (spec §9.4).
+         *
+         *     ``simulation`` is the version's latest simulation, whatever its status;
+         *     ``allowed_actions`` and ``blocked_reasons`` are for the caller. An API client
+         *     gets no actions and no staff user ids (``author_id``, ``approved_by``).
+         */
+        VersionResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Rule Id
+             * Format: uuid
+             */
+            rule_id: string;
+            /** Version */
+            version: number;
+            status: components["schemas"]["RuleVersionStatus"];
+            /** Definition Hash */
+            definition_hash: string;
+            /** Sync */
+            sync: boolean;
+            /** Params */
+            params: components["schemas"]["ParamView"][];
+            segment: components["schemas"]["SegmentFilter"] | null;
+            severity: components["schemas"]["Severity"];
+            dedup: components["schemas"]["Dedup"];
+            /** Sentence */
+            sentence: string;
+            /** Author Id */
+            author_id: string | null;
+            /** Submitted At */
+            submitted_at: string | null;
+            /** Approved By */
+            approved_by: string | null;
+            /** Approved At */
+            approved_at: string | null;
+            simulation: components["schemas"]["SimulationResponse"] | null;
+            assignment: components["schemas"]["RuleAssignmentResponse"] | null;
+            /** Activated At */
+            activated_at: string | null;
+            /** Retired At */
+            retired_at: string | null;
+            /** Retired By Version Id */
+            retired_by_version_id: string | null;
+            /** Allowed Actions */
+            allowed_actions: components["schemas"]["RuleAction"][];
+            /** Blocked Reasons */
+            blocked_reasons: {
+                [key: string]: components["schemas"]["RuleBlockedReason"][];
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /**
          * VersionStatus
@@ -9165,6 +9843,491 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_HitSummary_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateResponse"][];
+                };
+            };
+        };
+    };
+    get_template: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TemplateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_rules: {
+        parameters: {
+            query: {
+                query: components["schemas"]["RuleQuery"];
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RuleResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulateAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_simulation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                simulation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimulationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reject_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RejectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActivateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_rule_version: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: string;
+                v: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_assignments: {
+        parameters: {
+            query?: {
+                on?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleAssignmentResponse"][];
                 };
             };
             /** @description Validation Error */
