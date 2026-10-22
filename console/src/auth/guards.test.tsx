@@ -39,6 +39,9 @@ function visit(path: string, roles: Role[]) {
             <Route path="/screening/matches" element={<p>page of matches</p>} />
             <Route path="/screening/matches/:matchId" element={<p>page of a match</p>} />
           </Route>
+          <Route element={<RequireRole roles={ACCESS.transactions} />}>
+            <Route path="/transactions" element={<p>page of transactions</p>} />
+          </Route>
           <Route element={<RequireRole roles={ACCESS.screeningCheck} />}>
             <Route path="/screening/check" element={<p>page of the ad hoc check</p>} />
           </Route>
@@ -186,6 +189,21 @@ describe('the ad hoc check is open to every role that writes', () => {
 
   it.each([[['AUDITOR_RO']], [[]]] as const)('shows "no access" to %j', (roles) => {
     visit('/screening/check', [...roles])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+    expect(screen.queryByText(/page of/)).toBeNull()
+  })
+})
+
+describe('the transactions area is open to every staff role', () => {
+  it.each(['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'] as const)('lets %s open it', (role) => {
+    visit('/transactions', [role])
+
+    expect(screen.getByText('page of transactions')).toBeTruthy()
+  })
+
+  it('shows "no access" to a user with no role', () => {
+    visit('/transactions', [])
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
     expect(screen.queryByText(/page of/)).toBeNull()

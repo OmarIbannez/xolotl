@@ -29,6 +29,12 @@ export const ACCESS = {
   whitelistRevoke: ['MLRO'],
   // Who may screen a party or an ad hoc subject on demand: every role that writes (not AUDITOR_RO).
   screeningCheck: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
+  // Every staff role reads transactions (each reveal is audited).
+  transactions: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
+  // Who may upload a transactions file: every role that writes (not AUDITOR_RO).
+  transactionsWrite: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
+  // Who may request a transaction backfill (POST /v1/monitoring/backfill).
+  backfill: ['MLRO', 'ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */

@@ -44,6 +44,7 @@
     "units": "Units",
     "calendar": "Calendar",
     "parties": "Parties",
+    "transactions": "Transactions",
     "matches": "Matches",
     "lists": "Lists",
     "privateLists": "Private lists",
@@ -532,6 +533,118 @@
       "confirmClose": "Ending the relationship starts the retention period of this person's or company's data, under the policy in force.",
       "closed": "Customer relationship ended.",
       "empty": "No customer relationships."
+    },
+    "transactions": {
+      "title": "Transactions",
+      "label": "The customer's latest transactions",
+      "viewAll": "View all",
+      "empty": "This customer has no transactions."
+    }
+  },
+  "transactions": {
+    "title": "Transactions",
+    "description": "Operations received by API or by file, their processing and what is still pending.",
+    "tabs": {
+      "label": "Transaction views",
+      "all": "All",
+      "parked": "Parked",
+      "backfill": "Awaiting backfill"
+    },
+    "table": {
+      "label": "Transactions",
+      "externalId": "External id",
+      "occurredAt": "Occurred at",
+      "receivedAt": "Received",
+      "status": "Status",
+      "amount": "Amount",
+      "instrument": "Instrument and rail",
+      "party": "Customer",
+      "openParty": "View customer",
+      "empty": "There are no transactions."
+    },
+    "status": {
+      "RECEIVED": "Received",
+      "PROCESSED": "Processed",
+      "PARKED": "Parked",
+      "BACKFILL": "Awaiting backfill"
+    },
+    "late": "Late",
+    "parkReason": {
+      "UNIT_VALUE_MISSING": "Unit value missing",
+      "POLICY_NOT_ASSIGNED": "No policy assigned"
+    },
+    "files": {
+      "title": "Files",
+      "description": "Upload a CSV, JSON Lines or XLSX file of up to 50 MB. Rejected rows are reported by row, column and code, never with their value.",
+      "upload": "Upload file",
+      "dialogTitle": "Upload a transactions file",
+      "file": "File",
+      "template": "Download template",
+      "submit": "Upload",
+      "uploading": "Uploading…",
+      "tooLarge": "The file is over 50 MB.",
+      "unsupported": "The file must be CSV, JSON Lines or XLSX.",
+      "uploaded": "File received; it is processed in the background.",
+      "known": "This file was uploaded before; its status is shown.",
+      "none": "You have not uploaded a file in this session yet.",
+      "statusLabel": "File status",
+      "fileId": "Identifier",
+      "status": "Status",
+      "rowsTotal": "Rows",
+      "rowsAccepted": "Accepted",
+      "rowsDuplicate": "Duplicates",
+      "rowsRejected": "Rejected",
+      "uploadedAt": "Uploaded at",
+      "finishedAt": "Finished at",
+      "lastError": "Last error",
+      "downloadErrors": "Download errors",
+      "fileStatus": {
+        "UPLOADED": "Waiting",
+        "PROCESSING": "Processing",
+        "COMPLETED": "Completed",
+        "FAILED": "Failed"
+      }
+    },
+    "batches": {
+      "title": "Batches",
+      "description": "Look up a batch received by API by its id.",
+      "batchId": "Batch id",
+      "lookup": "Look up",
+      "notFound": "There is no batch with that id.",
+      "source": "Source",
+      "itemCount": "Items",
+      "accepted": "Accepted",
+      "duplicates": "Duplicates",
+      "receivedAt": "Received at",
+      "requestId": "Request",
+      "sourceKind": {
+        "API": "By API",
+        "FILE": "By file",
+        "CLI": "Command line"
+      }
+    },
+    "parked": {
+      "label": "Parked transactions",
+      "description": "They wait for a unit value or an assigned policy; the sweep retries them on its own and they keep their order.",
+      "reason": "Reason",
+      "unit": "Unit",
+      "neededOn": "Date needed",
+      "attempts": "Attempts",
+      "empty": "There are no parked transactions."
+    },
+    "backfill": {
+      "label": "Transactions awaiting backfill",
+      "description": "They arrived after the receipt window; a backfill processes them.",
+      "empty": "There are no transactions awaiting backfill.",
+      "run": "Run backfill",
+      "dialogDescription": "Processes the pending transactions whose operation date falls in the range (Mexico City days, both included).",
+      "from": "From",
+      "to": "To",
+      "partyId": "Customer id (optional)",
+      "submit": "Run",
+      "running": "Requesting…",
+      "requested": "Backfill requested; it runs in the background.",
+      "rangeOrder": "The end date cannot be before the start date."
     }
   },
   "audit": {
@@ -1386,6 +1499,12 @@
     "PRIVATE_LIST_INVALID": "The file has rows that do not follow the template; nothing was loaded.",
     "PRIVATE_LIST_EXISTS": "A private list with this code already exists.",
     "DISPOSITION_NOT_ALLOWED": "This decision is not allowed on this finding.",
-    "SCREENING_INDEX_UNAVAILABLE": "Screening is not ready yet. Try again in a few minutes."
+    "SCREENING_INDEX_UNAVAILABLE": "Screening is not ready yet. Try again in a few minutes.",
+    "TRANSACTION_BATCH_INVALID": "The batch has invalid items.",
+    "TRANSACTION_BATCH_TOO_LARGE": "The batch has too many items.",
+    "EXTERNAL_ID_CONFLICT": "A transaction with that external id and different content already exists.",
+    "TRANSACTION_FILE_TOO_LARGE": "The file exceeds the maximum size allowed.",
+    "TRANSACTION_FILE_INVALID": "The file cannot be read: check its format and the required columns.",
+    "BACKFILL_RANGE_INVALID": "The backfill date range is not valid."
   }
 }

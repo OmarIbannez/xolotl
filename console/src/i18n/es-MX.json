@@ -44,6 +44,7 @@
     "units": "Unidades",
     "calendar": "Calendario",
     "parties": "Personas",
+    "transactions": "Transacciones",
     "matches": "Coincidencias",
     "lists": "Listas",
     "privateLists": "Listas privadas",
@@ -532,6 +533,118 @@
       "confirmClose": "Al terminar la relación empieza a contar el periodo de conservación de los datos de esta persona o empresa, según la política vigente.",
       "closed": "Se terminó la relación de cliente.",
       "empty": "Sin relaciones de cliente."
+    },
+    "transactions": {
+      "title": "Transacciones",
+      "label": "Últimas transacciones del cliente",
+      "viewAll": "Ver todas",
+      "empty": "Este cliente no tiene transacciones."
+    }
+  },
+  "transactions": {
+    "title": "Transacciones",
+    "description": "Operaciones recibidas por API o por archivo, su procesamiento y lo que queda pendiente.",
+    "tabs": {
+      "label": "Vistas de transacciones",
+      "all": "Todas",
+      "parked": "Estacionadas",
+      "backfill": "Pendientes de backfill"
+    },
+    "table": {
+      "label": "Transacciones",
+      "externalId": "ID externo",
+      "occurredAt": "Fecha de operación",
+      "receivedAt": "Recibida",
+      "status": "Estado",
+      "amount": "Monto",
+      "instrument": "Instrumento y riel",
+      "party": "Cliente",
+      "openParty": "Ver cliente",
+      "empty": "No hay transacciones."
+    },
+    "status": {
+      "RECEIVED": "Recibida",
+      "PROCESSED": "Procesada",
+      "PARKED": "Estacionada",
+      "BACKFILL": "Pendiente de backfill"
+    },
+    "late": "Tardía",
+    "parkReason": {
+      "UNIT_VALUE_MISSING": "Falta el valor de la unidad",
+      "POLICY_NOT_ASSIGNED": "Sin política asignada"
+    },
+    "files": {
+      "title": "Archivos",
+      "description": "Sube un CSV, JSON Lines o XLSX de hasta 50 MB. Las filas rechazadas se reportan por fila, columna y código, nunca con su valor.",
+      "upload": "Subir archivo",
+      "dialogTitle": "Subir archivo de transacciones",
+      "file": "Archivo",
+      "template": "Descargar plantilla",
+      "submit": "Subir",
+      "uploading": "Subiendo…",
+      "tooLarge": "El archivo pasa de 50 MB.",
+      "unsupported": "El archivo debe ser CSV, JSON Lines o XLSX.",
+      "uploaded": "Archivo recibido; se procesa en segundo plano.",
+      "known": "Este archivo ya se había subido; se muestra su estado.",
+      "none": "Aún no has subido un archivo en esta sesión.",
+      "statusLabel": "Estado del archivo",
+      "fileId": "Identificador",
+      "status": "Estado",
+      "rowsTotal": "Filas",
+      "rowsAccepted": "Aceptadas",
+      "rowsDuplicate": "Duplicadas",
+      "rowsRejected": "Rechazadas",
+      "uploadedAt": "Subido",
+      "finishedAt": "Terminado",
+      "lastError": "Último error",
+      "downloadErrors": "Descargar errores",
+      "fileStatus": {
+        "UPLOADED": "En espera",
+        "PROCESSING": "Procesando",
+        "COMPLETED": "Completado",
+        "FAILED": "Fallido"
+      }
+    },
+    "batches": {
+      "title": "Lotes",
+      "description": "Consulta un lote recibido por API con su identificador.",
+      "batchId": "ID del lote",
+      "lookup": "Consultar",
+      "notFound": "No hay un lote con ese identificador.",
+      "source": "Origen",
+      "itemCount": "Partidas",
+      "accepted": "Aceptadas",
+      "duplicates": "Duplicadas",
+      "receivedAt": "Recibido",
+      "requestId": "Solicitud",
+      "sourceKind": {
+        "API": "Por API",
+        "FILE": "Por archivo",
+        "CLI": "Línea de comandos"
+      }
+    },
+    "parked": {
+      "label": "Transacciones estacionadas",
+      "description": "Esperan un valor de unidad o una política asignada; el barrido las reintenta solo y conservan su orden.",
+      "reason": "Motivo",
+      "unit": "Unidad",
+      "neededOn": "Fecha requerida",
+      "attempts": "Intentos",
+      "empty": "No hay transacciones estacionadas."
+    },
+    "backfill": {
+      "label": "Transacciones pendientes de backfill",
+      "description": "Llegaron después del plazo de recepción; se procesan al ejecutar un backfill.",
+      "empty": "No hay transacciones pendientes de backfill.",
+      "run": "Ejecutar backfill",
+      "dialogDescription": "Procesa las transacciones pendientes cuya fecha de operación cae en el rango (días de la Ciudad de México, ambos incluidos).",
+      "from": "Desde",
+      "to": "Hasta",
+      "partyId": "ID del cliente (opcional)",
+      "submit": "Ejecutar",
+      "running": "Solicitando…",
+      "requested": "Backfill solicitado; se ejecuta en segundo plano.",
+      "rangeOrder": "La fecha final no puede ser anterior a la inicial."
     }
   },
   "audit": {
@@ -1386,6 +1499,12 @@
     "PRIVATE_LIST_INVALID": "El archivo tiene filas que no siguen la plantilla; no se cargó nada.",
     "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código.",
     "DISPOSITION_NOT_ALLOWED": "Esta decisión no está permitida para este hallazgo.",
-    "SCREENING_INDEX_UNAVAILABLE": "La revisión contra listas aún no está lista. Intenta de nuevo en unos minutos."
+    "SCREENING_INDEX_UNAVAILABLE": "La revisión contra listas aún no está lista. Intenta de nuevo en unos minutos.",
+    "TRANSACTION_BATCH_INVALID": "El lote tiene partidas inválidas.",
+    "TRANSACTION_BATCH_TOO_LARGE": "El lote tiene demasiadas partidas.",
+    "EXTERNAL_ID_CONFLICT": "Ya existe una transacción con ese ID externo y otro contenido.",
+    "TRANSACTION_FILE_TOO_LARGE": "El archivo excede el tamaño máximo permitido.",
+    "TRANSACTION_FILE_INVALID": "El archivo no se puede leer: revisa el formato y las columnas obligatorias.",
+    "BACKFILL_RANGE_INVALID": "El rango de fechas del backfill no es válido."
   }
 }

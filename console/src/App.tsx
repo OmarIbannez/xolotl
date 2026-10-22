@@ -53,6 +53,18 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.transactions} />,
+                children: [
+                  {
+                    path: '/transactions',
+                    lazy: () =>
+                      import('@/features/transactions/TransactionsPage').then((m) => ({
+                        Component: m.TransactionsPage,
+                      })),
+                  },
+                ],
+              },
+              {
                 element: <RequireRole roles={ACCESS.screening} />,
                 children: [
                   {

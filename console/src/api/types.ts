@@ -157,6 +157,24 @@ export type PartyScreeningResponse = Schemas['PartyScreeningResponse']
 export type PartyScreeningStaffResponse = Schemas['PartyScreeningStaffResponse']
 export type SubjectStatus = Schemas['SubjectStatus']
 
+export type TransactionStatus = Schemas['TransactionStatus']
+/** A transaction as staff see it: the counterparty masked, `parked` set only on `PARKED` rows. */
+export type TransactionStaffView = Schemas['TransactionStaffView']
+/** A transaction as an API client sees it: identity and status only. */
+export type TransactionClientView = Schemas['TransactionClientView']
+export type TransactionStaffPage = Schemas['Page_TransactionStaffView_']
+/** The filters of `GET /v1/transactions`; `from` and `to` are Mexico City days, both included. */
+export type TransactionQuery = Schemas['TransactionQuery']
+export type ParkReason = Schemas['ParkReason']
+export type ParkedInfo = Schemas['ParkedInfo']
+export type FileStatus = Schemas['FileStatus']
+/** An uploaded transactions file and its row counters (202 for a new file, 200 for a known one). */
+export type FileStatusResponse = Schemas['FileStatusResponse']
+/** A transactions batch (the schema name is qualified: screening also has a `BatchResponse`). */
+export type TransactionBatchResponse = Schemas['xolotl__modules__monitoring__schemas__BatchResponse']
+export type BackfillRequest = Schemas['BackfillRequest']
+export type BackfillAccepted = Schemas['BackfillAccepted']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.
