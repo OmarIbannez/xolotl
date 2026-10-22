@@ -1171,6 +1171,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/rails": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rail Settings */
+        get: operations["list_rail_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/rails/{rail}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Rail Setting */
+        put: operations["put_rail_setting"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/transactions": {
         parameters: {
             query?: never;
@@ -2417,6 +2451,14 @@ export interface components {
             /** Floors */
             floors: components["schemas"]["Floor"][];
         };
+        /**
+         * FailMode
+         * @description What a rail answers when a decision cannot be evaluated in time.
+         *
+         *     ``FAIL_OPEN`` answers ``REVIEW``, ``FAIL_CLOSED`` answers ``BLOCK``.
+         * @enum {string}
+         */
+        FailMode: "FAIL_OPEN" | "FAIL_CLOSED";
         /**
          * FileStatus
          * @enum {string}
@@ -3831,6 +3873,27 @@ export interface components {
          * @enum {string}
          */
         Rail: "SPEI" | "CODI" | "CASH" | "CARD" | "WALLET" | "SWIFT" | "CRYPTO_ONCHAIN" | "OTHER";
+        /**
+         * RailSettingRequest
+         * @description The body of ``PUT /v1/monitoring/rails/{rail}``.
+         */
+        RailSettingRequest: {
+            fail_mode: components["schemas"]["FailMode"];
+        };
+        /**
+         * RailSettingResponse
+         * @description A rail's fail mode; ``explicit`` is false when it is the configured default.
+         */
+        RailSettingResponse: {
+            rail: components["schemas"]["Rail"];
+            fail_mode: components["schemas"]["FailMode"];
+            /** Explicit */
+            explicit: boolean;
+            /** Changed By */
+            changed_by: string | null;
+            /** Updated At */
+            updated_at: string | null;
+        };
         /** RegulatoryProfileRequest */
         RegulatoryProfileRequest: {
             /** Rfc */
@@ -7381,6 +7444,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevealedCounterparty"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_rail_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RailSettingResponse"][];
+                };
+            };
+        };
+    };
+    put_rail_setting: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rail: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RailSettingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RailSettingResponse"];
                 };
             };
             /** @description Validation Error */

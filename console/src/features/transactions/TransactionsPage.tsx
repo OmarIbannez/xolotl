@@ -12,9 +12,13 @@ import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useFormat } from '@/i18n/use-locale'
 import { cn } from '@/lib/utils'
 import { formatMinor } from './amount'
+import { BackfillTab } from './BackfillTab'
+import { BatchesCard } from './BatchesCard'
+import { FilesCard } from './FilesCard'
 import {
   filtersFromSearch,
   filtersToQuery,
@@ -27,6 +31,7 @@ import {
 } from './filters'
 import { useTransactions } from './queries'
 import { MexicoCityTimeCell } from './MexicoCityTimeCell'
+import { ParkedTab } from './ParkedTab'
 import { LateBadge, TransactionStatusBadge } from './TransactionStatusBadge'
 
 const ALL = 'ALL'
@@ -186,11 +191,11 @@ function FilterBar({ applied, onApply }: FilterBarProps) {
 }
 
 /**
- * Transacciones: the tenant's transactions as staff see them, filtered by party, external id,
+ * The "Todas" tab: the tenant's transactions as staff see them, filtered by party, external id,
  * date range, status, instrument, rail and lateness. The filters live in the URL, so a link
  * (from a party's page, say) opens the list already narrowed. Every row opens the detail.
  */
-export function TransactionsPage() {
+function AllTab() {
   const { t } = useTranslation()
   const format = useFormat()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -259,47 +264,95 @@ export function TransactionsPage() {
   ]
 
   return (
+    <Card className="animate-fade-in-up">
+      <CardHeader>
+        {/* Re-mounted when the URL's filters change, so the draft starts from what is applied. */}
+        <FilterBar key={appliedKey} applied={applied} onApply={apply} />
+      </CardHeader>
+      <CardContent>
+        {!valid ? (
+          <p role="alert" className="text-sm text-destructive">
+            {t('transactions.filters.rangeInvalid')}
+          </p>
+        ) : transactions.isError ? (
+          <ErrorBlock error={transactions.error} onRetry={() => void transactions.refetch()} />
+        ) : (
+          <div className={cn(transactions.isPlaceholderData && 'opacity-60 transition-opacity')}>
+            <DataTable
+              label={t('transactions.table.label')}
+              columns={columns}
+              rows={page?.items}
+              getRowId={(row) => row.id}
+              loading={transactions.isPending}
+              empty={t('transactions.empty')}
+            />
+          </div>
+        )}
+      </CardContent>
+      {valid && showPager && (
+        <CardFooter>
+          <div className="w-full">
+            <CursorPager
+              cursor={cursor}
+              nextCursor={page?.next_cursor}
+              onChange={setCursor}
+              busy={transactions.isPlaceholderData}
+            />
+          </div>
+        </CardFooter>
+      )}
+    </Card>
+  )
+}
+
+const TABS = ['all', 'parked', 'backfill'] as const
+type Tab = (typeof TABS)[number]
+const isTab = (value: string): value is Tab => (TABS as readonly string[]).includes(value)
+
+/**
+ * Transacciones: the files and batches panels, then the transactions by tab: all of them (with
+ * the filters), the parked ones and those awaiting a backfill (with "Ejecutar backfill" for MLRO
+ * and ADMIN).
+ */
+export function TransactionsPage() {
+  const { t } = useTranslation()
+  const [tab, setTab] = useState<Tab>('all')
+
+  return (
     <>
       <PageHeader title={t('transactions.title')} description={t('transactions.description')} />
-
-      <Card className="animate-fade-in-up">
-        <CardHeader>
-          {/* Re-mounted when the URL's filters change, so the draft starts from what is applied. */}
-          <FilterBar key={appliedKey} applied={applied} onApply={apply} />
-        </CardHeader>
-        <CardContent>
-          {!valid ? (
-            <p role="alert" className="text-sm text-destructive">
-              {t('transactions.filters.rangeInvalid')}
-            </p>
-          ) : transactions.isError ? (
-            <ErrorBlock error={transactions.error} onRetry={() => void transactions.refetch()} />
-          ) : (
-            <div className={cn(transactions.isPlaceholderData && 'opacity-60 transition-opacity')}>
-              <DataTable
-                label={t('transactions.table.label')}
-                columns={columns}
-                rows={page?.items}
-                getRowId={(row) => row.id}
-                loading={transactions.isPending}
-                empty={t('transactions.empty')}
-              />
-            </div>
-          )}
-        </CardContent>
-        {valid && showPager && (
-          <CardFooter>
-            <div className="w-full">
-              <CursorPager
-                cursor={cursor}
-                nextCursor={page?.next_cursor}
-                onChange={setCursor}
-                busy={transactions.isPlaceholderData}
-              />
-            </div>
-          </CardFooter>
-        )}
-      </Card>
+      <div className="space-y-6">
+        <div className="grid gap-6 lg:grid-cols-2">
+          <FilesCard />
+          <BatchesCard />
+        </div>
+        <Tabs value={tab} onValueChange={(value) => isTab(value) && setTab(value)} className="space-y-4">
+          <TabsList aria-label={t('transactions.tabs.label')}>
+            {TABS.map((value) => (
+              <TabsTrigger key={value} value={value}>
+                {t(`transactions.tabs.${value}`)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <TabsContent value="all">
+            <AllTab />
+          </TabsContent>
+          <TabsContent value="parked">
+            <Card className="animate-fade-in-up">
+              <CardContent className="pt-6">
+                <ParkedTab />
+              </CardContent>
+            </Card>
+          </TabsContent>
+          <TabsContent value="backfill">
+            <Card className="animate-fade-in-up">
+              <CardContent className="pt-6">
+                <BackfillTab />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
     </>
   )
 }

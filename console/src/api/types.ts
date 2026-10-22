@@ -185,6 +185,13 @@ export type CounterpartyDetail = Schemas['CounterpartyDetail']
 /** A counterparty's values in plaintext; each one was audited as `VIEW_PII`. */
 export type RevealedCounterparty = Schemas['RevealedCounterparty']
 export type RunResponse = Schemas['RunResponse']
+export type FileStatus = Schemas['FileStatus']
+/** An uploaded transactions file and its row counters (202 for a new file, 200 for a known one). */
+export type FileStatusResponse = Schemas['FileStatusResponse']
+/** A transactions batch (the schema name is qualified: screening also has a `BatchResponse`). */
+export type TransactionBatchResponse = Schemas['xolotl__modules__monitoring__schemas__BatchResponse']
+export type BackfillRequest = Schemas['BackfillRequest']
+export type BackfillAccepted = Schemas['BackfillAccepted']
 
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).

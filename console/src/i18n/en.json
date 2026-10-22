@@ -534,6 +534,12 @@
       "confirmClose": "Ending the relationship starts the retention period of this person's or company's data, under the policy in force.",
       "closed": "Customer relationship ended.",
       "empty": "No customer relationships."
+    },
+    "transactions": {
+      "title": "Transactions",
+      "label": "The customer's latest transactions",
+      "viewAll": "View all",
+      "empty": "This customer has no transactions."
     }
   },
   "audit": {
@@ -1359,7 +1365,9 @@
       "customer": "Customer",
       "instrumentRail": "Instrument and rail",
       "amount": "Amount",
-      "status": "Status"
+      "status": "Status",
+      "receivedAt": "Received",
+      "openParty": "View customer"
     },
     "filters": {
       "partyId": "Party id",
@@ -1528,6 +1536,86 @@
         "parkedAt": "On hold since",
         "lastError": "Last error"
       }
+    },
+    "tabs": {
+      "label": "Transaction views",
+      "all": "All",
+      "parked": "Parked",
+      "backfill": "Awaiting backfill"
+    },
+    "files": {
+      "title": "Files",
+      "description": "Upload a CSV, JSON Lines or XLSX file of up to 50 MB. Rejected rows are reported by row, column and code, never with their value.",
+      "upload": "Upload file",
+      "dialogTitle": "Upload a transactions file",
+      "file": "File",
+      "template": "Download template",
+      "submit": "Upload",
+      "uploading": "Uploading…",
+      "tooLarge": "The file is over 50 MB.",
+      "unsupported": "The file must be CSV, JSON Lines or XLSX.",
+      "uploaded": "File received; it is processed in the background.",
+      "known": "This file was uploaded before; its status is shown.",
+      "none": "You have not uploaded a file in this session yet.",
+      "statusLabel": "File status",
+      "fileId": "Identifier",
+      "status": "Status",
+      "rowsTotal": "Rows",
+      "rowsAccepted": "Accepted",
+      "rowsDuplicate": "Duplicates",
+      "rowsRejected": "Rejected",
+      "uploadedAt": "Uploaded at",
+      "finishedAt": "Finished at",
+      "lastError": "Last error",
+      "downloadErrors": "Download errors",
+      "fileStatus": {
+        "UPLOADED": "Waiting",
+        "PROCESSING": "Processing",
+        "COMPLETED": "Completed",
+        "FAILED": "Failed"
+      }
+    },
+    "batches": {
+      "title": "Batches",
+      "description": "Look up a batch received by API by its id.",
+      "batchId": "Batch id",
+      "invalidId": "Enter the batch's full identifier (a UUID).",
+      "lookup": "Look up",
+      "notFound": "There is no batch with that id.",
+      "source": "Source",
+      "itemCount": "Items",
+      "accepted": "Accepted",
+      "duplicates": "Duplicates",
+      "receivedAt": "Received at",
+      "requestId": "Request",
+      "sourceKind": {
+        "API": "By API",
+        "FILE": "By file",
+        "CLI": "Command line"
+      }
+    },
+    "parked": {
+      "label": "Parked transactions",
+      "description": "They wait for a unit value or an assigned policy; the sweep retries them on its own and they keep their order.",
+      "reason": "Reason",
+      "unit": "Unit",
+      "neededOn": "Date needed",
+      "attempts": "Attempts",
+      "empty": "There are no parked transactions."
+    },
+    "backfill": {
+      "label": "Transactions awaiting backfill",
+      "description": "They arrived after the receipt window; a backfill processes them.",
+      "empty": "There are no transactions awaiting backfill.",
+      "run": "Run backfill",
+      "dialogDescription": "Processes the pending transactions whose operation date falls in the range (Mexico City days, both included).",
+      "from": "From",
+      "to": "To",
+      "partyId": "Customer id (optional)",
+      "submit": "Run",
+      "running": "Requesting…",
+      "requested": "Backfill requested; it runs in the background.",
+      "rangeOrder": "The end date cannot be before the start date."
     }
   },
   "forbidden": {

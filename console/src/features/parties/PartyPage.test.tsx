@@ -24,6 +24,7 @@ function setup(roles: Role[] = ['ANALYST'], extra: Parameters<typeof renderApp>[
         'GET /v1/parties/p1': () => json(staffView()),
         'GET /v1/parties/p1/pii': () => json(pii()),
         'GET /v1/screening/parties/p1': () => json(neverScreened()),
+        'GET /v1/transactions': () => json({ items: [], next_cursor: null }),
         ...extra.routes,
       },
     },
@@ -192,5 +193,15 @@ describe('PartyPage: the screening card', () => {
 
     expect(await screen.findByText(esMX.screening.party.never)).toBeTruthy()
     expect(screen.queryByRole('button', { name: esMX.screening.party.checkNow })).toBeNull()
+  })
+})
+
+describe('PartyPage: the transactions card', () => {
+  it("shows the party's transactions to every staff role", async () => {
+    const { fakeApi } = setup(['AUDITOR_RO'])
+
+    expect(await screen.findByText(text.transactions.empty)).toBeTruthy()
+    expect(fakeApi.queries('GET /v1/transactions')[0]?.get('party_id')).toBe('p1')
+    expect(screen.getByRole('link', { name: text.transactions.viewAll }).getAttribute('href')).toBe('/transactions?party_id=p1')
   })
 })
