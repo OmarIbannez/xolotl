@@ -4,10 +4,11 @@ import multiprocessing
 import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import UTC, date, datetime
+from uuid import uuid4
 
 import pytest
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, column, func, select, table, text
 
 from tests.platform.fresh_process_support import tables_registered_after_importing
 from xolotl.platform import clock, migrate, partitions
@@ -23,6 +24,7 @@ from xolotl.platform.partitions import (
     partition_name,
     partitioned_tables,
     register_partitioned_table,
+    retire_partition,
 )
 
 PROBE = "pt_probe"
@@ -235,3 +237,158 @@ def test_upgrade_creates_the_partitions_of_every_registered_table(
     assert _present(admin_engine, expected) == []
     migrate.upgrade()
     assert _present(admin_engine, expected) == sorted(expected)
+
+
+# Plan 4c C7: retiring a month's partition.
+PAST = date(2015, 3, 1)
+
+
+def _insert_probe_row(engine: Engine, month: date) -> None:
+    probe = table(PROBE, column("tenant_id"), column("at"), column("id"))
+    with engine.begin() as conn:
+        _ = conn.execute(
+            probe.insert().values(
+                tenant_id=uuid4(),
+                at=datetime(month.year, month.month, 15, 12, tzinfo=UTC),
+                id=uuid4(),
+            )
+        )
+
+
+def test_retire_partition_detaches_and_drops_under_the_lock(
+    admin_engine: Engine, probe: PartitionedTable
+):
+    name = partition_name(PROBE, PAST)
+    with admin_engine.begin() as conn:
+        _ = ensure_partitions(conn, table=PROBE, start=PAST, months_ahead=0)
+    assert _present(admin_engine, [name]) == [name]
+
+    def retire() -> bool:
+        with admin_engine.begin() as conn:
+            return retire_partition(conn, table=PROBE, month=PAST)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with admin_engine.begin() as holder:
+            _ = holder.execute(
+                text(f"SELECT pg_advisory_xact_lock(hashtext('{PROBE}_partitions'))")
+            )
+            pending = pool.submit(retire)
+            time.sleep(0.5)
+            # The retirement waits for the table's partition lock.
+            assert not pending.done()
+        assert pending.result(timeout=30) is True
+    with admin_engine.connect() as conn:
+        left = conn.scalar(
+            text("SELECT count(*) FROM pg_class WHERE relname = :name"),
+            {"name": name},
+        )
+    assert left == 0
+    # A second run finds nothing to retire.
+    with admin_engine.begin() as conn:
+        assert retire_partition(conn, table=PROBE, month=PAST) is False
+
+
+def test_retire_partition_refuses_a_month_that_still_holds_rows(
+    admin_engine: Engine, probe: PartitionedTable
+):
+    name = partition_name(PROBE, PAST)
+    with admin_engine.begin() as conn:
+        _ = ensure_partitions(conn, table=PROBE, start=PAST, months_ahead=0)
+    _insert_probe_row(admin_engine, PAST)
+    with (
+        pytest.raises(ValueError, match="still holds rows"),
+        admin_engine.begin() as conn,
+    ):
+        _ = retire_partition(conn, table=PROBE, month=PAST)
+    # The detach rolled back with the refusal: the partition is still attached.
+    assert _present(admin_engine, [name]) == [name]
+
+
+def test_retire_partition_refuses_a_referenced_month(admin_engine: Engine):
+    # A transaction month whose rows other tables reference is never detached: the
+    # caller deletes the month's rows first (the retention job, spec section 8.6).
+    with admin_engine.begin() as conn:
+        _ = ensure_partitions(conn, table="transaction", start=PAST, months_ahead=0)
+    name = partition_name("transaction", PAST)
+    try:
+        with pytest.raises(ValueError, match="still holds rows"):
+            _retire_with_a_row(admin_engine, name)
+        assert _present(admin_engine, [name]) == [name]
+    finally:
+        with admin_engine.begin() as conn:
+            _ = conn.execute(text(f"ALTER TABLE transaction DETACH PARTITION {name}"))
+            _ = conn.execute(text(f"DROP TABLE {name}"))
+
+
+def _retire_with_a_row(admin_engine: Engine, name: str) -> None:
+    # A row the owner put straight into the partition, in the same transaction as
+    # the retirement, so nothing outlives the test.
+    with admin_engine.begin() as conn:
+        _ = conn.execute(text("SET LOCAL session_replication_role = replica"))
+        values: dict[str, object] = {
+            "tenant_id": uuid4(),
+            "occurred_at": datetime(PAST.year, PAST.month, 10, tzinfo=UTC),
+            "id": uuid4(),
+            "external_id": "x",
+            "batch_id": uuid4(),
+            "party_id": uuid4(),
+            "relationship_id": uuid4(),
+            "account_id": uuid4(),
+            "direction": "IN",
+            "rail": "CASH",
+            "instrument": "CASH",
+            "channel": "BRANCH",
+            "amount_minor": 1,
+            "currency": "MXN",
+            "content_hash": b"\x00",
+            "raw": b"\x00",
+        }
+        partition = table(name, *(column(key) for key in values))
+        _ = conn.execute(partition.insert().values(values))
+        _ = retire_partition(conn, table="transaction", month=PAST)
+
+
+@pytest.mark.parametrize(
+    ("table", "month", "message"),
+    [
+        ("audit_event", PAST, "append-only"),
+        ("unregistered", PAST, "not a registered"),
+        (PROBE, None, "only a past month"),
+    ],
+)
+def test_retire_partition_refuses_what_it_must_never_drop(
+    admin_engine: Engine, probe: PartitionedTable, table, month, message
+):
+    when = month or clock.now().date().replace(day=1)
+    with pytest.raises(ValueError, match=message), admin_engine.begin() as conn:
+        _ = retire_partition(conn, table=table, month=when)
+
+
+def test_retire_partition_sees_rows_row_level_security_hides_from_the_owner(
+    bound_owner_database: tuple[Engine, Engine], monkeypatch
+):
+    # On a managed server the owner is bound by forced RLS: a count without a
+    # tenant would read zero and the partition would be dropped with its rows.
+    owner, root = bound_owner_database
+    _isolate_registry(monkeypatch)
+    register_partitioned_table(PartitionedTable(PROBE, "at", None))
+    with owner.begin() as conn:
+        _ = conn.execute(
+            text(
+                f"""
+                CREATE TABLE {PROBE} (tenant_id uuid, at timestamptz, id uuid)
+                PARTITION BY RANGE (at)
+                """
+            )
+        )
+        _ = ensure_partitions(conn, table=PROBE, start=PAST, months_ahead=0)
+    _insert_probe_row(root, PAST)
+    name = partition_name(PROBE, PAST)
+    with owner.connect() as conn:
+        seen = conn.scalar(select(func.count()).select_from(table(name)))
+    assert seen == 0  # what a naive emptiness check would conclude
+    with pytest.raises(ValueError, match="still holds rows"), owner.begin() as conn:
+        _ = retire_partition(conn, table=PROBE, month=PAST)
+    with root.connect() as conn:
+        kept = conn.scalar(select(func.count()).select_from(table(PROBE)))
+    assert kept == 1

@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import cast
 
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, exists, select, text
+from sqlalchemy import table as table_
 from sqlalchemy.exc import DBAPIError
 
 from xolotl.platform import clock
@@ -278,3 +279,93 @@ def _create_partition(
         )
         return sqlstate
     return None
+
+
+def retire_partition(conn: Connection, *, table: str, month: date) -> bool:
+    """Detach and drop ``table``'s partition for ``month``, which must be empty.
+
+    The caller deletes the month's rows first, every tenant's (the retention job,
+    SP-04 spec §8.6); this refuses a partition that still holds any row, whoever's,
+    so a partition is dropped only once nothing is left in it to lose. The default
+    partition is never retired (only a ``<table>_yYYYYmMM`` name is built), nor a
+    table with a truncate guard (``audit_event`` is append-only), nor this month or
+    a later one.
+
+    The call takes the table's partition lock (``hashtext('<table>_partitions')``,
+    as ``ensure_partitions`` does), then ``ACCESS EXCLUSIVE`` on the parent with
+    ``lock_timeout`` at ``LOCK_TIMEOUT``, so no row can arrive while it looks. The
+    look is made with row security off on the partition: an owner that forced RLS
+    binds would otherwise count no row and drop a full partition, and if RLS still
+    applied the query would fail instead of reading zero. ``DETACH PARTITION
+    CONCURRENTLY`` is not available: it refuses a table with a default partition,
+    and every registered table has one. Everything runs in the caller's
+    transaction, so a refusal or a failure leaves the partition attached; on
+    success the caller's ``lock_timeout`` and row security are restored.
+
+    Returns:
+        ``True`` once the partition is dropped, ``False`` when it does not exist.
+
+    Raises:
+        ValueError: When ``table`` is not registered or has a truncate guard, when
+            ``month`` is not a past month, when a table of that name is not
+            attached to ``table``, or when the partition still holds rows.
+
+    """
+    spec = _REGISTRY.get(table)
+    if spec is None:
+        msg = f"{table} is not a registered partitioned table"
+        raise ValueError(msg)
+    if spec.truncate_guard is not None:
+        msg = f"{table} is append-only; its partitions are never retired"
+        raise ValueError(msg)
+    if month.replace(day=1) >= clock.now().date().replace(day=1):
+        msg = f"only a past month's partition is retired, not {month:%Y-%m}"
+        raise ValueError(msg)
+    name = partition_name(table, month.replace(day=1))
+    _ = conn.execute(_TURN_SQL, {"key": f"{table}_partitions"})
+    present = cast(
+        "int | None",
+        conn.scalar(
+            text("SELECT 1 FROM pg_class WHERE relname = :name"), {"name": name}
+        ),
+    )
+    if present is None:
+        return False
+    attached = cast(
+        "int | None",
+        conn.scalar(
+            text(
+                """
+                SELECT 1 FROM pg_inherits
+                WHERE inhrelid = CAST(:name AS regclass)
+                  AND inhparent = CAST(:table AS regclass)
+                """
+            ),
+            {"name": name, "table": table},
+        ),
+    )
+    if attached is None:
+        msg = f"{name} exists but is not a partition of {table}; left alone"
+        raise ValueError(msg)
+    callers_timeout = cast("str", conn.scalar(_LOCK_TIMEOUT_SQL))
+    _ = conn.execute(_SET_LOCK_TIMEOUT_SQL, {"value": LOCK_TIMEOUT})
+    _ = conn.execute(text(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
+    # The owner bypasses RLS on a table that does not force it; row_security off
+    # turns any policy that would still apply into an error, never a filtered count.
+    _ = conn.execute(text(f"ALTER TABLE {name} NO FORCE ROW LEVEL SECURITY"))
+    _ = conn.execute(text("SELECT set_config('row_security', 'off', true)"))
+    holds_rows = cast("bool", conn.scalar(select(exists().select_from(table_(name)))))
+    if holds_rows:
+        msg = f"{name} still holds rows; delete every tenant's rows of the month first"
+        raise ValueError(msg)
+    _ = conn.execute(text(f"ALTER TABLE {table} DETACH PARTITION {name}"))
+    _ = conn.execute(text(f"DROP TABLE {name}"))
+    _ = conn.execute(_SET_LOCK_TIMEOUT_SQL, {"value": callers_timeout})
+    _ = conn.execute(text("SELECT set_config('row_security', 'on', true)"))
+    logger.info(
+        "%s partition %s retired",
+        table,
+        name,
+        extra={"table": table, "partition": name, "month": f"{month:%Y-%m}"},
+    )
+    return True

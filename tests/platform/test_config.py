@@ -280,6 +280,7 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_counterparty_screen_batch",
         "monitoring_decide_budget_ms",
         "monitoring_decide_fail_mode",
+        "monitoring_retention_cron",
         "monitoring_allow_custom_rules",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
@@ -703,11 +704,17 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_counterparty_screen_batch == 100
     assert s.monitoring_decide_budget_ms == 80
     assert s.monitoring_decide_fail_mode == "FAIL_OPEN"
+    assert s.monitoring_retention_cron == "0 5 1 * *"
     assert s.monitoring_allow_custom_rules is False
 
 
 @pytest.mark.parametrize(
-    "name", ["XOLOTL_MONITORING_SWEEP_CRON", "XOLOTL_MONITORING_PARTITIONS_CRON"]
+    "name",
+    [
+        "XOLOTL_MONITORING_SWEEP_CRON",
+        "XOLOTL_MONITORING_PARTITIONS_CRON",
+        "XOLOTL_MONITORING_RETENTION_CRON",
+    ],
 )
 def test_the_monitoring_crons_are_validated(monkeypatch, name):
     monkeypatch.setenv(name, "daily")
