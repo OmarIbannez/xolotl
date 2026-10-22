@@ -7,6 +7,7 @@ import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { BackfillTab } from './BackfillTab'
+import { mexicoCityToday } from './dates'
 import { backfillTransaction } from './ingest-fixtures'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
@@ -120,5 +121,13 @@ describe('BackfillTab', () => {
     await user.click(within(dialog).getByRole('button', { name: text.backfill.submit }))
 
     expect(await within(dialog).findByText(esMX.errors.BACKFILL_RANGE_INVALID)).toBeTruthy()
+  })
+
+  it('lets no date be picked after today in Mexico City', async () => {
+    const { user } = setup(['MLRO'])
+    const dialog = await openDialog(user)
+
+    expect(within(dialog).getByLabelText(text.backfill.from).getAttribute('max')).toBe(mexicoCityToday())
+    expect(within(dialog).getByLabelText(text.backfill.to).getAttribute('max')).toBe(mexicoCityToday())
   })
 })

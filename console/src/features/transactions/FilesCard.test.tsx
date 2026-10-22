@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { toast } from 'sonner'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FileStatusResponse, Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { FilesCard } from './FilesCard'
-import { fileStatus } from './ingest-fixtures'
+import { ParkedTab } from './ParkedTab'
+import { fileStatus, parkedTransaction } from './ingest-fixtures'
 import { MAX_FILE_MB } from './upload'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
@@ -38,6 +39,24 @@ beforeEach(() => {
   vi.mocked(toast.success).mockClear()
   vi.mocked(toast.info).mockClear()
 })
+
+// jsdom has no object URLs; the download test lends them and this puts things back.
+const { createObjectURL, revokeObjectURL } = URL
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  Object.assign(URL, { createObjectURL, revokeObjectURL })
+})
+
+const ERRORS = 'GET /v1/transactions/files/f1/errors'
+const REJECTED = () => json(fileStatus({ status: 'COMPLETED', rows_total: 3, rows_accepted: 2, rows_rejected: 1 }))
+
+async function uploadOne(user: ReturnType<typeof setup>['user']) {
+  const dialog = await openDialog(user)
+  await user.upload(within(dialog).getByLabelText(text.file), new File([CSV], 'movs.csv', { type: 'text/csv' }))
+  await user.click(within(dialog).getByRole('button', { name: text.submit }))
+  return screen.findByRole('region', { name: text.statusLabel })
+}
 
 describe('FilesCard', () => {
   it('links the template from the upload dialog', async () => {
@@ -154,5 +173,80 @@ describe('FilesCard', () => {
 
     expect(await screen.findByText(text.title)).toBeTruthy()
     expect(screen.queryByRole('button', { name: text.upload })).toBeNull()
+  })
+
+  it('stops reading the status once the file has failed', async () => {
+    const answers: FileStatusResponse[] = [
+      fileStatus({ status: 'PROCESSING' }),
+      fileStatus({ status: 'FAILED', last_error: 'FILE_INVALID: FileInvalidError' }),
+    ]
+    const { user, fakeApi } = setup({
+      [STATUS]: () => json(answers.shift() ?? fileStatus({ status: 'FAILED', last_error: 'FILE_INVALID: FileInvalidError' })),
+    })
+
+    const card = await uploadOne(user)
+    expect(await within(card).findByText(text.fileStatus.FAILED)).toBeTruthy()
+    expect(within(card).getByText('FILE_INVALID: FileInvalidError')).toBeTruthy()
+    const reads = fakeApi.calls(STATUS).length
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(fakeApi.calls(STATUS)).toHaveLength(reads)
+  })
+
+  it('reads the transaction lists again once the worker finishes the file', async () => {
+    const answers: FileStatusResponse[] = [fileStatus({ status: 'PROCESSING' })]
+    const { user, fakeApi } = renderApp(
+      <>
+        <FilesCard pollMs={20} />
+        <ParkedTab />
+      </>,
+      {
+        path: '/transactions',
+        me: makeMe({ roles: ['ANALYST'] }),
+        routes: {
+          [UPLOAD]: () => json(fileStatus(), { status: 202 }),
+          [STATUS]: () => json(answers.shift() ?? fileStatus({ status: 'COMPLETED', rows_total: 1, rows_accepted: 1 })),
+          'GET /v1/transactions/parked': () => json({ items: [parkedTransaction()], next_cursor: null }),
+        },
+      },
+    )
+    await screen.findByText('ext-0002')
+
+    const card = await uploadOne(user)
+    // Once at mount, once after the upload (no rows yet); the read at COMPLETED makes it three.
+    await waitFor(() => expect(fakeApi.calls(UPLOAD)).toHaveLength(1))
+    const afterUpload = await waitFor(() => {
+      const count = fakeApi.calls('GET /v1/transactions/parked').length
+      expect(count).toBeGreaterThanOrEqual(2)
+      return count
+    })
+    expect(await within(card).findByText(text.fileStatus.COMPLETED)).toBeTruthy()
+    await waitFor(() => expect(fakeApi.calls('GET /v1/transactions/parked').length).toBeGreaterThan(afterUpload))
+  })
+
+  it('downloads the error report of the uploaded file', async () => {
+    const revoke = vi.fn()
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:errors'), revokeObjectURL: revoke })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+    const { user, fakeApi } = setup({
+      [STATUS]: REJECTED,
+      [ERRORS]: () => new Response('row,column,code\n2,amount,INVALID\n', { headers: { 'content-type': 'text/csv' } }),
+    })
+
+    const card = await uploadOne(user)
+    await user.click(await within(card).findByRole('button', { name: text.downloadErrors }))
+
+    await waitFor(() => expect(click).toHaveBeenCalledTimes(1))
+    expect(fakeApi.calls(ERRORS)).toHaveLength(1)
+    expect((click.mock.contexts[0] as HTMLAnchorElement).download).toBe('f1.errors.csv')
+    expect(revoke).toHaveBeenCalledWith('blob:errors')
+  })
+
+  it('says so when the error report cannot be found', async () => {
+    const { user } = setup({ [STATUS]: REJECTED, [ERRORS]: () => problem(404, 'NOT_FOUND') })
+
+    const card = await uploadOne(user)
+    await user.click(await within(card).findByRole('button', { name: text.downloadErrors }))
+
+    expect(await within(card).findByText(esMX.errors.NOT_FOUND)).toBeTruthy()
   })
 })

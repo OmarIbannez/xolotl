@@ -5,6 +5,7 @@ import type { BackfillRequest } from '@/api/types'
 import { Field } from '@/components/common/Field'
 import { Input } from '@/components/ui/input'
 import { FormDialog } from '@/features/parties/FormDialog'
+import { mexicoCityToday } from './dates'
 import { useRequestBackfill } from './queries'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -26,6 +27,7 @@ export function BackfillDialog({ onClose }: { onClose: () => void }) {
   const [to, setTo] = useState('')
   const [partyId, setPartyId] = useState('')
   const [problems, setProblems] = useState<Problems>({})
+  const [today] = useState(mexicoCityToday)
 
   function check(): Problems {
     const found: Problems = {}
@@ -64,10 +66,10 @@ export function BackfillDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={t('transactions.backfill.from')} error={problems.from}>
-          {(aria) => <Input {...aria} type="date" value={from} onChange={(event) => setFrom(event.target.value)} />}
+          {(aria) => <Input {...aria} type="date" max={today} value={from} onChange={(event) => setFrom(event.target.value)} />}
         </Field>
         <Field label={t('transactions.backfill.to')} error={problems.to}>
-          {(aria) => <Input {...aria} type="date" value={to} onChange={(event) => setTo(event.target.value)} />}
+          {(aria) => <Input {...aria} type="date" max={today} value={to} onChange={(event) => setTo(event.target.value)} />}
         </Field>
       </div>
       <Field label={t('transactions.backfill.partyId')} error={problems.partyId}>

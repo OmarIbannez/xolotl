@@ -22,6 +22,9 @@ export const FILE_POLL_MS = 5_000
 
 const UNFINISHED: readonly FileStatus[] = ['UPLOADED', 'PROCESSING']
 
+/** The list queries an upload's rows can appear in. */
+const TRANSACTION_LISTS = ['list', 'parked', 'backfill'] as const
+
 /** Signed-in queries wait for the profile and for a forced password change, and key by tenant. */
 function useSignedIn() {
   const { user, mustChangePassword } = useAuth()
@@ -100,13 +103,24 @@ export function useBackfillTransactions(cursor: string | undefined) {
 /**
  * An uploaded file's status, read again every `pollMs` while the worker has not finished it
  * (`UPLOADED` or `PROCESSING`) and no more once it is `COMPLETED` or `FAILED`. `initial` is the
- * upload's own answer, shown until the first read.
+ * upload's own answer, shown until the first read. When a read finds the file newly finished, the
+ * transaction lists are read again, since its rows are in them now.
  */
 export function useTransactionFile(fileId: string, initial: FileStatusResponse | undefined, pollMs = FILE_POLL_MS) {
   const { tenant, enabled } = useSignedIn()
+  const qc = useQueryClient()
+  const queryKey = [TRANSACTIONS, tenant, 'file', fileId]
   return useQuery({
-    queryKey: [TRANSACTIONS, tenant, 'file', fileId],
-    queryFn: () => unwrap(api.GET('/transactions/files/{file_id}', { params: { path: { file_id: fileId } } })),
+    queryKey,
+    queryFn: async () => {
+      const before = qc.getQueryData<FileStatusResponse>(queryKey)?.status
+      const file = await unwrap(api.GET('/transactions/files/{file_id}', { params: { path: { file_id: fileId } } }))
+      // The worker has just finished the file: its rows are in the lists now, so read them again.
+      if ((before === undefined || UNFINISHED.includes(before)) && !UNFINISHED.includes(file.status)) {
+        for (const list of TRANSACTION_LISTS) void qc.invalidateQueries({ queryKey: [TRANSACTIONS, tenant, list] })
+      }
+      return file
+    },
     enabled,
     initialData: initial,
     // The upload's answer is fresh, but a known file's (200) may be old: read it again soon either way.

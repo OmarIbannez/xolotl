@@ -609,6 +609,7 @@
       "title": "Batches",
       "description": "Look up a batch received by API by its id.",
       "batchId": "Batch id",
+      "invalidId": "Enter the batch's full identifier (a UUID).",
       "lookup": "Look up",
       "notFound": "There is no batch with that id.",
       "source": "Source",

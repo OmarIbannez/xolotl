@@ -26,7 +26,7 @@ export function BatchesCard() {
     event.preventDefault()
     const id = draft.trim()
     if (id === '') return setProblem('required')
-    if (!UUID.test(id)) return setProblem('uuid')
+    if (!UUID.test(id)) return setProblem(t('transactions.batches.invalidId'))
     setProblem(undefined)
     setBatchId(id.toLowerCase())
   }

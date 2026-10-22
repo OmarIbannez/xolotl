@@ -34,7 +34,7 @@ describe('BatchesCard', () => {
     await user.type(await screen.findByLabelText(text.batchId), 'lote-7')
     await user.click(screen.getByRole('button', { name: text.lookup }))
 
-    expect(await screen.findByText(esMX.validation.uuid)).toBeTruthy()
+    expect(await screen.findByText(text.invalidId)).toBeTruthy()
     expect(fakeApi.requests.filter((request) => request.url.includes('/batches/'))).toEqual([])
   })
 

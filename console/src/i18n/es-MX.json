@@ -609,6 +609,7 @@
       "title": "Lotes",
       "description": "Consulta un lote recibido por API con su identificador.",
       "batchId": "ID del lote",
+      "invalidId": "Escribe el identificador completo del lote (un UUID).",
       "lookup": "Consultar",
       "notFound": "No hay un lote con ese identificador.",
       "source": "Origen",
