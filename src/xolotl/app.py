@@ -8,13 +8,14 @@ unless ``XOLOTL_EMBEDDED_WORKER`` is false.
 """
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Collection
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import cast
 from uuid import UUID
 
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
@@ -38,6 +39,7 @@ from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.screening.composition import register_screening
 from xolotl.modules.screening.engine.enums import SubjectStatus
 from xolotl.modules.screening.engine.holder import get_index_holder
+from xolotl.modules.screening.engine.models import ScreeningSubject
 from xolotl.modules.screening.rescreen import (
     ensure_screening_index,
     register_rescreen,
@@ -100,20 +102,33 @@ def party_screening_status(s: Session, party_id: UUID) -> str | None:
     return None if status is None else status.value
 
 
-def party_true_match_at(s: Session, party_id: UUID) -> datetime | None:
-    """Read when a party whose screening status is ``TRUE_MATCH`` was last screened.
+def party_true_match_at(
+    s: Session, party_ids: Collection[UUID]
+) -> dict[UUID, datetime]:
+    """Read when the parties whose screening status is ``TRUE_MATCH`` were screened.
 
     A rule simulation counts the parties matched after its simulated hits
-    (SP-04 §13.1); monitoring may not import the screening engine.
+    (SP-04 §13.1), a page of parties at a time; monitoring may not import the
+    screening engine. It is the last screening, not the one that first matched,
+    so a party matched long ago and screened again since counts as later.
 
     Returns:
-        The last screening's instant, or None when the party is not a true match.
+        The last screening's instant of each of ``party_ids`` that is a true
+        match; the others are left out.
 
     """
-    view = party_view(s, party_id, staff=False)
-    if view.status is not SubjectStatus.TRUE_MATCH:
-        return None
-    return view.last_screened_at
+    rows = s.execute(
+        select(ScreeningSubject.party_id, ScreeningSubject.last_screened_at).where(
+            ScreeningSubject.party_id.in_(list(party_ids)),
+            ScreeningSubject.status == SubjectStatus.TRUE_MATCH,
+            ScreeningSubject.last_screened_at.is_not(None),
+        )
+    )
+    return {
+        party_id: screened_at
+        for party_id, screened_at in rows
+        if party_id is not None and screened_at is not None
+    }
 
 
 def register_processing(*, queue: PostgresJobQueue) -> None:

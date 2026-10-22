@@ -16,18 +16,20 @@ the relationship's first transaction in the range (Deviation 13). The simulation
 job and plan 4c's dry-run replay share the walk.
 """
 
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import groupby
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import event, select, tuple_
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.aggregates.declarations import AggregateDeclaration
 from xolotl.modules.monitoring.aggregates.memory import MemoryAggregateStore
 from xolotl.modules.monitoring.aggregates.windows import MEXICO_CITY_ZONE
+from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.enrich.service import enriched_from_row
 from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.rules.assignments import LoadedRule, RuleSet
@@ -35,8 +37,8 @@ from xolotl.modules.monitoring.rules.definitions import HitOutcome, Severity
 from xolotl.modules.monitoring.rules.evaluate import (
     evaluate_rules,
     months_between,
+    profile_with_history,
 )
-from xolotl.modules.monitoring.rules.evaluate import profile_for as stored_profile
 from xolotl.modules.monitoring.rules.hits import cooldown_until, dedup_key_for
 from xolotl.modules.monitoring.rules.kinds import AggregateSnapshot, EvalProfile
 from xolotl.modules.monitoring.txn.models import Transaction
@@ -105,7 +107,10 @@ def replay_party(
     if not ordered:
         return []
     ruleset = RuleSet(
-        on=ordered[-1].occurred_at.date(), product=None, rules=tuple(rules), lists=lists
+        on=policy_date(ordered[-1].occurred_at),
+        product=None,
+        rules=tuple(rules),
+        lists=lists,
     )
     declarations = _declarations(rules)
     store = MemoryAggregateStore()
@@ -206,17 +211,38 @@ class _Profiles:
     base: dict[UUID, EvalProfile]
 
     def at(self, txn: EnrichedTransaction) -> EvalProfile:
+        months = months_between(self.first_seen[txn.relationship_id], txn.occurred_at)
         base = self.base.get(txn.relationship_id)
         if base is None:
-            base = stored_profile(self.s, txn)
+            base = profile_with_history(self.s, txn, history_months=months)
             self.base[txn.relationship_id] = base
-        first = self.first_seen[txn.relationship_id]
         return replace(
             base,
             risk_rating=txn.risk_rating,
             monitoring_profile=txn.monitoring_profile,
-            history_months=months_between(first, txn.occurred_at),
+            history_months=months,
         )
+
+
+@contextmanager
+def _holding_loads(s: Session) -> Generator[None]:
+    """Hold every row the session loads, so its identity map serves repeats.
+
+    The identity map holds rows weakly: without this, the counterparty and the
+    policy snapshot ``enriched_from_row`` reads by id would be read again for
+    each transaction of a page.
+    """
+    held: list[object] = []
+
+    def keep(_session: Session, instance: object) -> None:
+        held.append(instance)
+
+    event.listen(s, "loaded_as_persistent", keep)
+    try:
+        yield
+    finally:
+        event.remove(s, "loaded_as_persistent", keep)
+        held.clear()
 
 
 def replay_pages(
@@ -250,22 +276,36 @@ def replay_pages(
     now = clock.now()
     while rows := _page_rows(s, start=start, end=end, after=after, page=page):
         found: list[SimulatedHit] = []
-        for _, party_rows in groupby(rows, key=lambda row: row.party_id):
-            stream = [enriched_from_row(row) for row in party_rows]
-            first_seen: dict[UUID, datetime] = {}
-            for txn in stream:
-                _ = first_seen.setdefault(txn.relationship_id, txn.occurred_at)
-            profiles = _Profiles(s, first_seen, {})
-            found += replay_party(
-                ruleset.rules,
-                stream,
-                policy_for=policy_for,
-                profile_for=profiles.at,
-                lists=ruleset.lists,
-                now=now,
-            )
+        with _holding_loads(s):
+            for _, party_rows in groupby(rows, key=lambda row: row.party_id):
+                found += _replay_rows(
+                    s, ruleset, list(party_rows), policy_for=policy_for, now=now
+                )
         after = rows[-1].party_id
         yield ReplayPage(after, len(rows), tuple(found))
+
+
+def _replay_rows(
+    s: Session,
+    ruleset: RuleSet,
+    party_rows: Sequence[Transaction],
+    *,
+    policy_for: Callable[[UUID], EffectivePolicy],
+    now: datetime,
+) -> list[SimulatedHit]:
+    stream = [enriched_from_row(row) for row in party_rows]
+    first_seen: dict[UUID, datetime] = {}
+    for txn in stream:
+        _ = first_seen.setdefault(txn.relationship_id, txn.occurred_at)
+    profiles = _Profiles(s, first_seen, {})
+    return replay_party(
+        ruleset.rules,
+        stream,
+        policy_for=policy_for,
+        profile_for=profiles.at,
+        lists=ruleset.lists,
+        now=now,
+    )
 
 
 def replay_rule_set(

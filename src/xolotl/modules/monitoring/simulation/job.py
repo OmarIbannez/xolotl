@@ -21,13 +21,14 @@ import the screening engine), when a party was last screened if its status is
 """
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import select
+from sqlalchemy import Text, exists, literal, select
+from sqlalchemy import cast as sa_cast
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.enrich.policy import policy_date
@@ -65,17 +66,20 @@ from xolotl.modules.monitoring.simulation.engine import (
     SimulatedHit,
     replay_pages,
 )
+from xolotl.modules.monitoring.txn.schema import KeyKind
 from xolotl.platform import clock
 from xolotl.platform.audit import AuditEvent, record
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import bound_context
-from xolotl.platform.enums import ActorType
+from xolotl.platform.enums import ActorType, JobStatus
 from xolotl.platform.errors import (
     ForbiddenError,
     NotFoundError,
     ValidationFailedError,
     XolotlError,
 )
+from xolotl.platform.ids import uuid7
+from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import Job, PostgresJobQueue
 
 SIMULATE_KIND = "monitoring.simulate"
@@ -84,9 +88,16 @@ SAMPLE_LIMIT = 50
 _NO_ASSIGNMENT = UUID(int=0)
 _EDITABLE = frozenset({RuleVersionStatus.DRAFT, RuleVersionStatus.SIMULATED})
 _FINISHED = frozenset({SimulationStatus.COMPLETED, SimulationStatus.FAILED})
+_UNFINISHED = (SimulationStatus.QUEUED, SimulationStatus.RUNNING)
+_CROSS_PARTY = frozenset({KeyKind.COUNTERPARTY, KeyKind.DEVICE})
+_LIVE_JOB = (JobStatus.PENDING, JobStatus.RUNNING)
+# A simulation run in a CLI process has no job; after this long it is lost.
+LOST_WITHOUT_JOB = timedelta(days=1)
+WORKER_LOST = "WorkerLost"
 
-# When a party whose screening status is TRUE_MATCH was last screened, else None.
-type TrueMatchReader = Callable[[Session, UUID], datetime | None]
+# For each of the parties whose screening status is TRUE_MATCH, when it was last
+# screened; the others are left out.
+type TrueMatchReader = Callable[[Session, Collection[UUID]], Mapping[UUID, datetime]]
 
 _true_match: list[TrueMatchReader] = []
 
@@ -119,8 +130,24 @@ def _check_range(range_start: date, range_end: date, *, today: date) -> None:
         raise SimulationRangeTooLongError(msg)
 
 
+def _cross_party_keys(definition: RuleDefinition) -> bool:
+    # Simulation replays one party at a time (plan 4b Deviation 12), so a key
+    # that several parties share would be counted and deduplicated per party.
+    kinds = {
+        definition.key_kind,
+        definition.dedup.key,
+        *(item.key_kind for item in definition.aggregates),
+    }
+    return bool(kinds & _CROSS_PARTY)
+
+
 def _create(
-    s: Session, version_id: UUID, *, range_start: date, range_end: date
+    s: Session,
+    version_id: UUID,
+    *,
+    range_start: date,
+    range_end: date,
+    simulation_id: UUID | None = None,
 ) -> RuleSimulation:
     user_id = _staff_id(s)
     ctx = bound_context(s)
@@ -137,7 +164,14 @@ def _create(
     if RuleAction.SIMULATE not in actions.allowed:
         raise RuleTransitionNotAllowedError(actions.blocked[RuleAction.SIMULATE])
     _check_range(range_start, range_end, today=policy_date(now))
+    if _cross_party_keys(RuleDefinition.model_validate(version.definition)):
+        msg = (
+            "a rule keyed on COUNTERPARTY or DEVICE cannot be simulated: the "
+            "simulation replays one party at a time"
+        )
+        raise ValidationFailedError(msg)
     simulation = RuleSimulation(
+        id=simulation_id or uuid7(),
         tenant_id=version.tenant_id,
         rule_version_id=version.id,
         requested_by=user_id,
@@ -331,10 +365,10 @@ class _Tallies:
 def _later_true_matches(s: Session, by_party: dict[UUID, list[SimulatedHit]]) -> int:
     if not _true_match:
         return 0
-    reader = _true_match[0]
+    matched = _true_match[0](s, list(by_party))
     later = 0
     for party_id, found in by_party.items():
-        matched_at = reader(s, party_id)
+        matched_at = matched.get(party_id)
         last_end = max(hit.window_end for hit in found)
         if matched_at is not None and matched_at > last_end:
             later += 1
@@ -454,18 +488,69 @@ def handle_simulate(s: Session, job: Job) -> None:
 
 
 def run_simulation_now(
-    s: Session, version_id: UUID, *, range_start: date, range_end: date
+    s: Session,
+    version_id: UUID,
+    *,
+    range_start: date,
+    range_end: date,
+    simulation_id: UUID | None = None,
 ) -> RuleSimulation:
     """Request and run a simulation in this session, without the queue.
 
-    The CLI and ``rules activate`` use it; the session commits as it goes.
+    The CLI and ``rules activate`` use it, and may choose the simulation's id
+    (to audit it first); the session commits as it goes.
 
     Returns:
         The finished simulation.
 
     """
-    simulation = _create(s, version_id, range_start=range_start, range_end=range_end)
+    simulation = _create(
+        s,
+        version_id,
+        range_start=range_start,
+        range_end=range_end,
+        simulation_id=simulation_id,
+    )
     tenant_id, simulation_id = simulation.tenant_id, simulation.id
     s.commit()
     _ = _simulate(s, tenant_id, simulation_id)
     return s.get_one(RuleSimulation, (tenant_id, simulation_id))
+
+
+def fail_lost_simulations(s: Session, *, now: datetime) -> int:
+    """Fail the simulations whose run can no longer finish (a lost worker).
+
+    A ``QUEUED`` or ``RUNNING`` row whose ``simulate:<id>`` job is no longer
+    pending or running (``DEAD`` after the reaper: the job runs once) will never
+    complete; nor will one with no job at all (a CLI run) after
+    ``LOST_WITHOUT_JOB``. Each becomes ``FAILED`` with ``last_error`` ``WorkerLost``
+    and publishes ``monitoring.simulation_completed.v1``. ``monitoring.sweep``
+    calls it every minute.
+
+    Returns:
+        How many simulations it failed.
+
+    """
+    key = literal("simulate:") + sa_cast(RuleSimulation.id, Text)
+    any_job = exists().where(JobRow.kind == SIMULATE_KIND, JobRow.key == key)
+    live_job = exists().where(
+        JobRow.kind == SIMULATE_KIND, JobRow.key == key, JobRow.status.in_(_LIVE_JOB)
+    )
+    lost = s.scalars(
+        select(RuleSimulation)
+        .where(
+            RuleSimulation.status.in_(_UNFINISHED),
+            ~live_job,
+            any_job | (RuleSimulation.created_at < now - LOST_WITHOUT_JOB),
+        )
+        .order_by(RuleSimulation.id)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for simulation in lost:
+        simulation.status = SimulationStatus.FAILED
+        simulation.finished_at = now
+        simulation.last_error = WORKER_LOST
+    s.flush()
+    for simulation in lost:
+        _publish(s, simulation)
+    return len(lost)

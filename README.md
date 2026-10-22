@@ -545,9 +545,16 @@ weeks`. `rules activate` takes a version the rest of the way from today: the aut
 simulates it (by default over the last 30 days, today included) and submits it, the
 approver, an MLRO or an admin other than the author, approves it and activates it for
 every product from today; it prints the simulation's summary and `active <code> v<n>
-from <date>: assignment <id>`. An approver who is the author is refused with
-`RULE_TRANSITION_NOT_ALLOWED` before anything moves, and a step already taken (a
-version already in review or approved) is skipped. Activation never starts in the
+from <date>: assignment <id>`. An approver who authored or edited the version, or a
+version past `APPROVED`, is refused with `RULE_TRANSITION_NOT_ALLOWED` before anything
+moves, and a step already taken (a version already in review or approved) is
+skipped. Both commands act as the staff users they name, so the lifecycle's audit
+rows name the author and the approver; before those steps each run writes one
+`rules.cli_invoked` row as the operator (`PLATFORM_OPERATOR`, `cli:<os user>`) with
+the command, the version, the author, the approver and the simulation (ids only).
+A run refused later, for its range say, keeps that row. The CLI cannot tell which
+staff user the operator is, so it cannot refuse an operator approving their own
+work: whoever holds the CLI is trusted with both users' names. Activation never starts in the
 past, so a demo whose fixtures predate today runs the command under an earlier clock.
 
 `rules load` prints one line per template version it creates and a count; `xolotl db
@@ -806,9 +813,19 @@ audit row. After each page of whole parties it saves its tallies (`transactions_
 `hit_count`, `customers_hit`, `hits_per_week` by the ISO week of each hit's last
 instant, `overlap` with the hits already stored for the same parties and with the
 parties found `TRUE_MATCH` after their simulated hits, and a `sample` of up to 50
-ids-only hits) and a cursor, so a run that dies resumes at the next party. Windows
-start at the range: history before it is not read, so a simulation shorter than four
-months never fires `DECLARED_VS_ACTUAL_VOLUME` on its history branch. On completion
+ids-only hits) and a cursor, so a run that is started again resumes at the next
+party. The job runs once, though: when its worker dies, `monitoring.sweep` finds
+the row `QUEUED` or `RUNNING` with no live job (or, for a CLI run, which has no job,
+a day old) and fails it with `WorkerLost`; staff request another. Windows start
+cold at the range: history before it is not read, so a rule fires later in the
+first days of the range than processing did, and a simulation shorter than four
+months never fires `DECLARED_VS_ACTUAL_VOLUME` on its history branch. A party's
+whole stream in the range is held in memory at once. Since parties are replayed
+one at a time, a rule keyed on `COUNTERPARTY` or `DEVICE` (its key, its dedup key
+or a declaration's) is refused with `VALIDATION_FAILED`: no library template is.
+A "later true match" is a party whose status is `TRUE_MATCH` and whose last
+screening came after its last simulated hit, so a party matched long ago and
+screened again since counts too. On completion
 the row is `COMPLETED` and the version becomes `SIMULATED` unless it was edited
 meanwhile; a failure leaves it `FAILED` with the exception's class only. Either way
 `monitoring.simulation_completed.v1` (staff-only) says so. A completed simulation is

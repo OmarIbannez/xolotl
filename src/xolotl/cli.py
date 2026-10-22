@@ -6,6 +6,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -48,6 +49,7 @@ from xolotl.modules.monitoring.rules.lifecycle import (
     activate_version,
     approve_version,
     submit_version,
+    version_editors,
 )
 from xolotl.modules.monitoring.rules.models import (
     MonitoringRule,
@@ -106,7 +108,7 @@ from xolotl.modules.screening.rescreen.walkers import start_rescreen
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.models import StaffUser, Tenant
 from xolotl.platform import clock, migrate
-from xolotl.platform.audit import verify_chain
+from xolotl.platform.audit import AuditEvent, record, verify_chain
 from xolotl.platform.calendar import read_holiday_file, seed_holidays
 from xolotl.platform.config import DEV_MASTER_KEY_BYTES, Settings, get_settings
 from xolotl.platform.crypto import get_key_provider, set_key_provider
@@ -1060,6 +1062,7 @@ def rules_seed_tenant(
 # ``rules activate`` simulates the last 30 days unless told otherwise.
 _ACTIVATE_SIMULATION_DAYS = 30
 _SIMULABLE = frozenset({RuleVersionStatus.DRAFT, RuleVersionStatus.SIMULATED})
+_ACTIVATABLE = _SIMULABLE | {RuleVersionStatus.IN_REVIEW, RuleVersionStatus.APPROVED}
 
 
 def _staff_context(session: Session, tenant_id: UUID, user_id: UUID) -> TenantContext:
@@ -1109,14 +1112,60 @@ def _simulation_line(simulation: RuleSimulation) -> str:
     )
 
 
-def _simulate_as_author(
-    actor: str, tenant_id: UUID, version_id: UUID, *, start: date, end: date
-) -> str:
+def _record_cli_run(
+    actor: str,
+    tenant_id: UUID,
+    version_id: UUID,
+    *,
+    command: str,
+    author_id: UUID,
+    approver_id: UUID | None,
+    simulation_id: UUID | None,
+) -> None:
+    """Put the operator who runs a rules command on the tenant's chain, ids only.
+
+    The steps that follow are audited as the author and the approver, whose
+    staff contexts the CLI takes; this row says who really ran them.
+    """
     with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
-        author = _staff_context(s, tenant_id, _rule_version(s, version_id).author_id)
+        _ = record(
+            s,
+            AuditEvent(
+                action="rules.cli_invoked",
+                entity_type="monitoring_rule_version",
+                entity_id=str(version_id),
+                detail={
+                    "command": command,
+                    "version_id": str(version_id),
+                    "author_id": str(author_id),
+                    "approver_id": None if approver_id is None else str(approver_id),
+                    "simulation_id": None
+                    if simulation_id is None
+                    else str(simulation_id),
+                },
+            ),
+        )
+
+
+def _simulate_as(
+    author: TenantContext,
+    version_id: UUID,
+    *,
+    start: date,
+    end: date,
+    simulation_id: UUID,
+) -> str:
+    # The simulation reads the screening readers register_rules installs; in this
+    # one-shot process that registration is all the wiring it needs.
     register_processing(queue=PostgresJobQueue(get_sessionmaker()))
     with tenant_session(author) as s:
-        simulation = run_simulation_now(s, version_id, range_start=start, range_end=end)
+        simulation = run_simulation_now(
+            s,
+            version_id,
+            range_start=start,
+            range_end=end,
+            simulation_id=simulation_id,
+        )
         return _simulation_line(simulation)
 
 
@@ -1135,20 +1184,49 @@ def rules_simulate(
     """Replay a range of processed transactions through a rule version.
 
     Runs in this process as the version's author, writes only the simulation row
-    and prints its summary; a completed simulation marks a draft ``SIMULATED``.
+    (and an audit row naming the operator) and prints its summary; a completed
+    simulation marks a draft ``SIMULATED``.
     """
     actor = _cli_actor()
     with _cli_errors():
         tenant_id, _ = _resolve_tenant(actor, tenant)
-        line = _simulate_as_author(
-            actor, tenant_id, version, start=range_from.date(), end=range_to.date()
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            author_id = _rule_version(s, version).author_id
+            author = _staff_context(s, tenant_id, author_id)
+        simulation_id = uuid7()
+        _record_cli_run(
+            actor,
+            tenant_id,
+            version,
+            command="rules.simulate",
+            author_id=author_id,
+            approver_id=None,
+            simulation_id=simulation_id,
+        )
+        line = _simulate_as(
+            author,
+            version,
+            start=range_from.date(),
+            end=range_to.date(),
+            simulation_id=simulation_id,
         )
     typer.echo(line)
 
 
+@dataclass(frozen=True, slots=True)
+class _Activation:
+    """Who takes a version to ``ACTIVE`` from the CLI, and from which state."""
+
+    author_id: UUID
+    approver_id: UUID
+    author: TenantContext
+    approver: TenantContext
+    status: RuleVersionStatus
+
+
 def _activation_users(
     actor: str, tenant_id: UUID, version_id: UUID, approver_email: str
-) -> tuple[TenantContext, TenantContext]:
+) -> _Activation:
     with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
         version = _rule_version(s, version_id)
         approver = s.scalar(
@@ -1160,12 +1238,18 @@ def _activation_users(
         if approver is None:
             msg = f"no staff user {approver_email!r} in this tenant"
             raise NotFoundError(msg)
-        if approver == version.author_id:
-            # Four eyes (SEC-501): refused before anything moves.
+        # Four eyes (SEC-501), refused before anything moves: neither the author
+        # nor anyone who edited the version approves it.
+        if approver == version.author_id or approver in version_editors(s, version_id):
             raise RuleTransitionNotAllowedError([RuleBlockedReason.SAME_AUTHOR])
-        return (
-            _staff_context(s, tenant_id, version.author_id),
-            _staff_context(s, tenant_id, approver),
+        if version.status not in _ACTIVATABLE:
+            raise RuleTransitionNotAllowedError([RuleBlockedReason.STATE])
+        return _Activation(
+            author_id=version.author_id,
+            approver_id=approver,
+            author=_staff_context(s, tenant_id, version.author_id),
+            approver=_staff_context(s, tenant_id, approver),
+            status=version.status,
         )
 
 
@@ -1194,17 +1278,27 @@ def rules_activate(
 ) -> None:
     """Simulate, submit, approve and activate a rule version from today.
 
-    The author simulates and submits, the approver (an MLRO or an admin other
-    than the author) approves and activates it for every product from today. A
-    step already taken is skipped. Prints the simulation's summary and the new
-    assignment.
+    The author simulates and submits, the approver (an MLRO or an admin who
+    neither authored nor edited it) approves and activates it for every product
+    from today. A step already taken is skipped. An audit row names the operator
+    who ran the command. Prints the simulation's summary and the new assignment.
     """
     actor = _cli_actor()
     with _cli_errors():
         tenant_id, _ = _resolve_tenant(actor, tenant)
-        author, approver = _activation_users(actor, tenant_id, version, approved_by)
+        users = _activation_users(actor, tenant_id, version, approved_by)
         today = policy_date(clock.now())
-        if _status(author, version) in _SIMULABLE:
+        simulation_id = uuid7() if users.status in _SIMULABLE else None
+        _record_cli_run(
+            actor,
+            tenant_id,
+            version,
+            command="rules.activate",
+            author_id=users.author_id,
+            approver_id=users.approver_id,
+            simulation_id=simulation_id,
+        )
+        if simulation_id is not None:
             end = today if simulate_to is None else simulate_to.date()
             start = (
                 end - timedelta(days=_ACTIVATE_SIMULATION_DAYS - 1)
@@ -1212,14 +1306,20 @@ def rules_activate(
                 else simulate_from.date()
             )
             typer.echo(
-                _simulate_as_author(actor, tenant_id, version, start=start, end=end)
+                _simulate_as(
+                    users.author,
+                    version,
+                    start=start,
+                    end=end,
+                    simulation_id=simulation_id,
+                )
             )
-            with tenant_session(author) as s:
+            with tenant_session(users.author) as s:
                 _ = submit_version(s, version)
-        if _status(approver, version) is RuleVersionStatus.IN_REVIEW:
-            with tenant_session(approver) as s:
+        if _status(users.approver, version) is RuleVersionStatus.IN_REVIEW:
+            with tenant_session(users.approver) as s:
                 _ = approve_version(s, version)
-        with tenant_session(approver) as s:
+        with tenant_session(users.approver) as s:
             row = activate_version(
                 s,
                 version,

@@ -68,6 +68,7 @@ from xolotl.modules.monitoring.rules.models import (
     RuleAssignment,
     RuleSimulation,
 )
+from xolotl.modules.monitoring.rules.versions import VersionInput, update_version
 from xolotl.modules.monitoring.txn import files
 from xolotl.modules.monitoring.txn.models import (
     Transaction,
@@ -2724,9 +2725,15 @@ def test_monitoring_show_reveal_audits(
     }
 
 
-def test_rules_simulate_and_activate(
-    admin_engine: Engine, tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
-):
+def _rules_cli_stage(
+    tenant: CreatedTenant, admin_engine: Engine
+) -> MonitoringRuleVersion:
+    """Give acme the packs, the library, an MLRO and a CASH draft an MLRO edited.
+
+    Returns:
+        The draft, authored by the admin user.
+
+    """
     _ = monitoring_support.both_packs_tenant(tenant, admin_engine)
     lifecycle_support.load_library(admin_engine)
     version = lifecycle_support.draft(tenant, "CASH_STRUCTURING")
@@ -2740,6 +2747,67 @@ def test_rules_simulate_and_activate(
                 status=StaffStatus.ACTIVE,
             )
         )
+        editor_user = StaffUser(
+            tenant_id=tenant.tenant_id,
+            email="editor@acme.mx",
+            display_name="Editora",
+            roles=[Role.MLRO.value],
+            status=StaffStatus.ACTIVE,
+        )
+        s.add(editor_user)
+        s.flush()
+        editor_id = editor_user.id
+    with staff_session(tenant.tenant_id, editor_id, [Role.MLRO]) as s:
+        return update_version(s, version.id, body=VersionInput(params={"min_count": 4}))
+
+
+def _assert_cli_runs(
+    tenant: CreatedTenant,
+    version_id: UUID,
+    approver_id: UUID | None,
+    simulation_ids: list[UUID],
+) -> None:
+    operator = ("PLATFORM_OPERATOR", f"cli:{getpass.getuser()}")
+    runs = [
+        e for e in audit_events(tenant.tenant_id) if e.action == "rules.cli_invoked"
+    ]
+    assert [(e.actor_type, e.actor_id) for e in runs] == [operator] * 3
+    simulate = {
+        "command": "rules.simulate",
+        "version_id": str(version_id),
+        "author_id": str(tenant.admin_user_id),
+        "approver_id": None,
+    }
+    # The attempt refused for its range is recorded too; its simulation was
+    # never created. Activations refused before anything moved are not.
+    assert [e.detail for e in runs[::2]] == [
+        {**simulate, "simulation_id": str(simulation_ids[0])},
+        {
+            "command": "rules.activate",
+            "version_id": str(version_id),
+            "author_id": str(tenant.admin_user_id),
+            "approver_id": str(approver_id),
+            "simulation_id": str(simulation_ids[1]),
+        },
+    ]
+    refused = runs[1].detail or {}
+    assert {**refused, "simulation_id": None} == {
+        **simulate,
+        "simulation_id": None,
+    }
+    assert all(e.entity_id == str(version_id) for e in runs)
+
+
+def _refused(args: list[str], code: str) -> None:
+    result = runner.invoke(app, args)
+    assert result.exit_code == 1
+    assert result.stderr.startswith(f"error: {code}: ")
+
+
+def test_rules_simulate_and_activate(
+    admin_engine: Engine, tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    version = _rules_cli_stage(tenant, admin_engine)
     # Reconciliation finding 23: the demo activates on 30 June 2026.
     monkeypatch.setattr(clock, "now", lambda: datetime(2026, 6, 30, 15, tzinfo=UTC))
     target = ["--tenant", "acme", "--version", str(version.id)]
@@ -2752,17 +2820,24 @@ def test_rules_simulate_and_activate(
     assert re.fullmatch(
         r"simulation [0-9a-f-]{36}: 0 hits, 0 customers, 0 weeks\n", simulated.stdout
     )
-    too_long = runner.invoke(
-        app,
+    _refused(
         ["rules", "simulate", *target, "--from", "2025-12-01", "--to", "2026-06-29"],
+        "SIMULATION_RANGE_TOO_LONG",
     )
-    assert too_long.exit_code == 1
-    assert too_long.stderr.startswith("error: SIMULATION_RANGE_TOO_LONG: ")
 
     activate = ["rules", "activate", *target]
-    same = runner.invoke(app, [*activate, "--approved-by", "admin@acme.mx"])
-    assert same.exit_code == 1
-    assert same.stderr.startswith("error: RULE_TRANSITION_NOT_ALLOWED: ")
+    _refused(
+        [*activate, "--approved-by", "admin@acme.mx"], "RULE_TRANSITION_NOT_ALLOWED"
+    )
+    # An approver who edited the version is refused before anything moves too.
+    _refused(
+        [*activate, "--approved-by", "editor@acme.mx"], "RULE_TRANSITION_NOT_ALLOWED"
+    )
+    with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assert (
+            s.get_one(MonitoringRuleVersion, (tenant.tenant_id, version.id)).status
+            is RuleVersionStatus.SIMULATED
+        )
     activated = runner.invoke(app, [*activate, "--approved-by", "MLRO@acme.mx"])
     assert activated.exit_code == 0, activated.stderr
     summary, line = activated.stdout.splitlines()
@@ -2793,6 +2868,8 @@ def test_rules_simulate_and_activate(
         (date(2026, 6, 1), date(2026, 6, 30)),
     ]
     assert row.simulation_id == simulations[-1].id
-    again = runner.invoke(app, [*activate, "--approved-by", "mlro@acme.mx"])
-    assert again.exit_code == 1
-    assert again.stderr.startswith("error: RULE_TRANSITION_NOT_ALLOWED: ")
+    _refused(
+        [*activate, "--approved-by", "mlro@acme.mx"], "RULE_TRANSITION_NOT_ALLOWED"
+    )
+    # The operator who ran each command is on the chain, with ids only.
+    _assert_cli_runs(tenant, version.id, row.approved_by, [s.id for s in simulations])

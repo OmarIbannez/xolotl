@@ -11,6 +11,7 @@ from typing import ClassVar, override
 from uuid import UUID
 
 import pytest
+from sqlalchemy import event, func, select
 
 from tests.helpers import system_ctx
 from tests.modules.monitoring.rules.conftest import (
@@ -40,6 +41,7 @@ from xolotl.modules.monitoring.simulation.engine import (
     replay_party,
     replay_rule_set,
 )
+from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
 from xolotl.platform.db import tenant_session
 
@@ -216,3 +218,69 @@ def test_replay_reads_only_processed_rows_in_the_range(stage: Stage):
         )
     assert [h.window_end for h in inside] == [local(9)]
     assert short == []
+
+
+COUNTERPARTY = {"kind": "PERSON", "name": "Juan Pérez", "country": "MX"}
+
+
+def _statements(stage: Stage) -> list[str]:
+    ruleset = RuleSet(
+        on=local(9).date(), product=None, rules=(library_rule(CASH),), lists=lists()
+    )
+    executed: list[str] = []
+
+    def count(*args: object) -> None:
+        executed.append(str(args[2]))
+
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        bind = s.connection().engine
+        event.listen(bind, "before_cursor_execute", count)
+        try:
+            _ = list(
+                replay_rule_set(
+                    s,
+                    ruleset,
+                    range_start=local(1).date(),
+                    range_end=local(9).date(),
+                    page=100,
+                )
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", count)
+    return executed
+
+
+def test_a_page_reads_a_bounded_number_of_queries(stage: Stage):
+    # One party, three deposits a day from one counterparty: the counterparty is
+    # read once, each policy snapshot once, the profile once per relationship,
+    # whatever the number of rows.
+    _ = add_relationship(stage.tenant, "cust-a", "N3")
+    items = [
+        {
+            **deposit(
+                f"a-{day}-{hour}", local(day, hour), "100.00", customer_ref="cust-a"
+            ),
+            "counterparty": COUNTERPARTY,
+        }
+        for day in range(1, 4)
+        for hour in (9, 10, 11)
+    ]
+    _ = feed(stage, items)
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        snapshots = set(s.scalars(select(Transaction.policy_snapshot_id)))
+        assert s.scalar(select(func.count()).select_from(Transaction)) == 9
+
+    executed = _statements(stage)
+
+    def reads(table: str) -> int:
+        return sum(
+            f"FROM {table} " in sql or sql.endswith(f"FROM {table}") for sql in executed
+        )
+
+    # The page, then the empty page that ends the walk.
+    assert reads("transaction") == 2
+    assert reads("counterparty") == 1
+    assert reads("policy_snapshot") == len(snapshots) < 9
+    assert reads("customer_relationship") == 1
+    assert reads("screening_subject") == 1
+    assert len(executed) == 2 + 1 + len(snapshots) + 4

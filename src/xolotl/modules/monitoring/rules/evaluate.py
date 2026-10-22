@@ -142,6 +142,32 @@ def months_between(first: datetime, then: datetime) -> int:
     return max(months, 0)
 
 
+def profile_with_history(
+    s: Session, txn: EnrichedTransaction, *, history_months: int
+) -> EvalProfile:
+    """Read the customer's profile at ``txn`` with ``history_months`` given.
+
+    The simulation counts history months from its own stream (plan 4b Deviation
+    13), so it reads everything else here and skips the history query.
+
+    Returns:
+        The profile.
+
+    """
+    relationship = relationship_ref(s, txn.relationship_id)
+    status = _screening_status[0](s, txn.party_id) if _screening_status else None
+    return EvalProfile(
+        tier=relationship.account_tier,
+        risk_rating=txn.risk_rating,
+        monitoring_profile=txn.monitoring_profile,
+        pep_status=pep_status_of(s, txn.party_id).value,
+        party_screening_status=status,
+        relationship_started_at=relationship.started_at,
+        declared_profile=None,
+        history_months=history_months,
+    )
+
+
 def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile:
     """Read what the evaluator knows of the transaction's customer.
 
@@ -152,22 +178,15 @@ def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile:
         The profile.
 
     """
-    relationship = relationship_ref(s, txn.relationship_id)
-    status = _screening_status[0](s, txn.party_id) if _screening_status else None
     earliest = s.scalar(
         select(func.min(Transaction.occurred_at)).where(
             Transaction.relationship_id == txn.relationship_id,
             Transaction.status == TransactionStatus.PROCESSED,
         )
     )
-    return EvalProfile(
-        tier=relationship.account_tier,
-        risk_rating=txn.risk_rating,
-        monitoring_profile=txn.monitoring_profile,
-        pep_status=pep_status_of(s, txn.party_id).value,
-        party_screening_status=status,
-        relationship_started_at=relationship.started_at,
-        declared_profile=None,
+    return profile_with_history(
+        s,
+        txn,
         history_months=0
         if earliest is None
         else months_between(earliest, txn.occurred_at),

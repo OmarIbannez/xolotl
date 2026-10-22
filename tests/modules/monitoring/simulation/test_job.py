@@ -12,12 +12,14 @@ from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import Engine, func, inspect, select, table
-from sqlalchemy.orm import Session
+from sqlalchemy import Engine, func, inspect, select, table, update
 
-from tests.helpers import staff_session, system_ctx
+from tests.helpers import new_tenant, staff_session, system_ctx
+from tests.modules.monitoring import support as monitoring_support
 from tests.modules.monitoring.rules.hook_support import (
+    ACTIVATION,
     CASH,
+    EFFECTIVE_FROM,
     Stage,
     add_relationship,
     deposit,
@@ -25,16 +27,22 @@ from tests.modules.monitoring.rules.hook_support import (
     feed,
     hits,
     local,
+    run_backfills,
 )
 from tests.modules.monitoring.rules.lifecycle_support import (
     AUTHOR_ROLES,
+    activated,
     add_staff,
     draft,
     freeze,
 )
+from tests.platform.policy_support import install_both_packs
+from xolotl.app import party_true_match_at
 from xolotl.models import metadata
 from xolotl.modules.monitoring.events import SIMULATION_COMPLETED
+from xolotl.modules.monitoring.process.sweep import sweep
 from xolotl.modules.monitoring.rules.assignments import active_rules
+from xolotl.modules.monitoring.rules.definitions import Dedup
 from xolotl.modules.monitoring.rules.enums import RuleVersionStatus, SimulationStatus
 from xolotl.modules.monitoring.rules.models import (
     MonitoringRuleVersion,
@@ -49,13 +57,19 @@ from xolotl.modules.monitoring.simulation.engine import (
 )
 from xolotl.modules.monitoring.simulation.job import (
     SIMULATE_KIND,
+    fail_lost_simulations,
     handle_simulate,
     request_simulation,
 )
+from xolotl.modules.monitoring.txn.schema import KeyKind
+from xolotl.modules.party.models import CustomerRelationship
+from xolotl.modules.screening.engine.enums import SubjectKind, SubjectStatus
+from xolotl.modules.screening.engine.models import ScreeningSubject
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import get_sessionmaker, tenant_session
 from xolotl.platform.enums import JobStatus, Role
-from xolotl.platform.errors import XolotlError
+from xolotl.platform.errors import ValidationFailedError, XolotlError
+from xolotl.platform.events import InAppNotifier
 from xolotl.platform.jobs.models import JobRow
 from xolotl.platform.jobs.queue import Job
 from xolotl.platform.jobs.runner import JobRunner
@@ -243,18 +257,62 @@ def test_the_summary_counts_weeks_customers_and_overlap(
     }
     assert simulation.cursor == str(stored.party_id)
 
-    # A party matched after its simulated window counts as a later true match.
-    later = stored.window_end + timedelta(days=1)
+    # Through the composition root's reader: matched before the window ends, it
+    # is no later match; screened (still TRUE_MATCH) after it, it is.
+    _screened(stage, stored.party_id, stored.window_end - timedelta(days=1))
+    assert _later_true_match(stage) == 0
+    _screened(stage, stored.party_id, stored.window_end + timedelta(days=1))
+    assert _later_true_match(stage) == 1
 
-    def matched_later(_s: Session, _party: UUID) -> datetime:
-        return later
 
-    monkeypatch.setattr(job_module, "_true_match", [matched_later])
-    again = _draft(stage)
-    rerun = _simulation(stage, _request(stage, again.id))
-    assert rerun.status is SimulationStatus.QUEUED
+def _screened(stage: Stage, party_id: UUID, at: datetime) -> None:
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        subject = s.scalars(
+            select(ScreeningSubject).where(ScreeningSubject.party_id == party_id)
+        ).one_or_none()
+        if subject is None:
+            subject = ScreeningSubject(
+                tenant_id=stage.tenant_id, kind=SubjectKind.PARTY, party_id=party_id
+            )
+            s.add(subject)
+        subject.status = SubjectStatus.TRUE_MATCH
+        subject.last_screened_at = at
+
+
+def _later_true_match(stage: Stage) -> object:
+    simulation_id = _request(stage, _draft(stage).id)
     _ = _work(stage)
-    assert (_simulation(stage, rerun.id).overlap or {})["later_true_match"] == 1
+    return (_simulation(stage, simulation_id).overlap or {})["later_true_match"]
+
+
+def test_the_true_match_reader_reads_true_matches_only(frozen: Stage):
+    stage = frozen
+    at = datetime(2026, 12, 1, tzinfo=UTC)
+    parties: list[UUID] = []
+    for ref in ("cust-a", "cust-b", "cust-c", "cust-d"):
+        relationship = add_relationship(stage.tenant, ref, "N3")
+        with tenant_session(system_ctx(stage.tenant_id)) as s:
+            parties.append(
+                s.get_one(
+                    CustomerRelationship, (stage.tenant_id, relationship)
+                ).party_id
+            )
+    matched, clear, unscreened, _ = parties
+    _screened(stage, matched, at)
+    _screened(stage, clear, at)
+    _screened(stage, unscreened, at)
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        clear_row = s.scalars(
+            select(ScreeningSubject).where(ScreeningSubject.party_id == clear)
+        ).one()
+        clear_row.status = SubjectStatus.CLEAR
+        never = s.scalars(
+            select(ScreeningSubject).where(ScreeningSubject.party_id == unscreened)
+        ).one()
+        never.last_screened_at = None
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        assert party_true_match_at(s, parties) == {matched: at}
+        assert party_true_match_at(s, []) == {}
 
 
 class WorkerKilledError(BaseException):
@@ -426,3 +484,135 @@ def test_a_failure_is_final_and_visible(frozen: Stage, monkeypatch: pytest.Monke
     assert row.status is JobStatus.DEAD
     assert row.attempts == row.max_attempts == 1
     assert _version(stage, version.id).status is RuleVersionStatus.DRAFT
+
+
+def test_a_rule_keyed_across_parties_is_not_simulated(frozen: Stage):
+    stage = frozen
+    version = _draft(stage)
+    with staff_session(stage.tenant_id, stage.tenant.admin_user_id, AUTHOR_ROLES) as s:
+        _ = update_version(
+            s,
+            version.id,
+            body=VersionInput(
+                dedup=Dedup(key=KeyKind.COUNTERPARTY, window="P7D", cooldown="P7D")
+            ),
+        )
+    with pytest.raises(ValidationFailedError, match="COUNTERPARTY or DEVICE"):
+        _ = _request(stage, version.id)
+
+
+def _lost_after(stage: Stage, at: datetime) -> int:
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        return fail_lost_simulations(s, now=at)
+
+
+def test_the_sweep_fails_a_simulation_whose_worker_was_lost(frozen: Stage):
+    stage = frozen
+    version = _draft(stage)
+    queued = _request(stage, version.id)
+    # Its job is still pending: nothing is lost.
+    assert _lost_after(stage, TODAY) == 0
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        _ = s.execute(
+            update(JobRow)
+            .where(JobRow.key == f"simulate:{queued}")
+            .values(status=JobStatus.DEAD)
+        )
+        _ = s.execute(
+            update(RuleSimulation)
+            .where(RuleSimulation.id == queued)
+            .values(status=SimulationStatus.RUNNING, cursor=None)
+        )
+    # A CLI run has no job: lost only after a day.
+    with staff_session(stage.tenant_id, stage.tenant.admin_user_id, AUTHOR_ROLES) as s:
+        inline = RuleSimulation(
+            tenant_id=stage.tenant_id,
+            rule_version_id=version.id,
+            requested_by=stage.tenant.admin_user_id,
+            range_start=FIRST,
+            range_end=LAST,
+            status=SimulationStatus.RUNNING,
+            definition_hash=version.definition_hash,
+        )
+        s.add(inline)
+        s.flush()
+        inline_id = inline.id
+
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        created = s.get_one(RuleSimulation, (stage.tenant_id, inline_id)).created_at
+        report = sweep(
+            s,
+            queue=stage.services.queue,
+            notifier=InAppNotifier(),
+            now=created + timedelta(hours=1),
+        )
+    assert report.lost_simulations == 1
+    lost = _simulation(stage, queued)
+    assert (lost.status, lost.last_error, lost.finished_at) == (
+        SimulationStatus.FAILED,
+        "WorkerLost",
+        created + timedelta(hours=1),
+    )
+    [event] = events_of(stage.tenant_id, SIMULATION_COMPLETED)
+    assert event.data == {
+        "simulation_id": str(queued),
+        "rule_version_id": str(version.id),
+        "status": "FAILED",
+    }
+    assert _simulation(stage, inline_id).status is SimulationStatus.RUNNING
+    assert _lost_after(stage, created + timedelta(days=1, minutes=1)) == 1
+    assert _simulation(stage, inline_id).last_error == "WorkerLost"
+
+
+def _other_tenant(
+    stage: Stage, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> Stage:
+    # Tenant B shares the reference data tenant A's stage loaded.
+    other = new_tenant("beta", "admin@beta.mx")
+    versions = install_both_packs(admin_engine)
+    monitoring_support.assign_packs(
+        other,
+        [(versions["MX/ITF-IFPE"], "EMONEY"), (versions["MX/LFPIORPI-AVI"], "CRYPTO")],
+    )
+    approver = add_staff(other, Role.MLRO)
+    with monkeypatch.context() as patched:
+        freeze(patched, ACTIVATION)
+        version = activated(
+            other, approver, stage.services.queue, CASH, effective_from=EFFECTIVE_FROM
+        )
+    _ = run_backfills(stage.services)
+    return Stage(other, stage.services, approver, {CASH: version.id})
+
+
+def test_another_tenants_rows_and_versions_stay_out(
+    frozen: Stage, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    stage = frozen
+    _ = add_relationship(stage.tenant, "cust-a", "N3")
+    _ = feed(stage, _near_three("cust-a"))
+    other = _other_tenant(stage, admin_engine, monkeypatch)
+    _ = add_relationship(other.tenant, "cust-a", "N3")
+    second = [
+        {**item, "external_id": f"second-{n}"}
+        for n, item in enumerate(_near_three("cust-a", 10))
+    ]
+    _ = feed(other, [*_near_three("cust-a", 1), *second])
+    assert len(hits(other, CASH)) == 2
+    freeze(monkeypatch, TODAY)
+
+    version = _draft(stage)
+    simulation_id = _request(stage, version.id)
+    _ = _work(stage)
+    _ = _work(other)
+    simulation = _simulation(stage, simulation_id)
+    assert (simulation.transactions_read, simulation.hit_count) == (3, 1)
+    assert simulation.overlap == {
+        "existing_hits": 1,
+        "same_customers": 1,
+        "later_true_match": 0,
+    }
+    # Tenant B's version is not found for tenant A.
+    theirs = draft(other.tenant, CASH)
+    with pytest.raises(XolotlError) as raised:
+        _ = _request(stage, theirs.id)
+    assert raised.value.code == "NOT_FOUND"
