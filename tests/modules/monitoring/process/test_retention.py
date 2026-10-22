@@ -99,7 +99,7 @@ from xolotl.platform.jobs.models import JobSchedule
 from xolotl.platform.jobs.queue import Job, PostgresJobQueue
 from xolotl.platform.partitions import ensure_partitions, partition_name
 from xolotl.platform.policy import assign_pack
-from xolotl.platform.policy.models import PolicySnapshot
+from xolotl.platform.policy.models import PolicySnapshot, TenantPackAssignment
 
 ITF = "MX/ITF-IFPE"
 AVI = "MX/LFPIORPI-AVI"
@@ -434,11 +434,13 @@ def run_retention(tenant: CreatedTenant) -> None:
         RetentionJob(session_factory=get_sessionmaker()).run(s, job)
 
 
-def audits(tenant: CreatedTenant) -> list[dict[str, Any]]:
+def audits(
+    tenant: CreatedTenant, action: str = "monitoring.retention_ran"
+) -> list[dict[str, Any]]:
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
         rows = s.scalars(
             select(AuditEventRow)
-            .where(AuditEventRow.action == "monitoring.retention_ran")
+            .where(AuditEventRow.action == action)
             .order_by(AuditEventRow.seq)
         ).all()
         for row in rows:
@@ -478,11 +480,11 @@ def test_the_retention_period_is_the_longest_in_force(
     _freeze(monkeypatch, NOW)
     today = NOW.date()
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
-        assert retention_period(s, today=today) == "P10Y"
+        assert retention_period(s, today=today, since=OLD) == "P10Y"
     with tenant_session(system_ctx(avi.tenant_id)) as s:
-        assert retention_period(s, today=today) == "P5Y"
+        assert retention_period(s, today=today, since=OLD) == "P5Y"
         # Before AVI's pack takes effect nothing is in force: nothing is due.
-        assert retention_period(s, today=date(2026, 11, 1)) is None
+        assert retention_period(s, today=date(2026, 11, 1), since=OLD) is None
 
 
 def test_a_month_inside_the_retention_period_is_kept(
@@ -631,7 +633,7 @@ def test_each_step_commits_on_its_own(
 ):
     _ = Seeder(itf, queue).month(OLD)
 
-    def broken(s: Session, month: date) -> int:
+    def broken(s: Session, month: date) -> dict[str, int]:
         msg = "the database went away"
         raise RuntimeError(msg)
 
@@ -647,7 +649,21 @@ def test_each_step_commits_on_its_own(
     assert count(itf, TransactionRef) == 2
     assert count(itf, Transaction) == 2
     assert len(partitions_left(admin_engine, OLD)) == 2
+    # Every committed step is audited in its own transaction; the run's summary
+    # row went down with the failure.
     assert audits(itf) == []
+    steps = audits(itf, "monitoring.retention_step")
+    assert [step["step"] for step in steps] == [
+        "hit_links",
+        "events",
+        "hits",
+        "decision_links",
+        "decisions",
+        "parked",
+    ]
+    assert steps[0] == {"month": "2016-11", "step": "hit_links", "hit_links": 2}
+    assert steps[2] == {"month": "2016-11", "step": "hits", "hits": 1, "hit_links": 0}
+    assert steps[-1] == {"month": "2016-11", "step": "parked", "parked": 1}
 
     monkeypatch.undo()
     _freeze(monkeypatch, NOW)
@@ -658,6 +674,12 @@ def test_each_step_commits_on_its_own(
     (detail,) = audits(itf)
     (month,) = detail["retired"]
     assert (month["refs"], month["transactions"], month["hits"]) == (2, 2, 0)
+    steps = audits(itf, "monitoring.retention_step")
+    assert [step["step"] for step in steps][-3:] == [
+        "refs",
+        "transactions",
+        "partitions",
+    ]
 
 
 def test_a_partition_is_dropped_only_once_every_tenant_has_retired_its_month(
@@ -1036,12 +1058,21 @@ def test_a_tenant_without_a_policy_retires_nothing(
 ):
     _ = Seeder(tenant, queue).month(OLD)
     with tenant_session(system_ctx(tenant.tenant_id)) as s:
-        assert retention_period(s, today=NOW.date()) is None
+        assert retention_period(s, today=NOW.date(), since=OLD) is None
     run_retention(tenant)
     assert count(tenant, Transaction) == 2
     assert count(tenant, RuleHit) == 1
     assert len(partitions_left(admin_engine, OLD)) == 2
-    assert audits(tenant) == []
+    # The run is audited all the same, with no period.
+    assert audits(tenant) == [
+        {
+            "period": None,
+            "retired": [],
+            "skipped": [],
+            "counterparties_purged": 0,
+            "buckets_pruned": 0,
+        }
+    ]
 
 
 def test_the_job_runs_through_the_schedule(
@@ -1165,3 +1196,98 @@ def test_every_reference_into_a_retired_table_is_handled(admin_engine: Engine):
             {"targets": DELETED_FROM},
         ).all()
     assert {(r[0], r[1], r[2]) for r in rows} == REFERENCES
+
+
+def test_an_ended_assignment_keeps_its_products_months_for_its_own_period(
+    frozen: datetime,
+    tenant: CreatedTenant,
+    packs: dict[str, UUID],
+    queue: PostgresJobQueue,
+    old_partitions: None,
+):
+    # ITF (ten years) covered the product from 2016 to 2020; AVI (five years) covers
+    # every product today. The 2019 month is past five years, not past ten.
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        assignment_id = assign_pack(
+            s,
+            pack_version_id=packs[ITF],
+            product="EMONEY",
+            effective_from=date(2016, 1, 1),
+            approved_by=tenant.admin_user_id,
+        )
+        _ = s.execute(
+            update(TenantPackAssignment)
+            .where(TenantPackAssignment.id == assignment_id)
+            .values(effective_to=date(2020, 12, 31))
+        )
+    _assign(tenant, packs[AVI], None)
+    _ = Seeder(tenant, queue).month(MID)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        assert retention_period(s, today=NOW.date(), since=MID) == "P10Y"
+        # An assignment that ended before the oldest month no longer counts.
+        assert retention_period(s, today=NOW.date(), since=date(2021, 1, 1)) == "P5Y"
+    run_retention(tenant)
+    assert count(tenant, Transaction) == 2
+    assert count(tenant, RuleHit) == 1
+    assert audits(tenant)[0]["period"] == "P10Y"
+
+
+def test_a_hold_placed_during_the_run_stops_the_later_steps(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+    admin_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    seeder = Seeder(itf, queue)
+    _ = seeder.month(OLD)
+    real = retention.held_parties_in
+    calls: list[date] = []
+
+    def hold_after_the_first_step(s: Session, month: date) -> int:
+        calls.append(month)
+        if len(calls) == 2:
+            seeder.hold()  # the MLRO, between the first and the second step
+        return real(s, month)
+
+    monkeypatch.setattr(
+        f"{retention.__name__}.held_parties_in", hold_after_the_first_step
+    )
+    run_retention(itf)
+    # The first step ran before the hold existed; nothing after it did.
+    assert count(itf, RuleHitTransaction) == 0
+    assert count(itf, RuleHit) == 1
+    assert count(itf, ReportableEvent) == 2
+    assert count(itf, TxnDecision) == 1
+    assert count(itf, Transaction) == 2
+    assert len(partitions_left(admin_engine, OLD)) == 2
+    (detail,) = audits(itf)
+    assert detail["skipped"] == ["2016-11"]
+    assert [m["hit_links"] for m in detail["retired"]] == [2]
+
+
+def test_the_purge_skips_a_counterparty_whose_subject_is_busy(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+    admin_engine: Engine,
+):
+    seeder = Seeder(itf, queue)
+    gone = seeder.txn(_at(OLD, 5), counterparty="Ana Pérez Gómez")
+    assert gone.counterparty_id is not None
+    ids = _screen(seeder, gone.counterparty_id, decided_at=_at(OLD, 6))
+    with admin_engine.connect() as screener:
+        busy = screener.begin()
+        _ = screener.execute(
+            text("SELECT 1 FROM screening_subject WHERE id = :id FOR UPDATE"),
+            {"id": ids["subject"]},
+        )
+        run_retention(itf)  # does not wait for the screening job
+        busy.rollback()
+    assert count(itf, Counterparty, Counterparty.id == gone.counterparty_id) == 1
+    assert audits(itf)[0]["counterparties_purged"] == 0
+    run_retention(itf)
+    assert count(itf, Counterparty, Counterparty.id == gone.counterparty_id) == 0
+    assert audits(itf)[1]["counterparties_purged"] == 1

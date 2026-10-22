@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # waits every read and write of the parent queues behind it, so it gives up after
 # this long.
 LOCK_TIMEOUT = "5s"
+# A retirement takes its locks with NOWAIT; anything it still waits for (a lock
+# the lock set did not foresee) gives up after this.
+RETIRE_LOCK_TIMEOUT = "1s"
 _DECEMBER = 12
 _MONTH_SUFFIX = re.compile(r"_y\d{4}m\d{2}")
 # Table, column and guard names are interpolated into DDL, so they are restricted
@@ -281,6 +284,36 @@ def _create_partition(
     return None
 
 
+# Every table a retirement locks besides the parent: the tables whose foreign keys
+# reference it (DETACH checks them) and the tables it references (DROP removes the
+# partition's foreign keys and their triggers from them).
+_NEIGHBOURS_SQL = text(
+    """
+    SELECT DISTINCT CAST(other.oid AS regclass)::text AS name
+    FROM pg_constraint k
+    JOIN pg_class other ON other.oid = CASE
+      WHEN k.conrelid = CAST(:table AS regclass) THEN k.confrelid
+      ELSE k.conrelid END
+    WHERE k.contype = 'f' AND k.conparentid = 0
+      AND (k.conrelid = CAST(:table AS regclass)
+           OR k.confrelid = CAST(:table AS regclass))
+      AND other.oid <> CAST(:table AS regclass)
+    ORDER BY name
+    """
+)
+
+
+def retirement_lock_set(conn: Connection, table: str) -> list[str]:
+    """Name every table retiring a partition of ``table`` locks, ``table`` first.
+
+    Returns:
+        ``table``, then its referencing and referenced tables by name.
+
+    """
+    names = cast("list[str]", conn.scalars(_NEIGHBOURS_SQL, {"table": table}).all())
+    return [table, *names]
+
+
 def retire_partition(conn: Connection, *, table: str, month: date) -> bool:
     """Detach and drop ``table``'s partition for ``month``, which must be empty.
 
@@ -292,15 +325,20 @@ def retire_partition(conn: Connection, *, table: str, month: date) -> bool:
     a later one.
 
     The call takes the table's partition lock (``hashtext('<table>_partitions')``,
-    as ``ensure_partitions`` does), then ``ACCESS EXCLUSIVE`` on the parent with
-    ``lock_timeout`` at ``LOCK_TIMEOUT``, so no row can arrive while it looks. The
+    as ``ensure_partitions`` does), then ``ACCESS EXCLUSIVE`` with ``NOWAIT`` on
+    the whole ``retirement_lock_set``: the parent, every table referencing it
+    (``DETACH`` checks them) and every table it references (``DROP`` takes them,
+    for ``transaction`` that includes ``party``). Taking them all at once and never
+    queueing means a busy table fails the call at once (55P03) instead of holding
+    up that table's readers; the caller retries on a later run. No row can arrive
+    while it looks. The
     look is made with row security off on the partition: an owner that forced RLS
     binds would otherwise count no row and drop a full partition, and if RLS still
     applied the query would fail instead of reading zero. ``DETACH PARTITION
     CONCURRENTLY`` is not available: it refuses a table with a default partition,
     and every registered table has one. Everything runs in the caller's
     transaction, so a refusal or a failure leaves the partition attached; on
-    success the caller's ``lock_timeout`` and row security are restored.
+    success the caller's ``lock_timeout`` and ``row_security`` are restored.
 
     Returns:
         ``True`` once the partition is dropped, ``False`` when it does not exist.
@@ -348,8 +386,15 @@ def retire_partition(conn: Connection, *, table: str, month: date) -> bool:
         msg = f"{name} exists but is not a partition of {table}; left alone"
         raise ValueError(msg)
     callers_timeout = cast("str", conn.scalar(_LOCK_TIMEOUT_SQL))
-    _ = conn.execute(_SET_LOCK_TIMEOUT_SQL, {"value": LOCK_TIMEOUT})
-    _ = conn.execute(text(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
+    callers_row_security = cast(
+        "str", conn.scalar(text("SELECT current_setting('row_security')"))
+    )
+    # Every lock the detach and the drop need, at once and without waiting: a lock
+    # request that queued would block every later reader of that table (party,
+    # transaction, ...) while it waited. Anything busy fails the call with 55P03.
+    locked = ", ".join(retirement_lock_set(conn, table))
+    _ = conn.execute(text(f"LOCK TABLE {locked} IN ACCESS EXCLUSIVE MODE NOWAIT"))
+    _ = conn.execute(_SET_LOCK_TIMEOUT_SQL, {"value": RETIRE_LOCK_TIMEOUT})
     # The owner bypasses RLS on a table that does not force it; row_security off
     # turns any policy that would still apply into an error, never a filtered count.
     _ = conn.execute(text(f"ALTER TABLE {name} NO FORCE ROW LEVEL SECURITY"))
@@ -361,7 +406,10 @@ def retire_partition(conn: Connection, *, table: str, month: date) -> bool:
     _ = conn.execute(text(f"ALTER TABLE {table} DETACH PARTITION {name}"))
     _ = conn.execute(text(f"DROP TABLE {name}"))
     _ = conn.execute(_SET_LOCK_TIMEOUT_SQL, {"value": callers_timeout})
-    _ = conn.execute(text("SELECT set_config('row_security', 'on', true)"))
+    _ = conn.execute(
+        text("SELECT set_config('row_security', :value, true)"),
+        {"value": callers_row_security},
+    )
     logger.info(
         "%s partition %s retired",
         table,

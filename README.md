@@ -546,21 +546,25 @@ reads are incomplete. The daily `monitoring.partitions` (`XOLOTL_MONITORING_PART
 keeps every partitioned table `XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD` months ahead.
 
 Retention. The monthly `monitoring.retention` (`XOLOTL_MONITORING_RETENTION_CRON`, UTC)
-takes the longest `retention.transactions` of the tenant's policies in force (ten years
-under ITF) and retires every month whose end is at least that long ago: the tenant's hit
+takes the longest `retention.transactions` of every pack the tenant was assigned, for any
+product, not ended before its oldest month, and of every override (ten years once ITF
+was assigned), and retires every month whose end is at least that long ago: the tenant's hit
 links, reportable events and emptied capture groups, hits first seen in the month,
 decision links, decisions, parked and ref rows and transactions of the month, in that
 order, each step in its own transaction, so a run that stops half-way is finished by the
-next. A month in which a party under legal hold has a row is skipped. Partitions hold
+next. Each step locks the month's parties and stops the month when one is under legal
+hold, and is audited (`monitoring.retention_step`) in its own transaction. Partitions hold
 every tenant's rows, so a month's `transaction` and `txn_decision` partitions are
 detached and dropped only once every tenant's period has passed for it and no row of
-any tenant is left in it; the default partitions and `audit_event` are never dropped. A
+any tenant is left in it, taking every lock it needs at once without waiting (a busy
+table defers the drop to a later run); the default partitions and `audit_event` are
+never dropped. A
 counterparty no transaction references any more, and whose screening records are all
 past the period too, is purged with its subject, runs, findings and dispositions; buckets
 past the longest declared window (plus the late days) are pruned, except running
 accumulators and buckets of open capture periods. Each run writes one
 `monitoring.retention_ran` audit row with its counts and skipped months. A tenant with no
-policy in force retires nothing.
+policy in force retires nothing (and its run is audited with no period).
 
 ```bash
 uv run xolotl monitoring ingest-file --tenant acme transactions.csv   # dev and demo: ingest here

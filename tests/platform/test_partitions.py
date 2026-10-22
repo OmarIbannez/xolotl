@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, column, func, select, table, text
+from sqlalchemy.exc import DBAPIError
 
 from tests.platform.fresh_process_support import tables_registered_after_importing
 from xolotl.platform import clock, migrate, partitions
@@ -25,6 +26,7 @@ from xolotl.platform.partitions import (
     partitioned_tables,
     register_partitioned_table,
     retire_partition,
+    retirement_lock_set,
 )
 
 PROBE = "pt_probe"
@@ -392,3 +394,49 @@ def test_retire_partition_sees_rows_row_level_security_hides_from_the_owner(
     with root.connect() as conn:
         kept = conn.scalar(select(func.count()).select_from(table(PROBE)))
     assert kept == 1
+
+
+def test_the_retirement_locks_the_table_and_every_neighbour(admin_engine: Engine):
+    with admin_engine.connect() as conn:
+        names = retirement_lock_set(conn, "transaction")
+    assert names[0] == "transaction"
+    # Detach locks the referencing tables, drop the referenced ones.
+    assert {
+        "txn_decision",
+        "rule_hit_transaction",
+        "reportable_event",
+        "rule_hit",
+        "transaction_parked",
+        "transaction_ref",
+        "party",
+        "customer_relationship",
+        "account",
+        "counterparty",
+        "transaction_batch",
+        "policy_snapshot",
+    } <= set(names)
+
+
+def test_retire_partition_gives_up_at_once_when_a_neighbour_is_busy(
+    admin_engine: Engine,
+):
+    with admin_engine.begin() as conn:
+        _ = ensure_partitions(conn, table="transaction", start=PAST, months_ahead=0)
+    name = partition_name("transaction", PAST)
+    try:
+        with admin_engine.connect() as reader:
+            busy = reader.begin()
+            _ = reader.execute(text("SELECT count(*) FROM party"))  # a long read
+            began = time.perf_counter()
+            with pytest.raises(DBAPIError) as caught, admin_engine.begin() as conn:
+                _ = retire_partition(conn, table="transaction", month=PAST)
+            elapsed = time.perf_counter() - began
+            busy.rollback()
+        assert getattr(caught.value.orig, "sqlstate", None) == "55P03"
+        # It never queued behind the reader, so it never held up the reader's peers.
+        assert elapsed < 1
+        assert _present(admin_engine, [name]) == [name]
+    finally:
+        with admin_engine.begin() as conn:
+            _ = conn.execute(text(f"ALTER TABLE transaction DETACH PARTITION {name}"))
+            _ = conn.execute(text(f"DROP TABLE {name}"))
