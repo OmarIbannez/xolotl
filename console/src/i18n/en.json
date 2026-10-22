@@ -47,6 +47,7 @@
     "matches": "Matches",
     "lists": "Lists",
     "privateLists": "Private lists",
+    "ruleHits": "Rule hits",
     "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check",
     "transactions": "Transactions",
@@ -1681,6 +1682,125 @@
       "running": "Requesting…",
       "requested": "Backfill requested; it runs in the background.",
       "rangeOrder": "The end date cannot be before the start date."
+    }
+  },
+  "hits": {
+    "title": "Rule hits",
+    "description": "What the monitoring rules found in the transactions, by severity and age.",
+    "tabs": {
+      "label": "Severity"
+    },
+    "empty": "No hits of this severity match these filters.",
+    "filters": {
+      "rule": "Rule",
+      "rulePlaceholder": "e.g. CASH_STRUCTURING",
+      "typology": "Typology",
+      "typologyPlaceholder": "e.g. STRUCTURING",
+      "outcome": "Outcome",
+      "outcomeAll": "All",
+      "age": "Age",
+      "ageAny": "Any",
+      "age1": "Older than 1 day",
+      "age7": "Older than 7 days",
+      "age30": "Older than 30 days",
+      "apply": "Apply",
+      "clear": "Clear"
+    },
+    "table": {
+      "label": "Rule hits",
+      "party": "Customer",
+      "rule": "Rule",
+      "typology": "Typology",
+      "severity": "Severity",
+      "outcome": "Outcome",
+      "window": "Window",
+      "firedCount": "Transactions",
+      "createdAt": "Created"
+    },
+    "severity": {
+      "CRITICAL": "Critical",
+      "HIGH": "High",
+      "MEDIUM": "Medium",
+      "LOW": "Low"
+    },
+    "outcome": {
+      "ALERT": "Alert",
+      "BLOCK": "Block",
+      "REVIEW": "Review"
+    },
+    "role": {
+      "TRIGGER": "Trigger",
+      "WINDOW": "In the window",
+      "COOLDOWN": "In cooldown"
+    },
+    "detail": {
+      "title": "Rule hit",
+      "back": "Rule hits",
+      "sentence": "Rule",
+      "explanation": "Text recorded when it fired",
+      "summary": "Summary",
+      "firstOccurredAt": "First transaction",
+      "timeZone": "Dates and times in Mexico City.",
+      "params": "Parameters",
+      "aggregates": "Values when it fired",
+      "transactions": "Evidence transactions",
+      "transactionsLabel": "Transactions linked to the hit",
+      "transactionsTotal": "{{count}} linked transactions in all, newest first.",
+      "transactionsEmpty": "No linked transactions.",
+      "dedup": "Dedup key",
+      "cooldown": "Cooldown",
+      "cooldownNone": "No cooldown",
+      "cooldownActive": "Active until {{date}}",
+      "cooldownEnded": "Ended on {{date}}",
+      "state": "Deduplication, cooldown and decision",
+      "decision": "Decision",
+      "decided": "Decision {{id}}",
+      "undecided": "No decision",
+      "definitionHash": "Definition hash",
+      "snapshot": "Policy snapshot",
+      "listsHash": "Lists hash"
+    },
+    "evidence": {
+      "name": "Name",
+      "value": "Value",
+      "unit": "Unit",
+      "window": "Window",
+      "noAggregates": "This rule read no aggregates.",
+      "noParams": "No parameters."
+    },
+    "transactions": {
+      "role": "Role",
+      "occurredAt": "Date",
+      "direction": "Direction",
+      "instrumentRail": "Instrument · rail",
+      "amount": "Amount",
+      "counterparty": "Counterparty",
+      "noCounterparty": "No counterparty"
+    },
+    "reveal": {
+      "title": "Personal data",
+      "button": "Reveal",
+      "running": "Revealing…",
+      "hide": "Hide",
+      "notice": "This lookup was recorded in the audit log.",
+      "party": "Customer",
+      "name": "Name",
+      "identifiers": "Identifiers",
+      "counterparties": "Counterparties",
+      "account": "Account",
+      "wallet": "Wallet",
+      "identifier": "Identifier",
+      "empty": "No personal data to show."
+    },
+    "party": {
+      "title": "Rule hits",
+      "label": "The customer's rule hits",
+      "empty": "This customer has no rule hits."
+    },
+    "transaction": {
+      "title": "Rule hits on this transaction",
+      "label": "Rule hits linked to the transaction",
+      "empty": "This transaction is linked to no rule hit."
     }
   },
   "forbidden": {

@@ -133,6 +133,14 @@ describe('the rails access', () => {
   })
 })
 
+describe('the monitoring access', () => {
+  it('lets every staff role read the rule hits and reveal them, and nobody without a role', () => {
+    const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.monitoring))).toEqual(roles)
+    expect(hasAnyRole([], ACCESS.monitoring)).toBe(false)
+  })
+})
+
 describe('redirectTarget', () => {
   it('returns the remembered in-console path, query included', () => {
     expect(redirectTarget({ from: '/staff' })).toBe('/staff')

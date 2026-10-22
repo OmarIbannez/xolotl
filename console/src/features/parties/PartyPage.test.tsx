@@ -6,6 +6,7 @@ import type { Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
+import { hitSummary } from '@/features/hits/fixtures'
 import { neverScreened } from '@/features/screening/fixtures'
 import { fullStaffView, party, pii, RFC, staffView } from './fixtures'
 import { PartyPage } from './PartyPage'
@@ -25,6 +26,7 @@ function setup(roles: Role[] = ['ANALYST'], extra: Parameters<typeof renderApp>[
         'GET /v1/parties/p1/pii': () => json(pii()),
         'GET /v1/screening/parties/p1': () => json(neverScreened()),
         'GET /v1/transactions': () => json({ items: [], next_cursor: null }),
+        'GET /v1/parties/p1/hits': () => json({ items: [], next_cursor: null }),
         ...extra.routes,
       },
     },
@@ -203,5 +205,25 @@ describe('PartyPage: the transactions card', () => {
     expect(await screen.findByText(text.transactions.empty)).toBeTruthy()
     expect(fakeApi.queries('GET /v1/transactions')[0]?.get('party_id')).toBe('p1')
     expect(screen.getByRole('link', { name: text.transactions.viewAll }).getAttribute('href')).toBe('/transactions?party_id=p1')
+  })
+})
+
+describe('PartyPage: the rule hits card', () => {
+  it("lists the party's hits to every staff role, each opening its detail", async () => {
+    const { fakeApi } = setup(['AUDITOR_RO'], {
+      routes: { 'GET /v1/parties/p1/hits': () => json({ items: [hitSummary()], next_cursor: null }) },
+    })
+
+    const card = await screen.findByRole('region', { name: esMX.hits.party.title })
+    const link = await within(card).findByRole('link', { name: 'CASH_STRUCTURING' })
+    expect(link.getAttribute('href')).toBe('/monitoring/hits/h1')
+    expect(within(card).getByText(esMX.hits.severity.MEDIUM)).toBeTruthy()
+    expect(fakeApi.calls('GET /v1/parties/p1/hits')).toHaveLength(1)
+  })
+
+  it('says so when the party has no hit', async () => {
+    setup(['ANALYST'])
+
+    expect(await screen.findByText(esMX.hits.party.empty)).toBeTruthy()
   })
 })

@@ -209,6 +209,24 @@ export type DeclaredProfile = Schemas['DeclaredProfile']
 /** `{declared_profile: null}` clears the declaration. */
 export type RelationshipPatchRequest = Schemas['RelationshipPatchRequest']
 
+// Rule hits (SP-04 plan 4b, B12): staff only, never shown to an API client (tipping-off, spec section 15).
+export type Severity = Schemas['Severity']
+export type HitOutcome = Schemas['HitOutcome']
+export type HitTransactionRole = Schemas['HitTransactionRole']
+/** A hit as the queue shows it: the party masked (initials and masked identifiers). */
+export type HitSummary = Schemas['HitSummary']
+export type Page_HitSummary_ = Schemas['Page_HitSummary_']
+/** A hit with its evidence, the rendered sentence and its newest linked transactions (masked). */
+export type HitDetail = Schemas['HitDetail']
+/** The values a rule read and the parameters it ran with: decimal strings, never floats. */
+export type EvidenceView = Schemas['EvidenceView']
+export type EvidenceAggregate = Schemas['EvidenceAggregate']
+/** A transaction behind a hit, with its role and its counterparty masked. */
+export type HitTransactionView = Schemas['HitTransactionView']
+export type Page_HitTransactionView_ = Schemas['Page_HitTransactionView_']
+/** The hit's party and counterparties in plaintext: audited as `VIEW_PII`. Never cache it. */
+export type HitReveal = Schemas['HitReveal']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

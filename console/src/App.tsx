@@ -72,6 +72,19 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.monitoring} />,
+                children: [
+                  {
+                    path: '/monitoring/hits',
+                    lazy: () => import('@/features/hits/HitsPage').then((m) => ({ Component: m.HitsPage })),
+                  },
+                  {
+                    path: '/monitoring/hits/:hitId',
+                    lazy: () => import('@/features/hits/HitPage').then((m) => ({ Component: m.HitPage })),
+                  },
+                ],
+              },
+              {
                 element: <RequireRole roles={ACCESS.screening} />,
                 children: [
                   {

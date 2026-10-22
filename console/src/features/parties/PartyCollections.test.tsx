@@ -26,6 +26,7 @@ function setup(roles: Role[] = ['ANALYST'], view: PartyStaffResponse = fullStaff
         'GET /v1/screening/parties/p1': () => json(neverScreened()),
         'GET /v1/transactions': () => json({ items: [], next_cursor: null }),
         'GET /v1/monitoring/profiles/r1': () => json([]),
+        'GET /v1/parties/p1/hits': () => json({ items: [], next_cursor: null }),
       },
     },
   )
