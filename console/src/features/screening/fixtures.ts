@@ -14,6 +14,7 @@ export function matchSummary(overrides: Partial<MatchSummary> = {}): MatchSummar
     id: 'm1',
     subject_id: 's1',
     party_id: 'p1',
+    counterparty_id: null,
     subject: maskedSubject(),
     list_code: 'OFAC_SDN',
     list_kind: 'SANCTION',
@@ -32,6 +33,7 @@ export function maskedSubject(overrides: Partial<MaskedSubject> = {}): MaskedSub
   return {
     kind: 'PARTY',
     party_id: 'p1',
+    counterparty_id: null,
     entity_type: 'PERSON',
     initials: 'J. P. L.',
     identifiers: ['RFC ********P8'],

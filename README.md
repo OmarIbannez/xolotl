@@ -109,8 +109,11 @@ driver is added.
 | `XOLOTL_LISTS_POLL_CRON` | `* * * * *` | When the per-tenant `lists.poll` job runs (UTC). |
 | `XOLOTL_MASTER_KEY` | public dev key | Base64 of 32 random bytes (`openssl rand -base64 32`). Root key for tenant data encryption: keep it safe and stable, because data cannot be read without the key it was protected with. See [Data protection](#data-protection). |
 | `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` | `5000` | Transactions each page of an aggregate backfill reads (1 or more). |
+| `XOLOTL_MONITORING_ALLOW_CUSTOM_RULES` | `false` | Lets an ADMIN author a monitoring rule from a bare kind, without a library template. |
 | `XOLOTL_MONITORING_BATCH_MAX_ITEMS` | `1000` | Most transactions in one `POST /v1/transactions` batch (1 to 10000). |
 | `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` | `100` | New counterparties each first-sight `screening.screen_counterparties` job screens in one transaction (1 or more). |
+| `XOLOTL_MONITORING_DECIDE_BUDGET_MS` | `80` | Budget of one `POST /v1/transactions/decide`, in milliseconds (1 or more); past it the rail's fail mode answers. |
+| `XOLOTL_MONITORING_DECIDE_FAIL_MODE` | `FAIL_OPEN` | Fail mode of a rail without a setting: `FAIL_OPEN` answers `REVIEW`, `FAIL_CLOSED` answers `BLOCK`. |
 | `XOLOTL_MONITORING_FILE_CHUNK_ROWS` | `1000` | Rows of a transactions file ingested per page of the `monitoring.ingest_file` job (1 or more). |
 | `XOLOTL_MONITORING_FILE_MAX_MB` | `50` | Largest transactions file upload, in MB (1 to 1024). |
 | `XOLOTL_MONITORING_FILE_MAX_ROWS` | `500000` | Most rows in one transactions file. |
@@ -363,6 +366,26 @@ in `tests/golden/monitoring/rules/hashes.yaml` and the sentence each renders in
 `tests/golden/monitoring/rules/render/`. Write every decimal quoted (`"5000"`; a float
 is refused) and quote the `"on"` key (YAML 1.1 reads a bare `on` as `true`).
 
+```bash
+uv run xolotl rules load [directory]           # install the library as the database owner; a rerun changes nothing
+uv run xolotl rules show CASH_STRUCTURING [--version 1]   # the definition as YAML and its sentence in es-MX and en
+uv run xolotl rules seed-tenant --tenant acme --author mlro@acme.mx   # a DRAFT rule per template of the tenant's packs
+```
+
+`rules load` prints one line per template version it creates and a count; `xolotl db
+upgrade` and `serve` run it after seeding the list catalog. Loading a version that is
+already loaded with another definition exits 1 with `RULE_TEMPLATE_IMMUTABLE` and
+writes nothing. `rules seed-tenant` gives the tenant a `DRAFT` version, with the
+template's default parameters and the named staff user as author, of every template
+whose packs intersect the packs assigned to the tenant today or later; templates the
+tenant already has a rule for are skipped. A tenant tunes `params`, `segment`,
+`severity` and `dedup` within the template's bounds (`min`, `max`, `choices`, and the
+`tighten` direction from the template's default); a value outside them is refused
+with `RULE_PARAM_OUT_OF_BOUNDS` naming the parameter, the bound and the template
+version. The structuring band and the velocity windows are derived from the tuned
+parameters. Authoring a rule without a template is ADMIN-only and off unless
+`XOLOTL_MONITORING_ALLOW_CUSTOM_RULES=true`.
+
 A tenant's ADMIN assigns a pack version, optionally per product, and may tighten it
 with an override; staff of any role read:
 
@@ -445,6 +468,9 @@ responses: an API client sees the subject's status only (`CLEAR`, `PENDING_REVIE
 | `DELETE /v1/screening/whitelist/{id}` | MLRO | revoke a false-positive whitelist row |
 | `GET /v1/screening/batches` | staff | re-screen batches newest first (filters `kind`, `status`): progress counts, `total`, start and finish times |
 | `GET /v1/screening/evaluation` | staff | the matcher's evaluation report shipped with the build: recall, precision at `ALERT` and retrieval recall per list kind, the hard-negative alert rate and each floor; 404 when the build ships none |
+| `GET /v1/counterparties` | staff | counterparties masked (initials, last four of the account, wallet and identifier), newest last sighting first, with screening status and `txn_count` (filters `status`, `kind`, `seen_after`) |
+| `GET /v1/counterparties/{id}` | staff | the masked counterparty with its subject's findings (newest first, linking into the queue) and its last ten runs |
+| `GET /v1/counterparties/{id}/reveal` | staff | the name, account, wallet address and identifier in plaintext; one `VIEW_PII` per value, recorded before decryption |
 
 ## Screening
 
@@ -527,6 +553,11 @@ uv run xolotl monitoring partitions ensure                            # create t
 `monitoring backfill` audits the request (`monitoring.backfill_requested`), queues its
 job as the API does and runs it in place: the held rows of those Mexico City days are
 processed, late, with the same code as the worker.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /v1/monitoring/rails` | staff | every rail's fail mode: the one an ADMIN set, or `XOLOTL_MONITORING_DECIDE_FAIL_MODE` with `explicit` false |
+| `PUT /v1/monitoring/rails/{rail}` | staff `ADMIN` | `{fail_mode}` for one rail, audited `monitoring.rail_setting_changed`; 404 `RAIL_UNKNOWN` for a rail that does not exist |
 
 ## Connectors
 

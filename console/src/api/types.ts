@@ -157,16 +157,34 @@ export type PartyScreeningResponse = Schemas['PartyScreeningResponse']
 export type PartyScreeningStaffResponse = Schemas['PartyScreeningStaffResponse']
 export type SubjectStatus = Schemas['SubjectStatus']
 
-export type TransactionStatus = Schemas['TransactionStatus']
-/** A transaction as staff see it: the counterparty masked, `parked` set only on `PARKED` rows. */
-export type TransactionStaffView = Schemas['TransactionStaffView']
-/** A transaction as an API client sees it: identity and status only. */
+/** What an API client sees of a transaction: identity and status only (tipping-off, spec section 15). */
 export type TransactionClientView = Schemas['TransactionClientView']
-export type TransactionStaffPage = Schemas['Page_TransactionStaffView_']
-/** The filters of `GET /v1/transactions`; `from` and `to` are Mexico City days, both included. */
-export type TransactionQuery = Schemas['TransactionQuery']
-export type ParkReason = Schemas['ParkReason']
+/** The staff shape of a transaction: unit amounts, period keys, the masked counterparty, the snapshot. */
+export type TransactionStaffView = Schemas['TransactionStaffView']
+/** The staff shape plus `raw` and the counterparty in plaintext: audited as `VIEW_PII`. Never cache it. */
+export type TransactionRevealedView = Schemas['TransactionRevealedView']
+export type TransactionStatus = Schemas['TransactionStatus']
+export type Page_TransactionStaffView_ = Schemas['Page_TransactionStaffView_']
+/** One threshold unit of a transaction: `amount` is a decimal string, never a float. */
+export type UnitAmountView = Schemas['UnitAmountView']
+export type PeriodKeys = Schemas['PeriodKeys']
 export type ParkedInfo = Schemas['ParkedInfo']
+export type ParkReason = Schemas['ParkReason']
+/** A counterparty, masked: which values are on record, never the values themselves. */
+export type CounterpartySummary = Schemas['CounterpartySummary']
+export type Instrument = Schemas['Instrument']
+export type Rail = Schemas['Rail']
+
+// Counterparties (SP-04 plan 4c, C3): masked rows and detail, and the audited reveal.
+export type CounterpartyKind = Schemas['CounterpartyKind']
+export type CounterpartyScreeningStatus = Schemas['CounterpartyScreeningStatus']
+/** A counterparty as the Contrapartes list shows it: initials and last-four tails only. */
+export type CounterpartyResponse = Schemas['CounterpartyResponse']
+/** A counterparty with its findings (links into the queue) and its last runs. */
+export type CounterpartyDetail = Schemas['CounterpartyDetail']
+/** A counterparty's values in plaintext; each one was audited as `VIEW_PII`. */
+export type RevealedCounterparty = Schemas['RevealedCounterparty']
+export type RunResponse = Schemas['RunResponse']
 export type FileStatus = Schemas['FileStatus']
 /** An uploaded transactions file and its row counters (202 for a new file, 200 for a known one). */
 export type FileStatusResponse = Schemas['FileStatusResponse']

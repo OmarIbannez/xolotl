@@ -305,6 +305,7 @@ def _summary(match: ScreeningMatch, subject: MaskedSubject) -> MatchSummary:
         id=match.id,
         subject_id=match.subject_id,
         party_id=subject.party_id,
+        counterparty_id=subject.counterparty_id,
         subject=subject,
         list_code=match.list_code,
         list_kind=match.list_kind,
@@ -444,7 +445,7 @@ def _subject_query(s: Session, subject: ScreeningSubject) -> NameQuery:
     if subject.party_id is not None:
         return query_for_party(s, subject.party_id)
     if subject.counterparty_id is not None:
-        # The minimal counterparty branch (SP-04 plan 4c, C1); C3 extends it.
+        # Queried from its row under its first entity type (SP-04 plan 4c, C1, C3).
         return subject_query(s, subject)
     stored = cast("Encrypted[dict[str, object]]", subject.input)
     return query_for_ad_hoc(AdHocSubjectInput.model_validate(stored.reveal(session=s)))
@@ -464,6 +465,7 @@ def _masked(s: Session, subject: ScreeningSubject) -> MaskedSubject:
     return MaskedSubject(
         kind=subject.kind,
         party_id=subject.party_id,
+        counterparty_id=subject.counterparty_id,
         entity_type=query.entity_type.value,
         initials=_label(query),
         identifiers=[

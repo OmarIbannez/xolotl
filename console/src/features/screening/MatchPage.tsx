@@ -57,6 +57,13 @@ function SubjectCard({ match }: { match: MatchDetail }) {
             </Button>
           </CardAction>
         )}
+        {subject.counterparty_id !== null && (
+          <CardAction>
+            <Button asChild variant="outline" size="sm">
+              <Link to={`/counterparties/${subject.counterparty_id}`}>{t('screening.match.openCounterparty')}</Link>
+            </Button>
+          </CardAction>
+        )}
       </CardHeader>
       <CardContent>
         <KeyValues

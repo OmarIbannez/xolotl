@@ -1,50 +1,25 @@
 import type { FileStatusResponse, TransactionBatchResponse, TransactionStaffView } from '@/api/types'
+import { parkedInfo, transactionStaffView } from './fixtures'
 
-// Test data for the ingest panels, the parked and backfill tabs and the party card: what the API
-// answers to staff, masked (the counterparty is a summary, never a value).
+// Test data for the ingest panels, the parked and backfill tabs and the party card, built on the
+// staff views of `./fixtures`: what the API answers to staff, masked.
 
+/** A processed cash deposit of 12,500.50 MXN of party `p1`. */
 export function staffTransaction(overrides: Partial<TransactionStaffView> = {}): TransactionStaffView {
-  return {
+  return transactionStaffView({
     id: 't1',
     external_id: 'ext-0001',
     occurred_at: '2026-12-07T15:30:00Z',
-    status: 'PROCESSED',
-    late: false,
     received_at: '2026-12-07T15:30:05Z',
-    batch_id: 'b1',
     party_id: 'p1',
-    relationship_id: 'r1',
-    account_id: 'a1',
-    account_ref: 'DEFAULT',
-    product: 'EMONEY',
     direction: 'IN',
     rail: 'CASH',
     instrument: 'CASH',
     channel: 'BRANCH',
     amount_minor: 1250050,
     currency: 'MXN',
-    fee_minor: null,
-    asset_qty: null,
-    asset_code: null,
-    unit_amounts: [],
-    period_keys: null,
-    counterparty: null,
-    counterparty_screening_status_at_processing: null,
-    device_present: false,
-    geo_country: null,
-    geo_admin_area: null,
-    crypto: null,
-    fx: null,
-    purpose_code: null,
-    tier: null,
-    risk_rating: null,
-    monitoring_profile: 'STANDARD',
-    policy_snapshot_id: null,
-    processed_at: '2026-12-07T15:30:09Z',
-    decision_id: null,
-    parked: null,
     ...overrides,
-  }
+  })
 }
 
 export function parkedTransaction(overrides: Partial<TransactionStaffView> = {}): TransactionStaffView {
@@ -53,14 +28,7 @@ export function parkedTransaction(overrides: Partial<TransactionStaffView> = {})
     external_id: 'ext-0002',
     status: 'PARKED',
     processed_at: null,
-    parked: {
-      reason: 'UNIT_VALUE_MISSING',
-      unit_code: 'UDI',
-      needed_on: '2026-12-07',
-      attempts: 3,
-      parked_at: '2026-12-07T15:31:00Z',
-      last_error: null,
-    },
+    parked: parkedInfo({ needed_on: '2026-12-07', attempts: 3, parked_at: '2026-12-07T15:31:00Z' }),
     ...overrides,
   })
 }

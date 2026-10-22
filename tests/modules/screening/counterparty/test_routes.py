@@ -94,3 +94,29 @@ def test_an_api_client_never_sees_a_counterparty_run(
     assert (hidden.status_code, hidden.json()["code"]) == (404, "NOT_FOUND")
     assert shown.status_code == 200, shown.text
     assert shown.json()["mode"] == "COUNTERPARTY"
+
+
+def test_the_queue_shows_a_counterparty_finding_with_its_counterparty_id(
+    client: TestClient,
+    tenant: CreatedTenant,
+    admin_headers: dict[str, str],
+    screened: Screened,
+):
+    wallet = resolve_one(tenant, WALLET)
+    assert screened.runner.run_once() == 1
+
+    page = client.get(MATCHES, headers=admin_headers)
+
+    assert page.status_code == 200, page.text
+    items = page.json()["items"]
+    assert items
+    for item in items:
+        assert item["party_id"] is None
+        assert item["counterparty_id"] == str(wallet.id)
+        assert item["subject"]["party_id"] is None
+        assert item["subject"]["counterparty_id"] == str(wallet.id)
+        assert item["subject"]["initials"] == "WALLET"
+        assert item["subject"]["identifiers"] == ["DIGITAL_CURRENCY_ADDRESS ****mcfd"]
+    detail = client.get(f"{MATCHES}/{items[0]['id']}", headers=admin_headers)
+    assert detail.json()["subject"]["counterparty_id"] == str(wallet.id)
+    assert VALERIAN_XBT not in page.text

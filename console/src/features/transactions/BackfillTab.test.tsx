@@ -7,8 +7,8 @@ import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { BackfillTab } from './BackfillTab'
-import { mexicoCityToday } from './dates'
 import { backfillTransaction } from './ingest-fixtures'
+import { mexicoCityToday } from './time'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 

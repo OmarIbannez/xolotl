@@ -9,9 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { useFormat } from '@/i18n/use-locale'
+import { isUuid } from './filters'
 import { useTransactionBatch } from './queries'
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Look a batch received by API up by its id: its source and counts. */
 export function BatchesCard() {
@@ -26,7 +25,7 @@ export function BatchesCard() {
     event.preventDefault()
     const id = draft.trim()
     if (id === '') return setProblem('required')
-    if (!UUID.test(id)) return setProblem(t('transactions.batches.invalidId'))
+    if (!isUuid(id)) return setProblem(t('transactions.batches.invalidId'))
     setProblem(undefined)
     setBatchId(id.toLowerCase())
   }

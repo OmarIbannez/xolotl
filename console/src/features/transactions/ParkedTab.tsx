@@ -3,11 +3,11 @@ import { useTranslation } from 'react-i18next'
 import type { TransactionStaffView } from '@/api/types'
 import { CursorPager } from '@/components/common/CursorPager'
 import { DataTable, type Column } from '@/components/common/DataTable'
-import { DateTimeCell } from '@/components/common/DateTimeCell'
 import { ErrorBlock } from '@/components/common/states'
 import { calendarDay } from '@/features/parties/dates'
 import { useFormat } from '@/i18n/use-locale'
-import { AmountCell } from './cells'
+import { formatMinor } from './amount'
+import { MexicoCityTimeCell } from './MexicoCityTimeCell'
 import { useParkedTransactions } from './queries'
 
 /**
@@ -28,11 +28,11 @@ export function ParkedTab() {
       header: t('transactions.table.externalId'),
       cell: (row) => <span className="font-mono text-xs">{row.external_id}</span>,
     },
-    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <DateTimeCell value={row.occurred_at} /> },
+    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <MexicoCityTimeCell value={row.occurred_at} /> },
     {
       id: 'amount',
       header: t('transactions.table.amount'),
-      cell: (row) => <AmountCell minor={row.amount_minor} currency={row.currency} />,
+      cell: (row) => <span className="tabular">{formatMinor(row.amount_minor, row.currency, format.locale)}</span>,
       className: 'text-right',
     },
     {

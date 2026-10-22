@@ -29,11 +29,11 @@ export const ACCESS = {
   whitelistRevoke: ['MLRO'],
   // Who may screen a party or an ad hoc subject on demand: every role that writes (not AUDITOR_RO).
   screeningCheck: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
-  // Every staff role reads transactions (each reveal is audited).
+  // Every staff role reads the transactions and may reveal a payload (each reveal is audited).
   transactions: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
   // Who may upload a transactions file: every role that writes (not AUDITOR_RO).
   transactionsWrite: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
-  // Who may request a transaction backfill (POST /v1/monitoring/backfill).
+  // Who may request a transaction backfill.
   backfill: ['MLRO', 'ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 

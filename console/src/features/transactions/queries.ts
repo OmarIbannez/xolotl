@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, unwrap, unwrapReplayable, type Replayable } from '@/api/client'
 import { PAGE_SIZE } from '@/api/queries'
 import type {
@@ -6,16 +6,22 @@ import type {
   BackfillRequest,
   FileStatus,
   FileStatusResponse,
-  TransactionClientView,
-  TransactionQuery,
+  Page_TransactionStaffView_,
+  TransactionRevealedView,
   TransactionStaffView,
 } from '@/api/types'
 import { useIdempotentMutation } from '@/api/use-idempotent-mutation'
 import { useAuth } from '@/auth/use-auth'
+import { filtersToQuery, type TransactionFilters } from './filters'
 
-// Every transactions query sits under this root, so an upload or a backfill refreshes them all.
-// None of them holds plaintext personal data: the staff view masks the counterparty.
+// Every transaction query sits under this root, so an upload or a backfill refreshes them all. None of them holds plaintext: the list and the
+// detail are the masked staff views, and the plaintext comes only from `useRevealTransaction`,
+// which keeps nothing.
 const TRANSACTIONS = 'transactions'
+
+// `GET /v1/transactions` reads its filters as one query model, which the OpenAPI document
+// describes as a single object parameter: sent as plain `key=value` pairs, as the API reads them.
+const FLAT_QUERY = { object: { style: 'form', explode: true } } as const
 
 /** How often an uploaded file's status is read again while the worker has not finished it. */
 export const FILE_POLL_MS = 5_000
@@ -31,40 +37,56 @@ function useSignedIn() {
   return { tenant: user?.tenant_id, enabled: user !== undefined && !mustChangePassword }
 }
 
-/** Drop the filters left unset, so the request and the cache key carry only real ones. */
-function compact(filters: TransactionQuery): TransactionQuery {
-  return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+/**
+ * One page of the tenant's transactions, newest first; `cursor` is the previous page's
+ * `next_cursor`. The console is staff, so the API answers with the staff views.
+ */
+export function useTransactions(filters: TransactionFilters, cursor?: string, { enabled = true } = {}) {
+  const signedIn = useSignedIn()
+  const query = filtersToQuery(filters)
+  return useQuery({
+    queryKey: [TRANSACTIONS, signedIn.tenant, 'list', cursor ?? null, query],
+    queryFn: async () =>
+      (await unwrap(
+        api.GET('/transactions', {
+          params: { query: { query, limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) } },
+          querySerializer: FLAT_QUERY,
+        }),
+      )) as Page_TransactionStaffView_,
+    enabled: signedIn.enabled && enabled,
+    placeholderData: keepPreviousData,
+  })
 }
 
-/** The console is always given the staff view; an API client's shape lacks `party_id`. */
-export function isStaffTransaction(row: TransactionStaffView | TransactionClientView): row is TransactionStaffView {
-  return 'party_id' in row
-}
-
-/** The staff rows of a page (all of them, for the console). */
-export function staffRows(items: readonly (TransactionStaffView | TransactionClientView)[]): TransactionStaffView[] {
-  return items.filter(isStaffTransaction)
+/** One transaction, masked: the staff view, without `raw` or the counterparty's values. */
+export function useTransaction(transactionId: string) {
+  const { tenant, enabled } = useSignedIn()
+  return useQuery({
+    queryKey: [TRANSACTIONS, tenant, 'one', transactionId],
+    queryFn: async () =>
+      (await unwrap(
+        api.GET('/transactions/{transaction_id}', { params: { path: { transaction_id: transactionId } } }),
+      )) as TransactionStaffView,
+    enabled,
+  })
 }
 
 /**
- * One page of the tenant's transactions, newest first. The OpenAPI document describes the filters
- * as one object parameter, but the API reads them as plain query parameters (`party_id=…`), so the
- * object is serialised in the form style, each filter a parameter of its own.
+ * Reveal a transaction's payload and its counterparty. Each call is audited as `VIEW_PII`, so it
+ * is a mutation the user starts with a button (never a query a refresh could repeat), it
+ * invalidates nothing, and its answer is not kept once the page lets go of it (`gcTime: 0`).
  */
-export function useTransactions(filters: TransactionQuery, cursor?: string) {
-  const { tenant, enabled } = useSignedIn()
-  const query = compact(filters)
-  return useQuery({
-    queryKey: [TRANSACTIONS, tenant, 'list', query, cursor ?? null],
-    queryFn: () =>
-      unwrap(
-        api.GET('/transactions', {
-          params: { query: { query, limit: PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }) } },
-          querySerializer: { object: { style: 'form', explode: true } },
+export function useRevealTransaction(transactionId: string) {
+  return useMutation({
+    mutationFn: async () =>
+      (await unwrap(
+        api.GET('/transactions/{transaction_id}', {
+          params: { path: { transaction_id: transactionId }, query: { reveal: true } },
+          // Plaintext: never kept by the browser's HTTP cache either, whatever the server's headers.
+          cache: 'no-store',
         }),
-      ),
-    enabled,
-    placeholderData: keepPreviousData,
+      )) as TransactionRevealedView,
+    gcTime: 0,
   })
 }
 

@@ -5,10 +5,9 @@ import type { BackfillRequest } from '@/api/types'
 import { Field } from '@/components/common/Field'
 import { Input } from '@/components/ui/input'
 import { FormDialog } from '@/features/parties/FormDialog'
-import { mexicoCityToday } from './dates'
+import { isUuid } from './filters'
 import { useRequestBackfill } from './queries'
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+import { mexicoCityToday } from './time'
 
 interface Problems {
   from?: string
@@ -34,7 +33,7 @@ export function BackfillDialog({ onClose }: { onClose: () => void }) {
     if (from === '') found.from = 'required'
     if (to === '') found.to = 'required'
     else if (from !== '' && to < from) found.to = t('transactions.backfill.rangeOrder')
-    if (partyId.trim() !== '' && !UUID.test(partyId.trim())) found.partyId = 'uuid'
+    if (partyId.trim() !== '' && !isUuid(partyId.trim())) found.partyId = 'uuid'
     return found
   }
 

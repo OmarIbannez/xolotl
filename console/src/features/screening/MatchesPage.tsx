@@ -1,3 +1,4 @@
+import { Handshake } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
@@ -8,6 +9,7 @@ import { DateTimeCell } from '@/components/common/DateTimeCell'
 import { Field } from '@/components/common/Field'
 import { PageHeader } from '@/components/common/page'
 import { ErrorBlock } from '@/components/common/states'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -39,13 +41,18 @@ function compact(filters: MatchFilters): MatchFilters {
 
 /**
  * The subject of a finding as the queue shows it: the initials link to the detail, with
- * the origin (customer or ad hoc check) and the masked identifiers beneath. A subject
+ * the origin (customer, ad hoc check or a "Contraparte" chip) and the masked identifiers beneath. A subject
  * without a name (a purged customer) is linked by its origin alone.
  */
 function SubjectCell({ row }: { row: MatchSummary }) {
   const { t } = useTranslation()
   const { subject } = row
-  const origin = subject.kind === 'AD_HOC' ? t('screening.matches.table.adHoc') : t('screening.matches.table.party')
+  const counterparty = subject.kind === 'COUNTERPARTY'
+  const origin = counterparty
+    ? t('screening.matches.table.counterparty')
+    : subject.kind === 'AD_HOC'
+      ? t('screening.matches.table.adHoc')
+      : t('screening.matches.table.party')
   const named = subject.initials !== ''
   return (
     <div className="space-y-0.5">
@@ -53,8 +60,16 @@ function SubjectCell({ row }: { row: MatchSummary }) {
         {named ? subject.initials : origin}
       </Link>
       {(named || subject.identifiers.length > 0) && (
-        <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-          {named && <span>{origin}</span>}
+        <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+          {named &&
+            (counterparty ? (
+              <Badge variant="info">
+                <Handshake aria-hidden />
+                {origin}
+              </Badge>
+            ) : (
+              <span>{origin}</span>
+            ))}
           {subject.identifiers.map((id) => (
             <span key={id} className="font-mono">
               {id}

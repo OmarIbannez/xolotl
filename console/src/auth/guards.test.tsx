@@ -39,11 +39,12 @@ function visit(path: string, roles: Role[]) {
             <Route path="/screening/matches" element={<p>page of matches</p>} />
             <Route path="/screening/matches/:matchId" element={<p>page of a match</p>} />
           </Route>
-          <Route element={<RequireRole roles={ACCESS.transactions} />}>
-            <Route path="/transactions" element={<p>page of transactions</p>} />
-          </Route>
           <Route element={<RequireRole roles={ACCESS.screeningCheck} />}>
             <Route path="/screening/check" element={<p>page of the ad hoc check</p>} />
+          </Route>
+          <Route element={<RequireRole roles={ACCESS.transactions} />}>
+            <Route path="/transactions" element={<p>page of transactions</p>} />
+            <Route path="/transactions/:transactionId" element={<p>page of a transaction</p>} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -195,15 +196,24 @@ describe('the ad hoc check is open to every role that writes', () => {
   })
 })
 
-describe('the transactions area is open to every staff role', () => {
-  it.each(['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'] as const)('lets %s open it', (role) => {
-    visit('/transactions', [role])
+describe('the transactions are open to every staff role', () => {
+  it.each([
+    ['/transactions', 'page of transactions', 'ANALYST'],
+    ['/transactions', 'page of transactions', 'SENIOR_ANALYST'],
+    ['/transactions', 'page of transactions', 'MLRO'],
+    ['/transactions', 'page of transactions', 'AUDITOR_RO'],
+    ['/transactions', 'page of transactions', 'ADMIN'],
+    ['/transactions/t1', 'page of a transaction', 'ANALYST'],
+    ['/transactions/t1', 'page of a transaction', 'AUDITOR_RO'],
+  ] as const)('lets a user open %s as %s', (path, page, role) => {
+    visit(path, [role])
 
-    expect(screen.getByText('page of transactions')).toBeTruthy()
+    expect(screen.getByText(page)).toBeTruthy()
+    expect(screen.queryByText(esMX.forbidden.title)).toBeNull()
   })
 
-  it('shows "no access" to a user with no role', () => {
-    visit('/transactions', [])
+  it.each(['/transactions', '/transactions/t1'])('shows "no access" at %s to a user with no role', (path) => {
+    visit(path, [])
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
     expect(screen.queryByText(/page of/)).toBeNull()

@@ -170,6 +170,13 @@ class Transaction(Base):
         tenant_fk("counterparty_id", "counterparty"),
         tenant_fk("batch_id", "transaction_batch"),
         tenant_fk("policy_snapshot_id", "policy_snapshot"),
+        # txn_decision references this table too; the cycle is closed by ALTER.
+        ForeignKeyConstraint(
+            ["tenant_id", "decided_at", "decision_id"],
+            ["txn_decision.tenant_id", "txn_decision.decided_at", "txn_decision.id"],
+            name="fk_transaction_decision",
+            use_alter=True,
+        ),
         Index(
             "ix_transaction_party_time",
             "tenant_id",
@@ -256,7 +263,7 @@ class Transaction(Base):
         Boolean, default=False, server_default=text("false")
     )
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Its foreign key to txn_decision is migration 0014's.
+    # The decision this transaction was linked to (migration 0014's foreign key).
     decision_id: Mapped[UUID | None] = mapped_column(Uuid)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # sha256 of the canonical input; an idempotent re-send compares it.

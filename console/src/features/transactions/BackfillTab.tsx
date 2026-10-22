@@ -7,12 +7,14 @@ import { ACCESS } from '@/auth/access'
 import { useAuth } from '@/auth/use-auth'
 import { CursorPager } from '@/components/common/CursorPager'
 import { DataTable, type Column } from '@/components/common/DataTable'
-import { DateTimeCell } from '@/components/common/DateTimeCell'
 import { ErrorBlock } from '@/components/common/states'
 import { Button } from '@/components/ui/button'
+import { useFormat } from '@/i18n/use-locale'
 import { BackfillDialog } from './BackfillDialog'
-import { AmountCell, StatusCell } from './cells'
+import { formatMinor } from './amount'
+import { MexicoCityTimeCell } from './MexicoCityTimeCell'
 import { useBackfillTransactions } from './queries'
+import { TransactionStatusBadge } from './TransactionStatusBadge'
 
 /**
  * The transactions that arrived after the receipt window and wait for a backfill, and (MLRO,
@@ -21,6 +23,7 @@ import { useBackfillTransactions } from './queries'
 export function BackfillTab() {
   const { t } = useTranslation()
   const { hasRole } = useAuth()
+  const format = useFormat()
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [requesting, setRequesting] = useState(false)
   const pending = useBackfillTransactions(cursor)
@@ -32,11 +35,11 @@ export function BackfillTab() {
       header: t('transactions.table.externalId'),
       cell: (row) => <span className="font-mono text-xs">{row.external_id}</span>,
     },
-    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <DateTimeCell value={row.occurred_at} /> },
-    { id: 'receivedAt', header: t('transactions.table.receivedAt'), cell: (row) => <DateTimeCell value={row.received_at} /> },
+    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <MexicoCityTimeCell value={row.occurred_at} /> },
+    { id: 'receivedAt', header: t('transactions.table.receivedAt'), cell: (row) => <MexicoCityTimeCell value={row.received_at} /> },
     {
       id: 'party',
-      header: t('transactions.table.party'),
+      header: t('transactions.table.customer'),
       cell: (row) => (
         <Link to={`/parties/${row.party_id}`} className="text-xs underline-offset-4 hover:underline">
           {t('transactions.table.openParty')}
@@ -46,10 +49,10 @@ export function BackfillTab() {
     {
       id: 'amount',
       header: t('transactions.table.amount'),
-      cell: (row) => <AmountCell minor={row.amount_minor} currency={row.currency} />,
+      cell: (row) => <span className="tabular">{formatMinor(row.amount_minor, row.currency, format.locale)}</span>,
       className: 'text-right',
     },
-    { id: 'status', header: t('transactions.table.status'), cell: (row) => <StatusCell status={row.status} /> },
+    { id: 'status', header: t('transactions.table.status'), cell: (row) => <TransactionStatusBadge status={row.status} /> },
   ]
 
   return (

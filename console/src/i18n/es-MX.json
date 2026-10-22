@@ -44,12 +44,13 @@
     "units": "Unidades",
     "calendar": "Calendario",
     "parties": "Personas",
-    "transactions": "Transacciones",
     "matches": "Coincidencias",
     "lists": "Listas",
     "privateLists": "Listas privadas",
     "screeningEvaluation": "Evaluación del motor",
-    "screeningCheck": "Consulta ad hoc"
+    "screeningCheck": "Consulta ad hoc",
+    "transactions": "Transacciones",
+    "counterparties": "Contrapartes"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -539,113 +540,6 @@
       "label": "Últimas transacciones del cliente",
       "viewAll": "Ver todas",
       "empty": "Este cliente no tiene transacciones."
-    }
-  },
-  "transactions": {
-    "title": "Transacciones",
-    "description": "Operaciones recibidas por API o por archivo, su procesamiento y lo que queda pendiente.",
-    "tabs": {
-      "label": "Vistas de transacciones",
-      "all": "Todas",
-      "parked": "Estacionadas",
-      "backfill": "Pendientes de backfill"
-    },
-    "table": {
-      "label": "Transacciones",
-      "externalId": "ID externo",
-      "occurredAt": "Fecha de operación",
-      "receivedAt": "Recibida",
-      "status": "Estado",
-      "amount": "Monto",
-      "instrument": "Instrumento y riel",
-      "party": "Cliente",
-      "openParty": "Ver cliente",
-      "empty": "No hay transacciones."
-    },
-    "status": {
-      "RECEIVED": "Recibida",
-      "PROCESSED": "Procesada",
-      "PARKED": "Estacionada",
-      "BACKFILL": "Pendiente de backfill"
-    },
-    "late": "Tardía",
-    "parkReason": {
-      "UNIT_VALUE_MISSING": "Falta el valor de la unidad",
-      "POLICY_NOT_ASSIGNED": "Sin política asignada"
-    },
-    "files": {
-      "title": "Archivos",
-      "description": "Sube un CSV, JSON Lines o XLSX de hasta 50 MB. Las filas rechazadas se reportan por fila, columna y código, nunca con su valor.",
-      "upload": "Subir archivo",
-      "dialogTitle": "Subir archivo de transacciones",
-      "file": "Archivo",
-      "template": "Descargar plantilla",
-      "submit": "Subir",
-      "uploading": "Subiendo…",
-      "tooLarge": "El archivo pasa de 50 MB.",
-      "unsupported": "El archivo debe ser CSV, JSON Lines o XLSX.",
-      "uploaded": "Archivo recibido; se procesa en segundo plano.",
-      "known": "Este archivo ya se había subido; se muestra su estado.",
-      "none": "Aún no has subido un archivo en esta sesión.",
-      "statusLabel": "Estado del archivo",
-      "fileId": "Identificador",
-      "status": "Estado",
-      "rowsTotal": "Filas",
-      "rowsAccepted": "Aceptadas",
-      "rowsDuplicate": "Duplicadas",
-      "rowsRejected": "Rechazadas",
-      "uploadedAt": "Subido",
-      "finishedAt": "Terminado",
-      "lastError": "Último error",
-      "downloadErrors": "Descargar errores",
-      "fileStatus": {
-        "UPLOADED": "En espera",
-        "PROCESSING": "Procesando",
-        "COMPLETED": "Completado",
-        "FAILED": "Fallido"
-      }
-    },
-    "batches": {
-      "title": "Lotes",
-      "description": "Consulta un lote recibido por API con su identificador.",
-      "batchId": "ID del lote",
-      "invalidId": "Escribe el identificador completo del lote (un UUID).",
-      "lookup": "Consultar",
-      "notFound": "No hay un lote con ese identificador.",
-      "source": "Origen",
-      "itemCount": "Partidas",
-      "accepted": "Aceptadas",
-      "duplicates": "Duplicadas",
-      "receivedAt": "Recibido",
-      "requestId": "Solicitud",
-      "sourceKind": {
-        "API": "Por API",
-        "FILE": "Por archivo",
-        "CLI": "Línea de comandos"
-      }
-    },
-    "parked": {
-      "label": "Transacciones estacionadas",
-      "description": "Esperan un valor de unidad o una política asignada; el barrido las reintenta solo y conservan su orden.",
-      "reason": "Motivo",
-      "unit": "Unidad",
-      "neededOn": "Fecha requerida",
-      "attempts": "Intentos",
-      "empty": "No hay transacciones estacionadas."
-    },
-    "backfill": {
-      "label": "Transacciones pendientes de backfill",
-      "description": "Llegaron después del plazo de recepción; se procesan al ejecutar un backfill.",
-      "empty": "No hay transacciones pendientes de backfill.",
-      "run": "Ejecutar backfill",
-      "dialogDescription": "Procesa las transacciones pendientes cuya fecha de operación cae en el rango (días de la Ciudad de México, ambos incluidos).",
-      "from": "Desde",
-      "to": "Hasta",
-      "partyId": "ID del cliente (opcional)",
-      "submit": "Ejecutar",
-      "running": "Solicitando…",
-      "requested": "Backfill solicitado; se ejecuta en segundo plano.",
-      "rangeOrder": "La fecha final no puede ser anterior a la inicial."
     }
   },
   "audit": {
@@ -1194,7 +1088,8 @@
         "band": "Banda",
         "score": "Puntaje",
         "status": "Estado",
-        "createdAt": "Creada"
+        "createdAt": "Creada",
+        "counterparty": "Contraparte"
       }
     },
     "band": {
@@ -1304,7 +1199,8 @@
       "timelineEmpty": "Aún no hay decisiones.",
       "decidedBy": "Decidió",
       "system": "Sistema",
-      "staffMember": "Personal"
+      "staffMember": "Personal",
+      "openCounterparty": "Abrir contraparte"
     },
     "decision": {
       "FALSE_POSITIVE": "Falso positivo",
@@ -1457,6 +1353,271 @@
       "noFinding": "Sin hallazgo"
     }
   },
+  "transactions": {
+    "title": "Transacciones",
+    "description": "Las transacciones que el cliente envió, con su estado de procesamiento, sus montos en unidades y su contraparte enmascarada.",
+    "empty": "No hay transacciones con estos filtros.",
+    "lateBadge": "Tardía",
+    "table": {
+      "label": "Transacciones",
+      "externalId": "ID externo",
+      "occurredAt": "Fecha de operación (hora de CDMX)",
+      "customer": "Cliente",
+      "instrumentRail": "Instrumento y riel",
+      "amount": "Monto",
+      "status": "Estado",
+      "receivedAt": "Recibida",
+      "openParty": "Ver cliente"
+    },
+    "filters": {
+      "partyId": "ID de persona",
+      "externalId": "ID externo",
+      "from": "Desde",
+      "to": "Hasta",
+      "status": "Estado",
+      "statusAll": "Todos los estados",
+      "instrument": "Instrumento",
+      "instrumentAll": "Todos los instrumentos",
+      "rail": "Riel",
+      "railAll": "Todos los rieles",
+      "late": "Solo tardías",
+      "apply": "Aplicar",
+      "clear": "Limpiar",
+      "rangeInvalid": "La fecha inicial debe ser igual o anterior a la final.",
+      "partyIdInvalid": "Escribe el ID de la persona tal como aparece en su ficha."
+    },
+    "status": {
+      "RECEIVED": "Recibida",
+      "PROCESSED": "Procesada",
+      "PARKED": "Estacionada",
+      "BACKFILL": "Pendiente de backfill"
+    },
+    "instrument": {
+      "CASH": "Efectivo",
+      "TRANSFER": "Transferencia",
+      "CARD": "Tarjeta",
+      "CHEQUE": "Cheque",
+      "CRYPTO": "Criptoactivo",
+      "FX": "Cambio de divisas",
+      "FEE": "Comisión"
+    },
+    "rail": {
+      "SPEI": "SPEI",
+      "CODI": "CoDi",
+      "CASH": "Efectivo",
+      "CARD": "Red de tarjetas",
+      "WALLET": "Monedero",
+      "SWIFT": "SWIFT",
+      "CRYPTO_ONCHAIN": "Cadena de bloques",
+      "OTHER": "Otro"
+    },
+    "direction": {
+      "IN": "Entrada",
+      "OUT": "Salida",
+      "INTERNAL": "Interna"
+    },
+    "channel": {
+      "APP": "Aplicación móvil",
+      "WEB": "Sitio web",
+      "API": "API",
+      "BRANCH": "Sucursal",
+      "ATM": "Cajero automático",
+      "AGENT": "Corresponsal",
+      "OTHER": "Otro"
+    },
+    "counterpartyKind": {
+      "PERSON": "Persona física",
+      "ORGANIZATION": "Persona moral",
+      "UNKNOWN": "Sin especificar"
+    },
+    "parkReason": {
+      "UNIT_VALUE_MISSING": "Falta el valor de una unidad para su fecha",
+      "POLICY_NOT_ASSIGNED": "El tenant no tiene una política asignada para su fecha"
+    },
+    "screeningStatus": {
+      "UNSCREENED": "Sin consultar",
+      "CLEAR": "Sin coincidencias",
+      "PENDING_REVIEW": "En revisión",
+      "TRUE_MATCH": "Coincidencia confirmada"
+    },
+    "rule": {
+      "SAME_DAY": "Valor del mismo día",
+      "PRIOR_BANKING_DAY": "Valor del día hábil anterior",
+      "LAST_DAY_PREV_MONTH": "Valor del último día del mes anterior",
+      "PREV_MONTH_AVG": "Promedio del mes anterior",
+      "SEMIANNUAL_SNAPSHOT": "Valor semestral"
+    },
+    "detail": {
+      "title": "Detalle de transacción",
+      "back": "Volver a transacciones",
+      "revealNotice": "Esta consulta quedó registrada en la bitácora de auditoría.",
+      "fields": {
+        "title": "Datos de la transacción",
+        "externalId": "ID externo",
+        "status": "Estado",
+        "occurredAt": "Fecha de operación",
+        "receivedAt": "Fecha de recepción",
+        "processedAt": "Fecha de procesamiento",
+        "party": "Persona",
+        "account": "Cuenta",
+        "product": "Producto",
+        "direction": "Dirección",
+        "channel": "Canal",
+        "instrument": "Instrumento",
+        "rail": "Riel",
+        "amount": "Monto",
+        "fee": "Comisión",
+        "asset": "Activo",
+        "purposeCode": "Código de propósito",
+        "tier": "Nivel de cuenta",
+        "riskRating": "Grado de riesgo",
+        "monitoringProfile": "Perfil de monitoreo",
+        "snapshot": "Instantánea de política",
+        "batch": "Lote",
+        "device": "Dispositivo registrado",
+        "geo": "Ubicación",
+        "timeZone": "Fechas y horas en hora de la Ciudad de México."
+      },
+      "units": {
+        "title": "Montos en unidades",
+        "description": "El monto convertido a cada unidad de la política vigente, con el valor de unidad usado.",
+        "label": "Montos en unidades",
+        "unit": "Unidad",
+        "rule": "Criterio de conversión",
+        "amount": "Monto",
+        "unitValue": "Valor de unidad",
+        "resolvedDate": "Fecha del valor",
+        "empty": "Aún no hay montos en unidades: la transacción no se ha procesado."
+      },
+      "periods": {
+        "title": "Periodos",
+        "DAY": "Día",
+        "MONTH": "Mes",
+        "QUARTER": "Trimestre",
+        "BUSINESS_DAY": "Día hábil",
+        "empty": "Aún no hay periodos: la transacción no se ha procesado."
+      },
+      "counterparty": {
+        "title": "Contraparte",
+        "none": "La transacción no tiene contraparte.",
+        "kind": "Tipo",
+        "institution": "Institución",
+        "country": "País",
+        "walletNetwork": "Red del monedero",
+        "onRecord": "Datos registrados",
+        "nothingOnRecord": "Ninguno",
+        "has_name": "Nombre registrado",
+        "has_account": "Cuenta registrada",
+        "has_wallet": "Monedero registrado",
+        "has_identifier": "Identificador registrado",
+        "screeningStatus": "Estado de consulta en listas",
+        "statusAtProcessing": "Estado al procesarse",
+        "txnCount": "Transacciones con esta contraparte",
+        "name": "Nombre",
+        "account": "Cuenta",
+        "wallet": "Monedero",
+        "identifier": "Identificador"
+      },
+      "reveal": {
+        "button": "Revelar",
+        "hide": "Ocultar",
+        "running": "Revelando…"
+      },
+      "raw": {
+        "title": "Datos enviados",
+        "description": "La transacción tal como la envió el cliente. Revelarla queda registrado en la auditoría."
+      },
+      "parked": {
+        "title": "En espera",
+        "reason": "Motivo",
+        "unit": "Unidad",
+        "neededOn": "Fecha requerida",
+        "attempts": "Intentos",
+        "parkedAt": "En espera desde",
+        "lastError": "Último error"
+      }
+    },
+    "tabs": {
+      "label": "Vistas de transacciones",
+      "all": "Todas",
+      "parked": "Estacionadas",
+      "backfill": "Pendientes de backfill"
+    },
+    "files": {
+      "title": "Archivos",
+      "description": "Sube un CSV, JSON Lines o XLSX de hasta 50 MB. Las filas rechazadas se reportan por fila, columna y código, nunca con su valor.",
+      "upload": "Subir archivo",
+      "dialogTitle": "Subir archivo de transacciones",
+      "file": "Archivo",
+      "template": "Descargar plantilla",
+      "submit": "Subir",
+      "uploading": "Subiendo…",
+      "tooLarge": "El archivo pasa de 50 MB.",
+      "unsupported": "El archivo debe ser CSV, JSON Lines o XLSX.",
+      "uploaded": "Archivo recibido; se procesa en segundo plano.",
+      "known": "Este archivo ya se había subido; se muestra su estado.",
+      "none": "Aún no has subido un archivo en esta sesión.",
+      "statusLabel": "Estado del archivo",
+      "fileId": "Identificador",
+      "status": "Estado",
+      "rowsTotal": "Filas",
+      "rowsAccepted": "Aceptadas",
+      "rowsDuplicate": "Duplicadas",
+      "rowsRejected": "Rechazadas",
+      "uploadedAt": "Subido",
+      "finishedAt": "Terminado",
+      "lastError": "Último error",
+      "downloadErrors": "Descargar errores",
+      "fileStatus": {
+        "UPLOADED": "En espera",
+        "PROCESSING": "Procesando",
+        "COMPLETED": "Completado",
+        "FAILED": "Fallido"
+      }
+    },
+    "batches": {
+      "title": "Lotes",
+      "description": "Consulta un lote recibido por API con su identificador.",
+      "batchId": "ID del lote",
+      "invalidId": "Escribe el identificador completo del lote (un UUID).",
+      "lookup": "Consultar",
+      "notFound": "No hay un lote con ese identificador.",
+      "source": "Origen",
+      "itemCount": "Partidas",
+      "accepted": "Aceptadas",
+      "duplicates": "Duplicadas",
+      "receivedAt": "Recibido",
+      "requestId": "Solicitud",
+      "sourceKind": {
+        "API": "Por API",
+        "FILE": "Por archivo",
+        "CLI": "Línea de comandos"
+      }
+    },
+    "parked": {
+      "label": "Transacciones estacionadas",
+      "description": "Esperan un valor de unidad o una política asignada; el barrido las reintenta solo y conservan su orden.",
+      "reason": "Motivo",
+      "unit": "Unidad",
+      "neededOn": "Fecha requerida",
+      "attempts": "Intentos",
+      "empty": "No hay transacciones estacionadas."
+    },
+    "backfill": {
+      "label": "Transacciones pendientes de backfill",
+      "description": "Llegaron después del plazo de recepción; se procesan al ejecutar un backfill.",
+      "empty": "No hay transacciones pendientes de backfill.",
+      "run": "Ejecutar backfill",
+      "dialogDescription": "Procesa las transacciones pendientes cuya fecha de operación cae en el rango (días de la Ciudad de México, ambos incluidos).",
+      "from": "Desde",
+      "to": "Hasta",
+      "partyId": "ID del cliente (opcional)",
+      "submit": "Ejecutar",
+      "running": "Solicitando…",
+      "requested": "Backfill solicitado; se ejecuta en segundo plano.",
+      "rangeOrder": "La fecha final no puede ser anterior a la inicial."
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -1501,11 +1662,79 @@
     "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código.",
     "DISPOSITION_NOT_ALLOWED": "Esta decisión no está permitida para este hallazgo.",
     "SCREENING_INDEX_UNAVAILABLE": "La revisión contra listas aún no está lista. Intenta de nuevo en unos minutos.",
-    "TRANSACTION_BATCH_INVALID": "El lote tiene partidas inválidas.",
-    "TRANSACTION_BATCH_TOO_LARGE": "El lote tiene demasiadas partidas.",
-    "EXTERNAL_ID_CONFLICT": "Ya existe una transacción con ese ID externo y otro contenido.",
-    "TRANSACTION_FILE_TOO_LARGE": "El archivo excede el tamaño máximo permitido.",
-    "TRANSACTION_FILE_INVALID": "El archivo no se puede leer: revisa el formato y las columnas obligatorias.",
+    "TRANSACTION_BATCH_INVALID": "El lote tiene transacciones con datos inválidos.",
+    "TRANSACTION_BATCH_TOO_LARGE": "El lote supera el número máximo de transacciones.",
+    "EXTERNAL_ID_CONFLICT": "Ya existe una transacción con ese ID externo y datos distintos.",
+    "TRANSACTION_FILE_TOO_LARGE": "El archivo supera el tamaño máximo permitido.",
+    "TRANSACTION_FILE_INVALID": "El archivo no se pudo leer: revisa el formato y los encabezados.",
     "BACKFILL_RANGE_INVALID": "El rango de fechas del backfill no es válido."
+  },
+  "counterparties": {
+    "title": "Contrapartes",
+    "description": "Las otras partes de las operaciones, enmascaradas, con su estado de revisión contra las listas. Abre una para ver sus hallazgos.",
+    "empty": "No hay contrapartes con este estado.",
+    "unnamed": "Sin nombre",
+    "tabs": {
+      "label": "Estado",
+      "PENDING_REVIEW": "Pendientes de revisión",
+      "TRUE_MATCH": "Coincidencia confirmada",
+      "CLEAR": "Sin alerta",
+      "UNSCREENED": "Sin revisar"
+    },
+    "status": {
+      "UNSCREENED": "Sin revisar",
+      "CLEAR": "Sin alerta",
+      "PENDING_REVIEW": "Pendiente de revisión",
+      "TRUE_MATCH": "Coincidencia confirmada"
+    },
+    "kind": {
+      "PERSON": "Persona",
+      "ORGANIZATION": "Organización",
+      "UNKNOWN": "Sin especificar"
+    },
+    "table": {
+      "label": "Contrapartes",
+      "name": "Nombre",
+      "kind": "Tipo",
+      "country": "País",
+      "institution": "Institución",
+      "value": "Cuenta o cartera",
+      "accountPrefix": "Cuenta",
+      "walletPrefix": "Cartera",
+      "status": "Estado",
+      "firstSeen": "Primera vez",
+      "lastSeen": "Última vez",
+      "transactions": "Operaciones"
+    },
+    "detail": {
+      "title": "Detalle de contraparte",
+      "back": "Contrapartes",
+      "card": "Contraparte",
+      "account": "Cuenta",
+      "wallet": "Cartera",
+      "identifier": "Identificador",
+      "screenedAt": "Última revisión",
+      "findings": "Hallazgos",
+      "findingsEmpty": "Esta contraparte no tiene hallazgos."
+    },
+    "runs": {
+      "title": "Revisiones",
+      "createdAt": "Fecha",
+      "run": "Revisión",
+      "outcome": "Resultado",
+      "empty": "Esta contraparte no se ha revisado."
+    },
+    "reveal": {
+      "title": "Datos personales",
+      "button": "Revelar",
+      "running": "Revelando…",
+      "hide": "Ocultar",
+      "notice": "Esta consulta quedó registrada en la auditoría.",
+      "name": "Nombre",
+      "account": "Cuenta",
+      "wallet": "Cartera",
+      "identifier": "Identificador",
+      "empty": "No hay datos personales que mostrar."
+    }
   }
 }

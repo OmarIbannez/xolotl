@@ -62,6 +62,13 @@ const router = createBrowserRouter([
                         Component: m.TransactionsPage,
                       })),
                   },
+                  {
+                    path: '/transactions/:transactionId',
+                    lazy: () =>
+                      import('@/features/transactions/TransactionPage').then((m) => ({
+                        Component: m.TransactionPage,
+                      })),
+                  },
                 ],
               },
               {
@@ -81,6 +88,20 @@ const router = createBrowserRouter([
                     path: '/screening/evaluation',
                     lazy: () =>
                       import('@/features/screening/EvaluationPage').then((m) => ({ Component: m.EvaluationPage })),
+                  },
+                  {
+                    path: '/counterparties',
+                    lazy: () =>
+                      import('@/features/counterparties/CounterpartiesPage').then((m) => ({
+                        Component: m.CounterpartiesPage,
+                      })),
+                  },
+                  {
+                    path: '/counterparties/:counterpartyId',
+                    lazy: () =>
+                      import('@/features/counterparties/CounterpartyPage').then((m) => ({
+                        Component: m.CounterpartyPage,
+                      })),
                   },
                 ],
               },

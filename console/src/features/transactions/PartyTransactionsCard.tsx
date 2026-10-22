@@ -2,12 +2,14 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import type { TransactionStaffView } from '@/api/types'
 import { DataTable, type Column } from '@/components/common/DataTable'
-import { DateTimeCell } from '@/components/common/DateTimeCell'
 import { ErrorBlock } from '@/components/common/states'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { AmountCell, StatusCell } from './cells'
-import { staffRows, useTransactions } from './queries'
+import { useFormat } from '@/i18n/use-locale'
+import { formatMinor } from './amount'
+import { MexicoCityTimeCell } from './MexicoCityTimeCell'
+import { useTransactions } from './queries'
+import { LateBadge, TransactionStatusBadge } from './TransactionStatusBadge'
 
 /**
  * Cliente › Transacciones: the party's latest transactions (one page), each linking to its
@@ -16,7 +18,8 @@ import { staffRows, useTransactions } from './queries'
 export function PartyTransactionsCard({ partyId }: { partyId: string }) {
   const { t } = useTranslation()
   const transactions = useTransactions({ party_id: partyId }, undefined)
-  const rows = transactions.data === undefined ? undefined : staffRows(transactions.data.items)
+  const format = useFormat()
+  const rows = transactions.data?.items
 
   const columns: Column<TransactionStaffView>[] = [
     {
@@ -28,26 +31,27 @@ export function PartyTransactionsCard({ partyId }: { partyId: string }) {
         </Link>
       ),
     },
-    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <DateTimeCell value={row.occurred_at} /> },
+    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <MexicoCityTimeCell value={row.occurred_at} /> },
     {
-      id: 'instrument',
-      header: t('transactions.table.instrument'),
-      cell: (row) => (
-        <span className="font-mono text-xs">
-          {row.instrument} · {row.rail}
-        </span>
-      ),
+      id: 'instrumentRail',
+      header: t('transactions.table.instrumentRail'),
+      cell: (row) => `${t(`transactions.instrument.${row.instrument}`)} · ${t(`transactions.rail.${row.rail}`)}`,
     },
     {
       id: 'amount',
       header: t('transactions.table.amount'),
-      cell: (row) => <AmountCell minor={row.amount_minor} currency={row.currency} />,
+      cell: (row) => <span className="tabular">{formatMinor(row.amount_minor, row.currency, format.locale)}</span>,
       className: 'text-right',
     },
     {
       id: 'status',
       header: t('transactions.table.status'),
-      cell: (row) => <StatusCell status={row.status} late={row.late} />,
+      cell: (row) => (
+        <div className="flex flex-wrap gap-1">
+          <TransactionStatusBadge status={row.status} />
+          {row.late && <LateBadge />}
+        </div>
+      ),
     },
   ]
 
