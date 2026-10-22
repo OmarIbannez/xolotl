@@ -23,7 +23,13 @@ from xolotl.platform.db import bound_context
 RAIL_SETTING_CHANGED = "monitoring.rail_setting_changed"
 
 
-def _default() -> FailMode:
+def default_fail_mode() -> FailMode:
+    """Name the fail mode of a rail without a row.
+
+    Returns:
+        ``XOLOTL_MONITORING_DECIDE_FAIL_MODE`` as a ``FailMode``.
+
+    """
     return FailMode(get_settings().monitoring_decide_fail_mode)
 
 
@@ -35,7 +41,7 @@ def fail_mode_for(s: Session, rail: Rail) -> FailMode:
 
     """
     stored = s.scalar(select(RailSetting.fail_mode).where(RailSetting.rail == rail))
-    return _default() if stored is None else stored
+    return default_fail_mode() if stored is None else stored
 
 
 def set_fail_mode(s: Session, rail: Rail, mode: FailMode) -> RailSetting:
@@ -92,7 +98,7 @@ def rail_settings(s: Session) -> list[RailSettingResponse]:
 
     """
     stored = {row.rail: row for row in s.scalars(select(RailSetting))}
-    default = _default()
+    default = default_fail_mode()
     return [
         rail_setting_response(stored[rail])
         if rail in stored

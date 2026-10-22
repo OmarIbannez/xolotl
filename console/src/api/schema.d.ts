@@ -1188,6 +1188,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/transactions/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Transaction */
+        post: operations["decide_transaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/decisions/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Decision */
+        get: operations["get_decision"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/monitoring/rails": {
         parameters: {
             query?: never;
@@ -2394,6 +2428,22 @@ export interface components {
             tz?: string;
         };
         /**
+         * DecideResponse
+         * @description The answer of ``POST /v1/transactions/decide`` (spec §12.1).
+         */
+        DecideResponse: {
+            decision: components["schemas"]["DecisionOutcome"];
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            /** Reasons */
+            reasons: components["schemas"]["DecisionReason"][];
+            /** Latency Ms */
+            latency_ms: number;
+        };
+        /**
          * DecidedByType
          * @enum {string}
          */
@@ -2403,6 +2453,133 @@ export interface components {
          * @enum {string}
          */
         Decision: "FALSE_POSITIVE" | "POSSIBLE_TRUE_MATCH" | "TRUE_MATCH" | "DELISTED" | "SUPERSEDED";
+        /**
+         * DecisionClientResponse
+         * @description A decision as its API client reads it: the answer and the mode, no reason.
+         */
+        DecisionClientResponse: {
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            decision: components["schemas"]["DecisionOutcome"];
+            mode: components["schemas"]["DecisionMode"];
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /** External Id */
+            external_id: string;
+        };
+        /**
+         * DecisionMode
+         * @description How a decision was reached: evaluated, or the rail's fail mode.
+         * @enum {string}
+         */
+        DecisionMode: "EVALUATED" | "FAIL_OPEN" | "FAIL_CLOSED";
+        /**
+         * DecisionOutcome
+         * @enum {string}
+         */
+        DecisionOutcome: "ALLOW" | "REVIEW" | "BLOCK";
+        /**
+         * DecisionReason
+         * @description Why a decision is not ``ALLOW``, as an API client may read it (§21 Q5).
+         *
+         *     ``code`` is ``TIER_LIMIT`` (with ``tier`` and ``limit_code``), ``RISK_REVIEW``
+         *     or ``DECIDE_UNAVAILABLE``; never a rule, a hit or a screening status (D20).
+         */
+        DecisionReason: {
+            /** Code */
+            code: string;
+            /** Tier */
+            tier?: string | null;
+            /** Limit Code */
+            limit_code?: string | null;
+        };
+        /**
+         * DecisionStaffResponse
+         * @description A decision with what it read, for staff only.
+         *
+         *     The rules that fired with their aggregates, the rule-set hash, the timings and
+         *     the linked transaction.
+         */
+        DecisionStaffResponse: {
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            decision: components["schemas"]["DecisionOutcome"];
+            mode: components["schemas"]["DecisionMode"];
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+            /** External Id */
+            external_id: string;
+            rail: components["schemas"]["Rail"];
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /** Account Id */
+            account_id: string | null;
+            /** Reasons */
+            reasons: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+            /** Ruleset Hash */
+            ruleset_hash: string;
+            /** Policy Snapshot Id */
+            policy_snapshot_id: string | null;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Db Ms */
+            db_ms: number;
+            /** Actor */
+            actor: string;
+            transaction: components["schemas"]["DecisionTransaction"] | null;
+        };
+        /**
+         * DecisionSummary
+         * @description A decision in one line: what was answered, how and when.
+         */
+        DecisionSummary: {
+            /**
+             * Decision Id
+             * Format: uuid
+             */
+            decision_id: string;
+            decision: components["schemas"]["DecisionOutcome"];
+            mode: components["schemas"]["DecisionMode"];
+            /**
+             * Decided At
+             * Format: date-time
+             */
+            decided_at: string;
+        };
+        /**
+         * DecisionTransaction
+         * @description The transaction a decision was linked to when it arrived through ingest.
+         */
+        DecisionTransaction: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            status: components["schemas"]["TransactionStatus"];
+        };
         /**
          * DeclaredProfile
          * @description What the customer declared it would move in a month (SP-04 spec §13.3).
@@ -2734,6 +2911,7 @@ export interface components {
          *
          *     ``transactions`` holds the newest 500 links, newest first; ``transaction_count``
          *     counts every link, and ``GET /v1/monitoring/hits/{id}/transactions`` pages them.
+         *     ``decision`` is the triggering transaction's decision (plan 4c C5), if any.
          */
         HitDetail: {
             /**
@@ -2813,6 +2991,7 @@ export interface components {
             dedup_key: string;
             /** Sentence */
             sentence: string;
+            decision: components["schemas"]["DecisionSummary"] | null;
         };
         /** HitHistoryItem */
         HitHistoryItem: {
@@ -7937,6 +8116,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevealedCounterparty"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_transaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: components["schemas"]["JsonValue"];
+                };
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_decision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionStaffResponse"] | components["schemas"]["DecisionClientResponse"];
                 };
             };
             /** @description Validation Error */
