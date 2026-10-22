@@ -1,0 +1,10 @@
+# Cash operations on Sunday 13 December 2026: the threshold is USD 5,000 at the
+# prior banking day's FIX, which is Friday 11 December's (18.0000) across the
+# weekend. A dollar amount compares as it is; a peso amount at that FIX.
+relationships:
+  - {ref: cust-1, product: EMONEY}
+items:
+  - {external_id: ror-1, occurred_at: "2026-12-13T10:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: IN, rail: CASH, instrument: CASH, amount: "5000.00", currency: USD, channel: BRANCH}
+  - {external_id: ror-2, occurred_at: "2026-12-13T10:30:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: IN, rail: CASH, instrument: CASH, amount: "4999.00", currency: USD, channel: BRANCH}
+  - {external_id: ror-3, occurred_at: "2026-12-13T11:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: OUT, rail: CASH, instrument: CASH, amount: "90000.00", currency: MXN, channel: BRANCH}
+  - {external_id: ror-4, occurred_at: "2026-12-13T11:30:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: OUT, rail: CASH, instrument: CASH, amount: "89999.99", currency: MXN, channel: BRANCH}

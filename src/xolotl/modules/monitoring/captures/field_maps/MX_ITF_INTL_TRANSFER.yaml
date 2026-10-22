@@ -1,0 +1,9 @@
+# ITF international transfers report (ITF_INTL_TRANSFER), filed by manual upload:
+# no code table is defined for it yet, so the values are written as they are.
+report_code: MX_ITF_INTL_TRANSFER
+codetables: {}
+operation_type:
+  IN/TRANSFER: RECIBIDA
+  OUT/TRANSFER: ENVIADA
+instrument:
+  TRANSFER: TRANSFERENCIA

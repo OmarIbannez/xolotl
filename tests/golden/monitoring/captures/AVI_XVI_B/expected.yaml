@@ -1,0 +1,113 @@
+events:
+- transaction: avb-1
+  capture_code: AVI_XVI_A
+  capture_kind: ACCUMULATION
+  report_code: MX_AVISO_AVI
+  period_key: 2026-12
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee:
+      minor: 46924
+      currency: MXN
+    amount:
+      minor: 3000000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: ethereum
+      asset_qty: '0.5000000000'
+      asset_code: ETH
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-09'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures:
+    - AVI_XVI_B
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '24635.10'
+      currency: MXN
+      resolved_date: '2026-12-09'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '210'
+    transaction:
+      unit: UMA
+      amount: '255.732674'
+      resolved_date: '2026-12-09'
+      unit_value_id: UMA 2026-02-01
+- transaction: avb-2
+  capture_code: AVI_XVI_B
+  capture_kind: FEE_THRESHOLD
+  report_code: MX_AVISO_AVI
+  period_key: 2026-12
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee:
+      minor: 50000
+      currency: MXN
+    amount:
+      minor: 100000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: ethereum
+      asset_qty: '0.0200000000'
+      asset_code: ETH
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-c1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-10'
+    operation_type: VENTA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee:
+      unit: UMA
+      amount: '4.262211'
+      resolved_date: '2026-12-10'
+      unit_value_id: UMA 2026-02-01
+    converted:
+      rule: SAME_DAY
+      amount: '469.24'
+      currency: MXN
+      resolved_date: '2026-12-10'
+      unit_value_id: UMA 2026-02-01
+    threshold:
+      unit: UMA
+      amount: '4'
+    transaction:
+      unit: UMA
+      amount: '8.524422'
+      resolved_date: '2026-12-10'
+      unit_value_id: UMA 2026-02-01
+groups:
+- group: G1
+  capture_code: AVI_XVI_A
+  status: OPEN
+  period_key: 2026-12
+  window_start: '2026-12-10T06:00:00+00:00'
+  window_end: '2027-06-10T06:00:00+00:00'
+  threshold_crossed_at: null
+  accumulated_minor: 100000
+  accumulated_unit: '8.524422'
+  superseded_by: null

@@ -1,0 +1,13 @@
+# One crypto operation a month, July to December 2026, of a CRYPTO customer:
+# five of MXN 4,000 (34.10 UMA each) and a December one of MXN 5,000 (42.62 UMA)
+# that takes the six-month accumulation to 213.11 UMA, past 210. The whole group
+# is captured, each event with its own month.
+relationships:
+  - {ref: crypto-1, product: CRYPTO}
+items:
+  - {external_id: avi-07, occurred_at: "2026-07-15T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "4000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.003"}}
+  - {external_id: avi-08, occurred_at: "2026-08-14T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "4000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.003"}}
+  - {external_id: avi-09, occurred_at: "2026-09-15T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: IN, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "4000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.003"}}
+  - {external_id: avi-10, occurred_at: "2026-10-15T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "4000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.003"}}
+  - {external_id: avi-11, occurred_at: "2026-11-18T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "4000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.003"}}
+  - {external_id: avi-12, occurred_at: "2026-12-09T10:00:00-06:00", customer_ref: crypto-1, account_ref: acct-c1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "5000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.004"}}
