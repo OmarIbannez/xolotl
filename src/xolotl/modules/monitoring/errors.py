@@ -50,6 +50,25 @@ def field_error_items(errors: Sequence[FieldError]) -> list[ErrorItem]:
     ]
 
 
+def body_error_items(errors: Sequence[FieldError]) -> list[ErrorItem]:
+    """Locate each field error of a single-item body as ``("body", field)``.
+
+    The decide route validates one transaction, not a batch, so no index is named.
+
+    Returns:
+        One problem item per error, in the given order.
+
+    """
+    return [
+        ErrorItem(
+            loc=("body", error.field),
+            msg=FIELD_ERROR_MESSAGES[error.code],
+            type=error.code.value,
+        )
+        for error in errors
+    ]
+
+
 class BatchInvalidError(ValidationFailedError):
     """A batch has items that fail; ``errors`` locates each, never its value."""
 

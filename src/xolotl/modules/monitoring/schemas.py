@@ -15,7 +15,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from xolotl.modules.monitoring.decide.enums import FailMode
+from xolotl.modules.monitoring.decide.enums import (
+    DecisionMode,
+    DecisionOutcome,
+    FailMode,
+)
 from xolotl.modules.monitoring.enums import (
     BatchSource,
     FileStatus,
@@ -222,6 +226,69 @@ class RailSettingRequest(BaseModel):
     fail_mode: FailMode
 
 
+class DecisionReason(BaseModel):
+    """Why a decision is not ``ALLOW``, as an API client may read it (§21 Q5).
+
+    ``code`` is ``TIER_LIMIT`` (with ``tier`` and ``limit_code``), ``RISK_REVIEW``
+    or ``DECIDE_UNAVAILABLE``; never a rule, a hit or a screening status (D20).
+    """
+
+    code: str
+    tier: str | None = None
+    limit_code: str | None = None
+
+
+class DecideResponse(BaseModel):
+    """The answer of ``POST /v1/transactions/decide`` (spec §12.1)."""
+
+    decision: DecisionOutcome
+    decision_id: UUID
+    reasons: list[DecisionReason]
+    latency_ms: int
+
+
+class DecisionSummary(BaseModel):
+    """A decision in one line: what was answered, how and when."""
+
+    decision_id: UUID
+    decision: DecisionOutcome
+    mode: DecisionMode
+    decided_at: datetime
+
+
+class DecisionClientResponse(DecisionSummary):
+    """A decision as its API client reads it: the answer and the mode, no reason."""
+
+    external_id: str
+
+
+class DecisionTransaction(BaseModel):
+    """The transaction a decision was linked to when it arrived through ingest."""
+
+    id: UUID
+    occurred_at: datetime
+    status: TransactionStatus
+
+
+class DecisionStaffResponse(DecisionClientResponse):
+    """A decision with what it read, for staff only.
+
+    The rules that fired with their aggregates, the rule-set hash, the timings and
+    the linked transaction.
+    """
+
+    rail: Rail
+    relationship_id: UUID
+    account_id: UUID | None
+    reasons: list[dict[str, JsonValue]]
+    ruleset_hash: str
+    policy_snapshot_id: UUID | None
+    latency_ms: int
+    db_ms: int
+    actor: str
+    transaction: DecisionTransaction | None
+
+
 class HitQuery(BaseModel):
     """The filters of ``GET /v1/monitoring/hits`` (plan 4b B12).
 
@@ -300,6 +367,7 @@ class HitDetail(HitSummary):
 
     ``transactions`` holds the newest 500 links, newest first; ``transaction_count``
     counts every link, and ``GET /v1/monitoring/hits/{id}/transactions`` pages them.
+    ``decision`` is the triggering transaction's decision (plan 4c C5), if any.
     """
 
     evidence: EvidenceView
@@ -310,6 +378,7 @@ class HitDetail(HitSummary):
     definition_hash: str
     dedup_key: str
     sentence: str
+    decision: DecisionSummary | None
 
 
 class HitReveal(BaseModel):

@@ -3,7 +3,7 @@
 Plan 4a's batch and file events may reach a customer's webhook.
 ``STAFF_ONLY_EVENT_TYPES`` never does: the composition root registers each with
 ``register_staff_only``. ``TRANSACTION_PROCESSED`` is among them by plan 4a
-Deviation 7.
+Deviation 7, and plan 4c's ``DECISION_ISSUED`` (ids and the decision only) too.
 
 Plan 4b's types: every one but ``TIER_LIMIT_REACHED`` is staff-only (a hit, a
 capture, a period or a rule change must never reach a webhook, PRV-502), and
@@ -27,8 +27,14 @@ TRANSACTION_BATCH_ACCEPTED = "monitoring.transaction_batch_accepted.v1"
 TRANSACTION_FILE_COMPLETED = "monitoring.transaction_file_completed.v1"
 TRANSACTION_PROCESSED = "monitoring.transaction_processed.v1"
 TRANSACTION_PARKED = "monitoring.transaction_parked.v1"
+# Plan 4c C5: every answer of the decide route, staff-only (reconciliation finding 7).
+DECISION_ISSUED = "monitoring.decision_issued.v1"
 
-STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (TRANSACTION_PARKED, TRANSACTION_PROCESSED)
+STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (
+    TRANSACTION_PARKED,
+    TRANSACTION_PROCESSED,
+    DECISION_ISSUED,
+)
 
 RULE_HIT_CREATED = "monitoring.rule_hit_created.v1"
 TIER_LIMIT_REACHED = "monitoring.tier_limit_reached.v1"
