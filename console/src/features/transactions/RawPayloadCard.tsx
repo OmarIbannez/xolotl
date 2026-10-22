@@ -37,9 +37,10 @@ export function RevealNotice() {
 
 /**
  * The transaction exactly as the client sent it (`raw`), behind the audited reveal. It is
- * shown as pretty-printed JSON text, never as markup.
+ * shown as pretty-printed JSON text, never as markup. `showError` is false when another card
+ * on the page already announces a failed reveal.
  */
-export function RawPayloadCard({ reveal }: { reveal: TransactionReveal }) {
+export function RawPayloadCard({ reveal, showError }: { reveal: TransactionReveal; showError: boolean }) {
   const { t } = useTranslation()
   const title = t('transactions.detail.raw.title')
   return (
@@ -62,7 +63,7 @@ export function RawPayloadCard({ reveal }: { reveal: TransactionReveal }) {
             </div>
           )}
         </div>
-        {reveal.isError && <ErrorBlock error={reveal.error} onRetry={() => reveal.mutate()} />}
+        {showError && reveal.isError && <ErrorBlock error={reveal.error} onRetry={() => reveal.mutate()} />}
       </CardContent>
     </Card>
   )

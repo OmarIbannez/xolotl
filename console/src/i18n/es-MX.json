@@ -1352,7 +1352,7 @@
     "table": {
       "label": "Transacciones",
       "externalId": "ID externo",
-      "occurredAt": "Fecha de operación",
+      "occurredAt": "Fecha de operación (hora de CDMX)",
       "customer": "Cliente",
       "instrumentRail": "Instrumento y riel",
       "amount": "Monto",
@@ -1429,6 +1429,13 @@
       "PENDING_REVIEW": "En revisión",
       "TRUE_MATCH": "Coincidencia confirmada"
     },
+    "rule": {
+      "SAME_DAY": "Valor del mismo día",
+      "PRIOR_BANKING_DAY": "Valor del día hábil anterior",
+      "LAST_DAY_PREV_MONTH": "Valor del último día del mes anterior",
+      "PREV_MONTH_AVG": "Promedio del mes anterior",
+      "SEMIANNUAL_SNAPSHOT": "Valor semestral"
+    },
     "detail": {
       "title": "Detalle de transacción",
       "back": "Volver a transacciones",
@@ -1457,7 +1464,8 @@
         "snapshot": "Instantánea de política",
         "batch": "Lote",
         "device": "Dispositivo registrado",
-        "geo": "Ubicación"
+        "geo": "Ubicación",
+        "timeZone": "Fechas y horas en hora de la Ciudad de México."
       },
       "units": {
         "title": "Montos en unidades",

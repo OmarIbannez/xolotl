@@ -21,6 +21,12 @@ export interface TransactionFilters {
 
 const TEXT_KEYS = ['party_id', 'external_id', 'from', 'to', 'status', 'instrument', 'rail'] as const
 const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** True for a party id the API can read (a UUID); the form and the URL both refuse anything else. */
+export function isUuid(value: string): boolean {
+  return UUID.test(value)
+}
 
 /**
  * The filters as query parameters: blank text dropped, the rest as sent (dates stay `YYYY-MM-DD`).
@@ -46,6 +52,11 @@ function text(value: string | null): string | undefined {
   return trimmed === undefined || trimmed === '' ? undefined : trimmed
 }
 
+function uuid(value: string | null): string | undefined {
+  const trimmed = text(value)
+  return trimmed !== undefined && isUuid(trimmed) ? trimmed : undefined
+}
+
 function day(value: string | null): string | undefined {
   return value !== null && DAY.test(value) ? value : undefined
 }
@@ -54,7 +65,7 @@ function day(value: string | null): string | undefined {
 export function filtersFromSearch(params: URLSearchParams): TransactionFilters {
   const late = params.get('late')
   const filters: TransactionFilters = {
-    party_id: text(params.get('party_id')),
+    party_id: uuid(params.get('party_id')),
     external_id: text(params.get('external_id')),
     from: day(params.get('from')),
     to: day(params.get('to')),

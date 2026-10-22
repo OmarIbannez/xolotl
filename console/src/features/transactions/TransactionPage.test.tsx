@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { screen, waitFor, within } from '@testing-library/react'
-import { Route, Routes } from 'react-router-dom'
+import { Link, Route, Routes } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
@@ -14,9 +14,12 @@ const INJECTION = '<img src=x onerror="window.__pwned=1">'
 
 function setup(routes: FakeRoutes = {}) {
   return renderApp(
-    <Routes>
-      <Route path="/transactions/:transactionId" element={<TransactionPage />} />
-    </Routes>,
+    <>
+      <Link to="/transactions/t2">next transaction</Link>
+      <Routes>
+        <Route path="/transactions/:transactionId" element={<TransactionPage />} />
+      </Routes>
+    </>,
     {
       path: '/transactions/t1',
       me: makeMe({ roles: ['ANALYST'] }),
@@ -73,8 +76,8 @@ describe('TransactionPage', () => {
     const table = await screen.findByRole('table', { name: text.detail.units.label })
 
     expect(rowsOf(table)).toEqual([
-      ['MXN', 'SAME_DAY', '12500.00', '—', '2026-10-19'],
-      ['UMA', 'LAST_DAY_PREV_MONTH', '107.5268', '41', '2026-09-30'],
+      ['MXN', text.rule.SAME_DAY, '12500.00', '—', '2026-10-19'],
+      ['UMA', text.rule.LAST_DAY_PREV_MONTH, '107.5268', '41', '2026-09-30'],
     ])
   })
 
@@ -109,6 +112,47 @@ describe('TransactionPage', () => {
       expect(queryClient.getMutationCache().getAll().filter((mutation) => mutation.state.data !== undefined)).toEqual([]),
     )
     expect(revealCalls(fakeApi.requests)).toHaveLength(1)
+  })
+
+  it('fetches the reveal past the browser cache', async () => {
+    const { user, fakeApi } = setup()
+    await screen.findByText('TX-0001')
+
+    await user.click(screen.getAllByRole('button', { name: text.detail.reveal.button })[0] as HTMLElement)
+
+    await screen.findByText('María López Ruiz')
+    expect(revealCalls(fakeApi.requests).map((request) => request.cache)).toEqual(['no-store'])
+  })
+
+  it('drops the reveal when another transaction opens', async () => {
+    const { user } = setup({
+      'GET /v1/transactions/t2': () => json(transactionStaffView({ id: 't2', external_id: 'TX-0002' })),
+    })
+    await screen.findByText('TX-0001')
+    await user.click(screen.getAllByRole('button', { name: text.detail.reveal.button })[0] as HTMLElement)
+    await screen.findByText('María López Ruiz')
+
+    await user.click(screen.getByRole('link', { name: 'next transaction' }))
+
+    expect(await screen.findByText('TX-0002')).toBeTruthy()
+    expect(document.body.textContent).not.toContain('María López Ruiz')
+    expect(document.body.textContent).not.toContain('__pwned')
+    expect(screen.getAllByRole('button', { name: text.detail.reveal.button })).toHaveLength(2)
+  })
+
+  it('announces a failed reveal once', async () => {
+    const { user } = setup({
+      [DETAIL]: (request) =>
+        new URL(request.url).searchParams.get('reveal') === 'true'
+          ? problem(500, 'INTERNAL')
+          : json(transactionStaffView()),
+    })
+    await screen.findByText('TX-0001')
+
+    await user.click(screen.getAllByRole('button', { name: text.detail.reveal.button })[0] as HTMLElement)
+
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(1))
+    expect(screen.getByRole('alert').textContent).toContain(esMX.errors.INTERNAL)
   })
 
   it('shows why a parked transaction waits', async () => {

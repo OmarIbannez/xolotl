@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { screen, waitFor, within } from '@testing-library/react'
+import { Link } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
@@ -13,7 +14,12 @@ const text = esMX.transactions
 const LIST = 'GET /v1/transactions'
 
 function setup(routes: FakeRoutes = {}, { path = '/transactions', roles = ['ANALYST'] }: { path?: string; roles?: Role[] } = {}) {
-  return renderApp(<TransactionsPage />, {
+  return renderApp(
+    <>
+      <Link to="/transactions">sidebar link</Link>
+      <TransactionsPage />
+    </>,
+    {
     path,
     me: makeMe({ roles }),
     routes: {
@@ -27,7 +33,8 @@ function setup(routes: FakeRoutes = {}, { path = '/transactions', roles = ['ANAL
         }),
       ...routes,
     },
-  })
+  },
+  )
 }
 
 async function loadedTable() {
@@ -144,6 +151,40 @@ describe('TransactionsPage', () => {
 
     expect(await screen.findByRole('link', { name: 'TX-0003' })).toBeTruthy()
     expect(fakeApi.queries(LIST).map((query) => query.get('cursor'))).toEqual([null, 'c2'])
+  })
+
+  it('starts again from the first page when a link changes the filters', async () => {
+    const { user, fakeApi } = setup(
+      {
+        [LIST]: (request) =>
+          new URL(request.url).searchParams.get('cursor') === 'c2'
+            ? json({ items: [transactionStaffView({ id: 't3', external_id: 'TX-0003' })], next_cursor: null })
+            : json({ items: [transactionStaffView()], next_cursor: 'c2' }),
+      },
+      { path: `/transactions?party_id=${PARTY_ID}` },
+    )
+    await loadedTable()
+    await user.click(screen.getByRole('button', { name: esMX.common.pager.next }))
+    await screen.findByRole('link', { name: 'TX-0003' })
+
+    await user.click(screen.getByRole('link', { name: 'sidebar link' }))
+
+    await waitFor(() => expect(fakeApi.queries(LIST).at(-1)?.has('party_id')).toBe(false))
+    expect(Object.fromEntries(fakeApi.queries(LIST).at(-1) ?? [])).toEqual({ limit: '20' })
+    expect(await screen.findByRole('link', { name: 'TX-0001' })).toBeTruthy()
+  })
+
+  it('shows the time of day in Mexico City, the zone the date filters use', async () => {
+    setup({
+      [LIST]: () => json({ items: [transactionStaffView({ occurred_at: '2026-10-21T02:00:00Z' })], next_cursor: null }),
+    })
+    const table = await loadedTable()
+
+    const time = within(table).getByText((_, element) => element?.tagName === 'TIME')
+    expect(time.getAttribute('dateTime')).toBe('2026-10-21T02:00:00Z')
+    expect(time.textContent).toContain('20 oct 2026')
+    expect(time.textContent).toContain('8:00')
+    expect(time.textContent).not.toContain('2:00')
   })
 
   it('says so when there are no transactions', async () => {

@@ -13,7 +13,7 @@ export function UnitAmountsCard({ amounts }: { amounts: readonly UnitAmountView[
   const title = t('transactions.detail.units.title')
   const columns: Column<UnitAmountView>[] = [
     { id: 'unit', header: t('transactions.detail.units.unit'), cell: (row) => <span className="font-mono text-xs">{row.unit}</span> },
-    { id: 'rule', header: t('transactions.detail.units.rule'), cell: (row) => <span className="font-mono text-xs">{row.rule}</span> },
+    { id: 'rule', header: t('transactions.detail.units.rule'), cell: (row) => t(`transactions.rule.${row.rule}`) },
     {
       id: 'amount',
       header: t('transactions.detail.units.amount'),

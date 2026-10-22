@@ -24,7 +24,7 @@ describe('filtersToQuery', () => {
 describe('filtersFromSearch', () => {
   it('round trips through the query string', () => {
     const filters: TransactionFilters = {
-      party_id: 'p1',
+      party_id: '0191d3a2-6b1c-7000-8000-0000000000b1',
       external_id: 'TX-1',
       from: '2026-10-01',
       to: '2026-10-31',
@@ -46,6 +46,10 @@ describe('filtersFromSearch', () => {
         new URLSearchParams('status=NOPE&instrument=GOLD&rail=&from=01/10/2026&to=2026-13-45&late=maybe&other=1'),
       ),
     ).toEqual({})
+  })
+
+  it('drops a party id that is not a UUID, as the form refuses it', () => {
+    expect(filtersFromSearch(new URLSearchParams('party_id=CLIENTE-1&status=PARKED'))).toEqual({ status: 'PARKED' })
   })
 
   it('reads late=false as a filter', () => {

@@ -65,6 +65,8 @@ export function useRevealTransaction(transactionId: string) {
       (await unwrap(
         api.GET('/transactions/{transaction_id}', {
           params: { path: { transaction_id: transactionId }, query: { reveal: true } },
+          // Plaintext: never kept by the browser's HTTP cache either, whatever the server's headers.
+          cache: 'no-store',
         }),
       )) as TransactionRevealedView,
     gcTime: 0,

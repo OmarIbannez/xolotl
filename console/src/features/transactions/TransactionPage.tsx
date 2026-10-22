@@ -4,18 +4,19 @@ import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { isApiError } from '@/api/errors'
 import type { ParkedInfo, PeriodKeys, TransactionStaffView } from '@/api/types'
-import { DateTimeCell } from '@/components/common/DateTimeCell'
 import { KeyValues, PageHeader } from '@/components/common/page'
 import { ErrorBlock, LoadingBlock } from '@/components/common/states'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useFormat } from '@/i18n/use-locale'
 import { NotFound } from '@/NotFound'
 import { formatMinor } from './amount'
 import { CounterpartyCard } from './CounterpartyCard'
+import { MexicoCityTimeCell } from './MexicoCityTimeCell'
 import { useRevealTransaction, useTransaction } from './queries'
 import { RawPayloadCard } from './RawPayloadCard'
 import { LateBadge, TransactionStatusBadge } from './TransactionStatusBadge'
+import { mexicoCityDateTime } from './time'
 import { UnitAmountsCard } from './UnitAmountsCard'
 
 const mono = (value: string) => <span className="font-mono text-xs">{value}</span>
@@ -37,9 +38,12 @@ function FieldsCard({ txn }: { txn: TransactionStaffView }) {
         {txn.late && <LateBadge />}
       </div>,
     ],
-    [t('transactions.detail.fields.occurredAt'), format.dateTime(txn.occurred_at)],
-    [t('transactions.detail.fields.receivedAt'), format.dateTime(txn.received_at)],
-    [t('transactions.detail.fields.processedAt'), txn.processed_at === null ? '—' : format.dateTime(txn.processed_at)],
+    [t('transactions.detail.fields.occurredAt'), mexicoCityDateTime(txn.occurred_at, format.locale)],
+    [t('transactions.detail.fields.receivedAt'), mexicoCityDateTime(txn.received_at, format.locale)],
+    [
+      t('transactions.detail.fields.processedAt'),
+      txn.processed_at === null ? '—' : mexicoCityDateTime(txn.processed_at, format.locale),
+    ],
     [
       t('transactions.detail.fields.party'),
       <Link key="party" to={`/parties/${txn.party_id}`} className="font-mono text-xs underline-offset-4 hover:underline">
@@ -68,6 +72,7 @@ function FieldsCard({ txn }: { txn: TransactionStaffView }) {
     <Card className="animate-fade-in-up">
       <CardHeader>
         <CardTitle>{t('transactions.detail.fields.title')}</CardTitle>
+        <CardDescription>{t('transactions.detail.fields.timeZone')}</CardDescription>
       </CardHeader>
       <CardContent>
         <KeyValues items={rows} />
@@ -119,7 +124,7 @@ function ParkedCard({ parked }: { parked: ParkedInfo }) {
             [t('transactions.detail.parked.unit'), parked.unit_code === null ? '—' : mono(parked.unit_code)],
             [t('transactions.detail.parked.neededOn'), parked.needed_on === null ? '—' : mono(parked.needed_on)],
             [t('transactions.detail.parked.attempts'), <span key="attempts" className="tabular">{parked.attempts}</span>],
-            [t('transactions.detail.parked.parkedAt'), <DateTimeCell key="at" value={parked.parked_at} />],
+            [t('transactions.detail.parked.parkedAt'), <MexicoCityTimeCell key="at" value={parked.parked_at} />],
             [t('transactions.detail.parked.lastError'), parked.last_error === null ? '—' : mono(parked.last_error)],
           ]}
         />
@@ -160,7 +165,8 @@ function TransactionDetail({ transactionId }: { transactionId: string }) {
           </div>
         </div>
         <UnitAmountsCard amounts={data.unit_amounts} />
-        <RawPayloadCard reveal={reveal} />
+        {/* A failed reveal is announced once: in the counterparty card when there is one. */}
+        <RawPayloadCard reveal={reveal} showError={data.counterparty === null} />
       </div>
     )
   }

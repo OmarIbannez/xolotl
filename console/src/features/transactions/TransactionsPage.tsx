@@ -4,7 +4,6 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { TransactionStaffView } from '@/api/types'
 import { CursorPager } from '@/components/common/CursorPager'
 import { DataTable, type Column } from '@/components/common/DataTable'
-import { DateTimeCell } from '@/components/common/DateTimeCell'
 import { Field } from '@/components/common/Field'
 import { PageHeader } from '@/components/common/page'
 import { ErrorBlock } from '@/components/common/states'
@@ -20,16 +19,17 @@ import {
   filtersFromSearch,
   filtersToQuery,
   INSTRUMENTS,
+  isUuid,
   RAILS,
   rangeIsValid,
   STATUSES,
   type TransactionFilters,
 } from './filters'
 import { useTransactions } from './queries'
+import { MexicoCityTimeCell } from './MexicoCityTimeCell'
 import { LateBadge, TransactionStatusBadge } from './TransactionStatusBadge'
 
 const ALL = 'ALL'
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** The query string of a set of filters, for the URL: a reload or a link keeps them. */
 function searchOf(filters: TransactionFilters): URLSearchParams {
@@ -58,7 +58,7 @@ function FilterBar({ applied, onApply }: FilterBarProps) {
     event.preventDefault()
     const query = filtersToQuery(draft)
     const next = {
-      party: query.party_id === undefined || UUID.test(query.party_id) ? undefined : t('transactions.filters.partyIdInvalid'),
+      party: query.party_id === undefined || isUuid(query.party_id) ? undefined : t('transactions.filters.partyIdInvalid'),
       range: rangeIsValid(query) ? undefined : t('transactions.filters.rangeInvalid'),
     }
     setErrors(next)
@@ -196,7 +196,11 @@ export function TransactionsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const applied = filtersFromSearch(searchParams)
   const appliedKey = searchOf(applied).toString()
-  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  // The cursor belongs to the filters it was read under: when the URL's filters change by any
+  // route (Apply, a link, the sidebar, Back), the list starts again from the first page.
+  const [paging, setPaging] = useState<{ key: string; cursor: string | undefined }>({ key: appliedKey, cursor: undefined })
+  const cursor = paging.key === appliedKey ? paging.cursor : undefined
+  const setCursor = (next: string | undefined) => setPaging({ key: appliedKey, cursor: next })
   const valid = rangeIsValid(applied)
   const transactions = useTransactions(applied, cursor, { enabled: valid })
   const page = transactions.data
@@ -204,7 +208,7 @@ export function TransactionsPage() {
 
   // Every filter change starts again from the first page.
   function apply(filters: TransactionFilters) {
-    setCursor(undefined)
+    setPaging({ key: searchOf(filters).toString(), cursor: undefined })
     setSearchParams(searchOf(filters))
   }
 
@@ -218,7 +222,7 @@ export function TransactionsPage() {
         </Link>
       ),
     },
-    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <DateTimeCell value={row.occurred_at} /> },
+    { id: 'occurredAt', header: t('transactions.table.occurredAt'), cell: (row) => <MexicoCityTimeCell value={row.occurred_at} /> },
     {
       id: 'customer',
       header: t('transactions.table.customer'),

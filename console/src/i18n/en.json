@@ -1352,7 +1352,7 @@
     "table": {
       "label": "Transactions",
       "externalId": "External id",
-      "occurredAt": "Occurred at",
+      "occurredAt": "Occurred at (Mexico City time)",
       "customer": "Customer",
       "instrumentRail": "Instrument and rail",
       "amount": "Amount",
@@ -1429,6 +1429,13 @@
       "PENDING_REVIEW": "Under review",
       "TRUE_MATCH": "Confirmed match"
     },
+    "rule": {
+      "SAME_DAY": "Same-day value",
+      "PRIOR_BANKING_DAY": "Prior banking day value",
+      "LAST_DAY_PREV_MONTH": "Last day of the previous month",
+      "PREV_MONTH_AVG": "Previous month average",
+      "SEMIANNUAL_SNAPSHOT": "Semiannual value"
+    },
     "detail": {
       "title": "Transaction detail",
       "back": "Back to transactions",
@@ -1457,7 +1464,8 @@
         "snapshot": "Policy snapshot",
         "batch": "Batch",
         "device": "Device on record",
-        "geo": "Location"
+        "geo": "Location",
+        "timeZone": "Dates and times in Mexico City time."
       },
       "units": {
         "title": "Unit amounts",
