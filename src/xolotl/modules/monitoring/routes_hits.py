@@ -1,10 +1,12 @@
 """The staff rule hits API (SP-04 spec §9.6, §15; plan 4b B12).
 
 ``GET /v1/monitoring/hits`` is the queue, newest first, with the party masked;
-the detail adds the evidence (aggregates, parameters, the rendered explanation)
-and every linked transaction with its role, its counterparty masked. The reveal
+the detail adds the evidence (aggregates, parameters, the rendered explanation),
+the count of linked transactions and the newest 500 with their roles, each
+counterparty masked; ``/hits/{id}/transactions`` pages every link. The reveal
 is its own route (plan 4b Deviation 7): it records ``VIEW_PII`` on the hit for
-each non-empty group (``party``, ``counterparties``), and the party and
+each non-empty group (``party``, the ``counterparties`` of the transactions the
+detail shows), and the party and
 counterparty reveals record their own rows before anything is decrypted. Every
 route is staff only (``require_access()`` without a scope refuses every API
 client): a hit never reaches a client (tipping-off, D20, PRV-502). Any staff role
@@ -13,12 +15,12 @@ party is ``NOT_FOUND`` (row-level security). Routes hold no business rule.
 """
 
 from collections.abc import Sequence
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID
 
 from fastapi import Depends, Query
 from pydantic import JsonValue
-from sqlalchemy import Select, and_, select, tuple_
+from sqlalchemy import Select, and_, func, select, tuple_
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.rules.definitions import (
@@ -26,7 +28,7 @@ from xolotl.modules.monitoring.rules.definitions import (
     RuleDefinition,
     Severity,
 )
-from xolotl.modules.monitoring.rules.enums import HitTransactionRole
+from xolotl.modules.monitoring.rules.hits import EVIDENCE_LIMIT
 from xolotl.modules.monitoring.rules.models import (
     MonitoringRuleVersion,
     RuleHit,
@@ -55,6 +57,9 @@ from xolotl.platform.auth.principal import SessionDep, require_access
 from xolotl.platform.db import bound_context
 from xolotl.platform.errors import NotFoundError
 
+if TYPE_CHECKING:
+    from xolotl.modules.monitoring.rules.enums import HitTransactionRole
+
 router = v1_router(prefix="/monitoring", tags=["monitoring-hits"])
 party_router = v1_router(prefix="/parties", tags=["monitoring-hits"])
 
@@ -63,6 +68,10 @@ HitStaff = Annotated[Actor, Depends(require_access())]
 
 ENTITY = "rule_hit"
 SENTENCE_LOCALE = "es-MX"
+# The detail and the reveal cover a hit's newest links, as many as the evidence a
+# hit is created with; later WINDOW and COOLDOWN links are paged by
+# GET /hits/{id}/transactions.
+LINK_LIMIT = EVIDENCE_LIMIT
 
 
 def _hits_query(query: HitQuery) -> Select[RuleHit]:
@@ -185,43 +194,47 @@ def _hit(session: Session, hit_id: UUID) -> RuleHit:
     return row
 
 
-def _linked(
-    session: Session, hit: RuleHit
-) -> list[tuple[HitTransactionRole, Transaction]]:
-    # Newest first; the join carries the partition key of each transaction.
-    rows = session.execute(
-        select(RuleHitTransaction.role, Transaction)
-        .join(
-            Transaction,
-            and_(
-                Transaction.tenant_id == RuleHitTransaction.tenant_id,
-                Transaction.occurred_at == RuleHitTransaction.occurred_at,
-                Transaction.id == RuleHitTransaction.transaction_id,
-            ),
-        )
-        .where(RuleHitTransaction.hit_id == hit.id)
+def _of_hit[T](stmt: Select[T], hit: RuleHit) -> Select[T]:
+    # The hit's linked transactions; the join carries each one's partition key.
+    return stmt.join(
+        RuleHitTransaction,
+        and_(
+            RuleHitTransaction.tenant_id == Transaction.tenant_id,
+            RuleHitTransaction.occurred_at == Transaction.occurred_at,
+            RuleHitTransaction.transaction_id == Transaction.id,
+        ),
+    ).where(RuleHitTransaction.hit_id == hit.id)
+
+
+def _newest[T](stmt: Select[T], hit: RuleHit) -> Select[T]:
+    return (
+        _of_hit(stmt, hit)
         .order_by(Transaction.occurred_at.desc(), Transaction.id.desc())
-    ).all()
-    return [(role, txn) for role, txn in rows]
-
-
-def _detail(session: Session, hit: RuleHit) -> HitDetail:
-    definition = _definitions(session, {hit.rule_version_id})[hit.rule_version_id]
-    summary = _summary(
-        hit,
-        definition=definition,
-        party=summaries_of(session, {hit.party_id})[hit.party_id],
-        decision_id=_decisions(session, [hit]).get(hit.first_transaction_id),
+        .limit(LINK_LIMIT)
     )
-    linked = _linked(session, hit)
+
+
+def _transaction_views(
+    session: Session, hit: RuleHit, rows: Sequence[Transaction]
+) -> list[HitTransactionView]:
+    if not rows:
+        return []
+    roles: dict[UUID, HitTransactionRole] = dict(
+        session.execute(
+            select(RuleHitTransaction.transaction_id, RuleHitTransaction.role).where(
+                RuleHitTransaction.hit_id == hit.id,
+                RuleHitTransaction.transaction_id.in_([txn.id for txn in rows]),
+            )
+        ).all()
+    )
     counterparties = counterparty_summaries(
-        session, {txn.counterparty_id for _, txn in linked if txn.counterparty_id}
+        session, {txn.counterparty_id for txn in rows if txn.counterparty_id}
     )
-    transactions = [
+    return [
         HitTransactionView(
             transaction_id=txn.id,
             occurred_at=txn.occurred_at,
-            role=role,
+            role=roles[txn.id],
             direction=txn.direction,
             instrument=txn.instrument,
             rail=txn.rail,
@@ -233,12 +246,29 @@ def _detail(session: Session, hit: RuleHit) -> HitDetail:
                 else counterparties[txn.counterparty_id]
             ),
         )
-        for role, txn in linked
+        for txn in rows
     ]
+
+
+def _detail(session: Session, hit: RuleHit) -> HitDetail:
+    definition = _definitions(session, {hit.rule_version_id})[hit.rule_version_id]
+    summary = _summary(
+        hit,
+        definition=definition,
+        party=summaries_of(session, {hit.party_id})[hit.party_id],
+        decision_id=_decisions(session, [hit]).get(hit.first_transaction_id),
+    )
+    newest = session.scalars(_newest(select(Transaction), hit)).all()
+    count = session.scalar(
+        select(func.count())
+        .select_from(RuleHitTransaction)
+        .where(RuleHitTransaction.hit_id == hit.id)
+    )
     return HitDetail.model_validate({
         **summary.model_dump(),
         "evidence": EvidenceView.model_validate(hit.evidence),
-        "transactions": transactions,
+        "transactions": _transaction_views(session, hit, newest),
+        "transaction_count": count or 0,
         "assignment_id": hit.assignment_id,
         "policy_snapshot_id": hit.policy_snapshot_id,
         "definition_hash": hit.definition_hash.hex(),
@@ -260,11 +290,10 @@ def _view_pii(session: Session, hit: RuleHit, detail: dict[str, JsonValue]) -> N
 
 
 def _reveal(session: Session, hit: RuleHit) -> HitReveal:
-    counterparty_ids = sorted({
-        txn.counterparty_id
-        for _, txn in _linked(session, hit)
-        if txn.counterparty_id is not None
-    })
+    # The counterparties of the transactions the detail shows, nothing older: one
+    # column of the newest links, never whole rows.
+    shown = session.scalars(_newest(select(Transaction.counterparty_id), hit)).all()
+    counterparty_ids = sorted({cid for cid in shown if cid is not None})
     _view_pii(session, hit, {"group": "party"})
     party = reveal_pii(session, hit.party_id)
     if counterparty_ids:
@@ -299,6 +328,22 @@ def get_hit(hit_id: UUID, _staff: HitStaff, session: SessionDep) -> HitDetail:
 @router.get("/hits/{hit_id}/reveal")
 def reveal_hit(hit_id: UUID, _staff: HitStaff, session: SessionDep) -> HitReveal:
     return _reveal(session, _hit(session, hit_id))
+
+
+@router.get("/hits/{hit_id}/transactions")
+def list_hit_transactions(
+    hit_id: UUID, _staff: HitStaff, session: SessionDep, page: PageDep
+) -> Page[HitTransactionView]:
+    hit = _hit(session, hit_id)
+    rows, next_cursor = paginate(
+        session,
+        _of_hit(select(Transaction), hit),
+        ts_col=Transaction.occurred_at,
+        id_col=Transaction.id,
+        key=lambda row: (row.occurred_at, row.id),
+        page=page,
+    )
+    return Page(items=_transaction_views(session, hit, rows), next_cursor=next_cursor)
 
 
 @party_router.get("/{party_id}/hits")

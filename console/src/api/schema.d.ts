@@ -1427,6 +1427,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/hits/{hit_id}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Hit Transactions */
+        get: operations["list_hit_transactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/parties/{party_id}/hits": {
         parameters: {
             query?: never;
@@ -2622,7 +2639,10 @@ export interface components {
         HitBand: "ALERT" | "LOW_CONFIDENCE" | "AUTO_DISCARDED" | "WHITELISTED";
         /**
          * HitDetail
-         * @description A hit with its evidence, newest transaction first, and its provenance.
+         * @description A hit with its evidence and provenance.
+         *
+         *     ``transactions`` holds the newest 500 links, newest first; ``transaction_count``
+         *     counts every link, and ``GET /v1/monitoring/hits/{id}/transactions`` pages them.
          */
         HitDetail: {
             /**
@@ -2684,6 +2704,8 @@ export interface components {
             evidence: components["schemas"]["EvidenceView"];
             /** Transactions */
             transactions: components["schemas"]["HitTransactionView"][];
+            /** Transaction Count */
+            transaction_count: number;
             /**
              * Assignment Id
              * Format: uuid
@@ -3504,6 +3526,13 @@ export interface components {
         Page_HitSummary_: {
             /** Items */
             items: components["schemas"]["HitSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[HitTransactionView] */
+        Page_HitTransactionView_: {
+            /** Items */
+            items: components["schemas"]["HitTransactionView"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -8270,6 +8299,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HitReveal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_hit_transactions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                hit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_HitTransactionView_"];
                 };
             };
             /** @description Validation Error */

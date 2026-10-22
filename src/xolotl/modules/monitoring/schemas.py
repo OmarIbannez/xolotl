@@ -296,10 +296,15 @@ class HitTransactionView(BaseModel):
 
 
 class HitDetail(HitSummary):
-    """A hit with its evidence, newest transaction first, and its provenance."""
+    """A hit with its evidence and provenance.
+
+    ``transactions`` holds the newest 500 links, newest first; ``transaction_count``
+    counts every link, and ``GET /v1/monitoring/hits/{id}/transactions`` pages them.
+    """
 
     evidence: EvidenceView
     transactions: list[HitTransactionView]
+    transaction_count: int
     assignment_id: UUID
     policy_snapshot_id: UUID
     definition_hash: str

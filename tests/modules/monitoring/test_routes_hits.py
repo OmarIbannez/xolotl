@@ -22,7 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, func, select, update
 
 from tests.helpers import audit_events, everything_stored, new_tenant, system_ctx
 from tests.modules.monitoring.rules.hook_support import (
@@ -37,8 +37,10 @@ from tests.modules.monitoring.rules.hook_support import (
     local,
 )
 from tests.modules.party.route_support import machine_headers, staff_headers
+from xolotl.modules.monitoring import routes_hits
 from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.rules.models import RuleHit
+from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.audit import VIEW_PII
 from xolotl.platform.audit.models import AuditEventRow
@@ -134,6 +136,7 @@ def _hit_routes(scenario: Scenario) -> list[str]:
         HITS,
         f"{HITS}/{hit_id}",
         f"{HITS}/{hit_id}/reveal",
+        f"{HITS}/{hit_id}/transactions",
         f"/v1/parties/{scenario.structuring.party_id}/hits",
     ]
 
@@ -354,6 +357,12 @@ def test_auditor_reads_hits(client: TestClient, scenario: Scenario):
     for path in _hit_routes(scenario):
         response = client.get(path, headers=auditor)
         assert response.status_code == 200, (path, response.text)
+    hit_id = str(scenario.structuring.id)
+    assert [
+        detail
+        for entity, entity_id, detail in _view_pii(scenario.tenant.tenant_id)
+        if entity == "rule_hit" and entity_id == hit_id
+    ] == [{"group": "party"}, {"group": "counterparties", "count": 1}]
 
 
 def test_another_tenant_sees_nothing(client: TestClient, scenario: Scenario):
@@ -386,3 +395,79 @@ def test_no_plaintext_is_stored_beyond_the_encrypted_columns(
     for secret in ("Lucía", "Ramos", NAME, "Pérez", ACCOUNT):
         assert secret not in dump, secret
         assert secret not in caplog.text, secret
+
+
+def _transaction_ids(response_json: dict[str, object]) -> list[tuple[str, str]]:
+    items = response_json["items"]
+    assert isinstance(items, list)
+    return [(str(item["transaction_id"]), str(item["role"])) for item in items]
+
+
+def test_the_detail_caps_its_transactions_and_pages_the_rest(
+    client: TestClient, scenario: Scenario, monkeypatch: pytest.MonkeyPatch
+):
+    admin = _admin(client, scenario)
+    hit_id = scenario.structuring.id
+    first, second, third = (str(txn_id) for txn_id in scenario.near)
+    monkeypatch.setattr(routes_hits, "LINK_LIMIT", 2)
+    shown = client.get(f"{HITS}/{hit_id}", headers=admin).json()
+    assert shown["transaction_count"] == 3
+    assert [t["transaction_id"] for t in shown["transactions"]] == [third, second]
+
+    path = f"{HITS}/{hit_id}/transactions"
+    page_one = client.get(path, params={"limit": 2}, headers=admin)
+    assert page_one.status_code == 200, page_one.text
+    assert _transaction_ids(page_one.json()) == [
+        (third, "TRIGGER"),
+        (second, "WINDOW"),
+    ]
+    cursor = page_one.json()["next_cursor"]
+    assert cursor is not None
+    page_two = client.get(
+        path, params={"limit": 2, "cursor": cursor}, headers=admin
+    ).json()
+    assert _transaction_ids(page_two) == [(first, "WINDOW")]
+    assert page_two["next_cursor"] is None
+    assert (
+        client.get(f"{HITS}/{uuid7()}/transactions", headers=admin).status_code == 404
+    )
+
+
+def test_the_reveal_covers_the_counterparties_of_the_shown_transactions(
+    client: TestClient, scenario: Scenario, monkeypatch: pytest.MonkeyPatch
+):
+    admin = _admin(client, scenario)
+    hit = scenario.structuring
+    tenant_id = scenario.tenant.tenant_id
+    # Only the trigger is shown, and it names no counterparty.
+    with tenant_session(system_ctx(tenant_id)) as s:
+        _ = s.execute(
+            update(Transaction)
+            .where(Transaction.id == scenario.near[2])
+            .values(counterparty_id=None)
+        )
+    monkeypatch.setattr(routes_hits, "LINK_LIMIT", 1)
+    shown = client.get(f"{HITS}/{hit.id}/reveal", headers=admin).json()
+    assert shown["counterparties"] == {}
+    assert [
+        (entity, detail)
+        for entity, _, detail in _view_pii(tenant_id)
+        if entity != "party"
+    ] == [("rule_hit", {"group": "party"})]
+
+
+def test_a_failed_reveal_shows_nothing_and_keeps_no_audit_row(
+    app: FastAPI, scenario: Scenario, monkeypatch: pytest.MonkeyPatch
+):
+    def broken(*_args: object) -> None:
+        msg = "key unavailable"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(routes_hits, "reveal_counterparty", broken)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        admin = _admin(client, scenario)
+        response = client.get(f"{HITS}/{scenario.structuring.id}/reveal", headers=admin)
+    assert response.status_code == 500
+    for secret in ("Lucía", "Ramos", NAME, ACCOUNT):
+        assert secret not in response.text
+    assert not _view_pii(scenario.tenant.tenant_id)
