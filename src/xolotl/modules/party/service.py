@@ -698,6 +698,19 @@ def summaries(s: Session, parties: Sequence[Party]) -> list[PartyResponse]:
     ]
 
 
+def summaries_of(s: Session, party_ids: Collection[UUID]) -> dict[UUID, PartyResponse]:
+    """Describe parties by id, for modules that may not load party rows themselves.
+
+    Returns:
+        The summary of each id the session's tenant has, by id.
+
+    """
+    if not party_ids:
+        return {}
+    parties = s.scalars(select(Party).where(Party.id.in_(set(party_ids)))).all()
+    return {one.id: one for one in summaries(s, parties)}
+
+
 def summary(s: Session, party: Party) -> PartyResponse:
     """Describe one party the way ``summaries`` does.
 

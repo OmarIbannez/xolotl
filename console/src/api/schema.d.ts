@@ -1376,6 +1376,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/hits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Hits */
+        get: operations["list_hits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/hits/{hit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Hit */
+        get: operations["get_hit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/hits/{hit_id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Reveal Hit */
+        get: operations["reveal_hit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/hits/{hit_id}/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Hit Transactions */
+        get: operations["list_hit_transactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/parties/{party_id}/hits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Party Hits */
+        get: operations["list_party_hits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -2452,6 +2537,36 @@ export interface components {
             floors: components["schemas"]["Floor"][];
         };
         /**
+         * EvidenceAggregate
+         * @description An aggregate's value when the rule fired, in its unit and window.
+         */
+        EvidenceAggregate: {
+            /** Value */
+            value: string;
+            /** Unit */
+            unit: string | null;
+            /** Window */
+            window: string | null;
+        };
+        /**
+         * EvidenceView
+         * @description What the rule read: aggregates, parameters and the rendered explanation.
+         */
+        EvidenceView: {
+            /** Aggregates */
+            aggregates: {
+                [key: string]: components["schemas"]["EvidenceAggregate"];
+            };
+            /** Params */
+            params: {
+                [key: string]: string;
+            };
+            /** Explanation */
+            explanation: string;
+            /** Lists Hash */
+            lists_hash: string;
+        };
+        /**
          * FailMode
          * @description What a rail answers when a decision cannot be evaluated in time.
          *
@@ -2522,6 +2637,92 @@ export interface components {
          * @enum {string}
          */
         HitBand: "ALERT" | "LOW_CONFIDENCE" | "AUTO_DISCARDED" | "WHITELISTED";
+        /**
+         * HitDetail
+         * @description A hit with its evidence and provenance.
+         *
+         *     ``transactions`` holds the newest 500 links, newest first; ``transaction_count``
+         *     counts every link, and ``GET /v1/monitoring/hits/{id}/transactions`` pages them.
+         */
+        HitDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Rule Code */
+            rule_code: string;
+            /**
+             * Rule Version Id
+             * Format: uuid
+             */
+            rule_version_id: string;
+            /** Typology */
+            typology: string[];
+            severity: components["schemas"]["Severity"];
+            outcome: components["schemas"]["HitOutcome"];
+            key_kind: components["schemas"]["KeyKind"];
+            /** Key */
+            key: string;
+            party: components["schemas"]["PartyResponse"];
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Fired Count */
+            fired_count: number;
+            /** Cooldown Until */
+            cooldown_until: string | null;
+            /**
+             * First Transaction Id
+             * Format: uuid
+             */
+            first_transaction_id: string;
+            /**
+             * First Occurred At
+             * Format: date-time
+             */
+            first_occurred_at: string;
+            /** Decision Id */
+            decision_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            evidence: components["schemas"]["EvidenceView"];
+            /** Transactions */
+            transactions: components["schemas"]["HitTransactionView"][];
+            /** Transaction Count */
+            transaction_count: number;
+            /**
+             * Assignment Id
+             * Format: uuid
+             */
+            assignment_id: string;
+            /**
+             * Policy Snapshot Id
+             * Format: uuid
+             */
+            policy_snapshot_id: string;
+            /** Definition Hash */
+            definition_hash: string;
+            /** Dedup Key */
+            dedup_key: string;
+            /** Sentence */
+            sentence: string;
+        };
         /** HitHistoryItem */
         HitHistoryItem: {
             /**
@@ -2542,6 +2743,140 @@ export interface components {
             /** Score */
             score: string;
             band: components["schemas"]["HitBand"];
+        };
+        /**
+         * HitOutcome
+         * @enum {string}
+         */
+        HitOutcome: "ALERT" | "BLOCK" | "REVIEW";
+        /**
+         * HitQuery
+         * @description The filters of ``GET /v1/monitoring/hits`` (plan 4b B12).
+         *
+         *     ``transaction_id`` finds the hits a transaction is linked to in any role;
+         *     ``created_before`` ages the queue.
+         */
+        HitQuery: {
+            severity?: components["schemas"]["Severity"] | null;
+            /** Rule Code */
+            rule_code?: string | null;
+            /** Typology */
+            typology?: string | null;
+            outcome?: components["schemas"]["HitOutcome"] | null;
+            /** Party Id */
+            party_id?: string | null;
+            /** Transaction Id */
+            transaction_id?: string | null;
+            /** Created Before */
+            created_before?: string | null;
+        };
+        /**
+         * HitReveal
+         * @description A hit's party and counterparties in plaintext, audited as ``VIEW_PII``.
+         *
+         *     ``counterparties`` holds each counterparty of the hit's transactions by id.
+         */
+        HitReveal: {
+            party: components["schemas"]["PartyPiiResponse"];
+            /** Counterparties */
+            counterparties: {
+                [key: string]: components["schemas"]["RevealedCounterparty"];
+            };
+        };
+        /**
+         * HitSummary
+         * @description A rule hit in the staff queue, its party masked (spec §9.6; staff only).
+         *
+         *     ``decision_id`` is the triggering transaction's decision, if it had one.
+         */
+        HitSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Rule Code */
+            rule_code: string;
+            /**
+             * Rule Version Id
+             * Format: uuid
+             */
+            rule_version_id: string;
+            /** Typology */
+            typology: string[];
+            severity: components["schemas"]["Severity"];
+            outcome: components["schemas"]["HitOutcome"];
+            key_kind: components["schemas"]["KeyKind"];
+            /** Key */
+            key: string;
+            party: components["schemas"]["PartyResponse"];
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Fired Count */
+            fired_count: number;
+            /** Cooldown Until */
+            cooldown_until: string | null;
+            /**
+             * First Transaction Id
+             * Format: uuid
+             */
+            first_transaction_id: string;
+            /**
+             * First Occurred At
+             * Format: date-time
+             */
+            first_occurred_at: string;
+            /** Decision Id */
+            decision_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * HitTransactionRole
+         * @description Why a transaction is linked to a hit (spec §9.6).
+         * @enum {string}
+         */
+        HitTransactionRole: "TRIGGER" | "WINDOW" | "COOLDOWN";
+        /**
+         * HitTransactionView
+         * @description A transaction behind a hit, its counterparty masked.
+         */
+        HitTransactionView: {
+            /**
+             * Transaction Id
+             * Format: uuid
+             */
+            transaction_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            role: components["schemas"]["HitTransactionRole"];
+            direction: components["schemas"]["Direction"];
+            instrument: components["schemas"]["Instrument"];
+            rail: components["schemas"]["Rail"];
+            /** Amount Minor */
+            amount_minor: number;
+            /** Currency */
+            currency: string;
+            counterparty: components["schemas"]["CounterpartySummary"] | null;
         };
         /** HitView */
         HitView: {
@@ -2619,6 +2954,12 @@ export interface components {
         Instrument: "CASH" | "TRANSFER" | "CARD" | "CHEQUE" | "CRYPTO" | "FX" | "FEE";
         IsoDuration: string;
         JsonValue: unknown;
+        /**
+         * KeyKind
+         * @description What an aggregate is kept per.
+         * @enum {string}
+         */
+        KeyKind: "PARTY" | "RELATIONSHIP" | "ACCOUNT" | "COUNTERPARTY" | "DEVICE";
         /** KycPolicy */
         KycPolicy: {
             /** Tiers */
@@ -3178,6 +3519,20 @@ export interface components {
         Page_DeltaRowResponse_: {
             /** Items */
             items: components["schemas"]["DeltaRowResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[HitSummary] */
+        Page_HitSummary_: {
+            /** Items */
+            items: components["schemas"]["HitSummary"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[HitTransactionView] */
+        Page_HitTransactionView_: {
+            /** Items */
+            items: components["schemas"]["HitTransactionView"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -4169,6 +4524,11 @@ export interface components {
                 [key: string]: components["schemas"]["TrueMatchAction"];
             };
         };
+        /**
+         * Severity
+         * @enum {string}
+         */
+        Severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
         /** StaffCreateRequest */
         StaffCreateRequest: {
             /** Email */
@@ -7853,6 +8213,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MonitoringStatus"];
+                };
+            };
+        };
+    };
+    list_hits: {
+        parameters: {
+            query: {
+                query: components["schemas"]["HitQuery"];
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_HitSummary_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_hit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HitDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reveal_hit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HitReveal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_hit_transactions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                hit_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_HitTransactionView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_party_hits: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                party_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_HitSummary_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

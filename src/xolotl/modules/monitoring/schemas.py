@@ -22,13 +22,17 @@ from xolotl.modules.monitoring.enums import (
     ParkReason,
     TransactionStatus,
 )
+from xolotl.modules.monitoring.rules.definitions import HitOutcome, Severity
+from xolotl.modules.monitoring.rules.enums import HitTransactionRole
 from xolotl.modules.monitoring.txn.schema import (
     Channel,
     Direction,
     Instrument,
+    KeyKind,
     PeriodKeys,
     Rail,
 )
+from xolotl.modules.party.schemas import PartyPiiResponse, PartyResponse
 from xolotl.modules.screening.counterparty.schema import CounterpartyScreeningStatus
 from xolotl.modules.screening.counterparty.schemas import (
     CounterpartySummary,
@@ -216,3 +220,103 @@ class RailSettingRequest(BaseModel):
     """The body of ``PUT /v1/monitoring/rails/{rail}``."""
 
     fail_mode: FailMode
+
+
+class HitQuery(BaseModel):
+    """The filters of ``GET /v1/monitoring/hits`` (plan 4b B12).
+
+    ``transaction_id`` finds the hits a transaction is linked to in any role;
+    ``created_before`` ages the queue.
+    """
+
+    severity: Severity | None = None
+    rule_code: str | None = Field(default=None, max_length=64)
+    typology: str | None = Field(default=None, max_length=64)
+    outcome: HitOutcome | None = None
+    party_id: UUID | None = None
+    transaction_id: UUID | None = None
+    created_before: datetime | None = None
+
+
+class HitSummary(BaseModel):
+    """A rule hit in the staff queue, its party masked (spec §9.6; staff only).
+
+    ``decision_id`` is the triggering transaction's decision, if it had one.
+    """
+
+    id: UUID
+    rule_code: str
+    rule_version_id: UUID
+    typology: list[str]
+    severity: Severity
+    outcome: HitOutcome
+    key_kind: KeyKind
+    key: str
+    party: PartyResponse
+    relationship_id: UUID
+    window_start: datetime
+    window_end: datetime
+    fired_count: int
+    cooldown_until: datetime | None
+    first_transaction_id: UUID
+    first_occurred_at: datetime
+    decision_id: UUID | None
+    created_at: datetime
+
+
+class EvidenceAggregate(BaseModel):
+    """An aggregate's value when the rule fired, in its unit and window."""
+
+    value: str
+    unit: str | None
+    window: str | None
+
+
+class EvidenceView(BaseModel):
+    """What the rule read: aggregates, parameters and the rendered explanation."""
+
+    aggregates: dict[str, EvidenceAggregate]
+    params: dict[str, str]
+    explanation: str
+    lists_hash: str
+
+
+class HitTransactionView(BaseModel):
+    """A transaction behind a hit, its counterparty masked."""
+
+    transaction_id: UUID
+    occurred_at: datetime
+    role: HitTransactionRole
+    direction: Direction
+    instrument: Instrument
+    rail: Rail
+    amount_minor: int
+    currency: str
+    counterparty: CounterpartySummary | None
+
+
+class HitDetail(HitSummary):
+    """A hit with its evidence and provenance.
+
+    ``transactions`` holds the newest 500 links, newest first; ``transaction_count``
+    counts every link, and ``GET /v1/monitoring/hits/{id}/transactions`` pages them.
+    """
+
+    evidence: EvidenceView
+    transactions: list[HitTransactionView]
+    transaction_count: int
+    assignment_id: UUID
+    policy_snapshot_id: UUID
+    definition_hash: str
+    dedup_key: str
+    sentence: str
+
+
+class HitReveal(BaseModel):
+    """A hit's party and counterparties in plaintext, audited as ``VIEW_PII``.
+
+    ``counterparties`` holds each counterparty of the hit's transactions by id.
+    """
+
+    party: PartyPiiResponse
+    counterparties: dict[UUID, RevealedCounterparty]
