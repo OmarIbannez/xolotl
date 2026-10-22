@@ -100,6 +100,7 @@ export function hitDetail(overrides: Partial<HitDetail> = {}): HitDetail {
     dedup_key: 'RELATIONSHIP:rel1:2026-10-12T00:00:00+00:00',
     sentence:
       'Dispara cuando el cliente recibe 3 o más depósitos en efectivo entre 70 % y 100 % del umbral en 7 días y su suma alcanza el umbral',
+    decision: null,
     ...overrides,
   }
 }

@@ -159,8 +159,9 @@ request (audited).
   screen yet.
 - **Rule screens:** the rule editor and simulation pages.
 - **Regulatory captures and period close** (Formato 41 and avisos).
-- **The real-time decide endpoint** for payment rails; the per-rail fail-mode
-  settings API (`/v1/monitoring/rails`) already exists.
+- **The real-time decide endpoint** for payment rails (`POST
+  /v1/transactions/decide`, in review); the per-rail fail-mode settings API
+  (`/v1/monitoring/rails`) already exists.
 - **Behaviour profiles** per customer (in review): the monthly job, the declared
   profile (`PATCH /v1/relationships/{id}`) and the profiles API exist; the console tab
   does not yet.
@@ -779,8 +780,23 @@ uv run xolotl monitoring profiles --tenant acme --month 2027-01       # compute 
 job as the API does and runs it in place: the held rows of those Mexico City days are
 processed, late, with the same code as the worker.
 
+A payment rail asks `POST /v1/transactions/decide` before it executes a payment and
+gets `ALLOW`, `REVIEW` or `BLOCK` within `XOLOTL_MONITORING_DECIDE_BUDGET_MS`. The
+answer comes from the tenant's sync rules (the `TIER_N1_MONTHLY_OPS` and
+`TIER_N2_MONTHLY_OPS` limits of the ITF pack) over the stored aggregates with the
+payment counted in them. Over the budget, or when the database fails, the rail's fail
+mode answers (`FAIL_OPEN`: `REVIEW`, `FAIL_CLOSED`: `BLOCK`, reason
+`DECIDE_UNAVAILABLE`); the route never answers 503. Every answer is stored in
+`txn_decision` and linked to the transaction submitted later under the same
+`external_id` (within seven days). The client sees codes only: `TIER_LIMIT` with the
+tier and limit, or `RISK_REVIEW`; never a rule name. The first decision after a
+start (or after the rule-set cache expires) loads the rules and policy cold and may
+pass a tight budget, which on a `FAIL_CLOSED` rail answers `BLOCK`.
+
 | Route | Who | What |
 |---|---|---|
+| `POST /v1/transactions/decide` | API key `transactions:write`; `Idempotency-Key` | one transaction as in a batch → `{decision, decision_id, reasons: [{code, tier?, limit_code?}], latency_ms}`; 422 with each field error under `body` |
+| `GET /v1/monitoring/decisions/{id}` | staff; API key `transactions:read` | staff: the decision with the rules that fired, their aggregates, the rule-set hash, timings and the linked transaction; API key: `{decision_id, external_id, decision, mode, decided_at}` |
 | `GET /v1/monitoring/rails` | staff | every rail's fail mode: the one an ADMIN set, or `XOLOTL_MONITORING_DECIDE_FAIL_MODE` with `explicit` false |
 | `PUT /v1/monitoring/rails/{rail}` | staff `ADMIN` | `{fail_mode}` for one rail, audited `monitoring.rail_setting_changed`; 404 `RAIL_UNKNOWN` for a rail that does not exist |
 | `GET /v1/monitoring/profiles/{relationship_id}` | staff | the relationship's last 12 behaviour profiles, newest first: `month`, `metrics`, `declared_profile`, `deviation`, `deviated`, `computed_at`; 404 for an unknown relationship |
@@ -904,7 +920,9 @@ webhook ever carries one. The one tenant-facing event is
 `limit_code`, `period_key`, `outcome`, never an amount): a `TIER_LIMIT` firing makes a
 `BLOCK` or `REVIEW` hit and a `tier_limit_notice` row, and only the call that inserts
 that row, from processing or the decide path, publishes the event, once per
-relationship, limit and month.
+relationship, limit and month. In the developer documentation the event is the
+"límite de nivel de cuenta" webhook, and nothing more: the customer is asked to raise
+the account's KYC level.
 
 Hits are staff only: an API key, whatever its scopes, is refused (403
 `ROLE_FORBIDDEN`) on every route below, and a client's view of a transaction never
@@ -921,7 +939,7 @@ lists their hits. There is no disposition in SP-04: hits become alerts later.
 | Route | Who | What |
 |---|---|---|
 | `GET /v1/monitoring/hits` | staff | the hit queue, newest first, the party masked (initials, masked identifiers); filters `severity`, `rule_code`, `typology`, `outcome`, `party_id`, `transaction_id` (the hits the transaction is linked to, in any link role), `created_before` |
-| `GET /v1/monitoring/hits/{id}` | staff | the hit with its evidence (aggregates at firing time, parameters, explanation, lists hash), the rendered es-MX sentence, its provenance (assignment, policy snapshot, definition hash, dedup key), `transaction_count` and the newest 500 linked transactions with their role, newest first, each counterparty masked |
+| `GET /v1/monitoring/hits/{id}` | staff | the hit with its evidence (aggregates at firing time, parameters, explanation, lists hash), the rendered es-MX sentence, its provenance (assignment, policy snapshot, definition hash, dedup key), the triggering transaction's `decision` (answer, mode and time) when it had one, `transaction_count` and the newest 500 linked transactions with their role, newest first, each counterparty masked |
 | `GET /v1/monitoring/hits/{id}/transactions` | staff | every transaction linked to the hit (trigger, window and cooldown links), newest first, with cursor pages |
 | `GET /v1/monitoring/hits/{id}/reveal` | staff | the party's personal values and, in plaintext, the counterparties of the transactions the detail shows; `VIEW_PII` on the hit per group (`party`, `counterparties`), then the party and counterparty rows, all before decryption |
 | `GET /v1/parties/{id}/hits` | staff | the party's hits, newest first |
