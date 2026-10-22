@@ -7,7 +7,8 @@ Mexico City calendar bucket holding it, an ``ACCUM`` one the accumulator holding
 it. A value whose backfill has not run reads as ``INCOMPLETE``. C5's decide path
 uses the same reader over a memory store.
 
-``profile_for`` reads what the evaluator knows of the customer. The party's
+``profile_for`` reads what the evaluator knows of the customer, the relationship's
+declared profile included (plan 4c C8, read with the relationship). The party's
 screening status lives in the screening engine, which monitoring may not import
 (contract ``monitoring-boundaries``), so the composition root installs a reader of
 it with ``use_screening_status``; without one the status is unknown (None).
@@ -18,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from uuid import UUID
 
+from pydantic import JsonValue
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -36,6 +38,7 @@ from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.rules.assignments import LoadedRule, RuleSet
 from xolotl.modules.monitoring.rules.kinds import (
     INCOMPLETE,
+    DeclaredProfile,
     EvalContext,
     EvalProfile,
     Firing,
@@ -142,11 +145,30 @@ def months_between(first: datetime, then: datetime) -> int:
     return max(months, 0)
 
 
+def _minor(value: JsonValue) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _declared(stored: dict[str, JsonValue] | None) -> DeclaredProfile | None:
+    # The JSON form party's DeclaredProfile stores; a row without a currency
+    # declares nothing comparable.
+    if stored is None:
+        return None
+    currency = stored.get("currency")
+    if not isinstance(currency, str):
+        return None
+    return DeclaredProfile(
+        monthly_inflow_minor=_minor(stored.get("monthly_inflow_minor")),
+        monthly_outflow_minor=_minor(stored.get("monthly_outflow_minor")),
+        currency=currency,
+    )
+
+
 def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile:
     """Read what the evaluator knows of the transaction's customer.
 
     ``history_months`` counts from the relationship's earliest processed
-    transaction; the declared profile is None until plan 4c's C8 reads it.
+    transaction; the declared profile is the relationship's, None until set.
 
     Returns:
         The profile.
@@ -167,7 +189,7 @@ def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile:
         pep_status=pep_status_of(s, txn.party_id).value,
         party_screening_status=status,
         relationship_started_at=relationship.started_at,
-        declared_profile=None,
+        declared_profile=_declared(relationship.declared_profile),
         history_months=0
         if earliest is None
         else months_between(earliest, txn.occurred_at),

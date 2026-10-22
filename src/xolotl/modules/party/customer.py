@@ -5,6 +5,11 @@ snapshots it, and moves the party's ``retention_until`` to the end of the policy
 ``kyc_after_relationship`` period, never earlier than it already was. Opening one
 resolves the same policy (and discards it), so a relationship that could never be
 closed is never opened.
+
+The declared profile of a relationship (SP-04 spec §13.3) is what the customer said
+it would move in a month; monitoring's behaviour profile and ``PROFILE_DEVIATION``
+compare the actual volume with it. Its audit row names the currency only, never an
+amount.
 """
 
 from datetime import datetime
@@ -20,7 +25,7 @@ from xolotl.modules.party.events import (
     publish_party_event,
 )
 from xolotl.modules.party.models import CustomerRelationship, Party
-from xolotl.modules.party.schemas import RelationshipOpenRequest
+from xolotl.modules.party.schemas import DeclaredProfile, RelationshipOpenRequest
 from xolotl.modules.party.service import get_party
 from xolotl.platform import clock
 from xolotl.platform.audit import AuditEvent, record
@@ -199,3 +204,39 @@ def set_legal_hold(s: Session, party_id: UUID, *, legal_hold: bool) -> Party:
         ),
     )
     return party
+
+
+def set_declared_profile(
+    s: Session, relationship_id: UUID, profile: DeclaredProfile | None
+) -> CustomerRelationship:
+    """Set or clear (None) a relationship's declared profile, audited.
+
+    Returns:
+        The relationship.
+
+    Raises:
+        NotFoundError: When the tenant has no such relationship.
+
+    """
+    tenant_id = bound_context(s).require_tenant_id()
+    row = s.get(
+        CustomerRelationship,
+        (tenant_id, relationship_id),
+        with_for_update=True,
+        populate_existing=True,
+    )
+    if row is None:
+        msg = "relationship not found"
+        raise NotFoundError(msg)
+    row.declared_profile = None if profile is None else profile.model_dump(mode="json")
+    s.flush()
+    _ = record(
+        s,
+        AuditEvent(
+            action="relationship.declared_profile_set",
+            entity_type="customer_relationship",
+            entity_id=str(row.id),
+            detail={"currency": None if profile is None else profile.currency},
+        ),
+    )
+    return row

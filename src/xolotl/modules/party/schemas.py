@@ -7,7 +7,7 @@ masks, and plaintext only in the reveal's ``PartyPiiResponse``.
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated, ClassVar, Self
+from typing import Annotated, ClassVar, Literal, Self
 from uuid import UUID
 
 from pydantic import (
@@ -157,6 +157,40 @@ class RelationshipCloseRequest(BaseModel):
     ended_at: datetime | None = None
 
 
+# An instrument code as transaction monitoring spells it (``CASH``, ``TRANSFER``);
+# the party module never imports monitoring, so not its enum.
+InstrumentCode = Annotated[str, StringConstraints(pattern=r"^[A-Z_]{2,16}$")]
+
+
+class DeclaredProfile(BaseModel):
+    """What the customer declared it would move in a month (SP-04 spec §13.3).
+
+    Amounts are MXN minor units: the pack's quote currency, so the monthly profile
+    compares them with no conversion (plan 4c Deviation 12). Staff set it until
+    onboarding fills it (SP-08).
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    monthly_inflow_minor: int = Field(ge=0)
+    monthly_outflow_minor: int = Field(ge=0)
+    currency: Literal["MXN"]
+    expected_countries: list[CountryCode] = Field(
+        default_factory=list[str], max_length=50
+    )
+    expected_instruments: list[InstrumentCode] = Field(
+        default_factory=list[str], max_length=16
+    )
+
+
+class RelationshipPatchRequest(BaseModel):
+    """``PATCH /v1/relationships/{id}``: null clears the declared profile."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    declared_profile: DeclaredProfile | None
+
+
 class LegalHoldRequest(BaseModel):
     legal_hold: bool
 
@@ -297,6 +331,7 @@ class CustomerRelationshipResponse(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     created_at: datetime
+    declared_profile: DeclaredProfile | None = None
 
 
 class PartyStaffResponse(PartyResponse):

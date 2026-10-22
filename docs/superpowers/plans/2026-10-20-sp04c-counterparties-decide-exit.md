@@ -702,6 +702,17 @@ def handle_profiles(s: Session, job: Job) -> None              # month = payload
 - [ ] **Step 5: Docs.** README configuration rows, the API table rows (PATCH and GET), the CLI line; the `job.py` docstring (Deviations 12 and 13; what SP-07 consumes).
 - [ ] **Step 6: Commit** `feat(monitoring): monthly behaviour profiles and the declared profile of a relationship`.
 
+Notes from C8 (where the code on `main` differed from the text above, or the text left a choice; C8 followed the code):
+- `PATCH /v1/relationships/{id}` has no `Idempotency-Key` handling: the platform keys POSTs only (C4's note); setting a profile twice stores the same value and audits both. Clearing audits `{"currency": null}`.
+- `profile_for` reads the declaration with the relationship it already loads: `party.service.RelationshipRef` gained `declared_profile` (the JSON form), so the evaluator's profile costs no extra query. The job reads declarations through a new batch read, `party.service.relationship_refs(s, ids)`, because monitoring may not import `party.models` (`monitoring-boundaries`).
+- The month is computed in one transaction from one grouped read (bounded by the Mexico City month's `occurred_at` range, so it prunes to the month's partition, and by `period_keys->>'MONTH'`), not page by page: the read returns one row per active relationship.
+- Amounts in `metrics` are whole minor units (`"1900050"`), rounded half up from the 4-place `MXN/SAME_DAY` amounts. `INTERNAL` rows are left out of every metric (movements between a customer's own accounts). Cross-border is the aggregates' definition: a counterparty country other than the transaction's policy snapshot's `country`, or `rail = SWIFT`. Ratios are shown with one place rounded down, and compared unrounded, so a shown ratio at or above the threshold is exactly a deviated one; a declared zero gives no ratio (`deviation` holds only the directions with one).
+- A recomputation that changes nothing (metrics, declaration, ratios, flag) writes nothing, `computed_at` included, and publishes nothing. The event's subject is `behaviour_profile/<id>`.
+- `handle_profiles` refuses a payload month that is not a string with `TypeError` and a malformed one with `ValueError`; the CLI refuses a malformed `--month` with exit 2.
+- `CustomerRelationshipResponse.declared_profile` also shows in the party staff view's `customer_relationships`, which C9's dialog can prefill from.
+- Personal data: the declared profile holds amounts, country codes and instrument codes, no identifier, so it stays the plain `jsonb` of spec §5.2 (no new encrypted column, Global Constraints); neither the audit row nor the event carries an amount.
+- Retention: C8 adds no foreign key (C4 created `behaviour_profile`), and C7's job deletes from no table `behaviour_profile` references; profiles themselves are not retired yet.
+
 ---
 
 ### Task C9: Console: Admin › Rieles and the Cliente › Perfil de comportamiento tab

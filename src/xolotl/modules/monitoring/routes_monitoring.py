@@ -3,18 +3,22 @@
 ``POST /v1/monitoring/backfill`` (MLRO, ADMIN) audits and queues a backfill of the
 held rows of a range of Mexico City days; ``GET /v1/monitoring/status`` (ADMIN) reads
 the processing counters. Both are staff only. Plan 4c appends ``GET /metrics`` (C6)
-and ``GET /profiles/{relationship_id}`` (C8).
+and ``GET /profiles/{relationship_id}`` (C8): a relationship's last twelve
+behaviour profiles, newest first, for every staff role and no API key.
 """
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, Request
 
 from xolotl.modules.monitoring.process import status
 from xolotl.modules.monitoring.process.backfill import request_backfill
+from xolotl.modules.monitoring.profiles.job import recent_profiles
 from xolotl.modules.monitoring.schemas import (
     BackfillAccepted,
     BackfillRequest,
+    BehaviourProfileResponse,
     MonitoringStatus,
 )
 from xolotl.platform import clock
@@ -31,6 +35,8 @@ BackfillWriter = Annotated[
     Actor, Depends(require_access(roles=(Role.MLRO, Role.ADMIN), write=True))
 ]
 StatusReader = Annotated[Actor, Depends(require_access(roles=(Role.ADMIN,)))]
+# Staff only: a route without a scope refuses every API client.
+StaffReader = Annotated[Actor, Depends(require_access())]
 
 
 def backfill_queue(request: Request) -> PostgresJobQueue:
@@ -59,3 +65,13 @@ def request_backfill_endpoint(
 @router.get("/status")
 def monitoring_status(_admin: StatusReader, session: SessionDep) -> MonitoringStatus:
     return status.monitoring_status(session, now=clock.now())
+
+
+@router.get("/profiles/{relationship_id}")
+def behaviour_profiles(
+    relationship_id: UUID, _staff: StaffReader, session: SessionDep
+) -> list[BehaviourProfileResponse]:
+    return [
+        BehaviourProfileResponse.model_validate(row)
+        for row in recent_profiles(session, relationship_id)
+    ]

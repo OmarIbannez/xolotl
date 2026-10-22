@@ -10,6 +10,9 @@ capture, a period or a rule change must never reach a webhook, PRV-502), and
 ``RULES_STAFF_ONLY_EVENT_TYPES`` is the tuple ``register_rules`` marks with
 ``register_staff_only``. ``TIER_LIMIT_REACHED`` is webhook-safe: ids and codes,
 never an amount.
+
+Plan 4c's ``BEHAVIOUR_PROFILE_UPDATED`` (C8) joins plan 4a's staff-only tuple: ids, the
+month and the deviation flag, which risk scoring (SP-07) consumes.
 """
 
 from uuid import UUID
@@ -27,8 +30,13 @@ TRANSACTION_BATCH_ACCEPTED = "monitoring.transaction_batch_accepted.v1"
 TRANSACTION_FILE_COMPLETED = "monitoring.transaction_file_completed.v1"
 TRANSACTION_PROCESSED = "monitoring.transaction_processed.v1"
 TRANSACTION_PARKED = "monitoring.transaction_parked.v1"
+BEHAVIOUR_PROFILE_UPDATED = "monitoring.behaviour_profile_updated.v1"
 
-STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (TRANSACTION_PARKED, TRANSACTION_PROCESSED)
+STAFF_ONLY_EVENT_TYPES: tuple[str, ...] = (
+    TRANSACTION_PARKED,
+    TRANSACTION_PROCESSED,
+    BEHAVIOUR_PROFILE_UPDATED,
+)
 
 RULE_HIT_CREATED = "monitoring.rule_hit_created.v1"
 TIER_LIMIT_REACHED = "monitoring.tier_limit_reached.v1"
