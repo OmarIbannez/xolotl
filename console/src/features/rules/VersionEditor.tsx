@@ -130,6 +130,27 @@ function formOf(version: VersionResponse) {
   }
 }
 
+type Form = ReturnType<typeof formOf>
+
+/**
+ * What a form would send, spelled as the API stores it: the values `valueOf`, `segmentOf` and the
+ * trimmed durations make of the text (a parameter that is not a value keeps its raw text). Two
+ * forms that send the same thing are the same, so "5,000" over 5000 or "n1" over "N1" is no edit.
+ */
+function sentOf(form: Form, version: VersionResponse) {
+  return {
+    params: Object.fromEntries(
+      version.params.map((param) => {
+        const input = form.params[param.name] ?? inputOf(param)
+        return [param.name, valueOf(param, input) ?? { raw: input }]
+      }),
+    ),
+    segment: segmentOf(form.segment),
+    severity: form.severity,
+    dedup: { key: form.dedupKey, window: form.dedupWindow.trim(), cooldown: form.cooldown.trim() },
+  }
+}
+
 /**
  * Tune a version: its parameters within the template's bounds, the segment it applies to, its
  * severity and deduplication. The rule's text is not edited (spec section 9.4): its sentence is
@@ -150,7 +171,19 @@ export function VersionEditor({ ruleId, version, onDirtyChange }: VersionEditorP
   const [cooldown, setCooldown] = useState(initial.cooldown)
   const [invalid, setInvalid] = useState<ReadonlySet<string>>(new Set())
   const dirty =
-    JSON.stringify({ params, segment, severity, dedupKey, dedupWindow, cooldown }) !== JSON.stringify(formOf(version))
+    JSON.stringify(sentOf({ params, segment, severity, dedupKey, dedupWindow, cooldown }, version)) !==
+    JSON.stringify(sentOf(formOf(version), version))
+
+  /** Show what the server now holds (a save it found unchanged does not remount the form). */
+  function reset(saved: VersionResponse) {
+    const form = formOf(saved)
+    setParams(form.params)
+    setSegment(form.segment)
+    setSeverity(form.severity)
+    setDedupKey(form.dedupKey)
+    setDedupWindow(form.dedupWindow)
+    setCooldown(form.cooldown)
+  }
 
   useEffect(() => {
     onDirtyChange?.(dirty)
@@ -179,7 +212,12 @@ export function VersionEditor({ ruleId, version, onDirtyChange }: VersionEditorP
         severity,
         dedup: { key: dedupKey, window: dedupWindow.trim(), cooldown: cooldown.trim() },
       },
-      { onSuccess: () => toast.success(t('rules.editor.saved')) },
+      {
+        onSuccess: (saved) => {
+          reset(saved)
+          toast.success(t('rules.editor.saved'))
+        },
+      },
     )
   }
 

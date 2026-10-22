@@ -165,6 +165,36 @@ describe('RulePage', () => {
     expect((screen.getByLabelText('near_ratio') as HTMLInputElement).value).toBe('0.85')
   })
 
+  it.each([
+    ['threshold (USD)', '5,000'],
+    ['min_count', '03'],
+    [esMX.rules.editor.segmentField.tier, ''],
+  ])('a save the server finds unchanged leaves nothing unsaved (%s typed as "%s")', async (label, typed) => {
+    const { user, fakeApi } = setup([version()], { [`PATCH ${VERSION}`]: () => json(version()) })
+    const field = await screen.findByLabelText(label)
+
+    await user.clear(field)
+    if (typed !== '') await user.type(field, typed)
+    if (label === esMX.rules.editor.segmentField.tier) await user.type(field, 'n1')
+    await user.click(screen.getByRole('button', { name: text.editor.save }))
+
+    await waitFor(() => expect(fakeApi.calls(`PATCH ${VERSION}`)).toHaveLength(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: text.simulation.run })).toBeEnabled())
+    expect(screen.queryByText(text.simulation.saveFirst)).toBeNull()
+  })
+
+  it('a form that only respells the stored values is not unsaved', async () => {
+    const { user } = setup([version()])
+    const threshold = await screen.findByLabelText('threshold (USD)')
+
+    await user.clear(threshold)
+    await user.type(threshold, '5,000')
+
+    expect(screen.getByRole('button', { name: text.simulation.run })).toBeEnabled()
+    await user.type(threshold, '1')
+    expect(screen.getByRole('button', { name: text.simulation.run })).toBeDisabled()
+  })
+
   it('lists the versions newest first and opens the one chosen', async () => {
     const { user } = setup([
       version({ id: 'v1', status: 'ACTIVE', allowed_actions: [], blocked_reasons: {} }),
