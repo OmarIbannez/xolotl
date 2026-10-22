@@ -399,12 +399,17 @@ class TemplateResponse(BaseModel):
 class SimulationResponse(BaseModel):
     """A simulation of a rule version and its tallies (spec §13.1).
 
-    ``valid_until`` is the Mexico City day on which a completed simulation stops
-    counting for submission and approval (``finished_at`` plus
-    ``MONITORING_SIMULATION_MAX_AGE_DAYS``); ``notes`` are codes of what the
-    simulation could not see (``PROFILE_HISTORY_SHORT``: a range under about four
-    months never fires a profile rule's history branch). An API client gets
-    ``sample`` empty and ``overlap`` null.
+    ``valid_until`` is the last Mexico City day on which a completed simulation
+    still counts for submission and approval: it counts until ``finished_at``
+    plus ``MONITORING_SIMULATION_MAX_AGE_DAYS``, which falls on that day.
+    ``notes`` are codes of what the simulation could not see
+    (``PROFILE_HISTORY_SHORT``: a range under about four months never fires a
+    profile rule's history branch).
+
+    Only staff read a simulation itself (spec §15). A rule read by an API client
+    shows its simulations' status and dates only: every tally, the sample, the
+    overlap and the requester are null, since even a count can tell which
+    customer a rule would hit (tipping-off, PRV-502).
     """
 
     id: UUID
@@ -413,13 +418,13 @@ class SimulationResponse(BaseModel):
     range_start: date
     range_end: date
     definition_hash: str
-    transactions_read: int
-    hit_count: int
-    customers_hit: int
-    hits_per_week: list[dict[str, JsonValue]]
+    transactions_read: int | None
+    hit_count: int | None
+    customers_hit: int | None
+    hits_per_week: list[dict[str, JsonValue]] | None
     overlap: dict[str, int] | None
-    sample: list[dict[str, JsonValue]]
-    requested_by: UUID
+    sample: list[dict[str, JsonValue]] | None
+    requested_by: UUID | None
     started_at: datetime | None
     finished_at: datetime | None
     last_error: str | None
@@ -437,15 +442,16 @@ class RuleAssignmentResponse(BaseModel):
     segment_filter: dict[str, list[str]] | None
     effective_from: date
     effective_to: date | None
-    approved_by: UUID
+    # Null for an API client: which staff member approved is staff business.
+    approved_by: UUID | None
 
 
 class VersionResponse(BaseModel):
     """A rule version under the D19 lifecycle (spec §9.4).
 
     ``simulation`` is the version's latest simulation, whatever its status;
-    ``allowed_actions`` and ``blocked_reasons`` are for the caller (empty for an
-    API client).
+    ``allowed_actions`` and ``blocked_reasons`` are for the caller. An API client
+    gets no actions and no staff user ids (``author_id``, ``approved_by``).
     """
 
     id: UUID
@@ -459,7 +465,7 @@ class VersionResponse(BaseModel):
     severity: Severity
     dedup: Dedup
     sentence: str
-    author_id: UUID
+    author_id: UUID | None
     submitted_at: datetime | None
     approved_by: UUID | None
     approved_at: datetime | None
@@ -474,7 +480,10 @@ class VersionResponse(BaseModel):
 
 
 class RuleResponse(BaseModel):
-    """A tenant rule with every version, oldest first."""
+    """A tenant rule with every version, oldest first.
+
+    ``created_by`` is null for an API client.
+    """
 
     id: UUID
     code: str
@@ -483,7 +492,7 @@ class RuleResponse(BaseModel):
     template_code: str | None
     title: str
     typology: list[str]
-    created_by: UUID
+    created_by: UUID | None
     created_at: datetime
     versions: list[VersionResponse]
     active_version_id: UUID | None

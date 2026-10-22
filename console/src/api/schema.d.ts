@@ -4870,11 +4870,8 @@ export interface components {
             effective_from: string;
             /** Effective To */
             effective_to: string | null;
-            /**
-             * Approved By
-             * Format: uuid
-             */
-            approved_by: string;
+            /** Approved By */
+            approved_by: string | null;
         };
         /**
          * RuleBlockedReason
@@ -4930,6 +4927,8 @@ export interface components {
         /**
          * RuleResponse
          * @description A tenant rule with every version, oldest first.
+         *
+         *     ``created_by`` is null for an API client.
          */
         RuleResponse: {
             /**
@@ -4947,11 +4946,8 @@ export interface components {
             title: string;
             /** Typology */
             typology: string[];
-            /**
-             * Created By
-             * Format: uuid
-             */
-            created_by: string;
+            /** Created By */
+            created_by: string | null;
             /**
              * Created At
              * Format: date-time
@@ -5131,12 +5127,17 @@ export interface components {
          * SimulationResponse
          * @description A simulation of a rule version and its tallies (spec §13.1).
          *
-         *     ``valid_until`` is the Mexico City day on which a completed simulation stops
-         *     counting for submission and approval (``finished_at`` plus
-         *     ``MONITORING_SIMULATION_MAX_AGE_DAYS``); ``notes`` are codes of what the
-         *     simulation could not see (``PROFILE_HISTORY_SHORT``: a range under about four
-         *     months never fires a profile rule's history branch). An API client gets
-         *     ``sample`` empty and ``overlap`` null.
+         *     ``valid_until`` is the last Mexico City day on which a completed simulation
+         *     still counts for submission and approval: it counts until ``finished_at``
+         *     plus ``MONITORING_SIMULATION_MAX_AGE_DAYS``, which falls on that day.
+         *     ``notes`` are codes of what the simulation could not see
+         *     (``PROFILE_HISTORY_SHORT``: a range under about four months never fires a
+         *     profile rule's history branch).
+         *
+         *     Only staff read a simulation itself (spec §15). A rule read by an API client
+         *     shows its simulations' status and dates only: every tally, the sample, the
+         *     overlap and the requester are null, since even a count can tell which
+         *     customer a rule would hit (tipping-off, PRV-502).
          */
         SimulationResponse: {
             /**
@@ -5163,15 +5164,15 @@ export interface components {
             /** Definition Hash */
             definition_hash: string;
             /** Transactions Read */
-            transactions_read: number;
+            transactions_read: number | null;
             /** Hit Count */
-            hit_count: number;
+            hit_count: number | null;
             /** Customers Hit */
-            customers_hit: number;
+            customers_hit: number | null;
             /** Hits Per Week */
             hits_per_week: {
                 [key: string]: components["schemas"]["JsonValue"];
-            }[];
+            }[] | null;
             /** Overlap */
             overlap: {
                 [key: string]: number;
@@ -5179,12 +5180,9 @@ export interface components {
             /** Sample */
             sample: {
                 [key: string]: components["schemas"]["JsonValue"];
-            }[];
-            /**
-             * Requested By
-             * Format: uuid
-             */
-            requested_by: string;
+            }[] | null;
+            /** Requested By */
+            requested_by: string | null;
             /** Started At */
             started_at: string | null;
             /** Finished At */
@@ -5904,8 +5902,8 @@ export interface components {
          * @description A rule version under the D19 lifecycle (spec §9.4).
          *
          *     ``simulation`` is the version's latest simulation, whatever its status;
-         *     ``allowed_actions`` and ``blocked_reasons`` are for the caller (empty for an
-         *     API client).
+         *     ``allowed_actions`` and ``blocked_reasons`` are for the caller. An API client
+         *     gets no actions and no staff user ids (``author_id``, ``approved_by``).
          */
         VersionResponse: {
             /**
@@ -5932,11 +5930,8 @@ export interface components {
             dedup: components["schemas"]["Dedup"];
             /** Sentence */
             sentence: string;
-            /**
-             * Author Id
-             * Format: uuid
-             */
-            author_id: string;
+            /** Author Id */
+            author_id: string | null;
             /** Submitted At */
             submitted_at: string | null;
             /** Approved By */

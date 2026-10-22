@@ -10,6 +10,7 @@ simulation's ``sample`` or ``overlap``, which say which customers a rule would h
 (tipping-off, PRV-502); every write and the assignments are staff only.
 """
 
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -17,7 +18,7 @@ from uuid import UUID
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, event, func, select, update
 
 from tests.helpers import audit_events, new_tenant, system_ctx
 from tests.modules.monitoring.route_support import (
@@ -31,6 +32,7 @@ from tests.modules.monitoring.route_support import (
     today,
 )
 from tests.modules.monitoring.rules.lifecycle_support import load_library
+from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.rules import versions
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
 from xolotl.modules.monitoring.rules.models import (
@@ -149,20 +151,42 @@ def test_an_api_client_reads_templates_and_rules_with_the_scope(
         f"{TEMPLATES}/{CASH}",
         RULES,
         f"{RULES}/{version['rule_id']}",
-        f"{SIMULATIONS}/{simulation_id}",
     ):
         response = client.get(path, headers=reader)
         assert response.status_code == 200, (path, response.text)
         assert "a-party-a-rule-would-hit" not in response.text, path
         assert "existing_hits" not in response.text, path
-    shown = client.get(f"{SIMULATIONS}/{simulation_id}", headers=reader).json()
-    assert (shown["sample"], shown["overlap"]) == ([], None)
-    assert shown["status"] == "COMPLETED"
-    rule = client.get(f"{RULES}/{version['rule_id']}", headers=reader).json()
-    [shown_version] = rule["versions"]
-    assert shown_version["allowed_actions"] == []
-    assert shown_version["blocked_reasons"] == {}
-    assert rule["last_simulation"]["sample"] == []
+        # Which staff member wrote or approved a rule is not the client's business.
+        assert version["author_id"] not in response.text, path
+    # Spec §15: the simulation itself is staff only.
+    refused = client.get(f"{SIMULATIONS}/{simulation_id}", headers=reader)
+    assert refused.status_code == 403
+    assert refused.json()["code"] == "ROLE_FORBIDDEN"
+    listed = client.get(RULES, headers=reader).json()["items"]
+    single = client.get(f"{RULES}/{version['rule_id']}", headers=reader).json()
+    for rule in (listed[0], single):
+        assert rule["created_by"] is None
+        [shown_version] = rule["versions"]
+        assert shown_version["allowed_actions"] == []
+        assert shown_version["blocked_reasons"] == {}
+        assert (shown_version["author_id"], shown_version["approved_by"]) == (
+            None,
+            None,
+        )
+        for shown in (shown_version["simulation"], rule["last_simulation"]):
+            assert shown["id"] == simulation_id
+            assert shown["status"] == "COMPLETED"
+            assert shown["finished_at"] is not None
+            for tally in (
+                "transactions_read",
+                "hit_count",
+                "customers_hit",
+                "hits_per_week",
+                "overlap",
+                "sample",
+                "requested_by",
+            ):
+                assert shown[tally] is None, tally
 
     unscoped = api_client(tenant, "transactions:read")
     response = client.get(RULES, headers=unscoped)
@@ -217,8 +241,9 @@ def test_a_senior_analyst_creates_tunes_and_simulates_a_rule(
     assert patched.status_code == 200, patched.text
     tuned = patched.json()
     assert tuned["status"] == "DRAFT"
-    near = next(param for param in tuned["params"] if param["name"] == "near_ratio")
-    assert near["value"] == "0.75"
+    assert {"name": "near_ratio", "value": "0.75"}.items() <= next(
+        param for param in tuned["params"] if param["name"] == "near_ratio"
+    ).items()
     assert tuned["definition_hash"] != version["definition_hash"]
 
     end = today()
@@ -239,16 +264,15 @@ def test_a_senior_analyst_creates_tunes_and_simulates_a_rule(
     assert run_simulations(app) == 1
     done = client.get(f"{SIMULATIONS}/{simulation_id}", headers=author).json()
     assert done["status"] == "COMPLETED"
-    assert done["valid_until"] is not None
+    assert done["valid_until"] == _last_valid_day(done["finished_at"])
     assert done["definition_hash"] == tuned["definition_hash"]
     assert (done["transactions_read"], done["hit_count"]) == (0, 0)
     assert done["range_end"] == end.isoformat()
     assert done["notes"] == []
 
     rule = _rule(client, author, version["rule_id"])
-    [shown] = rule["versions"]
-    assert shown["status"] == "SIMULATED"
-    assert shown["simulation"]["id"] == simulation_id
+    assert rule["versions"][0]["status"] == "SIMULATED"
+    assert rule["versions"][0]["simulation"]["id"] == simulation_id
     assert rule["last_simulation"]["id"] == simulation_id
     assert rule["active_version_id"] is None
     assert (rule["code"], rule["template_code"]) == (CASH, CASH)
@@ -267,6 +291,14 @@ def test_a_senior_analyst_creates_tunes_and_simulates_a_rule(
     )
     assert too_long.status_code == 422
     assert too_long.json()["code"] == "SIMULATION_RANGE_TOO_LONG"
+
+
+def _last_valid_day(finished_at: str) -> str:
+    # The last Mexico City day on which a simulation still counts: it is stale
+    # from finished_at plus the maximum age.
+    max_age = timedelta(days=get_settings().monitoring_simulation_max_age_days)
+    expires = datetime.fromisoformat(finished_at) + max_age
+    return policy_date(expires - timedelta(microseconds=1)).isoformat()
 
 
 def _assert_filters(client: TestClient, headers: dict[str, str], rule_id: str) -> None:
@@ -367,7 +399,7 @@ def test_the_lifecycle_through_the_api_with_two_users(
     assert assignment["rule_code"] == CASH
     assert assignment["rule_version_id"] == version["id"]
 
-    _assert_assigned(client, author, assignment["id"])
+    _assert_assigned(client, app, (author, approver), assignment["id"])
     assert (
         _rule(client, author, version["rule_id"])["active_version_id"]
         == (version["id"])
@@ -386,13 +418,31 @@ def test_the_lifecycle_through_the_api_with_two_users(
 
 
 def _assert_assigned(
-    client: TestClient, headers: dict[str, str], assignment_id: str
+    client: TestClient,
+    app: FastAPI,
+    users: tuple[dict[str, str], dict[str, str]],
+    tenant_wide: str,
 ) -> None:
+    author, approver = users
+    emoney = activate_rule(
+        client,
+        app,
+        author=author,
+        approver=approver,
+        code="BORDER_ZONE_CASH",
+        product="EMONEY",
+    )
+    emoney_assignment = emoney["assignment"]
+    assert isinstance(emoney_assignment, dict)
+    assert emoney_assignment["product"] == "EMONEY"
+    assignment_ids = {tenant_wide, emoney_assignment["id"]}
+    headers = author
+    # Every product's assignments: the tenant-wide one and the EMONEY one.
     listed = client.get(
         ASSIGNMENTS, params={"on": today().isoformat()}, headers=headers
     )
     assert listed.status_code == 200, listed.text
-    assert [row["id"] for row in listed.json()] == [assignment_id]
+    assert {row["id"] for row in listed.json()} == assignment_ids
     assert client.get(ASSIGNMENTS, headers=headers).json() == listed.json()
     before = client.get(ASSIGNMENTS, params={"on": "2020-01-01"}, headers=headers)
     assert before.json() == []
@@ -507,10 +557,16 @@ def test_custom_rules_need_the_flag_and_admin(
     assert disabled.json()["code"] == "VALIDATION_FAILED"
     assert "custom rules are disabled" in disabled.json()["detail"]
 
+    # The flag and the role are checked before the definition is read.
+    malformed = {"definition": {"code": "HALF"}}
+    off = post(client, admin, RULES, malformed)
+    assert "custom rules are disabled" in off.json()["detail"]
+
     _allow_custom(monkeypatch, allowed=True)
-    refused = post(client, senior, RULES, body)
-    assert refused.status_code == 403
-    assert refused.json()["code"] == "ROLE_FORBIDDEN"
+    for attempt in (body, malformed):
+        refused = post(client, senior, RULES, attempt)
+        assert refused.status_code == 403
+        assert refused.json()["code"] == "ROLE_FORBIDDEN"
     for wrong in (
         {},
         {"template_code": CASH, "definition": _custom_definition()},
@@ -608,3 +664,43 @@ def test_another_tenant_sees_nothing(
     assert (_audit_count(tenant.tenant_id), _audit_count(other.tenant_id)) == before
     # The library is shared: the other tenant reads it and starts its own rule.
     assert len(client.get(TEMPLATES, headers=intruder).json()) == 16
+
+
+def test_the_rules_list_reads_a_bounded_number_of_queries(
+    app: FastAPI,
+    client: TestClient,
+    tenant: CreatedTenant,
+    library: None,
+    engine: Engine,
+):
+    author = staff_client(client, tenant, Role.SENIOR_ANALYST)
+    editor = staff_client(client, tenant, Role.MLRO)
+    first = _created(client, author)
+    _ = simulated(client, app, author, first["rule_id"], 1)
+
+    def statements() -> list[str]:
+        seen: list[str] = []
+
+        def keep(*args: Any) -> None:
+            seen.append(str(args[2]))
+
+        event.listen(engine, "before_cursor_execute", keep)
+        try:
+            response = client.get(RULES, headers=author)
+        finally:
+            event.remove(engine, "before_cursor_execute", keep)
+        assert response.status_code == 200, response.text
+        return seen
+
+    few = statements()
+    for code in ("BORDER_ZONE_CASH", "SELF_CUSTODY_OUTFLOW", "NEW_ACCOUNT_VELOCITY"):
+        created = _created(client, author, code)
+        edited = client.patch(
+            _version_path(created), json={"severity": "HIGH"}, headers=editor
+        )
+        assert edited.status_code == 200, edited.text
+        added = post(client, author, f"{RULES}/{created['rule_id']}/versions")
+        assert added.status_code == 201, added.text
+    many = statements()
+    assert len(many) == len(few), "\n".join(s[:150] for s in many)
+    assert sum("audit_event" in statement for statement in many) == 1

@@ -1,22 +1,23 @@
 """The rules API: templates, rules, versions, lifecycle, simulations (plan 4b B9).
 
-Templates, rules and simulations are read by staff and by API clients with
-``rules:read`` (spec §15); every write, the lifecycle and the assignments are
-staff only. A simulation's ``sample`` and ``overlap`` say which customers a rule
-would hit, so an API client's copy carries neither (tipping-off, PRV-502), and only
-staff see the actions they may take on a version. Writers (SENIOR_ANALYST, MLRO,
-ADMIN) create, tune and simulate versions; the lifecycle routes admit any staff
-writer and the service decides by the spec §9.4 matrix, answering 409
-``RULE_TRANSITION_NOT_ALLOWED`` with ``blocked_reasons``. The staff view evaluates
-the same matrix for the caller, with the same editors and bounds the service
-reads, so a reason it shows is the reason a refusal would give.
+Templates and rules are read by staff and by API clients with ``rules:read``;
+simulations, every write, the lifecycle and the assignments are staff only (spec
+§15). A simulation's tallies, sample and overlap can tell which customer a rule
+would hit, so a rule read by an API client shows its simulations' status and
+dates only (tipping-off, PRV-502), with no staff user id and no actions.
+Writers (SENIOR_ANALYST, MLRO, ADMIN) create, tune and simulate versions; the
+lifecycle routes admit any staff writer and the service decides by the spec §9.4
+matrix, answering 409 ``RULE_TRANSITION_NOT_ALLOWED`` with ``blocked_reasons``.
+The staff view evaluates the same matrix for the caller, with the same editors
+and bounds the service reads, so a reason it shows is the reason a refusal would
+give; the editors of a page's versions are read in one query.
 
 Every definition stored goes through B5's services, which validate it as a
 ``RuleDefinition`` (plan 4b Deviation 19 N1). Another tenant's rule, version or
 simulation is ``NOT_FOUND`` (row-level security). Routes hold no business rule.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -50,11 +51,11 @@ from xolotl.modules.monitoring.rules.enums import (
 from xolotl.modules.monitoring.rules.lifecycle import (
     activate_version,
     approve_version,
+    editors_of,
     evaluate_rule_actions,
     reject_version,
     retire_version,
     submit_version,
-    version_editors,
     version_out_of_bounds,
 )
 from xolotl.modules.monitoring.rules.models import (
@@ -109,6 +110,7 @@ SENTENCE_LOCALE = "es-MX"
 # compares, so a shorter range never fires it (plan 4b Deviation 13).
 PROFILE_HISTORY_DAYS = 120
 PROFILE_HISTORY_SHORT = "PROFILE_HISTORY_SHORT"
+_NO_EDITORS: frozenset[UUID] = frozenset()
 _PARAM_TYPES: dict[type, Literal["DECIMAL", "INT", "STR", "BOOL"]] = {
     Decimal: "DECIMAL",
     int: "INT",
@@ -181,29 +183,21 @@ def _notes(simulation: RuleSimulation, kind: RuleKind) -> list[str]:
 
 
 def _valid_until(simulation: RuleSimulation) -> date | None:
+    # The last day it counts: the lifecycle takes it as stale from finished_at
+    # plus the maximum age, an instant that falls on this Mexico City day.
     if (
         simulation.status is not SimulationStatus.COMPLETED
         or simulation.finished_at is None
     ):
         return None
     days = get_settings().monitoring_simulation_max_age_days
-    return policy_date(simulation.finished_at + timedelta(days=days))
+    expires = simulation.finished_at + timedelta(days=days)
+    return policy_date(expires - timedelta(microseconds=1))
 
 
 def _simulation_view(
-    simulation: RuleSimulation, *, kind: RuleKind, staff: bool
+    simulation: RuleSimulation, *, kind: RuleKind
 ) -> SimulationResponse:
-    # Which customers a rule would hit is for staff only (PRV-502).
-    overlap: dict[str, int] | None = None
-    sample: list[dict[str, JsonValue]] = []
-    if staff and simulation.overlap is not None:
-        overlap = {
-            name: count
-            for name, count in simulation.overlap.items()
-            if isinstance(count, int)
-        }
-    if staff:
-        sample = [item for item in simulation.sample or [] if isinstance(item, dict)]
     return SimulationResponse(
         id=simulation.id,
         rule_version_id=simulation.rule_version_id,
@@ -217,8 +211,14 @@ def _simulation_view(
         hits_per_week=[
             item for item in simulation.hits_per_week or [] if isinstance(item, dict)
         ],
-        overlap=overlap,
-        sample=sample,
+        overlap=None
+        if simulation.overlap is None
+        else {
+            name: count
+            for name, count in simulation.overlap.items()
+            if isinstance(count, int)
+        },
+        sample=[item for item in simulation.sample or [] if isinstance(item, dict)],
         requested_by=simulation.requested_by,
         started_at=simulation.started_at,
         finished_at=simulation.finished_at,
@@ -228,7 +228,31 @@ def _simulation_view(
     )
 
 
-def _assignment_view(row: RuleAssignment, rule_code: str) -> RuleAssignmentResponse:
+# What an API client never sees of a simulation (spec §15, PRV-502): every tally
+# can tell which customer a rule would hit, and the requester is a staff member.
+_CLIENT_HIDDEN_SIMULATION: dict[str, object] = {
+    "transactions_read": None,
+    "hit_count": None,
+    "customers_hit": None,
+    "hits_per_week": None,
+    "overlap": None,
+    "sample": None,
+    "requested_by": None,
+}
+
+
+def _shown_simulation(
+    simulation: RuleSimulation | None, *, kind: RuleKind, staff: bool
+) -> SimulationResponse | None:
+    if simulation is None:
+        return None
+    view = _simulation_view(simulation, kind=kind)
+    return view if staff else view.model_copy(update=_CLIENT_HIDDEN_SIMULATION)
+
+
+def _assignment_view(
+    row: RuleAssignment, rule_code: str, *, staff: bool = True
+) -> RuleAssignmentResponse:
     segment = row.segment_filter
     return RuleAssignmentResponse(
         id=row.id,
@@ -244,7 +268,7 @@ def _assignment_view(row: RuleAssignment, rule_code: str) -> RuleAssignmentRespo
         },
         effective_from=row.effective_from,
         effective_to=row.effective_to,
-        approved_by=row.approved_by,
+        approved_by=row.approved_by if staff else None,
     )
 
 
@@ -257,13 +281,17 @@ class _Related:
     # The latest simulation of each version, by version id.
     latest: dict[UUID, RuleSimulation]
     # The assignment of each activated version, by version id.
-    assignments: dict[UUID, RuleAssignment]
+    assignments: Mapping[UUID, RuleAssignment]
+    # The staff users who edited each version (four eyes), by version id.
+    editors: Mapping[UUID, frozenset[UUID]]
+    # The template versions the versions were built from, by id.
+    templates: Mapping[UUID, RuleTemplateVersion]
 
 
 def _related(s: Session, versions: Sequence[MonitoringRuleVersion]) -> _Related:
     ids = [version.id for version in versions]
     if not ids:
-        return _Related({}, {}, {})
+        return _Related({}, {}, {}, {}, {})
     latest = {
         row.rule_version_id: row
         for row in s.scalars(
@@ -303,20 +331,30 @@ def _related(s: Session, versions: Sequence[MonitoringRuleVersion]) -> _Related:
         for version in versions
         if version.template_version_id is not None
     }
-    if template_ids:
-        # Into the identity map, for the sources and the bounds check.
-        _ = s.scalars(
-            select(RuleTemplateVersion).where(RuleTemplateVersion.id.in_(template_ids))
-        ).all()
-    return _Related(simulations, latest, assignments)
+    # Held here, so the session's identity map keeps them for the bounds check
+    # (version_out_of_bounds reads them by key) while the views are built.
+    templates = (
+        {
+            row.id: row
+            for row in s.scalars(
+                select(RuleTemplateVersion).where(
+                    RuleTemplateVersion.id.in_(template_ids)
+                )
+            )
+        }
+        if template_ids
+        else {}
+    )
+    return _Related(simulations, latest, assignments, editors_of(s, ids), templates)
 
 
-def _source(s: Session, version: MonitoringRuleVersion, rule: MonitoringRule) -> str:
+def _source(
+    version: MonitoringRuleVersion, rule: MonitoringRule, related: _Related
+) -> str:
     # Where the version's bounds come from (plan 4b Deviation 17).
     if version.template_version_id is None:
         return f"rule {rule.code} v{version.version}"
-    template = s.get_one(RuleTemplateVersion, version.template_version_id)
-    return _template_source(template)
+    return _template_source(related.templates[version.template_version_id])
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,7 +393,7 @@ def _version_view(
             user_id=UUID(ctx.actor_id),
             now=viewer.now,
             out_of_bounds=version_out_of_bounds(s, version),
-            editors=version_editors(s, version.id),
+            editors=related.editors.get(version.id, _NO_EDITORS),
         )
         allowed = list(actions.allowed)
         blocked = {action: list(reasons) for action, reasons in actions.blocked.items()}
@@ -366,21 +404,19 @@ def _version_view(
         status=version.status,
         definition_hash=version.definition_hash.hex(),
         sync=version.sync,
-        params=_param_views(definition, _source(s, version, rule)),
+        params=_param_views(definition, _source(version, rule, related)),
         segment=definition.segment,
         severity=definition.severity,
         dedup=definition.dedup,
         sentence=definition.render(SENTENCE_LOCALE),
-        author_id=version.author_id,
+        author_id=version.author_id if viewer.staff else None,
         submitted_at=version.submitted_at,
-        approved_by=version.approved_by,
+        approved_by=version.approved_by if viewer.staff else None,
         approved_at=version.approved_at,
-        simulation=None
-        if latest is None
-        else _simulation_view(latest, kind=definition.kind, staff=viewer.staff),
+        simulation=_shown_simulation(latest, kind=definition.kind, staff=viewer.staff),
         assignment=None
         if assignment is None
-        else _assignment_view(assignment, rule.code),
+        else _assignment_view(assignment, rule.code, staff=viewer.staff),
         activated_at=version.activated_at,
         retired_at=version.retired_at,
         retired_by_version_id=version.retired_by_version_id,
@@ -426,7 +462,7 @@ def _rule_views(
                 template_code=rule.template_code,
                 title=rule.title,
                 typology=list(newest.typology),
-                created_by=rule.created_by,
+                created_by=rule.created_by if viewer.staff else None,
                 created_at=rule.created_at,
                 versions=shown,
                 active_version_id=next(
@@ -437,9 +473,9 @@ def _rule_views(
                     ),
                     None,
                 ),
-                last_simulation=None
-                if last is None
-                else _simulation_view(last, kind=newest.kind, staff=viewer.staff),
+                last_simulation=_shown_simulation(
+                    last, kind=newest.kind, staff=viewer.staff
+                ),
             )
         )
     return views
@@ -555,6 +591,8 @@ def create_rule(
     body: RuleCreateRequest, writer: RuleWriter, session: SessionDep
 ) -> VersionResponse:
     if body.definition is not None:
+        # The flag and the role first: a refused author learns nothing more.
+        _ = rule_versions.require_custom_author(session)
         version = rule_versions.create_custom_rule(
             session, definition=_custom_definition(body.definition)
         )
@@ -611,7 +649,7 @@ def simulate_rule_version(
 
 @router.get("/simulations/{simulation_id}")
 def get_simulation(
-    simulation_id: UUID, reader: RulesReader, session: SessionDep
+    simulation_id: UUID, _staff: StaffReader, session: SessionDep
 ) -> SimulationResponse:
     tenant_id = bound_context(session).require_tenant_id()
     simulation = session.get(RuleSimulation, (tenant_id, simulation_id))
@@ -622,7 +660,7 @@ def get_simulation(
         MonitoringRuleVersion, (tenant_id, simulation.rule_version_id)
     )
     kind = RuleDefinition.model_validate(version.definition).kind
-    return _simulation_view(simulation, kind=kind, staff=reader.is_staff)
+    return _simulation_view(simulation, kind=kind)
 
 
 @router.post("/rules/{rule_id}/versions/{v}/submit")

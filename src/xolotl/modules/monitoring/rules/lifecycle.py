@@ -22,7 +22,7 @@ answers ``NOT_FOUND`` for a version of another tenant, and raises
 ``RuleTransitionNotAllowedError`` with the matrix's reasons when it is blocked.
 """
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from uuid import UUID
@@ -78,6 +78,7 @@ __all__ = [
     "RuleActionSet",
     "activate_version",
     "approve_version",
+    "editors_of",
     "evaluate_rule_actions",
     "reject_version",
     "retire_version",
@@ -251,6 +252,32 @@ def _locked_rule(
     return version, siblings
 
 
+def editors_of(
+    s: Session, version_ids: Collection[UUID]
+) -> Mapping[UUID, frozenset[UUID]]:
+    """Find, in one query, the staff users who edited each of some versions.
+
+    Returns:
+        By version id, the actors of its ``rules.version_updated`` audit rows; a
+        version nobody edited is absent.
+
+    """
+    if not version_ids:
+        return {}
+    rows = s.execute(
+        select(AuditEventRow.entity_id, AuditEventRow.actor_id).where(
+            AuditEventRow.action == "rules.version_updated",
+            AuditEventRow.entity_type == "monitoring_rule_version",
+            AuditEventRow.entity_id.in_([str(item) for item in version_ids]),
+            AuditEventRow.actor_type == ActorType.STAFF.value,
+        )
+    )
+    editors: dict[UUID, set[UUID]] = {}
+    for entity_id, actor_id in rows:
+        editors.setdefault(UUID(str(entity_id)), set()).add(UUID(actor_id))
+    return {version_id: frozenset(users) for version_id, users in editors.items()}
+
+
 def version_editors(s: Session, version_id: UUID) -> frozenset[UUID]:
     """Find the staff users who edited a version after it was created.
 
@@ -258,15 +285,7 @@ def version_editors(s: Session, version_id: UUID) -> frozenset[UUID]:
         The actors of its ``rules.version_updated`` audit rows.
 
     """
-    actors = s.scalars(
-        select(AuditEventRow.actor_id).where(
-            AuditEventRow.action == "rules.version_updated",
-            AuditEventRow.entity_type == "monitoring_rule_version",
-            AuditEventRow.entity_id == str(version_id),
-            AuditEventRow.actor_type == ActorType.STAFF.value,
-        )
-    )
-    return frozenset(UUID(actor) for actor in actors)
+    return editors_of(s, [version_id]).get(version_id, _NO_EDITORS)
 
 
 def version_out_of_bounds(s: Session, version: MonitoringRuleVersion) -> bool:

@@ -855,11 +855,12 @@ days).
 
 ### Rules API
 
-Staff and API keys with the `rules:read` scope read the library, the tenant's rules
-and simulations; every write, every lifecycle step and the assignments are staff
-only (an API key, whatever its scopes, gets 403 `ROLE_FORBIDDEN`). An API key never
-receives a simulation's `sample` or `overlap` (which customers the rule would hit):
-its copy has `sample` empty and `overlap` null, and no `allowed_actions`. For staff,
+Staff and API keys with the `rules:read` scope read the library and the tenant's
+rules; simulations, every write, every lifecycle step and the assignments are staff
+only (an API key, whatever its scopes, gets 403 `ROLE_FORBIDDEN`). In a rule an API
+key reads, each simulation keeps its status, range and dates, but its tallies,
+weeks, overlap, sample and requester are null (even a count can tell which customer
+a rule would hit), and no staff user id or `allowed_actions` is shown. For staff,
 each version carries the `allowed_actions` and `blocked_reasons` of the caller, from
 the same matrix the lifecycle enforces (an MLRO who edited a version is shown
 `SAME_AUTHOR` on `APPROVE`). Every `POST` takes an `Idempotency-Key`; another
@@ -872,7 +873,7 @@ tenant's rule, version or simulation is 404.
 | `POST /v1/monitoring/rules` | staff `SENIOR_ANALYST`, `MLRO`, `ADMIN` | `{template_code, params?, segment?, severity?, dedup?}` → 201 the `DRAFT` version (a new version when the tenant has the rule already); `{definition}` alone authors a custom rule (`ADMIN`, with `XOLOTL_MONITORING_ALLOW_CUSTOM_RULES`); 422 `RULE_PARAM_OUT_OF_BOUNDS` with the parameter, bound and source in `errors[]` |
 | `POST /v1/monitoring/rules/{id}/versions` · `PATCH /v1/monitoring/rules/{id}/versions/{v}` | staff writers | a new `DRAFT` version from the latest one; an edit of a `DRAFT` or `SIMULATED` version (any change sends it back to `DRAFT`) |
 | `POST /v1/monitoring/rules/{id}/versions/{v}/simulate` | staff writers | `{range_start, range_end}` → 202 `{simulation_id}`; 422 `SIMULATION_RANGE_TOO_LONG` |
-| `GET /v1/monitoring/simulations/{id}` | staff; API key `rules:read` | status, tallies, `hits_per_week`, `valid_until` (the day it stops counting for submission and approval) and `notes` (`PROFILE_HISTORY_SHORT` for a profile rule simulated over less than 120 days) |
+| `GET /v1/monitoring/simulations/{id}` | staff | status, tallies, `hits_per_week`, `overlap`, `sample`, `valid_until` (the last day it counts for submission and approval) and `notes` (`PROFILE_HISTORY_SHORT` for a profile rule simulated over less than 120 days) |
 | `POST /v1/monitoring/rules/{id}/versions/{v}/submit` · `approve` · `reject` · `activate` · `retire` | staff (the lifecycle checks the roles) | the version; `reject` takes `{reason}` (1 to 500 characters, not stored), `activate` `{effective_from, product?}`; 409 `RULE_TRANSITION_NOT_ALLOWED` with `blocked_reasons` |
 | `GET /v1/monitoring/assignments?on=` | staff | the assignments in force on `on` (today by default), for every product, with the rule code |
 
