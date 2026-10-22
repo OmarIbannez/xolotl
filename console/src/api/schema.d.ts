@@ -1529,6 +1529,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/monitoring/captures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Captures */
+        get: operations["list_captures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/captures/periods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Capture Periods */
+        get: operations["list_capture_periods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/captures/periods/{period_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close Capture Period */
+        post: operations["close_capture_period"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/captures/effective": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Effective Captures */
+        get: operations["list_effective_captures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/captures/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Capture */
+        get: operations["get_capture"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -1993,6 +2078,167 @@ export interface components {
              */
             filing: "SERIALIZED" | "MANUAL_UPLOAD";
             merge_into?: components["schemas"]["Provenanced_str_"] | null;
+        };
+        /**
+         * CaptureGroupStatus
+         * @enum {string}
+         */
+        CaptureGroupStatus: "OPEN" | "CROSSED" | "SUPERSEDED";
+        /**
+         * CaptureGroupView
+         * @description An accumulation group: its window, total and crossing (spec §10.2).
+         *
+         *     ``accumulated_unit`` is the total in the threshold's unit; ``member_count``
+         *     counts the operations the group accumulates; ``superseded_by_id`` names the
+         *     group that replaced it after a late operation.
+         */
+        CaptureGroupView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            status: components["schemas"]["CaptureGroupStatus"];
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /** Threshold Crossed At */
+            threshold_crossed_at: string | null;
+            /** Accumulated Minor */
+            accumulated_minor: number;
+            /** Accumulated Unit */
+            accumulated_unit: string;
+            /** Member Count */
+            member_count: number;
+            /** Superseded By Id */
+            superseded_by_id: string | null;
+        };
+        /**
+         * CaptureKind
+         * @enum {string}
+         */
+        CaptureKind: "THRESHOLD" | "ACCUMULATION" | "FEE_THRESHOLD";
+        /**
+         * CaptureLimitView
+         * @description One read-only row of Capturas y límites, with its provenance.
+         *
+         *     A capture of the effective policy, or a tier's monthly limit (``kind``
+         *     ``TIER_LIMIT``, ``code`` the tier and limit, ``report_code`` null).
+         *     ``source`` names the packs (and the override version) it was resolved from.
+         */
+        CaptureLimitView: {
+            /** Code */
+            code: string;
+            /** Kind */
+            kind: components["schemas"]["CaptureKind"] | "TIER_LIMIT";
+            /** Threshold */
+            threshold: string;
+            /** Unit */
+            unit: string;
+            conversion_rule: components["schemas"]["ConversionRule"];
+            /** Window */
+            window: string | null;
+            /** Period */
+            period: string | null;
+            /** Report Code */
+            report_code: string | null;
+            /** Legal Basis */
+            legal_basis: string;
+            /** Confidence */
+            confidence: string;
+            /** Source */
+            source: string;
+        };
+        /**
+         * CapturePeriodQuery
+         * @description The filters of ``GET /v1/monitoring/captures/periods``.
+         */
+        CapturePeriodQuery: {
+            /** Capture Code */
+            capture_code?: string | null;
+            status?: components["schemas"]["CapturePeriodStatus"] | null;
+        };
+        /**
+         * CapturePeriodResponse
+         * @description A capture code's period and its close (spec §10.4; staff only).
+         *
+         *     ``event_count`` is the live events (``CAPTURED``, ``INCLUDED``): counted now
+         *     for an open or reopened period, as the close counted them for a closed one.
+         *     ``discrepancies`` names the transactions the close found ``missing`` or
+         *     ``extra``.
+         */
+        CapturePeriodResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Capture Code */
+            capture_code: string;
+            /** Report Code */
+            report_code: string;
+            /** Period Key */
+            period_key: string;
+            /**
+             * Period Start
+             * Format: date
+             */
+            period_start: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            status: components["schemas"]["CapturePeriodStatus"];
+            /** Event Count */
+            event_count: number;
+            /** Reconciled Count */
+            reconciled_count: number | null;
+            /** Reconciled At */
+            reconciled_at: string | null;
+            /** Discrepancies */
+            discrepancies: {
+                [key: string]: string[];
+            } | null;
+            /** Closed At */
+            closed_at: string | null;
+            /** Reopened At */
+            reopened_at: string | null;
+            /** Change Count */
+            change_count: number;
+        };
+        /**
+         * CapturePeriodStatus
+         * @description ``REOPENED`` marks a late capture after the close (spec §10.5).
+         * @enum {string}
+         */
+        CapturePeriodStatus: "OPEN" | "CLOSED" | "REOPENED";
+        /**
+         * CaptureQuery
+         * @description The filters of ``GET /v1/monitoring/captures`` (plan 4b B11).
+         *
+         *     ``transaction_id`` lists a transaction's events (the console's card on the
+         *     transaction detail).
+         */
+        CaptureQuery: {
+            /** Capture Code */
+            capture_code?: string | null;
+            /** Report Code */
+            report_code?: string | null;
+            /** Period Key */
+            period_key?: string | null;
+            status?: components["schemas"]["ReportableEventStatus"] | null;
+            /** Relationship Id */
+            relationship_id?: string | null;
+            /** Transaction Id */
+            transaction_id?: string | null;
         };
         /** ChainVerification */
         ChainVerification: {
@@ -3778,6 +4024,13 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[CapturePeriodResponse] */
+        Page_CapturePeriodResponse_: {
+            /** Items */
+            items: components["schemas"]["CapturePeriodResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[CounterpartyResponse] */
         Page_CounterpartyResponse_: {
             /** Items */
@@ -3866,6 +4119,13 @@ export interface components {
         Page_PrivateListVersionResponse_: {
             /** Items */
             items: components["schemas"]["PrivateListVersionResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[ReportableEventSummary] */
+        Page_ReportableEventSummary_: {
+            /** Items */
+            items: components["schemas"]["ReportableEventSummary"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -4620,6 +4880,135 @@ export interface components {
             deadline: components["schemas"]["Provenanced_DeadlineRule_"];
             /** Zero Report */
             zero_report: boolean;
+        };
+        /**
+         * ReportableEventDetail
+         * @description An event with its pre-mapped report fields, unit values and group.
+         *
+         *     ``fields`` and ``unit_values`` hold codes, amounts, units and ids, never a
+         *     name (PRV-501).
+         */
+        ReportableEventDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Capture Code */
+            capture_code: string;
+            /** Report Code */
+            report_code: string;
+            capture_kind: components["schemas"]["CaptureKind"];
+            /**
+             * Transaction Id
+             * Format: uuid
+             */
+            transaction_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /** Product */
+            product: string | null;
+            /** Period Key */
+            period_key: string;
+            /** Capture Group Id */
+            capture_group_id: string | null;
+            status: components["schemas"]["ReportableEventStatus"];
+            /** Late */
+            late: boolean;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Fields */
+            fields: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            /** Unit Values */
+            unit_values: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+            group: components["schemas"]["CaptureGroupView"] | null;
+            /** Supersedes Id */
+            supersedes_id: string | null;
+            /** Superseded By Id */
+            superseded_by_id: string | null;
+            /** Void Reason */
+            void_reason: string | null;
+            /**
+             * Policy Snapshot Id
+             * Format: uuid
+             */
+            policy_snapshot_id: string;
+        };
+        /**
+         * ReportableEventStatus
+         * @description ``INCLUDED`` is set by reporting (SP-05) when a report takes the event.
+         * @enum {string}
+         */
+        ReportableEventStatus: "CAPTURED" | "INCLUDED" | "VOIDED" | "SUPERSEDED";
+        /**
+         * ReportableEventSummary
+         * @description A transaction captured for a report (spec §10; staff only, tipping-off).
+         */
+        ReportableEventSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Capture Code */
+            capture_code: string;
+            /** Report Code */
+            report_code: string;
+            capture_kind: components["schemas"]["CaptureKind"];
+            /**
+             * Transaction Id
+             * Format: uuid
+             */
+            transaction_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /** Product */
+            product: string | null;
+            /** Period Key */
+            period_key: string;
+            /** Capture Group Id */
+            capture_group_id: string | null;
+            status: components["schemas"]["ReportableEventStatus"];
+            /** Late */
+            late: boolean;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
         };
         /** RetentionOverride */
         RetentionOverride: {
@@ -8776,6 +9165,166 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_HitSummary_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_captures: {
+        parameters: {
+            query: {
+                query: components["schemas"]["CaptureQuery"];
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ReportableEventSummary_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_capture_periods: {
+        parameters: {
+            query: {
+                query: components["schemas"]["CapturePeriodQuery"];
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_CapturePeriodResponse_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    close_capture_period: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                period_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapturePeriodResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_effective_captures: {
+        parameters: {
+            query?: {
+                on?: string | null;
+                product?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureLimitView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportableEventDetail"];
                 };
             };
             /** @description Validation Error */
