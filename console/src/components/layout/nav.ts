@@ -1,4 +1,4 @@
-import { BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, House, KeyRound, ListChecks, Lock, Plug, ScanSearch, ScrollText, ShieldAlert, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, Handshake, House, KeyRound, ListChecks, Lock, Plug, ScanSearch, ScrollText, ShieldAlert, ShieldCheck, Users, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/api/types'
 import { ACCESS } from '@/auth/access'
 
@@ -7,8 +7,10 @@ export interface NavItem {
   labelKey:
     | 'nav.home'
     | 'nav.parties'
+    | 'nav.transactions'
     | 'nav.matches'
     | 'nav.screeningCheck'
+    | 'nav.counterparties'
     | 'nav.apiKeys'
     | 'nav.staff'
     | 'nav.audit'
@@ -30,8 +32,10 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/', labelKey: 'nav.home', icon: House, end: true },
   { to: '/parties', labelKey: 'nav.parties', icon: Contact, roles: ACCESS.parties },
+  { to: '/transactions', labelKey: 'nav.transactions', icon: ArrowLeftRight, roles: ACCESS.transactions },
   { to: '/screening/matches', labelKey: 'nav.matches', icon: ShieldAlert, roles: ACCESS.screening },
   { to: '/screening/check', labelKey: 'nav.screeningCheck', icon: ScanSearch, roles: ACCESS.screeningCheck },
+  { to: '/counterparties', labelKey: 'nav.counterparties', icon: Handshake, roles: ACCESS.screening },
   { to: '/api-keys', labelKey: 'nav.apiKeys', icon: KeyRound, roles: ACCESS.apiKeys },
   { to: '/staff', labelKey: 'nav.staff', icon: Users, roles: ACCESS.staff },
   { to: '/audit', labelKey: 'nav.audit', icon: ScrollText, roles: ACCESS.audit },

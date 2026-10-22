@@ -56,6 +56,8 @@ class Counterparty(TenantTableMixin, Base):
         CheckConstraint(ONE_COMPONENT_CHECK, name="one_component"),
         Index("ix_counterparty_name_hash", "tenant_id", "name_hash"),
         Index("ix_counterparty_wallet_hash", "tenant_id", "wallet_hash"),
+        # Reverse blocking looks a delta entry's identifiers up here (0014).
+        Index("ix_counterparty_identifier_hash", "tenant_id", "identifier_hash"),
         # screening_subject references this table too; the cycle is closed by ALTER.
         ForeignKeyConstraint(
             ["tenant_id", "screening_subject_id"],

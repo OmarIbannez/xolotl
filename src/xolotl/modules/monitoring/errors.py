@@ -97,6 +97,13 @@ class BackfillRangeInvalidError(ValidationFailedError):
     default_detail: ClassVar[str] = "the backfill range is not valid"
 
 
+class RailUnknownError(NotFoundError):
+    """A rail named in a path or a request is no member of ``Rail``."""
+
+    default_code: ClassVar[str] = "RAIL_UNKNOWN"
+    default_detail: ClassVar[str] = "the rail is not known"
+
+
 class RuleTemplateUnknownError(NotFoundError):
     """No rule template of the library has this code (or this version)."""
 

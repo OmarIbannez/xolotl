@@ -7,6 +7,7 @@ path to the characters of a value, built by ``views.reveal_counterparty`` after 
 has audited each one. Plan 4c (C3) appends its response models here.
 """
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -15,6 +16,7 @@ from xolotl.modules.screening.counterparty.schema import (
     CounterpartyKind,
     CounterpartyScreeningStatus,
 )
+from xolotl.modules.screening.schemas import MatchSummary, RunResponse
 
 
 class CounterpartySummary(BaseModel):
@@ -42,3 +44,29 @@ class RevealedCounterparty(BaseModel):
     wallet_network: str | None
     identifier_type: str | None
     identifier: str | None
+
+
+class CounterpartyResponse(CounterpartySummary):
+    """A row of the Contrapartes list (plan 4c C3): the summary plus masked values.
+
+    ``initials`` and the ``*_masked`` tails are computed by decrypting for processing
+    (D6), never shown whole; ``initials`` is empty for a counterparty without a name.
+    """
+
+    initials: str
+    # "****1234": the last four characters of the account as stored.
+    account_masked: str | None
+    wallet_masked: str | None
+    identifier_masked: str | None
+    identifier_type: str | None
+    screened_at: datetime | None
+    subject_id: UUID | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class CounterpartyDetail(CounterpartyResponse):
+    """A counterparty with its findings (newest first) and its last ten runs."""
+
+    findings: list[MatchSummary]
+    runs: list[RunResponse]

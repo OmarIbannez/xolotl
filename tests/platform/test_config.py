@@ -278,6 +278,8 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_partitions_cron",
         "monitoring_partition_months_ahead",
         "monitoring_counterparty_screen_batch",
+        "monitoring_decide_budget_ms",
+        "monitoring_decide_fail_mode",
         "monitoring_allow_custom_rules",
         "monitoring_rule_cache_seconds",
         "monitoring_simulation_max_age_days",
@@ -701,6 +703,8 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_partitions_cron == "0 1 * * *"
     assert s.monitoring_partition_months_ahead == 3
     assert s.monitoring_counterparty_screen_batch == 100
+    assert s.monitoring_decide_budget_ms == 80
+    assert s.monitoring_decide_fail_mode == "FAIL_OPEN"
     assert s.monitoring_allow_custom_rules is False
     assert s.monitoring_rule_cache_seconds == 30
     assert s.monitoring_simulation_max_age_days == 30
@@ -725,6 +729,8 @@ def test_the_monitoring_crons_are_validated(monkeypatch, name):
         ("XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH", "0"),
         ("XOLOTL_MONITORING_RULE_CACHE_SECONDS", "-1"),
         ("XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS", "0"),
+        ("XOLOTL_MONITORING_DECIDE_BUDGET_MS", "0"),
+        ("XOLOTL_MONITORING_DECIDE_FAIL_MODE", "sideways"),
     ],
 )
 def test_monitoring_limits_reject_nonsense(monkeypatch, name, value):
