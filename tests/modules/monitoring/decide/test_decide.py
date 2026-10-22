@@ -10,6 +10,7 @@ mode answers 200 and never a 503. It never waits on processing's locks.
 import hashlib
 import logging
 import time
+from collections.abc import Collection
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
@@ -19,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlalchemy import Engine, select, text, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from tests.helpers import staff_session, system_ctx
@@ -55,13 +56,18 @@ from xolotl.modules.monitoring.events import DECISION_ISSUED
 from xolotl.modules.monitoring.process.job import lock_party
 from xolotl.modules.monitoring.rules.models import TierLimitNotice
 from xolotl.modules.monitoring.txn.schema import Rail
-from xolotl.modules.party.service import relationship_ref
+from xolotl.modules.party.service import (
+    RelationshipRef,
+    relationship_by_external_ref,
+    relationship_ref,
+)
 from xolotl.modules.screening.counterparty.models import Counterparty
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import tenant_session
 from xolotl.platform.events.models import WebhookDelivery
 
 _GONE = OperationalError("SELECT agg_bucket", {}, Exception("gone"))
+_FOREIGN = IntegrityError("INSERT INTO txn_decision", {}, Exception("fk"))
 _FULL = OperationalError("INSERT INTO txn_decision", {}, Exception("full"))
 COUNTERPARTY = {"kind": "PERSON", "name": "Juan Pérez", "account": "012180001234567890"}
 
@@ -512,3 +518,46 @@ def test_a_second_decision_at_the_same_instant_is_still_recorded(
     assert decision_count(decide_stage.tenant_id) == 2
     decided = [row.decided_at for row in rows if row is not None]
     assert decided[1] - decided[0] == timedelta(microseconds=1)
+
+
+def test_a_zero_budget_keeps_a_floor_under_step_one_and_records_the_row(
+    client: TestClient, decide_stage: DecideStage, monkeypatch: pytest.MonkeyPatch
+):
+    # A loaded machine must not see step 1 cancelled by a 0 ms budget: the
+    # statement timeout keeps a floor, so the fail mode's row names the customer.
+    monkeypatch.setattr(get_settings(), "monitoring_decide_budget_ms", 0)
+    seen: list[str] = []
+
+    def watched(s: Session, refs: Collection[str]) -> dict[str, RelationshipRef]:
+        seen.append(str(s.scalar(text("SELECT current_setting('statement_timeout')"))))
+        return relationship_by_external_ref(s, refs)
+
+    monkeypatch.setattr(service, "relationship_by_external_ref", watched)
+
+    body = _ok(ask(client, decide_stage.writer, candidate("d-1", UDI_100)))
+
+    assert seen == [f"{service.STATEMENT_TIMEOUT_FLOOR_MS}ms"]
+    row = decision_row(decide_stage.tenant_id, str(body["decision_id"]))
+    assert row is not None
+    assert (row.mode, row.relationship_id) == ("FAIL_OPEN", decide_stage.n1)
+
+
+def test_an_integrity_error_other_than_the_external_id_tie_is_not_retried(
+    client: TestClient,
+    decide_stage: DecideStage,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    calls: list[object] = []
+
+    def broken(*args: object, **_kwargs: object) -> None:
+        calls.append(args)
+        raise _FOREIGN
+
+    monkeypatch.setattr(service, "record_decision", broken)
+
+    with caplog.at_level(logging.WARNING):
+        _ = _ok(ask(client, decide_stage.writer, candidate("d-1", UDI_100)))
+
+    assert len(calls) == 1
+    assert [r for r in caplog.records if r.message == service.DECISION_UNRECORDED]

@@ -71,6 +71,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from psycopg.errors import UniqueViolation
 from pydantic import JsonValue
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -165,6 +166,11 @@ _UNAVAILABLE: tuple[dict[str, JsonValue], ...] = ({"code": DECIDE_UNAVAILABLE},)
 # Sets a timeout setting for the rest of the transaction; returns the old value.
 _SET_TIMEOUT = text("SELECT current_setting(:name), set_config(:name, :value, true)")
 _RESTORE_TIMEOUT = text("SELECT set_config(:name, :value, true)")
+EXTERNAL_INDEX = "ux_txn_decision_external"
+_EXTERNAL_PARTITION_SUFFIX = "_tenant_id_external_id_decided_at_idx"
+# The least statement_timeout steps 1 to 5 get, however little budget is left, so
+# a loaded machine never cancels step 1 and loses the fail mode's row with it.
+STATEMENT_TIMEOUT_FLOOR_MS = 5
 # A second decision of one external_id at the very same instant moves this far, so
 # ux_txn_decision_external keeps both.
 _TIE_BREAK = timedelta(microseconds=1)
@@ -467,6 +473,15 @@ def _attempt(
         return resolved, None
 
 
+def _is_external_id_tie(exc: IntegrityError) -> bool:
+    # Postgres names the partition's copy of ux_txn_decision_external
+    # (txn_decision_<month>_tenant_id_external_id_decided_at_idx), or the index.
+    if not isinstance(exc.orig, UniqueViolation):
+        return False
+    name = exc.orig.diag.constraint_name or ""
+    return name == EXTERNAL_INDEX or name.endswith(_EXTERNAL_PARTITION_SUFFIX)
+
+
 def _stored(
     s: Session, build: Callable[[datetime], TxnDecision], now: datetime
 ) -> TxnDecision | None:
@@ -478,8 +493,10 @@ def _stored(
         try:
             with s.begin_nested():
                 record_decision(s, row)
-        except IntegrityError:
-            continue
+        except IntegrityError as exc:
+            if _is_external_id_tie(exc):
+                continue
+            return None
         except SQLAlchemyError:
             return None
         return row
@@ -509,7 +526,9 @@ def decide(s: Session, item: TransactionInput, *, actor: str) -> DecisionResult:
         # Cancels a step's statement that stalls past the budget without waiting
         # on a lock (an OperationalError, so the fail mode answers). Set outside
         # the steps' savepoint, so its rollback keeps the setting.
-        remaining = timer.budget_ms - timer.elapsed_ms()
+        remaining = max(
+            timer.budget_ms - timer.elapsed_ms(), STATEMENT_TIMEOUT_FLOOR_MS
+        )
         with _timeout(s, "statement_timeout", remaining):
             resolved, evaluated = _attempt(s, item, now=now, timer=timer)
         if evaluated is not None:
