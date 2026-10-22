@@ -8,8 +8,9 @@ Deviation 3). The same evaluation feeds the 409 of a refused transition and the
 ``allowed_actions`` and ``blocked_reasons`` of the staff view, as SP-03's
 disposition matrix does.
 
-Only the author submits, and only someone else approves (four eyes; the database
-CHECK ``approver_not_author`` holds it too). Submission and approval need a
+Only the author submits, and only someone else approves: neither the author nor
+a user who edited the version (four eyes; the database CHECK
+``approver_not_author`` holds the author part too). Submission and approval need a
 completed simulation of the version's current definition younger than
 ``MONITORING_SIMULATION_MAX_AGE_DAYS``. Activation starts a dated assignment,
 retires the rule's current ``ACTIVE`` version and ends every assignment of the
@@ -63,6 +64,7 @@ from xolotl.modules.monitoring.rules.templates import definition_of
 from xolotl.modules.monitoring.rules.versions import WRITERS, check_params
 from xolotl.platform import clock
 from xolotl.platform.audit import AuditEvent, record
+from xolotl.platform.audit.models import AuditEventRow
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import bound_context
 from xolotl.platform.enums import ActorType, Role
@@ -80,10 +82,12 @@ __all__ = [
     "reject_version",
     "retire_version",
     "submit_version",
+    "version_editors",
 ]
 
 APPROVERS = frozenset({Role.MLRO, Role.ADMIN})
 _REASON_MAX = 500
+_NO_EDITORS: frozenset[UUID] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,12 +159,14 @@ def evaluate_rule_actions(
     user_id: UUID,
     now: datetime,
     out_of_bounds: bool = False,
+    editors: frozenset[UUID] = _NO_EDITORS,
 ) -> RuleActionSet:
     """Evaluate every lifecycle action on a version for one user.
 
     ``simulation`` is the version's latest simulation, if any; ``out_of_bounds``
     says its parameters no longer fit its template's bounds, which blocks
-    activation.
+    activation. ``editors`` are the users who edited the version (see
+    ``version_editors``): they wrote part of it, so none of them may approve it.
 
     Returns:
         The allowed actions in ``RuleAction`` order, and the reasons of every
@@ -179,7 +185,7 @@ def evaluate_rule_actions(
             reasons.append(RuleBlockedReason.ROLE_REQUIRED)
         if row.author_only and user_id != version.author_id:
             reasons.append(RuleBlockedReason.NOT_AUTHOR)
-        if row.not_author and user_id == version.author_id:
+        if row.not_author and (user_id == version.author_id or user_id in editors):
             reasons.append(RuleBlockedReason.SAME_AUTHOR)
         if row.simulation and simulation_reason is not None:
             reasons.append(simulation_reason)
@@ -204,11 +210,62 @@ def _version(
     s: Session, version_id: UUID, *, lock: bool = True
 ) -> MonitoringRuleVersion:
     query = select(MonitoringRuleVersion).where(MonitoringRuleVersion.id == version_id)
-    version = s.scalars(query.with_for_update() if lock else query).one_or_none()
+    if lock:
+        query = query.with_for_update(key_share=True)
+    version = s.scalars(query).one_or_none()
     if version is None:
         msg = "rule version not found"
         raise NotFoundError(msg)
     return version
+
+
+def _locked_rule(
+    s: Session, version_id: UUID
+) -> tuple[MonitoringRuleVersion, list[MonitoringRuleVersion]]:
+    """Lock a version's rule, then every version of it, and re-read them.
+
+    The rule goes first, so activations and retirements of one rule queue on it
+    instead of deadlocking on each other's version rows. ``FOR NO KEY UPDATE``
+    still serialises the lifecycle writers (and ``create_version``'s ``FOR
+    UPDATE``), but lets inserts whose foreign keys point at these rows proceed.
+
+    Returns:
+        The version and all versions of its rule, itself included.
+
+    """
+    version = _version(s, version_id, lock=False)
+    _ = s.scalars(
+        select(MonitoringRule)
+        .where(MonitoringRule.id == version.rule_id)
+        .with_for_update(key_share=True)
+    ).one()
+    siblings = list(
+        s.scalars(
+            select(MonitoringRuleVersion)
+            .where(MonitoringRuleVersion.rule_id == version.rule_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+    )
+    return version, siblings
+
+
+def version_editors(s: Session, version_id: UUID) -> frozenset[UUID]:
+    """Find the staff users who edited a version after it was created.
+
+    Returns:
+        The actors of its ``rules.version_updated`` audit rows.
+
+    """
+    actors = s.scalars(
+        select(AuditEventRow.actor_id).where(
+            AuditEventRow.action == "rules.version_updated",
+            AuditEventRow.entity_type == "monitoring_rule_version",
+            AuditEventRow.entity_id == str(version_id),
+            AuditEventRow.actor_type == ActorType.STAFF.value,
+        )
+    )
+    return frozenset(UUID(actor) for actor in actors)
 
 
 def _out_of_bounds(s: Session, version: MonitoringRuleVersion) -> bool:
@@ -243,6 +300,9 @@ def _require(
         user_id=UUID(ctx.actor_id),
         now=now,
         out_of_bounds=out_of_bounds,
+        editors=version_editors(s, version.id)
+        if action is RuleAction.APPROVE
+        else _NO_EDITORS,
     )
     if action not in actions.allowed:
         raise RuleTransitionNotAllowedError(actions.blocked[action])
@@ -287,7 +347,8 @@ def _publish(
 
 
 def _simulation_detail(version: MonitoringRuleVersion) -> dict[str, JsonValue]:
-    return {"simulation_id": str(version.simulation_id)}
+    simulation_id = version.simulation_id
+    return {"simulation_id": None if simulation_id is None else str(simulation_id)}
 
 
 def submit_version(s: Session, version_id: UUID) -> MonitoringRuleVersion:
@@ -347,7 +408,14 @@ def reject_version(
     _ = _require(s, version, RuleAction.REJECT, ctx)
     version.status = RuleVersionStatus.DRAFT
     s.flush()
-    _audit(s, "rules.version_rejected", version, {"reason": text})
+    # Codes and ids only: the reason's text is free and may name a person, and
+    # 0013 has no encrypted column for it (plan 4b Deviation 18, Open question 12).
+    _audit(
+        s,
+        "rules.version_rejected",
+        version,
+        {**_simulation_detail(version), "reason_given": True},
+    )
     return version
 
 
@@ -397,22 +465,7 @@ def activate_version(
 
     """
     ctx = _staff(s)
-    # Lock the rule before its versions, so two activations of one rule queue on
-    # the rule instead of deadlocking on each other's version rows.
-    version = _version(s, version_id, lock=False)
-    _ = s.scalars(
-        select(MonitoringRule)
-        .where(MonitoringRule.id == version.rule_id)
-        .with_for_update()
-    ).one()
-    siblings = list(
-        s.scalars(
-            select(MonitoringRuleVersion)
-            .where(MonitoringRuleVersion.rule_id == version.rule_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    )
+    version, siblings = _locked_rule(s, version_id)
     now = _require(
         s, version, RuleAction.ACTIVATE, ctx, out_of_bounds=_out_of_bounds(s, version)
     )
@@ -490,18 +543,24 @@ def activate_version(
 
 
 def retire_version(s: Session, version_id: UUID) -> MonitoringRuleVersion:
-    """Take an active version out of force at the end of today.
+    """Take an active version, and so its rule, out of force at the end of today.
+
+    Every assignment of the rule still in force after today ends today, so a
+    predecessor this version was to replace from a later date stops too.
 
     Returns:
         The version, ``RETIRED``.
 
     """
     ctx = _staff(s)
-    version = _version(s, version_id)
+    version, siblings = _locked_rule(s, version_id)
     now = _require(s, version, RuleAction.RETIRE, ctx)
     today = policy_date(now)
     _end_assignments(
-        s, [version.id], from_day=today + timedelta(days=1), last_day=today
+        s,
+        [v.id for v in siblings],
+        from_day=today + timedelta(days=1),
+        last_day=today,
     )
     version.status = RuleVersionStatus.RETIRED
     version.retired_at = now

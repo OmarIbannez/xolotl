@@ -16,7 +16,7 @@ from tests.modules.monitoring.rules.lifecycle_support import (
     freeze,
     load_library,
 )
-from xolotl.modules.monitoring.rules import assignments
+from xolotl.modules.monitoring.rules import assignments, lifecycle
 from xolotl.modules.monitoring.rules.assignments import (
     LoadedRule,
     RuleSet,
@@ -244,3 +244,26 @@ def test_another_tenant_sees_none_of_the_rules(
     with staff_session(other.tenant_id, other.admin_user_id) as s:
         assert active_rules(s, on=date(2026, 10, 30), product=None).rules == ()
         assert assignments_on(s, on=date(2026, 10, 30), product=None) == []
+
+
+@pytest.mark.usefixtures("library")
+def test_another_workers_activation_is_seen_before_the_ttl(
+    tenant: CreatedTenant,
+    approver: UUID,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Another worker's activation never clears this process's cache: the key's
+    # activation stamps must change instead.
+    ticks = _Ticks()
+    monkeypatch.setattr(assignments, "monotonic", ticks)
+    monkeypatch.setattr(lifecycle, "clear_rule_cache", lambda: None)
+    _ = activated(tenant, approver, queue, CASH)
+    on = date(2026, 10, 30)
+    assert _codes(tenant, on, None) == [CASH]
+    _ = activated(tenant, approver, queue, BORDER)
+    assert _codes(tenant, on, None) == [BORDER, CASH]
+    version = activated(tenant, approver, queue, BORDER)
+    with staff_session(tenant.tenant_id, approver, APPROVER_ROLES) as s:
+        _ = retire_version(s, version.id)
+    assert _codes(tenant, date(2026, 10, 31), None) == [CASH]

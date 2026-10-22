@@ -7,7 +7,7 @@ Deviation 3).
 """
 
 import itertools
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from uuid import UUID, uuid4
 
@@ -67,7 +67,7 @@ from xolotl.modules.monitoring.rules.models import (
     RuleSimulation,
 )
 from xolotl.modules.monitoring.rules.versions import WRITERS as VERSION_WRITERS
-from xolotl.modules.monitoring.rules.versions import VersionInput
+from xolotl.modules.monitoring.rules.versions import VersionInput, update_version
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import tenant_session
@@ -111,6 +111,7 @@ def _expected(
     role: Role,
     *,
     same_user: bool,
+    edited: bool,
     simulation: str,
     action: RuleAction,
 ) -> list[RuleBlockedReason]:
@@ -122,7 +123,8 @@ def _expected(
         reasons.append(RuleBlockedReason.ROLE_REQUIRED)
     if author == "author" and not same_user:
         reasons.append(RuleBlockedReason.NOT_AUTHOR)
-    if author == "not_author" and same_user:
+    # Editing a version is authoring part of it (four eyes, plan 4b Deviation 18).
+    if author == "not_author" and (same_user or edited):
         reasons.append(RuleBlockedReason.SAME_AUTHOR)
     if needs_simulation and simulation == "none":
         reasons.append(RuleBlockedReason.SIMULATION_MISSING)
@@ -149,13 +151,15 @@ def _version(state: RuleVersionStatus, author_id: UUID) -> MonitoringRuleVersion
 
 
 @pytest.mark.parametrize(
-    ("state", "role", "same_user", "simulation", "action"),
+    ("state", "role", "same_user", "edited", "simulation", "action"),
     list(
-        itertools.product(STATES, ROLES, [False, True], SIMULATIONS, list(RuleAction))
+        itertools.product(
+            STATES, ROLES, [False, True], [False, True], SIMULATIONS, list(RuleAction)
+        )
     ),
 )
 def test_the_lifecycle_matrix_is_exactly_the_spec(
-    state, role, same_user, simulation, action
+    state, role, same_user, edited, simulation, action
 ):
     user_id, other = uuid4(), uuid4()
     actions = evaluate_rule_actions(
@@ -164,9 +168,15 @@ def test_the_lifecycle_matrix_is_exactly_the_spec(
         roles=frozenset({role}),
         user_id=user_id,
         now=NOW,
+        editors=frozenset({user_id, uuid4()} if edited else {uuid4()}),
     )
     expected = _expected(
-        state, role, same_user=same_user, simulation=simulation, action=action
+        state,
+        role,
+        same_user=same_user,
+        edited=edited,
+        simulation=simulation,
+        action=action,
     )
     if expected:
         assert action not in actions.allowed
@@ -479,10 +489,14 @@ def test_a_rejected_version_returns_to_draft_with_its_reason(
     with staff_session(tenant.tenant_id, approver, APPROVER_ROLES) as s:
         rejected = reject_version(s, version.id, reason="  umbral demasiado bajo ")
     assert rejected.status is S.DRAFT
+    # The reason's text is not kept: audit details hold codes and ids only.
     assert _rule_audit(tenant)[-1] == (
         "rules.version_rejected",
         str(version.id),
-        {"reason": "umbral demasiado bajo"},
+        {"simulation_id": str(rejected.simulation_id), "reason_given": True},
+    )
+    assert all(
+        "umbral" not in str(event.detail) for event in audit_events(tenant.tenant_id)
     )
     with (
         pytest.raises(RuleTransitionNotAllowedError) as caught,
@@ -690,3 +704,61 @@ def test_activation_ensures_the_declarations(
         jobs = sorted(key or "" for key in keys)
     assert declared == expected
     assert jobs == [f"agg_backfill:{agg_id}" for agg_id in expected]
+
+
+@pytest.mark.usefixtures("library")
+def test_an_approver_who_edited_the_version_cannot_approve(tenant: CreatedTenant):
+    # A drafts; MLRO B rewrites the params; A submits; B may not approve what B
+    # wrote, but another MLRO may.
+    editor = add_staff(tenant, Role.MLRO)
+    version = draft(tenant)
+    with staff_session(tenant.tenant_id, editor, APPROVER_ROLES) as s:
+        _ = update_version(
+            s, version.id, body=VersionInput(params={"near_ratio": "0.75"})
+        )
+    edited = _get(tenant, version.id)
+    _ = simulate(tenant, edited)
+    with staff_session(tenant.tenant_id, tenant.admin_user_id, AUTHOR_ROLES) as s:
+        _ = submit_version(s, version.id)
+    with (
+        pytest.raises(RuleTransitionNotAllowedError) as caught,
+        staff_session(tenant.tenant_id, editor, APPROVER_ROLES) as s,
+    ):
+        _ = approve_version(s, version.id)
+    assert _blocked(caught) == ["SAME_AUTHOR"]
+    other = add_staff(tenant, Role.MLRO)
+    with staff_session(tenant.tenant_id, other, APPROVER_ROLES) as s:
+        assert approve_version(s, version.id).approved_by == other
+
+
+@pytest.mark.usefixtures("library")
+def test_retiring_a_scheduled_successor_stops_the_rule_after_today(
+    tenant: CreatedTenant, approver: UUID, queue: PostgresJobQueue
+):
+    v1 = activated(tenant, approver, queue, effective_from=date(2026, 11, 1))
+    v2 = activated(tenant, approver, queue, effective_from=date(2026, 12, 15))
+    with staff_session(tenant.tenant_id, approver, APPROVER_ROLES) as s:
+        _ = retire_version(s, v2.id)
+    ends = {a.rule_version_id: a.effective_to for a in _assignments(tenant)}
+    assert ends == {v1.id: TODAY, v2.id: TODAY}
+    with staff_session(tenant.tenant_id, approver, APPROVER_ROLES) as s:
+        for day in (date(2026, 11, 2), date(2026, 12, 14), date(2026, 12, 20)):
+            assert active_rules(s, on=day, product=None).rules == ()
+
+
+@pytest.mark.usefixtures("library")
+def test_today_is_the_mexico_city_date(
+    tenant: CreatedTenant,
+    approver: UUID,
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # 03:00 UTC on 31 October is still 30 October in Mexico City.
+    freeze(monkeypatch, datetime(2026, 10, 31, 3, tzinfo=UTC))
+    with pytest.raises(ValidationFailedError):
+        _ = activated(tenant, approver, queue, effective_from=date(2026, 10, 29))
+    version = activated(tenant, approver, queue, effective_from=date(2026, 10, 30))
+    with staff_session(tenant.tenant_id, approver, APPROVER_ROLES) as s:
+        _ = retire_version(s, version.id)
+    ends = {a.rule_version_id: a.effective_to for a in _assignments(tenant)}
+    assert ends[version.id] == date(2026, 10, 30)

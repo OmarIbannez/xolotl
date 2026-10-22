@@ -558,15 +558,21 @@ A tenant rule version moves through `DRAFT`, `SIMULATED`, `IN_REVIEW`, `APPROVED
 `DRAFT` or `SIMULATED` version (any change sends it back to `DRAFT`) and simulates
 it. Only its author submits a `SIMULATED` version for review, and only with a
 completed simulation of its current definition younger than
-`XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` (30 days). An MLRO or an admin who is
-not the author approves it (four eyes; the database refuses an approval by the
-author too), after the same simulation check, or rejects it back to `DRAFT` with a
-reason. An MLRO or an admin activates an `APPROVED` version from a date that is
+`XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` (30 days). An MLRO or an admin who neither
+authored nor edited it approves it (four eyes; the database refuses an approval by
+the author too), after the same simulation check, or rejects it back to `DRAFT`
+with a reason (required, but its text is not kept yet: the audit row only records
+that one was given). An MLRO or an admin activates an `APPROVED` version from a date that is
 today or later, for every product or for one: activation creates its assignment,
 retires the rule's current `ACTIVE` version, ends every earlier assignment of the
 rule the day before the new one starts, and backfills any aggregate the version
-declares that the tenant does not maintain yet. Retiring an `ACTIVE` version ends
-its assignment today. A refused action is 409 `RULE_TRANSITION_NOT_ALLOWED` with
+declares that the tenant does not maintain yet. Retiring an `ACTIVE` version takes
+the rule out of force after today: every assignment of the rule still in force
+later, including a predecessor waiting for a scheduled successor, ends today. An
+activation effective today ends the predecessor's assignment yesterday, although
+the predecessor evaluated today's earlier transactions; each hit keeps the
+`assignment_id` it was evaluated under, so the hit, not the assignment row,
+answers "which rule applied to this transaction". A refused action is 409 `RULE_TRANSITION_NOT_ALLOWED` with
 `blocked_reasons` (`STATE`, `ROLE_REQUIRED`, `NOT_AUTHOR`, `SAME_AUTHOR`,
 `SIMULATION_MISSING`, `SIMULATION_STALE`, `PARAM_OUT_OF_BOUNDS`), and every
 transition is audited as `rules.version_*`; an activation's audit row carries the
