@@ -7,8 +7,9 @@ entity's id (the ping by the actor's) and its data holds ids and codes, never
 personal data or secrets (program spec D8). Creating a tenant also schedules the
 platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep,
 the weekday ``units.fetch`` in Mexico City, the ``lists.poll`` and
-``monitoring.sweep`` every minute, the daily ``monitoring.partitions`` and the
-monthly ``screening.periodic_rescreen`` in Mexico City.
+``monitoring.sweep`` every minute, the daily ``monitoring.partitions``, the
+monthly ``monitoring.retention`` in UTC and the monthly
+``screening.periodic_rescreen`` in Mexico City.
 """
 
 import json
@@ -118,6 +119,14 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
             {},
             True,
         ),
+        (
+            "monitoring.retention",
+            "0 5 1 * *",
+            "UTC",
+            "monitoring.retention",
+            {},
+            True,
+        ),
         ("monitoring.sweep", "* * * * *", "UTC", "monitoring.sweep", {}, True),
         (
             "party.retention_sweep",
@@ -147,12 +156,13 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     ]
     # The first run is the next slot, never the current one.
     daily = {"units.fetch", "party.retention_sweep", "screening.periodic_rescreen"}
-    daily |= {"monitoring.partitions"}
+    daily |= {"monitoring.partitions", "monitoring.retention"}
     minutely = {"lists.poll", "monitoring.sweep"}
     hourly = [row for row in schedules if row.name not in {*daily, *minutely}]
     poll = next(row for row in schedules if row.name == "lists.poll")
     monitoring_sweep = next(row for row in schedules if row.name == "monitoring.sweep")
     partitions = next(row for row in schedules if row.name == "monitoring.partitions")
+    retention = next(row for row in schedules if row.name == "monitoring.retention")
     (units,) = [row for row in schedules if row.name == "units.fetch"]
     sweep = next(row for row in schedules if row.name == "party.retention_sweep")
     monthly = next(
@@ -180,6 +190,10 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     # Partitions are kept ahead daily at 01:00 UTC.
     assert partitions.next_run_at in {
         next_slot("0 1 * * *", "UTC", after=m) for m in (before, after)
+    }
+    # Retention runs monthly at 05:00 UTC on the 1st.
+    assert retention.next_run_at in {
+        next_slot("0 5 1 * *", "UTC", after=m) for m in (before, after)
     }
     assert all(row.last_run_at is None for row in schedules)
 
@@ -338,6 +352,7 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
             "idempotency.purge",
             "lists.poll",
             "monitoring.partitions",
+            "monitoring.retention",
             "monitoring.sweep",
             "party.retention_sweep",
             "screening.periodic_rescreen",

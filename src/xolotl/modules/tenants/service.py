@@ -118,6 +118,9 @@ SCREENING_PERIODIC_SCHEDULE = "screening.periodic_rescreen"
 # their job kinds (literals, as above).
 MONITORING_SWEEP_SCHEDULE = "monitoring.sweep"
 MONITORING_PARTITIONS_SCHEDULE = "monitoring.partitions"
+# The monitoring module's monthly retention, on XOLOTL_MONITORING_RETENTION_CRON in
+# UTC, named by its job kind (a literal, as above).
+MONITORING_RETENTION_SCHEDULE = "monitoring.retention"
 MAX_FAILED_ATTEMPTS = 10
 LOCKOUT = timedelta(minutes=15)
 LAST_USED_GRANULARITY = timedelta(minutes=1)
@@ -301,6 +304,14 @@ def schedule_platform_jobs(s: Session, queue: PostgresJobQueue) -> None:
         cron=get_settings().monitoring_partitions_cron,
         tz="UTC",
         kind=MONITORING_PARTITIONS_SCHEDULE,
+        payload={},
+    )
+    _ = queue.schedule(
+        s,
+        name=MONITORING_RETENTION_SCHEDULE,
+        cron=get_settings().monitoring_retention_cron,
+        tz="UTC",
+        kind=MONITORING_RETENTION_SCHEDULE,
         payload={},
     )
 

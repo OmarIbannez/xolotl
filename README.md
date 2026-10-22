@@ -284,6 +284,7 @@ driver is added.
 | `XOLOTL_MONITORING_PARTITIONS_CRON` | `0 1 * * *` | When the daily partition maintenance job runs (UTC). |
 | `XOLOTL_MONITORING_PROCESS_LEASE_SECONDS` | `300` | Lease of one `monitoring.process` job, in seconds (30 or more). |
 | `XOLOTL_MONITORING_PROCESS_PAGE` | `200` | Transactions a `monitoring.process` job reads per page (1 or more). |
+| `XOLOTL_MONITORING_RETENTION_CRON` | `0 5 1 * *` | When the per-tenant monthly `monitoring.retention` job runs (UTC): transaction months past `retention.transactions`, orphaned counterparties and stale aggregate buckets. |
 | `XOLOTL_MONITORING_RULE_CACHE_SECONDS` | `30` | Seconds a process caches a tenant's active rule set for a date and product (0 disables the cache). An activation or retirement refreshes it at once. |
 | `XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` | `30` | A rule version is submitted and approved only with a completed simulation of its current definition younger than this many days (1 or more). |
 | `XOLOTL_MONITORING_SWEEP_CRON` | `* * * * *` | When the per-tenant `monitoring.sweep` job runs (UTC). |
@@ -704,6 +705,27 @@ A new aggregate declaration is rebuilt by `monitoring.agg_backfill` from the las
 months of processed rows, `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` per page; until then its
 reads are incomplete. The daily `monitoring.partitions` (`XOLOTL_MONITORING_PARTITIONS_CRON`)
 keeps every partitioned table `XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD` months ahead.
+
+Retention. The monthly `monitoring.retention` (`XOLOTL_MONITORING_RETENTION_CRON`, UTC)
+takes the longest `retention.transactions` of every pack the tenant was assigned, for any
+product, not ended before its oldest month, and of every override (ten years once ITF
+was assigned), and retires every month whose end is at least that long ago: the tenant's hit
+links, reportable events and emptied capture groups, hits first seen in the month,
+decision links, decisions, parked and ref rows and transactions of the month, in that
+order, each step in its own transaction, so a run that stops half-way is finished by the
+next. Each step locks the month's parties and stops the month when one is under legal
+hold, and is audited (`monitoring.retention_step`) in its own transaction. Partitions hold
+every tenant's rows, so a month's `transaction` and `txn_decision` partitions are
+detached and dropped only once every tenant's period has passed for it and no row of
+any tenant is left in it, taking every lock it needs at once without waiting (a busy
+table defers the drop to a later run); the default partitions and `audit_event` are
+never dropped. A
+counterparty no transaction references any more, and whose screening records are all
+past the period too, is purged with its subject, runs, findings and dispositions; buckets
+past the longest declared window (plus the late days) are pruned, except running
+accumulators and buckets of open capture periods. Each run writes one
+`monitoring.retention_ran` audit row with its counts and skipped months. A tenant with no
+policy in force retires nothing (and its run is audited with no period).
 
 ```bash
 uv run xolotl monitoring ingest-file --tenant acme transactions.csv   # dev and demo: ingest here

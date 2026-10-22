@@ -179,6 +179,10 @@ class Settings(BaseSettings):
     # FAIL_CLOSED answers BLOCK (plan 4c).
     monitoring_decide_budget_ms: int = Field(default=80, ge=1)
     monitoring_decide_fail_mode: Literal["FAIL_OPEN", "FAIL_CLOSED"] = "FAIL_OPEN"
+    # Per-tenant monthly retention of transaction months past retention.transactions,
+    # orphaned counterparties and stale aggregate buckets, five-field cron, in UTC
+    # (plan 4c).
+    monitoring_retention_cron: str = "0 5 1 * *"
     # Lets an ADMIN author a rule from a bare kind, without a template (plan 4b).
     monitoring_allow_custom_rules: bool = False
     # Seconds a process keeps a tenant's active rule set; 0 reads it every time.
@@ -211,6 +215,7 @@ class Settings(BaseSettings):
         "screening_periodic_cron",
         "monitoring_sweep_cron",
         "monitoring_partitions_cron",
+        "monitoring_retention_cron",
     )
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:
