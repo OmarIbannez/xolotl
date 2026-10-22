@@ -12,6 +12,7 @@ partition is created while a decision is measured (C4's note: creating a
 """
 
 import statistics
+import threading
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -83,6 +84,7 @@ from xolotl.platform.jobs import JobRunner, PostgresJobQueue
 from xolotl.platform.partitions import ensure_partitions
 from xolotl.platform.storage.local import LocalFsObjectStore
 from xolotl.platform.units import UnitValue, upsert_value
+from xolotl.worker import Worker
 
 pytestmark = pytest.mark.perf
 
@@ -323,6 +325,16 @@ def decide_base(
     for items in _history(customers).values():
         rows += len(ingest(stage.stage, items))
         _ = _drain(runner)
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        statuses = set(
+            s.scalars(
+                select(Transaction.status)
+                .where(Transaction.external_id.like("h-%"))
+                .distinct()
+            )
+        )
+    # A parked month would thin the aggregates and flatter the decide numbers.
+    assert statuses == {TransactionStatus.PROCESSED}, statuses
     flagged = _screen_counterparties(admin_engine, stage.tenant_id)
     monkeypatch.setattr(get_settings(), "monitoring_decide_budget_ms", TEST_BUDGET_MS)
     yield DecideBase(
@@ -495,10 +507,71 @@ STRUCTURING_USD = ("3600.00", "3700.00", "3800.00")
 ALERT_AT = local(14, 12)
 ALERT_SPAN_MINUTES = 23 * 60
 DRAIN_FLOOR_S = 300.0
+NFR_ALERT_P95_S = 5.0
+DRAIN_POLL_S = 0.1
+STOP_WAIT_S = 30.0
+
+
+def _pending_rows(tenant_id: UUID) -> int:
+    with tenant_session(system_ctx(tenant_id)) as s:
+        return (
+            s.scalar(
+                select(func.count())
+                .select_from(Transaction)
+                .where(
+                    Transaction.external_id.like("a-%"),
+                    Transaction.status != TransactionStatus.PROCESSED,
+                )
+            )
+            or 0
+        )
+
+
+@dataclass(slots=True)
+class LiveWorker:
+    """The MVP's worker loop on a thread of its own, as the API embeds it.
+
+    It ticks the outbox dispatcher, the job runner (``run_once()`` with its default
+    limit) and the scheduler, then pauses ``WORKER_TICK_SECONDS``, exactly as
+    ``xolotl.worker.Worker.run`` does in production.
+    """
+
+    worker: Worker
+    ticks: list[int]
+    thread: threading.Thread
+
+    @classmethod
+    def start(cls, stage: Stage) -> "LiveWorker":
+        services = stage.services
+        worker = Worker(
+            bus=services.bus,
+            runner=services.job_runner,
+            scheduler=services.scheduler,
+            tick_seconds=get_settings().worker_tick_seconds,
+        )
+        ticks: list[int] = []
+        thread = threading.Thread(target=lambda: ticks.append(worker.run()))
+        thread.start()
+        return cls(worker, ticks, thread)
+
+    def stop(self) -> int:
+        self.worker.stop()
+        self.thread.join(STOP_WAIT_S)
+        return self.ticks[0] if self.ticks else -1
+
+
+def _wait_processed(tenant_id: UUID, *, began: float) -> None:
+    pause = threading.Event()
+    while _pending_rows(tenant_id) and time.perf_counter() - began < DRAIN_FLOOR_S:
+        _ = pause.wait(DRAIN_POLL_S)
 
 
 def _alert_items(refs: list[str]) -> list[dict[str, object]]:
-    """Ten operations per customer; the first ten customers structure cash.
+    """Ten operations per customer; ten seeded customers structure cash.
+
+    The planted customers are drawn at random, so their processing jobs fall
+    anywhere in the queue (jobs run in party id order, and the customers are
+    created in index order), not always first.
 
     A planted customer's three deposits fall in ``[3,500, 5,000)`` USD inside the
     rule's seven days; every other operation is a cash deposit of 100 to 5,000
@@ -509,13 +582,14 @@ def _alert_items(refs: list[str]) -> list[dict[str, object]]:
 
     """
     rng = Draw(SEED + 3)
+    structuring = set(rng.sample(range(len(refs)), STRUCTURING_SCENARIOS))
     per = ALERT_TRANSACTIONS // ALERT_RELATIONSHIPS
     items: list[dict[str, object]] = []
     for index, ref in enumerate(refs):
         for number in range(per):
             minutes = rng.randrange(1, ALERT_SPAN_MINUTES)
             occurred = ALERT_AT - timedelta(minutes=minutes)
-            planted = index < STRUCTURING_SCENARIOS and number < len(STRUCTURING_USD)
+            planted = index in structuring and number < len(STRUCTURING_USD)
             items.append(
                 make_item(
                     external_id=f"a-{index:03d}-{number:02d}",
@@ -601,24 +675,28 @@ def test_alert_latency_p95_over_1000_transactions(
     for ref in refs:
         _ = add_relationship(tenant, ref, "N3")
     writer = machine_headers(tenant, "transactions:write")
-    runner = _process_runner(stage, "w-perf-alert")
     skew = _db_skew(admin_engine)
     # The clock runs at real speed from 14 December, so the processing times the
-    # rows record are real and their unit values are B7's fixture's.
+    # rows record are real and their unit values are B7's fixture's. The queue and
+    # the scheduler keep the real clock they were built with.
     offset = ALERT_AT - datetime.now(UTC)
     monkeypatch.setattr(clock, "now", lambda: datetime.now(UTC) + offset)
 
-    began = time.perf_counter()
-    response = client.post(
-        "/v1/transactions",
-        json={"transactions": _alert_items(refs)},
-        headers={**writer, "Idempotency-Key": "perf-alert-batch"},
-    )
-    posted = time.perf_counter() - began
-    assert response.status_code == 202, response.text
-    assert response.json()["accepted"] == ALERT_TRANSACTIONS
-    jobs = _drain(runner)
-    drained = time.perf_counter() - began
+    live = LiveWorker.start(stage)
+    try:
+        began = time.perf_counter()
+        response = client.post(
+            "/v1/transactions",
+            json={"transactions": _alert_items(refs)},
+            headers={**writer, "Idempotency-Key": "perf-alert-batch"},
+        )
+        posted = time.perf_counter() - began
+        assert response.status_code == 202, response.text
+        assert response.json()["accepted"] == ALERT_TRANSACTIONS
+        _wait_processed(stage.tenant_id, began=began)
+        drained = time.perf_counter() - began
+    finally:
+        ticks = live.stop()
 
     outcome = _alert_outcome(stage.tenant_id)
     elapsed = (outcome.last_processed - outcome.received).total_seconds()
@@ -634,17 +712,19 @@ def test_alert_latency_p95_over_1000_transactions(
         relationships=ALERT_RELATIONSHIPS,
         post_s=round(posted, 2),
         drain_s=round(drained, 2),
-        jobs=jobs,
+        worker_ticks=ticks,
+        tick_seconds=get_settings().worker_tick_seconds,
         received_to_last_processed_s=round(elapsed, 2),
         transactions_per_s=round(ALERT_TRANSACTIONS / elapsed, 1),
         processed_latency_p50_s=round(statistics.median(outcome.processing_s), 2),
         processed_latency_p95_s=round(_quantile(outcome.processing_s, 20, 19), 2),
+        nfr_p95_s=5,
+        nfr_met=_quantile(outcome.processing_s, 20, 19) <= NFR_ALERT_P95_S,
         structuring_hits=len(outcome.hits),
         all_hits=outcome.all_hits,
         hit_latency_p50_ms=round(statistics.median(hit_ms), 1),
         hit_latency_p95_ms=round(_quantile(hit_ms, 20, 19), 1),
         hit_latency_max_ms=round(max(hit_ms), 1),
-        nfr_p95_s=5,
         db_clock_skew_ms=round(skew.total_seconds() * 1000, 1),
     )
     assert len(outcome.statuses) == ALERT_TRANSACTIONS

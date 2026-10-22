@@ -998,22 +998,35 @@ default run deselects, so they are not in CI; SP-11 gates them under load.
 SP-04's measurements (`tests/perf/test_sp04_perf.py`) append to `.perf/sp04.json`:
 - `decide_p99_under_the_budget` (`NFR-TM-001`): 1,000 `decide()` calls after 50
   warm-ups, over 200 relationships with six months of processed history (12,000
-  transactions) and 121 monthly `transaction` partitions (ten years). `latency_*`
-  is the decision's own `latency_ms` (p50, p95, p99, max), `transaction_*` the whole
-  committed transaction, `db_p95_ms` the read steps, `profile_for_*` and
-  `profile_for_share` the customer profile read's time and its share of the
-  latency, `cold_first_ms` the first decision of the process with the rule set
-  not cached, and `cold_after_cache_*` decisions just after the rule-set cache
-  expired. The budget is raised to 5 s while measuring, so every decision is
-  evaluated; `over_service_budget` counts those over the 80 ms service budget,
-  which would have answered with the rail's fail mode. The test fails only past
-  a p99 of 500 ms.
+  transactions, all asserted `PROCESSED`) and 121 monthly `transaction`
+  partitions (ten years). It is timed at the service level: `decide()` in its own
+  committed session, without HTTP, authentication, the idempotency key or
+  serialisation. `latency_*` is the decision's own `latency_ms` (p50, p95, p99,
+  max), `transaction_*` the whole committed transaction, `db_p95_ms` the read
+  steps, `profile_for_*` and `profile_for_share` the customer profile read's time
+  and its share of the latency. `cold_first_ms` is the first `decide()` of the
+  process with the rule-set cache cleared, but in a process the history's
+  processing already warmed (imports, pool, compiled statements, unit values), so
+  it is not a fresh process's first decision and understates one.
+  `cold_after_cache_*` are decisions just after the rule-set cache expired. The
+  budget is raised to 5 s while measuring, so every decision is evaluated;
+  `over_service_budget` counts decisions whose whole `latency_ms` (row insert and
+  notice included) passed the 80 ms service budget, which are at or near the
+  point where the rail's fail mode would answer (the budget itself is checked
+  after the read steps). The test fails only past a p99 of 500 ms.
 - `alert_latency_p95_over_1000_transactions` (`NFR-TM-002`): one 1,000-row batch
-  over 100 relationships with ten planted cash-structuring scenarios, drained by
-  one runner: the time from `received_at` to the last `processed_at`,
-  transactions per second, the p50 and p95 of each row's `processed_at -
-  received_at`, and the p50 and p95 of `rule_hit.created_at - received_at` (the
-  spec's 5 s p95). The test fails only past a 300 s drain.
+  over 100 relationships, ten of them (drawn at random, so anywhere in the queue)
+  structuring cash, processed by the MVP's real worker loop (`Worker.run` on a
+  thread: outbox dispatch, `run_once()` with its default limit and the scheduler,
+  then the `WORKER_TICK_SECONDS` pause). The NFR-TM-002 reading is
+  `processed_latency_p95_s`, the p95 of each row's `processed_at - received_at`
+  (every row could raise an alert); `nfr_met` compares it with 5 s. Also recorded:
+  the time from `received_at` to the last `processed_at`, transactions per second,
+  the worker's ticks, and, as a secondary measure that depends on where the ten
+  structuring customers fall in the queue, `rule_hit.created_at - received_at`.
+  **NFR-TM-002 (alert p95 <= 5 s) is not met for a 1,000-row burst on the single
+  embedded runner** (see the PR of plan 4c C10 for the numbers); SP-11 gates it
+  under load. The test fails only past a 300 s drain.
 - `counterparty_first_sight_throughput` (spec §11.1): 1,000 counterparties
   resolved in one minute (5 % carrying an OFAC name) and the first-sight job
   drained: counterparties screened per second (floor 20/s), the resolve rate,
