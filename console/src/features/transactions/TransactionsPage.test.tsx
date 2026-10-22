@@ -201,4 +201,25 @@ describe('TransactionsPage', () => {
     expect(within(table).getByRole('link', { name: 'TX-0001' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: text.title })).toBeTruthy()
   })
+
+  it('shows the files and batches panels, and the parked and backfill lists behind their tabs', async () => {
+    const { user, fakeApi } = setup({
+      'GET /v1/transactions/parked': () =>
+        json({ items: [transactionStaffView({ id: 'tp', external_id: 'TX-PARKED', status: 'PARKED' })], next_cursor: null }),
+      'GET /v1/transactions/backfill': () =>
+        json({ items: [transactionStaffView({ id: 'tb', external_id: 'TX-LATE', status: 'BACKFILL' })], next_cursor: null }),
+    })
+    await loadedTable()
+
+    expect(screen.getByText(text.files.title)).toBeTruthy()
+    expect(screen.getByText(text.batches.title)).toBeTruthy()
+    expect(fakeApi.calls('GET /v1/transactions/parked')).toEqual([])
+
+    await user.click(screen.getByRole('tab', { name: text.tabs.parked }))
+    expect(await screen.findByText('TX-PARKED')).toBeTruthy()
+    await user.click(screen.getByRole('tab', { name: text.tabs.backfill }))
+    expect(await screen.findByText('TX-LATE')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: text.backfill.run })).toBeNull()
+  })
 })
+

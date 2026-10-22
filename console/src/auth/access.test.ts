@@ -117,9 +117,10 @@ describe('hasAnyRole', () => {
 })
 
 describe('the transactions access', () => {
-  it('lets every staff role read the transactions and only MLRO and ADMIN request a backfill', () => {
+  it('lets every staff role read the transactions, every role but AUDITOR_RO upload a file and only MLRO and ADMIN request a backfill', () => {
     const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
     expect(roles.filter((role) => hasAnyRole([role], ACCESS.transactions))).toEqual(roles)
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.transactionsWrite))).toEqual(['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'])
     expect(roles.filter((role) => hasAnyRole([role], ACCESS.backfill))).toEqual(['MLRO', 'ADMIN'])
     expect(hasAnyRole([], ACCESS.transactions)).toBe(false)
   })

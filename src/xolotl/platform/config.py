@@ -185,6 +185,10 @@ class Settings(BaseSettings):
     monitoring_retention_cron: str = "0 5 1 * *"
     # Lets an ADMIN author a rule from a bare kind, without a template (plan 4b).
     monitoring_allow_custom_rules: bool = False
+    # Seconds a process keeps a tenant's active rule set; 0 reads it every time.
+    monitoring_rule_cache_seconds: int = Field(default=30, ge=0)
+    # A rule version is submitted and approved only with a younger simulation.
+    monitoring_simulation_max_age_days: int = Field(default=30, ge=1)
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")

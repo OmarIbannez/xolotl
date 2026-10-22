@@ -124,6 +124,8 @@ driver is added.
 | `XOLOTL_MONITORING_PROCESS_LEASE_SECONDS` | `300` | Lease of one `monitoring.process` job, in seconds (30 or more). |
 | `XOLOTL_MONITORING_PROCESS_PAGE` | `200` | Transactions a `monitoring.process` job reads per page (1 or more). |
 | `XOLOTL_MONITORING_RETENTION_CRON` | `0 5 1 * *` | When the per-tenant monthly `monitoring.retention` job runs (UTC): transaction months past `retention.transactions`, orphaned counterparties and stale aggregate buckets. |
+| `XOLOTL_MONITORING_RULE_CACHE_SECONDS` | `30` | Seconds a process caches a tenant's active rule set for a date and product (0 disables the cache). An activation or retirement refreshes it at once. |
+| `XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` | `30` | A rule version is submitted and approved only with a completed simulation of its current definition younger than this many days (1 or more). |
 | `XOLOTL_MONITORING_SWEEP_CRON` | `* * * * *` | When the per-tenant `monitoring.sweep` job runs (UTC). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
@@ -576,6 +578,39 @@ processed, late, with the same code as the worker.
 |---|---|---|
 | `GET /v1/monitoring/rails` | staff | every rail's fail mode: the one an ADMIN set, or `XOLOTL_MONITORING_DECIDE_FAIL_MODE` with `explicit` false |
 | `PUT /v1/monitoring/rails/{rail}` | staff `ADMIN` | `{fail_mode}` for one rail, audited `monitoring.rail_setting_changed`; 404 `RAIL_UNKNOWN` for a rail that does not exist |
+
+### Rule lifecycle
+
+A tenant rule version moves through `DRAFT`, `SIMULATED`, `IN_REVIEW`, `APPROVED`,
+`ACTIVE` and `RETIRED` (spec §9.4). A senior analyst, an MLRO or an admin edits a
+`DRAFT` or `SIMULATED` version (any change sends it back to `DRAFT`) and simulates
+it. Only its author submits a `SIMULATED` version for review, and only with a
+completed simulation of its current definition younger than
+`XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` (30 days). An MLRO or an admin who neither
+authored nor edited it approves it (four eyes; the database refuses an approval by
+the author too), after the same simulation check, or rejects it back to `DRAFT`
+with a reason (required, but its text is not kept yet: the audit row only records
+that one was given). An MLRO or an admin activates an `APPROVED` version from a date that is
+today or later, for every product or for one: activation creates its assignment,
+retires the rule's current `ACTIVE` version, ends every earlier assignment of the
+rule the day before the new one starts, and backfills any aggregate the version
+declares that the tenant does not maintain yet. Retiring an `ACTIVE` version takes
+the rule out of force after today: every assignment of the rule still in force
+later, including a predecessor waiting for a scheduled successor, ends today. An
+activation effective today ends the predecessor's assignment yesterday, although
+the predecessor evaluated today's earlier transactions; each hit keeps the
+`assignment_id` it was evaluated under, so the hit, not the assignment row,
+answers "which rule applied to this transaction". A refused action is 409 `RULE_TRANSITION_NOT_ALLOWED` with
+`blocked_reasons` (`STATE`, `ROLE_REQUIRED`, `NOT_AUTHOR`, `SAME_AUTHOR`,
+`SIMULATION_MISSING`, `SIMULATION_STALE`, `PARAM_OUT_OF_BOUNDS`), and every
+transition is audited as `rules.version_*`; an activation's audit row carries the
+category `CHANGE_POLICY`.
+
+The rules that apply on a date are those whose assignment is in force on it, for
+the transaction's product or for every product, so "which rules applied on this
+date" is answered from the assignment rows. Each process caches a tenant's rule
+set for a date and product for `XOLOTL_MONITORING_RULE_CACHE_SECONDS`; an
+activation or a retirement is seen on the next read.
 
 ## Connectors
 

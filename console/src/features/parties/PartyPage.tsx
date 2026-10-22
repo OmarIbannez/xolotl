@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { PartyScreeningCard } from '@/features/screening/PartyScreeningCard'
+import { PartyTransactionsCard } from '@/features/transactions/PartyTransactionsCard'
 import { useFormat } from '@/i18n/use-locale'
 import { NotFound } from '@/NotFound'
 import { calendarDay } from './dates'
@@ -95,6 +96,7 @@ function PartyDetail({ partyId }: { partyId: string }) {
         {hasRole(ACCESS.parties) && <RevealCard partyId={partyId} />}
         {hasRole(ACCESS.legalHold) && <LegalHoldCard partyId={partyId} legalHold={party.data.legal_hold} />}
         {hasRole(ACCESS.screening) && <PartyScreeningCard partyId={partyId} />}
+        {hasRole(ACCESS.transactions) && <PartyTransactionsCard partyId={partyId} />}
         {staff && <PartyCollections party={staff} />}
       </div>
     )

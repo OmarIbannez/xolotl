@@ -282,6 +282,8 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_decide_fail_mode",
         "monitoring_retention_cron",
         "monitoring_allow_custom_rules",
+        "monitoring_rule_cache_seconds",
+        "monitoring_simulation_max_age_days",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -706,6 +708,8 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_decide_fail_mode == "FAIL_OPEN"
     assert s.monitoring_retention_cron == "0 5 1 * *"
     assert s.monitoring_allow_custom_rules is False
+    assert s.monitoring_rule_cache_seconds == 30
+    assert s.monitoring_simulation_max_age_days == 30
 
 
 @pytest.mark.parametrize(
@@ -730,6 +734,8 @@ def test_the_monitoring_crons_are_validated(monkeypatch, name):
         ("XOLOTL_MONITORING_PROCESS_LEASE_SECONDS", "29"),
         ("XOLOTL_MONITORING_PARTITION_MONTHS_AHEAD", "13"),
         ("XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH", "0"),
+        ("XOLOTL_MONITORING_RULE_CACHE_SECONDS", "-1"),
+        ("XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS", "0"),
         ("XOLOTL_MONITORING_DECIDE_BUDGET_MS", "0"),
         ("XOLOTL_MONITORING_DECIDE_FAIL_MODE", "sideways"),
     ],
