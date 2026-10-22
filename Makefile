@@ -24,8 +24,8 @@ importlint:
 test:
 	uv run pytest
 
-# The perf measurements (SP-03 spec §15): run by hand, never by ci. Results go to
-# .perf/sp03.json.
+# The perf measurements (SP-03 spec §15, SP-04 plan 4c C10): run by hand, never by
+# ci. Results go to .perf/sp03.json and .perf/sp04.json.
 perf:
 	uv run pytest tests/perf -m perf --no-cov -q
 
