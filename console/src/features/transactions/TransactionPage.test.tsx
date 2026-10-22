@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import esMX from '@/i18n/es-MX.json'
 import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
+import { reportableEvent } from '@/features/captures/fixtures'
 import { hitSummary } from '@/features/hits/fixtures'
 import { parkedInfo, transactionRevealedView, transactionStaffView } from './fixtures'
 import { TransactionPage } from './TransactionPage'
@@ -12,6 +13,7 @@ import { TransactionPage } from './TransactionPage'
 const text = esMX.transactions
 const DETAIL = 'GET /v1/transactions/t1'
 const HITS = 'GET /v1/monitoring/hits'
+const CAPTURES = 'GET /v1/monitoring/captures'
 const INJECTION = '<img src=x onerror="window.__pwned=1">'
 
 function setup(routes: FakeRoutes = {}) {
@@ -31,6 +33,7 @@ function setup(routes: FakeRoutes = {}) {
             ? json(transactionRevealedView({ raw: { note: INJECTION, amount: '12500.00' } }))
             : json(transactionStaffView()),
         [HITS]: () => json({ items: [], next_cursor: null }),
+        [CAPTURES]: () => json({ items: [], next_cursor: null }),
         ...routes,
       },
     },
@@ -196,5 +199,19 @@ describe('TransactionPage', () => {
     const link = await within(card).findByRole('link', { name: 'CASH_STRUCTURING' })
     expect(link.getAttribute('href')).toBe('/monitoring/hits/h1')
     expect(fakeApi.queries(HITS)[0]?.get('transaction_id')).toBe('t1')
+  })
+
+  it('lists the captures of this transaction', async () => {
+    const { fakeApi } = setup({
+      [CAPTURES]: () => json({ items: [reportableEvent({ status: 'SUPERSEDED', late: true })], next_cursor: null }),
+    })
+
+    const card = await screen.findByRole('region', { name: esMX.captures.transaction.title })
+    expect(await within(card).findByText('ITF_ROR_CASH')).toBeTruthy()
+    expect(within(card).getByText('ITF_ROR')).toBeTruthy()
+    expect(within(card).getByText('2026-09')).toBeTruthy()
+    expect(within(card).getByText(esMX.captures.events.status.SUPERSEDED)).toBeTruthy()
+    expect(within(card).getByText(esMX.transactions.lateBadge)).toBeTruthy()
+    expect(fakeApi.queries(CAPTURES)[0]?.get('transaction_id')).toBe('t1')
   })
 })
