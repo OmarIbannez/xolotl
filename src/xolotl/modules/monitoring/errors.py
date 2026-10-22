@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from typing import ClassVar
 
+from xolotl.modules.monitoring.rules.enums import RuleBlockedReason
 from xolotl.modules.monitoring.txn.schema import FieldError, FieldErrorCode
 from xolotl.platform.errors import (
     DomainError,
@@ -101,3 +102,42 @@ class RailUnknownError(NotFoundError):
 
     default_code: ClassVar[str] = "RAIL_UNKNOWN"
     default_detail: ClassVar[str] = "the rail is not known"
+
+
+class RuleTemplateUnknownError(NotFoundError):
+    """No rule template of the library has this code (or this version)."""
+
+    default_code: ClassVar[str] = "RULE_TEMPLATE_UNKNOWN"
+    default_detail: ClassVar[str] = "no rule template has this code"
+
+
+class RuleTemplateImmutableError(DomainError):
+    """A loaded template version was loaded again with another definition.
+
+    The detail names the code and the version (plan 4b Deviation 2).
+    """
+
+    default_code: ClassVar[str] = "RULE_TEMPLATE_IMMUTABLE"
+    default_detail: ClassVar[str] = "a loaded template version cannot change"
+
+
+class RuleParamOutOfBoundsError(ValidationFailedError):
+    """A parameter lies outside its template's bounds; ``errors`` names each one."""
+
+    default_code: ClassVar[str] = "RULE_PARAM_OUT_OF_BOUNDS"
+    default_detail: ClassVar[str] = "a parameter is outside the template's bounds"
+
+
+class RuleTransitionNotAllowedError(DomainError):
+    """The current user may not take this action on this rule version now.
+
+    ``blocked_reasons`` tells why, in the order the lifecycle checks them, and
+    travels on the problem body.
+    """
+
+    default_code: ClassVar[str] = "RULE_TRANSITION_NOT_ALLOWED"
+    default_detail: ClassVar[str] = "this rule version action is not allowed"
+
+    def __init__(self, reasons: Sequence[RuleBlockedReason] = ()) -> None:
+        super().__init__()
+        self.blocked_reasons: tuple[str, ...] = tuple(r.value for r in reasons)

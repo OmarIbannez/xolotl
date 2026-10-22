@@ -8,6 +8,10 @@ from xolotl.modules.monitoring.errors import (
     FileInvalidError,
     FileTooLargeError,
     RailUnknownError,
+    RuleParamOutOfBoundsError,
+    RuleTemplateImmutableError,
+    RuleTemplateUnknownError,
+    RuleTransitionNotAllowedError,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.screening.errors import (
@@ -86,6 +90,10 @@ from xolotl.platform.units.errors import (
         (FileInvalidError, 422, "TRANSACTION_FILE_INVALID"),
         (BackfillRangeInvalidError, 422, "BACKFILL_RANGE_INVALID"),
         (RailUnknownError, 404, "RAIL_UNKNOWN"),
+        (RuleTemplateUnknownError, 404, "RULE_TEMPLATE_UNKNOWN"),
+        (RuleTemplateImmutableError, 409, "RULE_TEMPLATE_IMMUTABLE"),
+        (RuleParamOutOfBoundsError, 422, "RULE_PARAM_OUT_OF_BOUNDS"),
+        (RuleTransitionNotAllowedError, 409, "RULE_TRANSITION_NOT_ALLOWED"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):

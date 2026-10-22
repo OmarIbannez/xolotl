@@ -179,6 +179,8 @@ class Settings(BaseSettings):
     # FAIL_CLOSED answers BLOCK (plan 4c).
     monitoring_decide_budget_ms: int = Field(default=80, ge=1)
     monitoring_decide_fail_mode: Literal["FAIL_OPEN", "FAIL_CLOSED"] = "FAIL_OPEN"
+    # Lets an ADMIN author a rule from a bare kind, without a template (plan 4b).
+    monitoring_allow_custom_rules: bool = False
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
