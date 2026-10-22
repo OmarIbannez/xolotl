@@ -16,6 +16,7 @@ import psycopg
 import typer
 import uvicorn
 import yaml
+from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
@@ -49,6 +50,8 @@ from xolotl.modules.monitoring.txn.files import (
     upload_file,
 )
 from xolotl.modules.monitoring.txn.models import Transaction, TransactionFile
+from xolotl.modules.monitoring.txn.queries import get_transaction
+from xolotl.modules.monitoring.txn.views import revealed_view, staff_view
 from xolotl.modules.party.retention import RetentionSweeper
 from xolotl.modules.screening import evaluation_report
 from xolotl.modules.screening.catalog import (
@@ -1698,6 +1701,46 @@ def monitoring_partitions_ensure() -> None:
     )
     for table, report in reports.items():
         typer.echo(describe(table, report))
+
+
+_FIELDS: TypeAdapter[dict[str, JsonValue]] = TypeAdapter(dict[str, JsonValue])
+
+
+def _shown_value(value: JsonValue) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+@monitoring_app.command("show")
+def monitoring_show(
+    transaction_id: Annotated[UUID, typer.Argument(help="The transaction's id")],
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    reveal: Annotated[
+        bool,
+        typer.Option(
+            "--reveal", help="Decrypt the counterparty and the payload (audited)"
+        ),
+    ] = False,
+) -> None:
+    """Print a transaction as staff see it, one ``key: value`` line per field.
+
+    The counterparty is masked. ``--reveal`` adds the decrypted counterparty and
+    the submitted payload, each audited as ``VIEW_PII`` first, as the API does.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        _ensure_key_provider()
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            row = get_transaction(s, transaction_id)
+            view = revealed_view(s, row) if reveal else staff_view(s, row)
+            shown = _FIELDS.validate_json(view.model_dump_json())
+    for name, value in shown.items():
+        typer.echo(f"{name}: {_shown_value(value)}")
 
 
 _FILE_TYPES_BY_SUFFIX: dict[str, str] = {
