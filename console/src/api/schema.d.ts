@@ -1120,6 +1120,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Transactions */
+        get: operations["list_transactions"];
+        put?: never;
+        /** Submit Transactions */
+        post: operations["submit_transactions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Transaction File */
+        post: operations["upload_transaction_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/parked": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Parked Transactions */
+        get: operations["list_parked_transactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Backfill Transactions */
+        get: operations["list_backfill_transactions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Transaction File */
+        get: operations["get_transaction_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/files/{file_id}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Transaction File Errors */
+        get: operations["get_transaction_file_errors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/batches/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Transaction Batch */
+        get: operations["get_transaction_batch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/transactions/{transaction_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Transaction */
+        get: operations["get_transaction"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Backfill Endpoint */
+        post: operations["request_backfill_endpoint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/monitoring/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Monitoring Status */
+        get: operations["monitoring_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/audit": {
         parameters: {
             query?: never;
@@ -1404,6 +1575,32 @@ export interface components {
          * @enum {string}
          */
         AutoReason: "ID_CONFLICT_CAP" | "WHITELIST";
+        /** BackfillAccepted */
+        BackfillAccepted: {
+            /**
+             * Job Id
+             * Format: uuid
+             */
+            job_id: string;
+        };
+        /**
+         * BackfillRequest
+         * @description Mexico City days, both included; ``party_id`` narrows it to one party.
+         */
+        BackfillRequest: {
+            /**
+             * From
+             * Format: date
+             */
+            from: string;
+            /**
+             * To
+             * Format: date
+             */
+            to: string;
+            /** Party Id */
+            party_id?: string | null;
+        };
         /** BandsOverride */
         "BandsOverride-Input": {
             sanctions_alert?: components["schemas"]["PlainDecimal-Input"] | null;
@@ -1420,48 +1617,48 @@ export interface components {
             id_match_floor?: components["schemas"]["PlainDecimal-Output"] | null;
             id_conflict_cap?: components["schemas"]["PlainDecimal-Output"] | null;
         };
+        /** BatchAccepted */
+        BatchAccepted: {
+            /**
+             * Batch Id
+             * Format: uuid
+             */
+            batch_id: string;
+            /** Accepted */
+            accepted: number;
+            /** Duplicates */
+            duplicates: number;
+            /** Transaction Ids */
+            transaction_ids: string[];
+        };
         /**
          * BatchKind
          * @enum {string}
          */
         BatchKind: "LIST_DELTA" | "PRIVATE_LIST" | "PERIODIC" | "REINDEX";
         /**
-         * BatchResponse
-         * @description A re-screen batch and its progress; ``last_error`` holds a code only.
+         * BatchSource
+         * @enum {string}
          */
-        BatchResponse: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            kind: components["schemas"]["BatchKind"];
-            /** Ref */
-            ref: string;
-            status: components["schemas"]["BatchStatus"];
-            /** Total */
-            total: number | null;
-            /** Done */
-            done: number;
-            /** Runs */
-            runs: number;
-            /** New Matches */
-            new_matches: number;
-            /**
-             * Started At
-             * Format: date-time
-             */
-            started_at: string;
-            /** Finished At */
-            finished_at: string | null;
-            /** Last Error */
-            last_error: string | null;
-        };
+        BatchSource: "API" | "FILE" | "CLI";
         /**
          * BatchStatus
          * @enum {string}
          */
         BatchStatus: "RUNNING" | "COMPLETED" | "FAILED";
+        /**
+         * BatchSubmission
+         * @description The body of ``POST /v1/transactions``, items read as sent.
+         *
+         *     The items are validated by ``validate_batch`` after the size check, so a bad item
+         *     is a located ``TRANSACTION_BATCH_INVALID`` error rather than a framework one.
+         */
+        BatchSubmission: {
+            /** Transactions */
+            transactions: {
+                [key: string]: components["schemas"]["JsonValue"];
+            }[];
+        };
         /**
          * BlockedReason
          * @enum {string}
@@ -1545,6 +1742,11 @@ export interface components {
             /** Reason */
             reason?: string | null;
         };
+        /**
+         * Channel
+         * @enum {string}
+         */
+        Channel: "APP" | "WEB" | "API" | "BRANCH" | "ATM" | "AGENT" | "OTHER";
         /**
          * CheckRequest
          * @description A synchronous check of one party or one inline subject, never both.
@@ -1744,6 +1946,45 @@ export interface components {
          * @enum {string}
          */
         ConversionRule: "SAME_DAY" | "PRIOR_BANKING_DAY" | "LAST_DAY_PREV_MONTH" | "PREV_MONTH_AVG" | "SEMIANNUAL_SNAPSHOT";
+        /**
+         * CounterpartyKind
+         * @enum {string}
+         */
+        CounterpartyKind: "PERSON" | "ORGANIZATION" | "UNKNOWN";
+        /**
+         * CounterpartyScreeningStatus
+         * @enum {string}
+         */
+        CounterpartyScreeningStatus: "UNSCREENED" | "CLEAR" | "PENDING_REVIEW" | "TRUE_MATCH";
+        /**
+         * CounterpartySummary
+         * @description A counterparty for staff, masked: no value, only which components exist.
+         */
+        CounterpartySummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["CounterpartyKind"];
+            /** Has Name */
+            has_name: boolean;
+            /** Has Account */
+            has_account: boolean;
+            /** Has Wallet */
+            has_wallet: boolean;
+            /** Has Identifier */
+            has_identifier: boolean;
+            /** Institution */
+            institution: string | null;
+            /** Country */
+            country: string | null;
+            /** Wallet Network */
+            wallet_network: string | null;
+            screening_status: components["schemas"]["CounterpartyScreeningStatus"];
+            /** Txn Count */
+            txn_count: number;
+        };
         /** CustomerRelationshipResponse */
         CustomerRelationshipResponse: {
             /**
@@ -1835,6 +2076,11 @@ export interface components {
             /** New Name */
             new_name: string | null;
         };
+        /**
+         * Direction
+         * @enum {string}
+         */
+        Direction: "IN" | "OUT" | "INTERNAL";
         /** DispositionRequest */
         DispositionRequest: {
             /**
@@ -2007,6 +2253,37 @@ export interface components {
             /** Floors */
             floors: components["schemas"]["Floor"][];
         };
+        /**
+         * FileStatus
+         * @enum {string}
+         */
+        FileStatus: "UPLOADED" | "PROCESSING" | "COMPLETED" | "FAILED";
+        /** FileStatusResponse */
+        FileStatusResponse: {
+            /**
+             * File Id
+             * Format: uuid
+             */
+            file_id: string;
+            status: components["schemas"]["FileStatus"];
+            /** Rows Total */
+            rows_total: number | null;
+            /** Rows Accepted */
+            rows_accepted: number;
+            /** Rows Duplicate */
+            rows_duplicate: number;
+            /** Rows Rejected */
+            rows_rejected: number;
+            /**
+             * Uploaded At
+             * Format: date-time
+             */
+            uploaded_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+        };
         /** Floor */
         Floor: {
             /** Metric */
@@ -2129,6 +2406,11 @@ export interface components {
          * @enum {string}
          */
         IdentifierType: "CURP" | "RFC" | "CLABE" | "INE" | "CPF" | "CNPJ" | "CUIT" | "RUT" | "NIT" | "CEDULA_CO" | "DNI_PE" | "PASSPORT";
+        /**
+         * Instrument
+         * @enum {string}
+         */
+        Instrument: "CASH" | "TRANSFER" | "CARD" | "CHEQUE" | "CRYPTO" | "FX" | "FEE";
         IsoDuration: string;
         JsonValue: unknown;
         /** KycPolicy */
@@ -2483,6 +2765,33 @@ export interface components {
             /** Mfa Token */
             mfa_token: string;
         };
+        /**
+         * MonitoringStatus
+         * @description The OPS-501 counters of a tenant's processing.
+         *
+         *     ``received_by_age`` counts ``RECEIVED`` rows by time since receipt in disjoint
+         *     bands: ``lt_1m``, ``lt_10m`` (1 to 10 minutes), ``lt_1h`` and ``gte_1h``.
+         *     ``partitions_ahead`` is, per partitioned table, how many consecutive months
+         *     after the current UTC month have their partition.
+         */
+        MonitoringStatus: {
+            /** Received By Age */
+            received_by_age: {
+                [key: string]: number;
+            };
+            /** Parked */
+            parked: number;
+            /** Backfill */
+            backfill: number;
+            /** Oldest Received At */
+            oldest_received_at: string | null;
+            /** Running Process Jobs */
+            running_process_jobs: number;
+            /** Partitions Ahead */
+            partitions_ahead: {
+                [key: string]: number;
+            };
+        };
         /** NotificationResponse */
         NotificationResponse: {
             /**
@@ -2635,7 +2944,7 @@ export interface components {
         /** Page[BatchResponse] */
         Page_BatchResponse_: {
             /** Items */
-            items: components["schemas"]["BatchResponse"][];
+            items: components["schemas"]["xolotl__modules__screening__schemas__BatchResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
         };
@@ -2723,6 +3032,20 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /** Page[TransactionClientView] */
+        Page_TransactionClientView_: {
+            /** Items */
+            items: components["schemas"]["TransactionClientView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** Page[TransactionStaffView] */
+        Page_TransactionStaffView_: {
+            /** Items */
+            items: components["schemas"]["TransactionStaffView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
         /** Page[WebhookDeliveryResponse] */
         Page_WebhookDeliveryResponse_: {
             /** Items */
@@ -2736,6 +3059,28 @@ export interface components {
             items: components["schemas"]["WebhookEndpointResponse"][];
             /** Next Cursor */
             next_cursor?: string | null;
+        };
+        /**
+         * ParkReason
+         * @enum {string}
+         */
+        ParkReason: "UNIT_VALUE_MISSING" | "POLICY_NOT_ASSIGNED";
+        /** ParkedInfo */
+        ParkedInfo: {
+            reason: components["schemas"]["ParkReason"];
+            /** Unit Code */
+            unit_code: string | null;
+            /** Needed On */
+            needed_on: string | null;
+            /** Attempts */
+            attempts: number;
+            /**
+             * Parked At
+             * Format: date-time
+             */
+            parked_at: string;
+            /** Last Error */
+            last_error: string | null;
         };
         /** PartyCreateRequest */
         PartyCreateRequest: {
@@ -2966,6 +3311,20 @@ export interface components {
          * @enum {string}
          */
         PepStatus: "NONE" | "DOMESTIC" | "FOREIGN" | "RCA" | "INTL_ORG";
+        /**
+         * PeriodKeys
+         * @description The Mexico City periods a transaction falls in (``2027-02-03``, ``2027-Q1``).
+         */
+        PeriodKeys: {
+            /** Day */
+            DAY: string;
+            /** Month */
+            MONTH: string;
+            /** Quarter */
+            QUARTER: string;
+            /** Business Day */
+            BUSINESS_DAY: boolean;
+        };
         /** PersonAttributes */
         PersonAttributes: {
             /** Birth Country */
@@ -3290,6 +3649,11 @@ export interface components {
              */
             unit: "UDI" | "UMA" | "USD" | "MXN";
         };
+        /**
+         * Rail
+         * @enum {string}
+         */
+        Rail: "SPEI" | "CODI" | "CASH" | "CARD" | "WALLET" | "SWIFT" | "CRYPTO_ONCHAIN" | "OTHER";
         /** RegulatoryProfileRequest */
         RegulatoryProfileRequest: {
             /** Rfc */
@@ -3416,6 +3780,24 @@ export interface components {
             /** Value */
             value: string;
         };
+        /**
+         * RevealedCounterparty
+         * @description A counterparty's values in plaintext, each audited as ``VIEW_PII`` first.
+         */
+        RevealedCounterparty: {
+            /** Name */
+            name: string | null;
+            /** Account */
+            account: string | null;
+            /** Wallet Address */
+            wallet_address: string | null;
+            /** Wallet Network */
+            wallet_network: string | null;
+            /** Identifier Type */
+            identifier_type: string | null;
+            /** Identifier */
+            identifier: string | null;
+        };
         /** RevealedIdentifier */
         RevealedIdentifier: {
             /**
@@ -3443,7 +3825,7 @@ export interface components {
          * RunMode
          * @enum {string}
          */
-        RunMode: "AD_HOC" | "NEW_SUBJECT" | "DATA_CHANGE" | "LIST_DELTA" | "PRIVATE_LIST" | "PERIODIC" | "REINDEX";
+        RunMode: "AD_HOC" | "NEW_SUBJECT" | "DATA_CHANGE" | "LIST_DELTA" | "PRIVATE_LIST" | "PERIODIC" | "REINDEX" | "COUNTERPARTY";
         /** RunResponse */
         RunResponse: {
             /**
@@ -3603,7 +3985,7 @@ export interface components {
          * SubjectKind
          * @enum {string}
          */
-        SubjectKind: "PARTY" | "AD_HOC";
+        SubjectKind: "PARTY" | "AD_HOC" | "COUNTERPARTY";
         /**
          * SubjectStatus
          * @enum {string}
@@ -3790,6 +4172,256 @@ export interface components {
             code: string;
         };
         /**
+         * TransactionClientView
+         * @description What an API client is shown of a transaction: identity and status.
+         */
+        TransactionClientView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** External Id */
+            external_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            status: components["schemas"]["TransactionStatus"];
+            /** Late */
+            late: boolean;
+        };
+        /**
+         * TransactionQuery
+         * @description The filters of ``GET /v1/transactions``.
+         *
+         *     ``from`` and ``to`` are Mexico City days, both included.
+         */
+        TransactionQuery: {
+            /** Party Id */
+            party_id?: string | null;
+            /** Relationship Id */
+            relationship_id?: string | null;
+            /** External Id */
+            external_id?: string | null;
+            /** From */
+            from?: string | null;
+            /** To */
+            to?: string | null;
+            status?: components["schemas"]["TransactionStatus"] | null;
+            instrument?: components["schemas"]["Instrument"] | null;
+            rail?: components["schemas"]["Rail"] | null;
+            /** Late */
+            late?: boolean | null;
+        };
+        /**
+         * TransactionRevealedView
+         * @description The staff view plus the decrypted counterparty and payload, audited.
+         */
+        TransactionRevealedView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** External Id */
+            external_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            status: components["schemas"]["TransactionStatus"];
+            /** Late */
+            late: boolean;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /**
+             * Batch Id
+             * Format: uuid
+             */
+            batch_id: string;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Account Ref */
+            account_ref: string;
+            /** Product */
+            product: string | null;
+            direction: components["schemas"]["Direction"];
+            rail: components["schemas"]["Rail"];
+            instrument: components["schemas"]["Instrument"];
+            channel: components["schemas"]["Channel"];
+            /** Amount Minor */
+            amount_minor: number;
+            /** Currency */
+            currency: string;
+            /** Fee Minor */
+            fee_minor: number | null;
+            /** Asset Qty */
+            asset_qty: string | null;
+            /** Asset Code */
+            asset_code: string | null;
+            /** Unit Amounts */
+            unit_amounts: components["schemas"]["UnitAmountView"][];
+            period_keys: components["schemas"]["PeriodKeys"] | null;
+            counterparty: components["schemas"]["CounterpartySummary"] | null;
+            counterparty_screening_status_at_processing: components["schemas"]["CounterpartyScreeningStatus"] | null;
+            /** Device Present */
+            device_present: boolean;
+            /** Geo Country */
+            geo_country: string | null;
+            /** Geo Admin Area */
+            geo_admin_area: string | null;
+            /** Crypto */
+            crypto: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Fx */
+            fx: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Purpose Code */
+            purpose_code: string | null;
+            /** Tier */
+            tier: string | null;
+            /** Risk Rating */
+            risk_rating: string | null;
+            /** Monitoring Profile */
+            monitoring_profile: string;
+            /** Policy Snapshot Id */
+            policy_snapshot_id: string | null;
+            /** Processed At */
+            processed_at: string | null;
+            /** Decision Id */
+            decision_id: string | null;
+            parked: components["schemas"]["ParkedInfo"] | null;
+            counterparty_revealed: components["schemas"]["RevealedCounterparty"] | null;
+            /** Raw */
+            raw: {
+                [key: string]: components["schemas"]["JsonValue"];
+            };
+        };
+        /**
+         * TransactionStaffView
+         * @description A transaction for staff, the counterparty masked; ``parked`` when parked.
+         */
+        TransactionStaffView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** External Id */
+            external_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            status: components["schemas"]["TransactionStatus"];
+            /** Late */
+            late: boolean;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /**
+             * Batch Id
+             * Format: uuid
+             */
+            batch_id: string;
+            /**
+             * Party Id
+             * Format: uuid
+             */
+            party_id: string;
+            /**
+             * Relationship Id
+             * Format: uuid
+             */
+            relationship_id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Account Ref */
+            account_ref: string;
+            /** Product */
+            product: string | null;
+            direction: components["schemas"]["Direction"];
+            rail: components["schemas"]["Rail"];
+            instrument: components["schemas"]["Instrument"];
+            channel: components["schemas"]["Channel"];
+            /** Amount Minor */
+            amount_minor: number;
+            /** Currency */
+            currency: string;
+            /** Fee Minor */
+            fee_minor: number | null;
+            /** Asset Qty */
+            asset_qty: string | null;
+            /** Asset Code */
+            asset_code: string | null;
+            /** Unit Amounts */
+            unit_amounts: components["schemas"]["UnitAmountView"][];
+            period_keys: components["schemas"]["PeriodKeys"] | null;
+            counterparty: components["schemas"]["CounterpartySummary"] | null;
+            counterparty_screening_status_at_processing: components["schemas"]["CounterpartyScreeningStatus"] | null;
+            /** Device Present */
+            device_present: boolean;
+            /** Geo Country */
+            geo_country: string | null;
+            /** Geo Admin Area */
+            geo_admin_area: string | null;
+            /** Crypto */
+            crypto: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Fx */
+            fx: {
+                [key: string]: components["schemas"]["JsonValue"];
+            } | null;
+            /** Purpose Code */
+            purpose_code: string | null;
+            /** Tier */
+            tier: string | null;
+            /** Risk Rating */
+            risk_rating: string | null;
+            /** Monitoring Profile */
+            monitoring_profile: string;
+            /** Policy Snapshot Id */
+            policy_snapshot_id: string | null;
+            /** Processed At */
+            processed_at: string | null;
+            /** Decision Id */
+            decision_id: string | null;
+            parked: components["schemas"]["ParkedInfo"] | null;
+        };
+        /**
+         * TransactionStatus
+         * @enum {string}
+         */
+        TransactionStatus: "RECEIVED" | "PROCESSED" | "PARKED" | "BACKFILL";
+        /**
          * TriggerType
          * @enum {string}
          */
@@ -3824,6 +4456,23 @@ export interface components {
              * @default false
              */
             legal_person_can_be_ubo?: boolean;
+        };
+        /** UnitAmountView */
+        UnitAmountView: {
+            /** Key */
+            key: string;
+            /** Unit */
+            unit: string;
+            rule: components["schemas"]["ConversionRule"];
+            /** Amount */
+            amount: string;
+            /** Unit Value Id */
+            unit_value_id: number | null;
+            /**
+             * Resolved Date
+             * Format: date
+             */
+            resolved_date: string;
         };
         /** UnitLookupResponse */
         UnitLookupResponse: {
@@ -4026,6 +4675,62 @@ export interface components {
             id: string;
             /** Secret */
             secret: string;
+        };
+        /** BatchResponse */
+        xolotl__modules__monitoring__schemas__BatchResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            source: components["schemas"]["BatchSource"];
+            /** Item Count */
+            item_count: number;
+            /** Accepted */
+            accepted: number;
+            /** Duplicates */
+            duplicates: number;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Request Id */
+            request_id: string | null;
+            /** File Id */
+            file_id: string | null;
+        };
+        /**
+         * BatchResponse
+         * @description A re-screen batch and its progress; ``last_error`` holds a code only.
+         */
+        xolotl__modules__screening__schemas__BatchResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            kind: components["schemas"]["BatchKind"];
+            /** Ref */
+            ref: string;
+            status: components["schemas"]["BatchStatus"];
+            /** Total */
+            total: number | null;
+            /** Done */
+            done: number;
+            /** Runs */
+            runs: number;
+            /** New Matches */
+            new_matches: number;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Last Error */
+            last_error: string | null;
         };
     };
     responses: never;
@@ -6411,6 +7116,351 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvaluationReportResponse"];
+                };
+            };
+        };
+    };
+    list_transactions: {
+        parameters: {
+            query: {
+                query: components["schemas"]["TransactionQuery"];
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TransactionStaffView_"] | components["schemas"]["Page_TransactionClientView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_transactions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_transaction_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                "application/x-ndjson": string;
+                "text/csv": string;
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileStatusResponse"];
+                };
+            };
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileStatusResponse"];
+                };
+            };
+        };
+    };
+    list_parked_transactions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TransactionStaffView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_backfill_transactions: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_TransactionStaffView_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transaction_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileStatusResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transaction_file_errors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transaction_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["xolotl__modules__monitoring__schemas__BatchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_transaction: {
+        parameters: {
+            query?: {
+                reveal?: boolean;
+            };
+            header?: never;
+            path: {
+                transaction_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransactionRevealedView"] | components["schemas"]["TransactionStaffView"] | components["schemas"]["TransactionClientView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_backfill_endpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackfillRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BackfillAccepted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    monitoring_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonitoringStatus"];
                 };
             };
         };

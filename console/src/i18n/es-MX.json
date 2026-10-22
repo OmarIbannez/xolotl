@@ -1111,7 +1111,8 @@
       "kind": "Origen",
       "kinds": {
         "PARTY": "Cliente",
-        "AD_HOC": "Consulta ad hoc"
+        "AD_HOC": "Consulta ad hoc",
+        "COUNTERPARTY": "Contraparte"
       },
       "entityType": "Tipo",
       "initials": "Iniciales",

@@ -1111,7 +1111,8 @@
       "kind": "Origin",
       "kinds": {
         "PARTY": "Customer",
-        "AD_HOC": "Ad hoc check"
+        "AD_HOC": "Ad hoc check",
+        "COUNTERPARTY": "Counterparty"
       },
       "entityType": "Type",
       "initials": "Initials",
