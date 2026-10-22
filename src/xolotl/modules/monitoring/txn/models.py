@@ -147,7 +147,7 @@ class TransactionBatch(TenantTableMixin, Base):
 
     source: Mapped[BatchSource] = mapped_column(enum_column(BatchSource))
     file_id: Mapped[UUID | None] = mapped_column(Uuid)
-    # 'api_key:<id>', 'staff:<id>' or 'cli:<user>'.
+    # 'api_client:<id>', 'staff:<id>' or 'cli:<user>'.
     submitted_by: Mapped[str] = mapped_column(Text)
     item_count: Mapped[int] = mapped_column(Integer)
     accepted: Mapped[int] = mapped_column(Integer)

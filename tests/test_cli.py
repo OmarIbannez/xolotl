@@ -117,6 +117,7 @@ from xolotl.modules.screening.rescreen.walkers import (
 from xolotl.modules.tenants import service
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock, db, migrate
+from xolotl.platform.audit import VIEW_PII
 from xolotl.platform.config import DEV_MASTER_KEY, get_settings
 from xolotl.platform.crypto import (
     KeyDestroyedError,
@@ -2521,3 +2522,91 @@ def test_monitoring_partitions_ensure_lists_tables(engine: Engine):
         re.fullmatch(r"[a-z_]+: created [a-z0-9_, ]+; skipped [A-Za-z0-9_, ()]+", line)
         for line in lines
     )
+
+
+# ---- monitoring show -----------------------------------------------------------------
+
+
+def _shown_transaction(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> UUID:
+    _ = monitoring_support.itf_tenant(tenant, admin_engine)
+    customer = monitoring_support.add_customer(tenant, "cust-1")
+    item = monitoring_support.make_item(
+        occurred_at="2026-01-20T12:00:00Z",
+        counterparty={"kind": "PERSON", "name": "Juan Pérez", "country": "MX"},
+    )
+    factory = db.get_sessionmaker()
+    with monkeypatch.context() as patched:
+        patched.setattr(clock, "now", lambda: datetime(2026, 1, 21, 5, tzinfo=UTC))
+        with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+            report = monitoring_support.ingest_items(
+                s, [item], queue=PostgresJobQueue(factory)
+            )
+    _ = process_party(
+        factory,
+        tenant.tenant_id,
+        customer.party_id,
+        queue=PostgresJobQueue(factory),
+        job=None,
+        settings=get_settings(),
+        actor="cli:test",
+    )
+    return report.transaction_ids[0]
+
+
+def test_monitoring_show_prints_the_staff_view(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    txn_id = _shown_transaction(tenant, admin_engine, monkeypatch)
+    result = runner.invoke(
+        app, ["monitoring", "show", str(txn_id), "--tenant", tenant.slug]
+    )
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert lines[0] == f"id: {txn_id}"
+    assert "external_id: tx-1" in lines
+    assert "status: PROCESSED" in lines
+    assert "parked: -" in lines
+    assert any(
+        line.startswith("unit_amounts: ") and "UDI/SAME_DAY" in line for line in lines
+    )
+    assert any(
+        line.startswith("counterparty: ") and '"has_name": true' in line
+        for line in lines
+    )
+    assert "Juan" not in result.stdout
+    assert "counterparty_revealed" not in result.stdout
+    assert not [e for e in audit_events(tenant.tenant_id) if e.action == VIEW_PII]
+    missing = runner.invoke(
+        app, ["monitoring", "show", str(UUID(int=7)), "--tenant", tenant.slug]
+    )
+    assert missing.exit_code == 1
+    assert "transaction not found" in missing.output
+
+
+def test_monitoring_show_reveal_audits(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    txn_id = _shown_transaction(tenant, admin_engine, monkeypatch)
+    result = runner.invoke(
+        app, ["monitoring", "show", str(txn_id), "--tenant", tenant.slug, "--reveal"]
+    )
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    assert any(
+        line.startswith("counterparty_revealed: ") and "Juan Pérez" in line
+        for line in lines
+    )
+    assert any(
+        line.startswith("raw: ") and '"external_id": "tx-1"' in line for line in lines
+    )
+    shown = [e for e in audit_events(tenant.tenant_id) if e.action == VIEW_PII]
+    assert [(e.entity_type, e.detail) for e in shown] == [
+        ("transaction", {"field": "raw"}),
+        ("transaction", {"field": "counterparty"}),
+        ("counterparty", {"field": "name"}),
+    ]
+    assert {(e.actor_type, e.actor_id) for e in shown} == {
+        ("PLATFORM_OPERATOR", f"cli:{getpass.getuser()}")
+    }
