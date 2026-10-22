@@ -6,14 +6,19 @@ a counterparty or its screening status (tipping-off, spec §15). Staff get
 ``TransactionStaffView``, with the counterparty masked, and
 ``TransactionRevealedView`` only through an audited reveal. The counterparty types
 are screening's (reconciliation finding 13). Plans 4b and 4c append their models.
+
+The rules models (plan 4b B9) serve both audiences too: an API client with
+``rules:read`` reads templates, rules and simulations, but a simulation's
+``sample`` and ``overlap`` say which customers a rule would hit, so the client's
+copy carries neither (PRV-502), and only staff get ``allowed_actions``.
 """
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import ClassVar
+from typing import ClassVar, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 from xolotl.modules.monitoring.decide.enums import FailMode
 from xolotl.modules.monitoring.enums import (
@@ -22,8 +27,22 @@ from xolotl.modules.monitoring.enums import (
     ParkReason,
     TransactionStatus,
 )
-from xolotl.modules.monitoring.rules.definitions import HitOutcome, Severity
-from xolotl.modules.monitoring.rules.enums import HitTransactionRole
+from xolotl.modules.monitoring.rules.definitions import (
+    Dedup,
+    HitOutcome,
+    RuleFamily,
+    RuleKind,
+    SegmentFilter,
+    Severity,
+)
+from xolotl.modules.monitoring.rules.enums import (
+    HitTransactionRole,
+    RuleAction,
+    RuleBlockedReason,
+    RuleVersionStatus,
+    SimulationStatus,
+)
+from xolotl.modules.monitoring.rules.versions import VersionInput
 from xolotl.modules.monitoring.txn.schema import (
     Channel,
     Direction,
@@ -337,3 +356,206 @@ class BehaviourProfileResponse(BaseModel):
     deviation: dict[str, JsonValue] | None
     deviated: bool
     computed_at: datetime
+
+
+class ParamView(BaseModel):
+    """A rule parameter: its value and the bounds a tenant may move it within.
+
+    Values and bounds are spelled as text (decimals exactly, booleans ``true`` or
+    ``false``); ``source`` names where the bounds come from, ``template <code>
+    v<n>`` or, for a custom rule, ``rule <code> v<n>``.
+    """
+
+    name: str
+    value: str
+    type: Literal["DECIMAL", "INT", "STR", "BOOL"]
+    min: str | None
+    max: str | None
+    choices: list[str] | None
+    tighten: Literal["LOWER", "RAISE"] | None
+    unit: str | None
+    source: str
+
+
+class TemplateResponse(BaseModel):
+    """The latest version of a library template (spec §9.3).
+
+    ``sentences`` holds the rendered sentence by locale (``es-MX``, ``en``).
+    """
+
+    code: str
+    family: RuleFamily
+    kind: RuleKind
+    title: str
+    typology: list[str]
+    country_code: str
+    packs: list[str]
+    version: int
+    params: list[ParamView]
+    definition: dict[str, JsonValue]
+    sentences: dict[str, str]
+
+
+class SimulationResponse(BaseModel):
+    """A simulation of a rule version and its tallies (spec §13.1).
+
+    ``valid_until`` is the Mexico City day on which a completed simulation stops
+    counting for submission and approval (``finished_at`` plus
+    ``MONITORING_SIMULATION_MAX_AGE_DAYS``); ``notes`` are codes of what the
+    simulation could not see (``PROFILE_HISTORY_SHORT``: a range under about four
+    months never fires a profile rule's history branch). An API client gets
+    ``sample`` empty and ``overlap`` null.
+    """
+
+    id: UUID
+    rule_version_id: UUID
+    status: SimulationStatus
+    range_start: date
+    range_end: date
+    definition_hash: str
+    transactions_read: int
+    hit_count: int
+    customers_hit: int
+    hits_per_week: list[dict[str, JsonValue]]
+    overlap: dict[str, int] | None
+    sample: list[dict[str, JsonValue]]
+    requested_by: UUID
+    started_at: datetime | None
+    finished_at: datetime | None
+    last_error: str | None
+    valid_until: date | None
+    notes: list[str]
+
+
+class RuleAssignmentResponse(BaseModel):
+    """Where and from when a rule version applies (spec §9.5)."""
+
+    id: UUID
+    rule_version_id: UUID
+    rule_code: str
+    product: str | None
+    segment_filter: dict[str, list[str]] | None
+    effective_from: date
+    effective_to: date | None
+    approved_by: UUID
+
+
+class VersionResponse(BaseModel):
+    """A rule version under the D19 lifecycle (spec §9.4).
+
+    ``simulation`` is the version's latest simulation, whatever its status;
+    ``allowed_actions`` and ``blocked_reasons`` are for the caller (empty for an
+    API client).
+    """
+
+    id: UUID
+    rule_id: UUID
+    version: int
+    status: RuleVersionStatus
+    definition_hash: str
+    sync: bool
+    params: list[ParamView]
+    segment: SegmentFilter | None
+    severity: Severity
+    dedup: Dedup
+    sentence: str
+    author_id: UUID
+    submitted_at: datetime | None
+    approved_by: UUID | None
+    approved_at: datetime | None
+    simulation: SimulationResponse | None
+    assignment: RuleAssignmentResponse | None
+    activated_at: datetime | None
+    retired_at: datetime | None
+    retired_by_version_id: UUID | None
+    allowed_actions: list[RuleAction]
+    blocked_reasons: dict[RuleAction, list[RuleBlockedReason]]
+    created_at: datetime
+
+
+class RuleResponse(BaseModel):
+    """A tenant rule with every version, oldest first."""
+
+    id: UUID
+    code: str
+    family: RuleFamily
+    kind: RuleKind
+    template_code: str | None
+    title: str
+    typology: list[str]
+    created_by: UUID
+    created_at: datetime
+    versions: list[VersionResponse]
+    active_version_id: UUID | None
+    last_simulation: SimulationResponse | None
+
+
+class RuleQuery(BaseModel):
+    """The filters of ``GET /v1/monitoring/rules``.
+
+    ``status`` finds the rules with any version in that status.
+    """
+
+    kind: RuleKind | None = None
+    typology: str | None = Field(default=None, max_length=64)
+    status: RuleVersionStatus | None = None
+
+
+class VersionRequest(VersionInput):
+    """What a new or edited version tunes; a field left out keeps its value."""
+
+
+class RuleCreateRequest(VersionRequest):
+    """A rule from a library template, or a custom rule from a whole definition.
+
+    Exactly one of ``template_code`` and ``definition``; a custom definition
+    carries its own parameters, segment, severity and dedup, so none of those
+    may come with it.
+    """
+
+    template_code: str | None = Field(default=None, max_length=64)
+    definition: dict[str, JsonValue] | None = None
+
+    @model_validator(mode="after")
+    def _one_source(self) -> Self:
+        if (self.template_code is None) == (self.definition is None):
+            msg = "give exactly one of template_code and definition"
+            raise ValueError(msg)
+        tuned = (self.params, self.segment, self.severity, self.dedup)
+        if self.definition is not None and any(item is not None for item in tuned):
+            msg = (
+                "a custom definition carries its own params, segment, severity "
+                "and dedup"
+            )
+            raise ValueError(msg)
+        return self
+
+
+class SimulateRequest(BaseModel):
+    """Mexico City days, both included."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    range_start: date
+    range_end: date
+
+
+class SimulateAccepted(BaseModel):
+    simulation_id: UUID
+
+
+class ActivateRequest(BaseModel):
+    """``product`` null applies the version to every product."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    effective_from: date
+    product: str | None = Field(default=None, max_length=64)
+
+
+class RejectRequest(BaseModel):
+    """The reason is required but its text is kept nowhere (plan 4b Deviation 18)."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)

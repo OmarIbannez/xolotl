@@ -102,21 +102,31 @@ class RuleSet:
         return hashlib.sha256(b"".join(hashes)).digest()
 
 
+def _dated(on: date) -> ColumnElement[bool]:
+    # In force on ``on``, for whichever product.
+    return (
+        (RuleAssignment.effective_from <= on)
+        & or_(RuleAssignment.effective_to.is_(None), RuleAssignment.effective_to >= on)
+        & MonitoringRuleVersion.status.in_(_APPLYING)
+    )
+
+
 def _in_force(on: date, product: str | None) -> ColumnElement[bool]:
     applies = RuleAssignment.product.is_(None)
     if product is not None:
         applies = or_(applies, RuleAssignment.product == product)
-    return (
-        (RuleAssignment.effective_from <= on)
-        & or_(RuleAssignment.effective_to.is_(None), RuleAssignment.effective_to >= on)
-        & applies
-        & MonitoringRuleVersion.status.in_(_APPLYING)
-    )
+    return _dated(on) & applies
 
 
 def _version_of_assignment() -> ColumnElement[bool]:
     return (MonitoringRuleVersion.tenant_id == RuleAssignment.tenant_id) & (
         MonitoringRuleVersion.id == RuleAssignment.rule_version_id
+    )
+
+
+def _rule_of_version() -> ColumnElement[bool]:
+    return (MonitoringRule.tenant_id == MonitoringRuleVersion.tenant_id) & (
+        MonitoringRule.id == MonitoringRuleVersion.rule_id
     )
 
 
@@ -138,6 +148,24 @@ def assignments_on(
     return list(s.scalars(query.order_by(RuleAssignment.effective_from)))
 
 
+def assignments_in_force(s: Session, *, on: date) -> list[tuple[RuleAssignment, str]]:
+    """List every assignment in force on ``on``, whatever its product.
+
+    Returns:
+        Each assignment with its rule code, by start date and rule code, of
+        versions ``ACTIVE`` or ``RETIRED``.
+
+    """
+    query = (
+        select(RuleAssignment, MonitoringRule.code)
+        .join(MonitoringRuleVersion, _version_of_assignment())
+        .join(MonitoringRule, _rule_of_version())
+        .where(_dated(on))
+        .order_by(RuleAssignment.effective_from, MonitoringRule.code)
+    )
+    return [(row, code) for row, code in s.execute(query)]
+
+
 def _segment(raw: object) -> SegmentFilter | None:
     return None if raw is None else SegmentFilter.model_validate(raw)
 
@@ -157,11 +185,7 @@ def _load(s: Session, *, on: date, product: str | None) -> RuleSet:
     query = (
         select(RuleAssignment, MonitoringRuleVersion, MonitoringRule.code)
         .join(MonitoringRuleVersion, _version_of_assignment())
-        .join(
-            MonitoringRule,
-            (MonitoringRule.tenant_id == MonitoringRuleVersion.tenant_id)
-            & (MonitoringRule.id == MonitoringRuleVersion.rule_id),
-        )
+        .join(MonitoringRule, _rule_of_version())
         .where(_in_force(on, product))
         .order_by(MonitoringRule.code, MonitoringRuleVersion.version)
     )

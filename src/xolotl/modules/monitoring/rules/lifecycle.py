@@ -83,6 +83,7 @@ __all__ = [
     "retire_version",
     "submit_version",
     "version_editors",
+    "version_out_of_bounds",
 ]
 
 APPROVERS = frozenset({Role.MLRO, Role.ADMIN})
@@ -268,8 +269,17 @@ def version_editors(s: Session, version_id: UUID) -> frozenset[UUID]:
     return frozenset(UUID(actor) for actor in actors)
 
 
-def _out_of_bounds(s: Session, version: MonitoringRuleVersion) -> bool:
-    # A custom rule is bounded by its own versions (plan 4b Deviation 17).
+def version_out_of_bounds(s: Session, version: MonitoringRuleVersion) -> bool:
+    """Say whether a version's parameters left its template version's bounds.
+
+    A custom rule is bounded by its own versions (plan 4b Deviation 17), so it
+    never is. The staff view passes this to ``evaluate_rule_actions`` as
+    activation does.
+
+    Returns:
+        True when ``check_params`` finds a violation.
+
+    """
     if version.template_version_id is None:
         return False
     template = s.get_one(RuleTemplateVersion, version.template_version_id)
@@ -467,7 +477,11 @@ def activate_version(
     ctx = _staff(s)
     version, siblings = _locked_rule(s, version_id)
     now = _require(
-        s, version, RuleAction.ACTIVATE, ctx, out_of_bounds=_out_of_bounds(s, version)
+        s,
+        version,
+        RuleAction.ACTIVATE,
+        ctx,
+        out_of_bounds=version_out_of_bounds(s, version),
     )
     if effective_from < policy_date(now):
         msg = "effective_from must be today or later"
