@@ -35,7 +35,11 @@ from xolotl.modules.monitoring.enrich.policy import SnapshotRef, policy_date
 from xolotl.modules.monitoring.enrich.service import enriched_from_row
 from xolotl.modules.monitoring.enums import BucketKind, TransactionStatus
 from xolotl.modules.monitoring.process.hooks import ProcessingContext
-from xolotl.modules.monitoring.rules.assignments import RuleSet, active_rules
+from xolotl.modules.monitoring.rules.assignments import (
+    LoadedRule,
+    RuleSet,
+    active_rules,
+)
 from xolotl.modules.monitoring.rules.definitions import RuleKind
 from xolotl.modules.monitoring.rules.enums import NoticeSource
 from xolotl.modules.monitoring.rules.evaluate import evaluate_rules, profile_for
@@ -47,6 +51,7 @@ from xolotl.modules.monitoring.rules.tier_limits import (
 from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
 from xolotl.platform import clock
+from xolotl.platform.db import bound_context
 from xolotl.platform.policy import EffectivePolicy
 from xolotl.platform.policy.snapshots import get_snapshot
 
@@ -123,70 +128,72 @@ def _evaluate(
             )
 
 
-def _reaches(ruleset: RuleSet, at: datetime) -> dict[str, datetime]:
-    """Map each rule that reads an aggregate to the reach of its windows from ``at``.
-
-    A rule that reads no aggregate is left out: another row never changes whether
-    a transaction fires it.
-
-    Returns:
-        The last instant whose window of the rule contains ``at``, by rule code.
-
-    """
-    return {
-        loaded.rule_code: max(_reach(item, at) for item in loaded.definition.aggregates)
-        for loaded in ruleset.rules
-        if loaded.definition.aggregates
-    }
+# No window reaches further than six calendar months: a DURATION or ACCUM window
+# is at most P6M, and a QUARTER bucket ends within three (A7's limits).
+_LONGEST_REACH_MONTHS = 6
 
 
 def reevaluate_later(
-    s: Session, late: EnrichedTransaction, ruleset: RuleSet, ctx: ProcessingContext
+    s: Session, late: EnrichedTransaction, ctx: ProcessingContext
 ) -> int:
     """Re-evaluate the party's processed rows whose windows now hold ``late``.
 
-    Each rule of ``ruleset`` that reads an aggregate reaches from
-    ``late.occurred_at`` to the end of its longest window; a later row (one at
-    the same instant included, ``late`` itself never) is re-evaluated only under
-    the rules whose reach holds it, as those rules stand on the row's own date,
-    with the policy of its own snapshot. A new hit links ``late`` as evidence.
+    Every later row of the party (one at the same instant included, ``late``
+    itself never) within six months is a candidate. It is re-evaluated under the
+    rules in force on its own date that read an aggregate and whose reach (the
+    end of the rule's longest window from ``late.occurred_at``, for that version)
+    holds the row, with the policy of its own snapshot. So a rule that started
+    after ``late``'s date, or a newer version with a longer window, still re-fires
+    (B7 re-review N2). A new hit links ``late`` as evidence.
 
     Returns:
         The number of rows re-evaluated.
 
     """
-    reaches = _reaches(ruleset, late.occurred_at)
-    if not reaches:
-        return 0
-    rows = s.scalars(
-        select(Transaction)
+    tenant_id = bound_context(s).require_tenant_id()
+    horizon = _plus_months(late.occurred_at.astimezone(UTC), _LONGEST_REACH_MONTHS)
+    # Only the keys first: most candidates are left out by the reach test.
+    candidates = s.execute(
+        select(Transaction.occurred_at, Transaction.id, Transaction.product)
         .where(
             Transaction.party_id == late.party_id,
             Transaction.status == TransactionStatus.PROCESSED,
             Transaction.occurred_at >= late.occurred_at,
-            Transaction.occurred_at <= max(reaches.values()),
+            Transaction.occurred_at <= horizon,
             Transaction.id != late.id,
         )
         .order_by(Transaction.occurred_at, Transaction.id)
     ).all()
+    reaches: dict[UUID, datetime] = {}
     policies: dict[UUID, EffectivePolicy] = {
         ctx.snapshot.snapshot_id: ctx.snapshot.policy
     }
     evaluated = 0
-    for row in rows:
-        reached = {code for code, until in reaches.items() if row.occurred_at <= until}
-        in_force = active_rules(s, on=policy_date(row.occurred_at), product=row.product)
-        rules = replace(
-            in_force,
-            rules=tuple(item for item in in_force.rules if item.rule_code in reached),
-        )
-        if not rules.rules:
+    for occurred_at, row_id, product in candidates:
+        in_force = active_rules(s, on=policy_date(occurred_at), product=product)
+        reached: list[LoadedRule] = []
+        for loaded in in_force.rules:
+            if not loaded.definition.aggregates:
+                # Another row never changes whether a transaction fires it.
+                continue
+            until = reaches.get(loaded.rule_version_id)
+            if until is None:
+                until = max(
+                    _reach(item, late.occurred_at)
+                    for item in loaded.definition.aggregates
+                )
+                reaches[loaded.rule_version_id] = until
+            if occurred_at <= until:
+                reached.append(loaded)
+        if not reached:
             continue
+        row = s.get_one(Transaction, (tenant_id, occurred_at, row_id))
         txn = enriched_from_row(row)
         policy = policies.get(txn.policy_snapshot_id)
         if policy is None:
             policy = get_snapshot(s, txn.policy_snapshot_id).policy
             policies[txn.policy_snapshot_id] = policy
+        rules = replace(in_force, rules=tuple(reached))
         _evaluate(s, txn, rules, store=ctx.store, policy=policy, in_flight=(late,))
         evaluated += 1
     return evaluated
@@ -216,4 +223,4 @@ class RulesHook:
         ruleset = active_rules(s, on=policy_date(txn.occurred_at), product=txn.product)
         _evaluate(s, txn, ruleset, store=ctx.store, policy=ctx.snapshot.policy)
         if ctx.late:
-            _ = reevaluate_later(s, txn, ruleset, ctx)
+            _ = reevaluate_later(s, txn, ctx)

@@ -8,7 +8,7 @@ UTC week starting on Monday (7 to 13 December 2026) and the cooldown seven days.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
-from tests.helpers import everything_stored, system_ctx
+from tests.helpers import everything_stored, staff_session, system_ctx
 from tests.modules.monitoring.rules.conftest import enriched
 from tests.modules.monitoring.rules.hook_support import (
     CASH,
@@ -35,6 +35,13 @@ from tests.modules.monitoring.rules.hook_support import (
     run_backfills,
     statuses,
 )
+from tests.modules.monitoring.rules.lifecycle_support import (
+    APPROVER_ROLES,
+    AUTHOR_ROLES,
+    draft,
+    freeze,
+    simulate,
+)
 from tests.modules.monitoring.support import run_processing
 from xolotl.modules.monitoring.aggregates.models import AggDeclaration
 from xolotl.modules.monitoring.enrich.service import enriched_from_row
@@ -52,7 +59,13 @@ from xolotl.modules.monitoring.rules.definitions import Dedup, HitOutcome, Sever
 from xolotl.modules.monitoring.rules.evaluate import evaluate_rules
 from xolotl.modules.monitoring.rules.hits import dedup_bucket, record_firing
 from xolotl.modules.monitoring.rules.kinds import Firing
+from xolotl.modules.monitoring.rules.lifecycle import (
+    activate_version,
+    approve_version,
+    submit_version,
+)
 from xolotl.modules.monitoring.rules.models import RuleHit, RuleHitTransaction
+from xolotl.modules.monitoring.rules.versions import VersionInput
 from xolotl.modules.monitoring.txn import ingest as ingest_module
 from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
@@ -291,10 +304,8 @@ def test_a_late_row_refires_nothing_already_recorded(
     returned: list[int] = []
     original = hook_module.reevaluate_later
 
-    def spy(
-        s: Session, late: EnrichedTransaction, ruleset: RuleSet, ctx: ProcessingContext
-    ) -> int:
-        count = original(s, late, ruleset, ctx)
+    def spy(s: Session, late: EnrichedTransaction, ctx: ProcessingContext) -> int:
+        count = original(s, late, ctx)
         returned.append(count)
         return count
 
@@ -382,3 +393,103 @@ def test_re_evaluation_runs_only_the_rules_whose_reach_holds_the_late_row(
         (fifth, frozenset({CASH, TIER_N1})),
         (twentieth, frozenset({TIER_N1})),
     ]
+
+
+def _spy_rules(monkeypatch: pytest.MonkeyPatch) -> list[tuple[UUID, frozenset[str]]]:
+    """Record which rules the hook evaluates for which transaction.
+
+    Returns:
+        The ``(transaction id, rule codes)`` pairs, in call order.
+
+    """
+    seen: list[tuple[UUID, frozenset[str]]] = []
+
+    def spy(ruleset: RuleSet, **kwargs: Any) -> list[tuple[LoadedRule, Firing]]:
+        txn = kwargs["txn"]
+        assert isinstance(txn, EnrichedTransaction)
+        seen.append((txn.id, frozenset(r.rule_code for r in ruleset.rules)))
+        return evaluate_rules(ruleset, **kwargs)
+
+    monkeypatch.setattr(hook_module, "evaluate_rules", spy)
+    return seen
+
+
+def _activate_from(
+    stage: Stage,
+    monkeypatch: pytest.MonkeyPatch,
+    code: str,
+    effective_from: date,
+    body: VersionInput | None = None,
+) -> None:
+    # Activated on 15 November, so the version's simulation (finished on 30
+    # October) is still fresh, effective on a later December day.
+    with monkeypatch.context() as patched:
+        freeze(patched, datetime(2026, 11, 15, 18, tzinfo=UTC))
+        version = draft(stage.tenant, code, body=body)
+        _ = simulate(stage.tenant, version)
+        with staff_session(
+            stage.tenant_id, stage.tenant.admin_user_id, AUTHOR_ROLES
+        ) as s:
+            _ = submit_version(s, version.id)
+        with staff_session(stage.tenant_id, stage.approver, APPROVER_ROLES) as s:
+            _ = approve_version(s, version.id)
+            _ = activate_version(
+                s,
+                version.id,
+                effective_from=effective_from,
+                product=None,
+                queue=stage.services.queue,
+            )
+    _ = run_backfills(stage.services)
+
+
+@pytest.mark.usefixtures("n3")
+def test_re_evaluation_runs_a_rule_that_started_after_the_late_row(
+    stage: Stage, monkeypatch: pytest.MonkeyPatch
+):
+    # NEW_ACCOUNT_VELOCITY (P1D) applies from 11 December only; a 10 December
+    # deposit arriving late still re-runs it on the 11 December row (review N2).
+    velocity = "NEW_ACCOUNT_VELOCITY"
+    _activate_from(stage, monkeypatch, velocity, date(2026, 12, 11))
+    [eleventh] = feed(
+        stage, [deposit("eleventh", local(11, 9), "100.00", customer_ref=REF)]
+    )
+    seen = _spy_rules(monkeypatch)
+
+    [late] = feed(
+        stage,
+        [deposit("late", local(10), "100.00", customer_ref=REF)],
+        received=local(12),
+    )
+
+    assert seen[0] == (late, frozenset({CASH, TIER_N1, TRUE_MATCH}))
+    assert seen[1:] == [(eleventh, frozenset({CASH, TIER_N1, velocity}))]
+
+
+@pytest.mark.usefixtures("n3")
+def test_re_evaluation_uses_the_reach_of_the_version_in_force_on_the_row(
+    stage: Stage, monkeypatch: pytest.MonkeyPatch
+):
+    # From 11 December CASH_STRUCTURING looks back fourteen days. A 1 December
+    # deposit arriving late is outside the old version's seven days from the 12
+    # December row, but inside the new version's (review N2).
+    _activate_from(
+        stage,
+        monkeypatch,
+        CASH,
+        date(2026, 12, 11),
+        body=VersionInput(params={"window": "P14D"}),
+    )
+    [twelfth] = feed(stage, [deposit("twelfth", local(12), "100.00", customer_ref=REF)])
+    seen = _spy_rules(monkeypatch)
+    patient = get_settings().model_copy(update={"monitoring_late_days": 30})
+    monkeypatch.setattr(ingest_module, "get_settings", lambda: patient)
+
+    [late] = feed(
+        stage,
+        [deposit("late", local(1), "100.00", customer_ref=REF)],
+        received=local(13),
+    )
+
+    assert seen[0] == (late, frozenset({CASH, TIER_N1, TRUE_MATCH}))
+    assert seen[1:] == [(twelfth, frozenset({CASH, TIER_N1}))]
