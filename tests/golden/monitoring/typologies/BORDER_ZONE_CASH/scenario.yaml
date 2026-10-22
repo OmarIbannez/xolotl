@@ -1,0 +1,13 @@
+# Cash in Baja California and Sonora reaching 3,000 USD in 30 days fires. 5,000
+# USD of cash in Mexico City is outside the border zone and counts for nothing.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: cmx-1, occurred_at: "2026-11-20T10:00:00-06:00", usd: "5000", geo_admin_area: MX-CMX}
+  - {external_id: bcn-1, occurred_at: "2026-11-25T10:00:00-06:00", usd: "1800", geo_admin_area: MX-BCN}
+  - {external_id: son-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "1500", geo_admin_area: MX-SON}

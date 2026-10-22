@@ -1,0 +1,13 @@
+hits:
+- trigger: son-1
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12-01T00:00:00+00:00
+  window_start: '2026-11-07T16:00:00+00:00'
+  window_end: '2026-12-07T16:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates:
+    cash_sum:
+      value: '3300'
+      unit: USD/PRIOR_BANKING_DAY
+      window: P30D
+      count: 2

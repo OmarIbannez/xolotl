@@ -95,6 +95,20 @@ def dedup_key_for(firing: Firing, txn: EnrichedTransaction, dedup: Dedup) -> str
     return f"{firing.key_kind.value}:{firing.key}:{dedup_bucket(txn, dedup)}"
 
 
+def cooldown_until(txn: EnrichedTransaction, dedup: Dedup) -> datetime | None:
+    """Compute when a hit ``txn`` opens stops suppressing new hits of its key.
+
+    Returns:
+        ``occurred_at`` plus ``dedup.cooldown`` (days added to the UTC date), or
+        None for a zero cooldown.
+
+    """
+    if iso_duration_days(dedup.cooldown) == 0:
+        return None
+    at = txn.occurred_at.astimezone(UTC)
+    return datetime.combine(add_iso_duration(at.date(), dedup.cooldown), at.timetz())
+
+
 def _evidence_start(window: str, end: datetime) -> datetime:
     if window == MONTH:
         return bucket_start_for(BucketKind.MONTH, end)
@@ -302,14 +316,7 @@ def record_firing(
             s, cooling, [(txn.id, txn.occurred_at)], HitTransactionRole.COOLDOWN
         )
         return None
-    cooldown = (
-        None
-        if iso_duration_days(dedup.cooldown) == 0
-        else datetime.combine(
-            add_iso_duration(txn.occurred_at.astimezone(UTC).date(), dedup.cooldown),
-            txn.occurred_at.astimezone(UTC).timetz(),
-        )
-    )
+    cooldown = cooldown_until(txn, dedup)
     hit_id = s.scalar(
         insert(RuleHit)
         .values(
