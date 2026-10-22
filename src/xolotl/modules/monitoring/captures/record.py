@@ -13,7 +13,7 @@ reportable for that capture.
 event's own id when it was re-captured in place into a new group (a second
 ``reportable_event_captured`` follows), or null when it was retired. SP-05 must
 record which events a report took in its own report lines, since the status of a
-re-captured ``INCLUDED`` event goes back to ``CAPTURED`` (plan 4b Deviation 20).
+re-captured ``INCLUDED`` event goes back to ``CAPTURED`` (plan 4b Deviation 21).
 
 When an event is captured for a capture other captures merge into (``AVI_XVI_B``
 into ``AVI_XVI_A``), their live events for the transaction are voided as
