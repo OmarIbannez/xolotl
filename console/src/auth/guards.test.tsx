@@ -50,6 +50,10 @@ function visit(path: string, roles: Role[]) {
             <Route path="/monitoring/hits" element={<p>page of rule hits</p>} />
             <Route path="/monitoring/hits/:hitId" element={<p>page of a rule hit</p>} />
           </Route>
+          <Route element={<RequireRole roles={ACCESS.rules} />}>
+            <Route path="/rules/monitoring" element={<p>page of monitoring rules</p>} />
+            <Route path="/rules/monitoring/:ruleId" element={<p>page of a monitoring rule</p>} />
+          </Route>
         </Routes>
       </MemoryRouter>
     </AuthContext>,
@@ -241,6 +245,30 @@ describe('the rule hits are open to every staff role', () => {
   })
 
   it.each(['/monitoring/hits', '/monitoring/hits/h1'])('shows "no access" at %s to a user with no role', (path) => {
+    visit(path, [])
+
+    expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()
+    expect(screen.queryByText(/page of/)).toBeNull()
+  })
+})
+
+describe('the monitoring rules are open to every staff role', () => {
+  it.each([
+    ['/rules/monitoring', 'page of monitoring rules', 'ANALYST'],
+    ['/rules/monitoring', 'page of monitoring rules', 'SENIOR_ANALYST'],
+    ['/rules/monitoring', 'page of monitoring rules', 'MLRO'],
+    ['/rules/monitoring', 'page of monitoring rules', 'AUDITOR_RO'],
+    ['/rules/monitoring', 'page of monitoring rules', 'ADMIN'],
+    ['/rules/monitoring/r1', 'page of a monitoring rule', 'ANALYST'],
+    ['/rules/monitoring/r1', 'page of a monitoring rule', 'AUDITOR_RO'],
+  ] as const)('lets a user open %s as %s', (path, page, role) => {
+    visit(path, [role])
+
+    expect(screen.getByText(page)).toBeTruthy()
+    expect(screen.queryByText(esMX.forbidden.title)).toBeNull()
+  })
+
+  it.each(['/rules/monitoring', '/rules/monitoring/r1'])('shows "no access" at %s to a user with no role', (path) => {
     visit(path, [])
 
     expect(screen.getByText(esMX.forbidden.title)).toBeTruthy()

@@ -48,6 +48,7 @@
     "lists": "Lists",
     "privateLists": "Private lists",
     "ruleHits": "Rule hits",
+    "monitoringRules": "Monitoring rules",
     "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check",
     "transactions": "Transactions",
@@ -1803,6 +1804,220 @@
       "empty": "This transaction is linked to no rule hit."
     }
   },
+  "rules": {
+    "title": "Monitoring rules",
+    "description": "The typology library and this institution's rules: each version is tuned within its bounds, simulated and approved by someone else before it takes effect.",
+    "tabs": {
+      "label": "View",
+      "library": "Library",
+      "tenant": "Institution rules"
+    },
+    "create": "Create rule",
+    "createFrom": "Create a rule from {{code}}",
+    "creating": "Creating…",
+    "libraryEmpty": "The typology library is not loaded.",
+    "empty": "No rules yet. Create one from the library.",
+    "table": {
+      "rule": "Rule",
+      "kind": "Kind",
+      "typology": "Typology",
+      "sentence": "What it detects",
+      "libraryLabel": "Library templates",
+      "tenantLabel": "Institution rules",
+      "latest": "Latest version",
+      "active": "In force",
+      "noActive": "None",
+      "simulation": "Last simulation",
+      "noSimulation": "Not simulated"
+    },
+    "filters": {
+      "status": "Status of any version",
+      "statusAll": "All"
+    },
+    "kind": {
+      "THRESHOLD": "Threshold",
+      "AGGREGATE": "Aggregate",
+      "STRUCTURING": "Structuring",
+      "VELOCITY": "Velocity",
+      "HIGH_RISK_JURISDICTION": "High-risk jurisdiction",
+      "PROFILE_DEVIATION": "Profile deviation",
+      "TIER_LIMIT": "Tier limit"
+    },
+    "status": {
+      "DRAFT": "Draft",
+      "SIMULATED": "Simulated",
+      "IN_REVIEW": "In review",
+      "APPROVED": "Approved",
+      "ACTIVE": "Active",
+      "RETIRED": "Retired"
+    },
+    "simulationStatus": {
+      "QUEUED": "Queued",
+      "RUNNING": "Running",
+      "COMPLETED": "Completed",
+      "FAILED": "Failed"
+    },
+    "keyKind": {
+      "PARTY": "Customer",
+      "RELATIONSHIP": "Relationship",
+      "ACCOUNT": "Account",
+      "COUNTERPARTY": "Counterparty",
+      "DEVICE": "Device"
+    },
+    "editor": {
+      "title": "Version {{version}}",
+      "description": "Tune the parameters within their bounds, the segment, the severity and the deduplication. Saving sends the version back to draft.",
+      "readOnly": "This version cannot be edited.",
+      "sentence": "Rule",
+      "params": "Parameters",
+      "segment": "Segment",
+      "segmentHint": "Codes separated by commas. Empty: the rule applies to every customer.",
+      "segmentField": {
+        "tier": "Account tiers",
+        "risk_rating": "Risk ratings",
+        "monitoring_profile": "Monitoring profiles"
+      },
+      "segmentPlaceholder": {
+        "tier": "e.g. N1, N2",
+        "risk_rating": "e.g. HIGH",
+        "monitoring_profile": "e.g. RETAIL"
+      },
+      "severity": "Severity",
+      "dedupKey": "Deduplicate by",
+      "dedupWindow": "Deduplication window",
+      "cooldown": "Cooldown",
+      "durationHint": "An ISO 8601 duration (P1D, P7D) or MONTH.",
+      "decimalHint": "Decimal point (0.75); a comma only groups thousands (5,000).",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "Version saved.",
+      "resets": "A change clears the simulation: simulate again.",
+      "excludesApproval": "If you save a change, you cannot approve this version: someone else approves it.",
+      "outOfBounds": "Out of bounds: {{bounds}}",
+      "invalid": {
+        "DECIMAL": "Enter a number with a decimal point (a comma only groups thousands).",
+        "INT": "Enter a whole number.",
+        "STR": "This value is required.",
+        "BOOL": "Choose yes or no."
+      }
+    },
+    "bound": {
+      "min": "min {{value}}",
+      "max": "max {{value}}",
+      "choices": "values: {{values}}",
+      "tighten": {
+        "LOWER": "may only be lowered",
+        "RAISE": "may only be raised"
+      },
+      "source": "bounds from {{source}}"
+    },
+    "simulation": {
+      "title": "Simulation",
+      "description": "Replays the version over the transactions already processed, creating no hits. A completed simulation counts for 30 days to submit and approve.",
+      "run": "Simulate the last 6 months",
+      "saveFirst": "Save your changes before simulating: the simulation uses the saved version.",
+      "runRange": "From {{start}} to {{end}}, Mexico City days.",
+      "queued": "Simulation queued…",
+      "running": "Simulating…",
+      "stuck": "If the simulation does not move, request another one: an interrupted simulation does not resume.",
+      "failed": "The simulation failed. Request another simulation.",
+      "none": "This version has not been simulated.",
+      "otherDefinition": "This simulation is of another definition of the version: simulate again before submitting it.",
+      "range": "Period",
+      "transactionsRead": "Transactions read",
+      "hits": "Hits",
+      "customers": "Customers",
+      "age": "Validity",
+      "week": "Week",
+      "hitsPerWeek": "Hits per week",
+      "noHits": "The simulation produced no hits.",
+      "overlap": {
+        "title": "Overlap with what is already known",
+        "existing_hits": "Existing hits in the same window",
+        "same_customers": "Customers who already had hits",
+        "later_true_match": "Customers later confirmed by screening"
+      },
+      "sample": "Sample",
+      "sampleHint": "Identifiers only. This information is discarded when you leave the page.",
+      "sampleParty": "Customer",
+      "sampleTransaction": "Triggering transaction",
+      "sampleDedup": "Deduplication key",
+      "validUntil": "Valid until {{date}}",
+      "expired": "Expired on {{date}}",
+      "notes": {
+        "PROFILE_HISTORY_SHORT": "The period is shorter than four months: the comparison with the customer's history could not fire."
+      }
+    },
+    "action": {
+      "label": "Lifecycle",
+      "SUBMIT": "Submit for review",
+      "APPROVE": "Approve",
+      "REJECT": "Reject",
+      "ACTIVATE": "Activate",
+      "RETIRE": "Retire",
+      "running": "Sending…",
+      "none": "No actions are available for this version.",
+      "done": {
+        "SUBMIT": "Version submitted for review.",
+        "APPROVE": "Version approved.",
+        "REJECT": "Version rejected: back to draft.",
+        "ACTIVATE": "Version activated.",
+        "RETIRE": "Version retired."
+      }
+    },
+    "blocked": {
+      "STATE": "The version is not in the status this action needs.",
+      "ROLE_REQUIRED": "Your role does not allow this action.",
+      "NOT_AUTHOR": "Only the version's author can submit it.",
+      "SAME_AUTHOR": "The approver must be someone other than the author and anyone who edited the version.",
+      "SIMULATION_MISSING": "The version needs a completed simulation.",
+      "SIMULATION_STALE": "The simulation expired or is of another definition: simulate again.",
+      "PARAM_OUT_OF_BOUNDS": "A parameter is outside the template's bounds."
+    },
+    "reject": {
+      "title": "Reject the version",
+      "description": "The version goes back to draft for its author to fix.",
+      "reason": "Reason",
+      "notStored": "Required, up to 500 characters. The reason is not stored: the audit records only that one was given.",
+      "reasonRequired": "Enter the reason for the rejection."
+    },
+    "activate": {
+      "title": "Activate the version",
+      "description": "The version starts evaluating transactions from the chosen date and retires the version it replaces.",
+      "effectiveFrom": "In force from",
+      "effectiveFromHint": "Today or a later date (Mexico City).",
+      "product": "Product",
+      "productHint": "Optional. Empty: applies to every product."
+    },
+    "retire": {
+      "title": "Retire the version",
+      "description": "The version stops evaluating transactions from today. The hits it already produced are kept."
+    },
+    "versions": {
+      "title": "Versions",
+      "description": "Newest first.",
+      "create": "New version",
+      "version": "v{{version}}",
+      "inForce": "In force"
+    },
+    "state": {
+      "title": "Version status",
+      "description": "Four eyes: the approver cannot be who wrote or edited the version.",
+      "status": "Status",
+      "submittedAt": "Submitted",
+      "approvedAt": "Approved",
+      "activatedAt": "Activated",
+      "retiredAt": "Retired",
+      "assignment": "Assignment",
+      "assignmentText": "From {{from}} to {{to}} · {{product}}",
+      "everyProduct": "every product"
+    },
+    "detail": {
+      "title": "Rule",
+      "description": "Versions, parameters, simulation and lifecycle.",
+      "back": "Rules"
+    }
+  },
   "forbidden": {
     "title": "No access",
     "body": "Your role does not allow viewing this section."
@@ -1853,7 +2068,11 @@
     "TRANSACTION_FILE_TOO_LARGE": "The file exceeds the maximum size allowed.",
     "TRANSACTION_FILE_INVALID": "The file could not be read: check its format and headers.",
     "BACKFILL_RANGE_INVALID": "The backfill date range is not valid.",
-    "RAIL_UNKNOWN": "That rail does not exist."
+    "RAIL_UNKNOWN": "That rail does not exist.",
+    "RULE_PARAM_OUT_OF_BOUNDS": "A parameter is outside its template's bounds.",
+    "RULE_TRANSITION_NOT_ALLOWED": "This action is not allowed for this version now.",
+    "SIMULATION_RANGE_TOO_LONG": "The simulation period is too long.",
+    "RULE_TEMPLATE_UNKNOWN": "There is no such template in the library."
   },
   "counterparties": {
     "title": "Counterparties",

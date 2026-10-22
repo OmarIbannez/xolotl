@@ -14,7 +14,7 @@ export class ApiError extends Error {
   readonly errors: readonly ProblemFieldError[]
   /** `X-Request-Id` of the failed call, to quote to support. */
   readonly requestId: string | undefined
-  /** Why a refused screening disposition was refused (`DISPOSITION_NOT_ALLOWED`); empty otherwise. */
+  /** Why a refused action was refused (`DISPOSITION_NOT_ALLOWED`, `RULE_TRANSITION_NOT_ALLOWED`); empty otherwise. */
   readonly blockedReasons: readonly string[]
 
   constructor(init: {
