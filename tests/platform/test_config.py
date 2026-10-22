@@ -281,6 +281,8 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_decide_budget_ms",
         "monitoring_decide_fail_mode",
         "monitoring_retention_cron",
+        "monitoring_profile_cron",
+        "monitoring_profile_deviation_ratio",
         "monitoring_allow_custom_rules",
         "monitoring_rule_cache_seconds",
         "monitoring_simulation_max_age_days",
@@ -708,6 +710,8 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_decide_budget_ms == 80
     assert s.monitoring_decide_fail_mode == "FAIL_OPEN"
     assert s.monitoring_retention_cron == "0 5 1 * *"
+    assert s.monitoring_profile_cron == "0 3 2 * *"
+    assert s.monitoring_profile_deviation_ratio == Decimal("2.0")
     assert s.monitoring_allow_custom_rules is False
     assert s.monitoring_rule_cache_seconds == 30
     assert s.monitoring_simulation_max_age_days == 30
@@ -720,6 +724,7 @@ def test_monitoring_settings_default_to_the_spec_values():
         "XOLOTL_MONITORING_SWEEP_CRON",
         "XOLOTL_MONITORING_PARTITIONS_CRON",
         "XOLOTL_MONITORING_RETENTION_CRON",
+        "XOLOTL_MONITORING_PROFILE_CRON",
     ],
 )
 def test_the_monitoring_crons_are_validated(monkeypatch, name):
@@ -741,6 +746,7 @@ def test_the_monitoring_crons_are_validated(monkeypatch, name):
         ("XOLOTL_MONITORING_SIMULATION_MAX_DAYS", "0"),
         ("XOLOTL_MONITORING_DECIDE_BUDGET_MS", "0"),
         ("XOLOTL_MONITORING_DECIDE_FAIL_MODE", "sideways"),
+        ("XOLOTL_MONITORING_PROFILE_DEVIATION_RATIO", "0"),
     ],
 )
 def test_monitoring_limits_reject_nonsense(monkeypatch, name, value):

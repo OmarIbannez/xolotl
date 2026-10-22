@@ -692,6 +692,8 @@ def test_a_new_tenants_hourly_jobs_run_through_the_worker(
         PARTITIONS_KIND: JobStatus.DONE,
         # A tenant without a policy retires nothing, and the job still completes.
         "monitoring.retention": JobStatus.DONE,
+        # A tenant without processed rows profiles nothing.
+        "monitoring.profiles": JobStatus.DONE,
     }
 
 
@@ -756,6 +758,13 @@ PLATFORM_SCHEDULES = [
     ("idempotency.purge", "0 * * * *", "UTC", "idempotency.purge", True),
     ("lists.poll", "* * * * *", "UTC", "lists.poll", True),
     ("monitoring.partitions", "0 1 * * *", "UTC", "monitoring.partitions", True),
+    (
+        "monitoring.profiles",
+        "0 3 2 * *",
+        "America/Mexico_City",
+        "monitoring.profiles",
+        True,
+    ),
     ("monitoring.retention", "0 5 1 * *", "UTC", "monitoring.retention", True),
     ("monitoring.sweep", "* * * * *", "UTC", "monitoring.sweep", True),
     ("party.retention_sweep", "0 3 * * *", "UTC", "party.retention_sweep", True),

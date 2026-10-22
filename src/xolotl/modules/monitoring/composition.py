@@ -7,7 +7,8 @@ staff-only monitoring events, registers the PII tags of the nested input models
 and ``monitoring.process`` to ``ProcessJob``, and (A9) ``monitoring.sweep``,
 ``monitoring.backfill``, ``monitoring.agg_backfill`` and ``monitoring.partitions``
 to their jobs. Plan 4c (C5, C7, C8) appends its handlers: C7 routes
-``monitoring.retention`` to ``RetentionJob``.
+``monitoring.retention`` to ``RetentionJob``, C8 ``monitoring.profiles`` to
+``handle_profiles``.
 Calling it again replaces every registration, so composing twice is harmless.
 """
 
@@ -26,6 +27,7 @@ from xolotl.modules.monitoring.process.job import ProcessJob
 from xolotl.modules.monitoring.process.partitions import PartitionsJob
 from xolotl.modules.monitoring.process.retention import RETENTION_KIND, RetentionJob
 from xolotl.modules.monitoring.process.sweep import SweepJob
+from xolotl.modules.monitoring.profiles.job import PROFILES_KIND, handle_profiles
 from xolotl.modules.monitoring.txn.files import IngestFileJob
 from xolotl.modules.monitoring.txn.schema import CryptoContext, DeviceContext
 from xolotl.modules.screening.counterparty.schema import (
@@ -82,3 +84,4 @@ def register_monitoring(
     register_job_handler(PARTITIONS_KIND, partitions.run)
     retention = RetentionJob(session_factory=session_factory)
     register_job_handler(RETENTION_KIND, retention.run)
+    register_job_handler(PROFILES_KIND, handle_profiles)

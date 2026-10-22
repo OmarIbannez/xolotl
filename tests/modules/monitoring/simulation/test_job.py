@@ -650,3 +650,38 @@ def test_a_run_failed_by_the_sweep_stops_at_its_next_page(
     assert (stopped.transactions_read, stopped.cursor) == (0, None)
     assert events_of(stage.tenant_id, SIMULATION_COMPLETED) == []
     assert _version(stage, version.id).status is RuleVersionStatus.DRAFT
+
+
+def test_a_simulation_sees_the_relationships_declared_profile(frozen: Stage):
+    # The relationship declared 10,000 MXN of monthly inflows and received 21,000
+    # MXN in December: DECLARED_VS_ACTUAL_VOLUME's declared branch (no history in
+    # the range) fires once the declaration is stored, as processing's would.
+    stage = frozen
+    relationship = add_relationship(stage.tenant, "cust-a", "N3")
+    _ = feed(
+        stage,
+        [
+            deposit(
+                "dep-1", local(3), "5000.00", customer_ref="cust-a", currency="MXN"
+            ),
+            deposit(
+                "dep-2", local(10), "16000.00", customer_ref="cust-a", currency="MXN"
+            ),
+        ],
+    )
+    version = draft(stage.tenant, "DECLARED_VS_ACTUAL_VOLUME")
+
+    def simulated_hits() -> int:
+        simulation_id = _request(stage, version.id)
+        _ = _work(stage)
+        return _simulation(stage, simulation_id).hit_count
+
+    assert simulated_hits() == 0
+    with tenant_session(system_ctx(stage.tenant_id)) as s:
+        row = s.get_one(CustomerRelationship, (stage.tenant_id, relationship))
+        row.declared_profile = {
+            "monthly_inflow_minor": 1_000_000,
+            "monthly_outflow_minor": None,
+            "currency": "MXN",
+        }
+    assert simulated_hits() == 1

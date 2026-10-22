@@ -61,6 +61,7 @@ from xolotl.cli import app
 from xolotl.modules.monitoring.enums import FileStatus, TransactionStatus
 from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.process.job import process_party
+from xolotl.modules.monitoring.profiles.models import BehaviourProfile
 from xolotl.modules.monitoring.rules.enums import RuleVersionStatus
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
 from xolotl.modules.monitoring.rules.models import (
@@ -2561,6 +2562,45 @@ def test_monitoring_sweep_reports_counts(
     assert result.stdout == (
         "sweep: 2 enqueued, 1 unparked, 0 policy retries, notified\n"
     )
+
+
+def test_monitoring_profiles_computes_a_month_and_reports_the_count(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    _ = monitoring_support.itf_tenant(tenant, admin_engine)
+    customer = monitoring_support.add_customer(tenant, "cust-1")
+    _ = monitoring_support.add_customer(tenant, "cust-2")
+    _ = _ingest_at(
+        tenant,
+        monkeypatch,
+        [_monitoring_item("tx-1", "2026-01-20T12:00:00Z", "cust-1")],
+        now=datetime(2026, 1, 22, 20, tzinfo=UTC),
+    )
+    factory = db.get_sessionmaker()
+    report = process_party(
+        factory,
+        tenant.tenant_id,
+        customer.party_id,
+        queue=PostgresJobQueue(factory),
+        job=None,
+        settings=get_settings(),
+        actor="cli:test",
+    )
+    assert report.processed == 1
+
+    args = ["monitoring", "profiles", "--tenant", tenant.slug, "--month"]
+    result = runner.invoke(app, [*args, "2026-01"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout == "profiles: 1 relationships for 2026-01\n"
+    with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
+        (row,) = s.scalars(select(BehaviourProfile)).all()
+        assert (row.relationship_id, row.month) == (customer.id, "2026-01")
+
+    empty = runner.invoke(app, [*args, "2026-02"])
+    assert empty.stdout == "profiles: 0 relationships for 2026-02\n"
+    wrong = runner.invoke(app, [*args, "January"])
+    assert wrong.exit_code == 2
+    assert "YYYY-MM" in wrong.output
 
 
 def test_monitoring_backfill_processes_the_range(

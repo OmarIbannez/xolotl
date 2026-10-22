@@ -111,6 +111,7 @@ Fix round 1 (review I1, I2, M1 to M9):
 - **M7:** `party_true_match_at` is tested; "later" compares the party's last screening, which overcounts a party matched long ago and screened again since (documented).
 - **M8, for B9:** `rule_simulation.sample` (party, relationship and trigger ids per simulated hit) and `overlap` say which customers a rule would hit: API clients with `rules:read` must not receive them (PRV-502); serialize them to staff only.
 - **M9:** `RuleSet(on=)` in `replay_party` uses `policy_date`; `_simulate_as` says why it registers the processing wiring; the plan's `test_composition_root.py` does not exist, and `tests/platform/test_worker.py::test_the_platform_is_wired_with_its_job_handlers` carries the `monitoring.simulate` row.
+Finisher (re-review R1, R2): merged after C8, whose declared profile is read in `profile_with_history` (`profile_for` stays the thin wrapper), so processing and simulation both see it (`test_a_simulation_sees_the_relationships_declared_profile`). A run locks and re-reads its row before each page's commit and before completing, and stops unwritten when the sweep has failed it as lost (`test_a_run_failed_by_the_sweep_stops_at_its_next_page`). Open for the product owner: whether `rules activate` should be disabled for production tenants, since the CLI cannot tell the operator from the approver it names.
 
 ## Review Focus
 
