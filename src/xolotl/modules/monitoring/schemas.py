@@ -320,3 +320,20 @@ class HitReveal(BaseModel):
 
     party: PartyPiiResponse
     counterparties: dict[UUID, RevealedCounterparty]
+
+
+class BehaviourProfileResponse(BaseModel):
+    """One month of a relationship's behaviour profile (staff only, spec §13.3).
+
+    ``metrics`` holds MXN amounts as strings of minor units, counts and shares;
+    ``deviation`` the actual-over-declared ratios, null without a declaration.
+    """
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(from_attributes=True)
+
+    month: str
+    metrics: dict[str, JsonValue]
+    declared_profile: dict[str, JsonValue] | None
+    deviation: dict[str, JsonValue] | None
+    deviated: bool
+    computed_at: datetime

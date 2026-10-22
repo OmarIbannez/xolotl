@@ -9,7 +9,7 @@ platform's jobs for it: the hourly idempotency purge and stranded-workflow sweep
 the weekday ``units.fetch`` in Mexico City, the ``lists.poll`` and
 ``monitoring.sweep`` every minute, the daily ``monitoring.partitions``, the
 monthly ``monitoring.retention`` in UTC and the monthly
-``screening.periodic_rescreen`` in Mexico City.
+``screening.periodic_rescreen`` and ``monitoring.profiles`` in Mexico City.
 """
 
 import json
@@ -120,6 +120,14 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
             True,
         ),
         (
+            "monitoring.profiles",
+            "0 3 2 * *",
+            "America/Mexico_City",
+            "monitoring.profiles",
+            {},
+            True,
+        ),
+        (
             "monitoring.retention",
             "0 5 1 * *",
             "UTC",
@@ -156,45 +164,30 @@ def test_creating_a_tenant_schedules_the_platforms_hourly_jobs(engine: Engine):
     ]
     # The first run is the next slot, never the current one.
     daily = {"units.fetch", "party.retention_sweep", "screening.periodic_rescreen"}
-    daily |= {"monitoring.partitions", "monitoring.retention"}
+    daily |= {"monitoring.partitions", "monitoring.retention", "monitoring.profiles"}
     minutely = {"lists.poll", "monitoring.sweep"}
     hourly = [row for row in schedules if row.name not in {*daily, *minutely}]
-    poll = next(row for row in schedules if row.name == "lists.poll")
-    monitoring_sweep = next(row for row in schedules if row.name == "monitoring.sweep")
-    partitions = next(row for row in schedules if row.name == "monitoring.partitions")
-    retention = next(row for row in schedules if row.name == "monitoring.retention")
-    (units,) = [row for row in schedules if row.name == "units.fetch"]
-    sweep = next(row for row in schedules if row.name == "party.retention_sweep")
-    monthly = next(
-        row for row in schedules if row.name == "screening.periodic_rescreen"
-    )
     slots = {next_slot("0 * * * *", "UTC", after=moment) for moment in (before, after)}
     assert {row.next_run_at for row in hourly} <= slots
-    assert units.next_run_at in {
-        next_slot("0 18 * * 1-5", "America/Mexico_City", after=m)
-        for m in (before, after)
-    }
-    # A daily 03:00 UTC slot is never the next full hour.
-    assert sweep.next_run_at in {
-        next_slot("0 3 * * *", "UTC", after=m) for m in (before, after)
-    }
-    # The monthly re-screen runs at 02:00 on the 1st in Mexico City.
-    assert monthly.next_run_at in {
-        next_slot("0 2 1 * *", "America/Mexico_City", after=m) for m in (before, after)
-    }
-    # The lists poll and the monitoring sweep run every minute.
-    for minute in (poll, monitoring_sweep):
-        assert minute.next_run_at in {
-            next_slot("* * * * *", "UTC", after=m) for m in (before, after)
-        }
-    # Partitions are kept ahead daily at 01:00 UTC.
-    assert partitions.next_run_at in {
-        next_slot("0 1 * * *", "UTC", after=m) for m in (before, after)
-    }
-    # Retention runs monthly at 05:00 UTC on the 1st.
-    assert retention.next_run_at in {
-        next_slot("0 5 1 * *", "UTC", after=m) for m in (before, after)
-    }
+    by_name = {row.name: row for row in schedules}
+    # Every other schedule's first run is its own next slot: a daily 03:00 UTC
+    # slot is never the next full hour, the monthly re-screen runs at 02:00 on the
+    # 1st in Mexico City, the lists poll and the monitoring sweep every minute,
+    # partitions daily at 01:00 UTC, retention monthly at 05:00 UTC on the 1st and
+    # behaviour profiles monthly at 03:00 on the 2nd in Mexico City.
+    for name, cron, tz in (
+        ("units.fetch", "0 18 * * 1-5", "America/Mexico_City"),
+        ("party.retention_sweep", "0 3 * * *", "UTC"),
+        ("screening.periodic_rescreen", "0 2 1 * *", "America/Mexico_City"),
+        ("lists.poll", "* * * * *", "UTC"),
+        ("monitoring.sweep", "* * * * *", "UTC"),
+        ("monitoring.partitions", "0 1 * * *", "UTC"),
+        ("monitoring.retention", "0 5 1 * *", "UTC"),
+        ("monitoring.profiles", "0 3 2 * *", "America/Mexico_City"),
+    ):
+        assert by_name[name].next_run_at in {
+            next_slot(cron, tz, after=m) for m in (before, after)
+        }, name
     assert all(row.last_run_at is None for row in schedules)
 
 
@@ -352,6 +345,7 @@ def test_every_tenant_can_be_given_the_platforms_schedules_again(engine: Engine)
             "idempotency.purge",
             "lists.poll",
             "monitoring.partitions",
+            "monitoring.profiles",
             "monitoring.retention",
             "monitoring.sweep",
             "party.retention_sweep",

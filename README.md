@@ -162,7 +162,9 @@ request (audited).
 - **Regulatory captures and period close** (Formato 41 and avisos).
 - **The real-time decide endpoint** for payment rails; the per-rail fail-mode
   settings API (`/v1/monitoring/rails`) already exists.
-- **Behaviour profiles** per customer.
+- **Behaviour profiles** per customer (in review): the monthly job, the declared
+  profile (`PATCH /v1/relationships/{id}`) and the profiles API exist; the console tab
+  does not yet.
 - **Effectiveness metrics** for screening and monitoring.
 - **Retention of monitoring data** (in review).
 
@@ -284,6 +286,8 @@ driver is added.
 | `XOLOTL_MONITORING_PARTITIONS_CRON` | `0 1 * * *` | When the daily partition maintenance job runs (UTC). |
 | `XOLOTL_MONITORING_PROCESS_LEASE_SECONDS` | `300` | Lease of one `monitoring.process` job, in seconds (30 or more). |
 | `XOLOTL_MONITORING_PROCESS_PAGE` | `200` | Transactions a `monitoring.process` job reads per page (1 or more). |
+| `XOLOTL_MONITORING_PROFILE_CRON` | `0 3 2 * *` | When the per-tenant monthly `monitoring.profiles` job runs (Mexico City): the behaviour profile of every relationship active in the previous month. |
+| `XOLOTL_MONITORING_PROFILE_DEVIATION_RATIO` | `2.0` | Actual over declared monthly inflow or outflow at or above which a behaviour profile is `deviated` (above 0). |
 | `XOLOTL_MONITORING_RETENTION_CRON` | `0 5 1 * *` | When the per-tenant monthly `monitoring.retention` job runs (UTC): transaction months past `retention.transactions`, orphaned counterparties and stale aggregate buckets. |
 | `XOLOTL_MONITORING_RULE_CACHE_SECONDS` | `30` | Seconds a process caches a tenant's active rule set for a date and product (0 disables the cache). An activation or retirement refreshes it at once. |
 | `XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` | `30` | A rule version is submitted and approved only with a completed simulation of its current definition younger than this many days (1 or more). |
@@ -727,12 +731,28 @@ accumulators and buckets of open capture periods. Each run writes one
 `monitoring.retention_ran` audit row with its counts and skipped months. A tenant with no
 policy in force retires nothing (and its run is audited with no period).
 
+Behaviour profiles. The monthly `monitoring.profiles` (`XOLOTL_MONITORING_PROFILE_CRON`,
+the 2nd in Mexico City) profiles the previous Mexico City month for every relationship
+with processed rows in it: MXN inflow and outflow (minor units, from each row's
+`MXN/SAME_DAY` amount), counts, the cash, cross-border and crypto shares of the month's
+amount, distinct counterparties and active days. It copies the relationship's declared
+profile, which staff or an API key with `parties:write` set through
+`PATCH /v1/relationships/{id}` (MXN only; a change is audited
+`relationship.declared_profile_set` with the currency and the names of the fields that
+changed, never an amount), and flags the month deviated when actual over declared inflow
+or outflow reaches `XOLOTL_MONITORING_PROFILE_DEVIATION_RATIO`, or when money moved in a
+direction declared as zero (`deviation.reasons`: `DECLARED_ZERO`). A
+written or changed profile publishes the staff-only
+`monitoring.behaviour_profile_updated.v1`; the `PROFILE_DEVIATION` rules read the same
+declaration.
+
 ```bash
 uv run xolotl monitoring ingest-file --tenant acme transactions.csv   # dev and demo: ingest here
 uv run xolotl monitoring process --tenant acme [--party <party_id>]  # drain now
 uv run xolotl monitoring sweep --tenant acme                          # run the sweep now
 uv run xolotl monitoring backfill --tenant acme --from 2026-01-20 --to 2026-01-21 [--party <id>]
 uv run xolotl monitoring partitions ensure                            # create the months ahead now
+uv run xolotl monitoring profiles --tenant acme --month 2027-01       # compute a month's profiles
 ```
 
 `monitoring backfill` audits the request (`monitoring.backfill_requested`), queues its
@@ -743,6 +763,8 @@ processed, late, with the same code as the worker.
 |---|---|---|
 | `GET /v1/monitoring/rails` | staff | every rail's fail mode: the one an ADMIN set, or `XOLOTL_MONITORING_DECIDE_FAIL_MODE` with `explicit` false |
 | `PUT /v1/monitoring/rails/{rail}` | staff `ADMIN` | `{fail_mode}` for one rail, audited `monitoring.rail_setting_changed`; 404 `RAIL_UNKNOWN` for a rail that does not exist |
+| `GET /v1/monitoring/profiles/{relationship_id}` | staff | the relationship's last 12 behaviour profiles, newest first: `month`, `metrics`, `declared_profile`, `deviation`, `deviated`, `computed_at`; 404 for an unknown relationship |
+| `PATCH /v1/relationships/{id}` | staff writers; API key `parties:write` | `{declared_profile}` (`monthly_inflow_minor`, `monthly_outflow_minor`, `currency` `MXN`, `expected_countries`, `expected_instruments`), or `null` to clear it; audited `relationship.declared_profile_set`; 422 for another currency or an unknown field |
 
 ### Rule lifecycle
 
