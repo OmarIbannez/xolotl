@@ -861,6 +861,18 @@ webhook ever carries one. The one tenant-facing event is
 that row, from processing or the decide path, publishes the event, once per
 relationship, limit and month.
 
+Hits are staff only: an API key, whatever its scopes, is refused (403
+`ROLE_FORBIDDEN`) on every route below, and a client's view of a transaction never
+mentions one. Any staff role, `AUDITOR_RO` included, reads and reveals.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /v1/monitoring/hits` | staff | the hit queue, newest first, the party masked (initials, masked identifiers); filters `severity`, `rule_code`, `typology`, `outcome`, `party_id`, `transaction_id` (the hits the transaction is linked to, in any link role), `created_before` |
+| `GET /v1/monitoring/hits/{id}` | staff | the hit with its evidence (aggregates at firing time, parameters, explanation, lists hash), the rendered es-MX sentence, its provenance (assignment, policy snapshot, definition hash, dedup key), `transaction_count` and the newest 500 linked transactions with their role, newest first, each counterparty masked |
+| `GET /v1/monitoring/hits/{id}/transactions` | staff | every transaction linked to the hit (trigger, window and cooldown links), newest first, with cursor pages |
+| `GET /v1/monitoring/hits/{id}/reveal` | staff | the party's personal values and, in plaintext, the counterparties of the transactions the detail shows; `VIEW_PII` on the hit per group (`party`, `counterparties`), then the party and counterparty rows, all before decryption |
+| `GET /v1/parties/{id}/hits` | staff | the party's hits, newest first |
+
 ## Connectors
 
 A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a
