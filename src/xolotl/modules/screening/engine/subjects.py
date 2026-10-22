@@ -31,7 +31,7 @@ from xolotl.modules.screening.events import STATUS_CHANGED, publish_screening_ev
 from xolotl.platform.crypto import encrypt_json
 from xolotl.platform.db import bound_context
 from xolotl.platform.ids import uuid7
-from xolotl.platform.policy import add_iso_duration, effective_policy
+from xolotl.platform.policy import add_iso_duration, strictest_policy
 
 
 def subject_for_party(
@@ -70,7 +70,7 @@ def create_ad_hoc_subject(s: Session, body: AdHocSubjectInput) -> ScreeningSubje
     """
     tenant_id = bound_context(s).require_tenant_id()
     today = today_mx()
-    retention = effective_policy(s, on=today, product=None).retention
+    retention = strictest_policy(s, on=today).retention
     subject = ScreeningSubject(
         tenant_id=tenant_id,
         kind=SubjectKind.AD_HOC,
