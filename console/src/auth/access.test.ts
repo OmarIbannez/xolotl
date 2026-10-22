@@ -126,6 +126,13 @@ describe('the transactions access', () => {
   })
 })
 
+describe('the rails access', () => {
+  it('lets only ADMIN open Admin › Rieles, as only ADMIN may change a fail mode', () => {
+    const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.rails))).toEqual(['ADMIN'])
+  })
+})
+
 describe('the monitoring access', () => {
   it('lets every staff role read the rule hits and reveal them, and nobody without a role', () => {
     const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
