@@ -183,6 +183,11 @@ class Settings(BaseSettings):
     # orphaned counterparties and stale aggregate buckets, five-field cron, in UTC
     # (plan 4c).
     monitoring_retention_cron: str = "0 5 1 * *"
+    # Per-tenant monthly behaviour profiles, five-field cron in Mexico City, on the
+    # 2nd so the 1st's late rows are in; the actual-over-declared ratio at or above
+    # which a month is deviated (plan 4c).
+    monitoring_profile_cron: str = "0 3 2 * *"
+    monitoring_profile_deviation_ratio: Decimal = Field(default=Decimal("2.0"), gt=0)
     # Lets an ADMIN author a rule from a bare kind, without a template (plan 4b).
     monitoring_allow_custom_rules: bool = False
     # Seconds a process keeps a tenant's active rule set; 0 reads it every time.
@@ -216,6 +221,7 @@ class Settings(BaseSettings):
         "monitoring_sweep_cron",
         "monitoring_partitions_cron",
         "monitoring_retention_cron",
+        "monitoring_profile_cron",
     )
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:

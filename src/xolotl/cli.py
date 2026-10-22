@@ -40,6 +40,7 @@ from xolotl.modules.monitoring.process.partitions import (
     maintain_partitions,
 )
 from xolotl.modules.monitoring.process.sweep import sweep
+from xolotl.modules.monitoring.profiles.job import compute_profiles, parse_month
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_library
 from xolotl.modules.monitoring.rules.templates import (
     definition_of,
@@ -1721,6 +1722,38 @@ def _shown_value(value: JsonValue) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _month_option(value: str) -> str:
+    try:
+        return parse_month(value)
+    except ValueError as exc:
+        msg = "expected a month written YYYY-MM"
+        raise typer.BadParameter(msg) from exc
+
+
+@monitoring_app.command("profiles")
+def monitoring_profiles(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    month: Annotated[
+        str,
+        typer.Option(
+            "--month", help="The Mexico City month, YYYY-MM", callback=_month_option
+        ),
+    ],
+) -> None:
+    """Compute a month's behaviour profiles here, as the monthly job does.
+
+    Every relationship with processed rows in the month gets its profile against
+    its declared one; a changed profile publishes its staff-only event.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        with tenant_session(TenantContext.system(tenant_id, actor)) as s:
+            count = compute_profiles(s, month=month)
+    typer.echo(f"profiles: {count} relationships for {month}")
 
 
 @monitoring_app.command("show")

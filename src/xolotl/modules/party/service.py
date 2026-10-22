@@ -17,7 +17,8 @@ from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import Select, or_, select, update
+from sqlalchemy import Select, Uuid, any_, bindparam, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
 from xolotl.modules.party.enums import (
@@ -1016,6 +1017,9 @@ class RelationshipRef:
     status: CustomerRelationshipStatus
     # When the relationship began, for the new-account gates (SP-04 §9.1).
     started_at: datetime | None = None
+    # The declared profile's JSON form (SP-04 §13.3, ``DeclaredProfile``), None
+    # until staff or onboarding set it; read with the row, at no extra query.
+    declared_profile: dict[str, JsonValue] | None = None
 
 
 def _ref_of(row: CustomerRelationship) -> RelationshipRef:
@@ -1026,6 +1030,7 @@ def _ref_of(row: CustomerRelationship) -> RelationshipRef:
         account_tier=row.account_tier,
         status=row.status,
         started_at=row.started_at,
+        declared_profile=row.declared_profile,
     )
 
 
@@ -1046,6 +1051,25 @@ def relationship_by_external_ref(
         )
     ).all()
     return {row.external_ref: _ref_of(row) for row in rows}
+
+
+def relationship_refs(
+    s: Session, relationship_ids: Collection[UUID]
+) -> dict[UUID, RelationshipRef]:
+    """Load several relationships of the session's tenant in one query.
+
+    The ids travel as one array parameter (``= ANY``), so a month with more
+    relationships than the protocol's 65,535 parameters still reads in one go.
+
+    Returns:
+        The relationships found, by id; an unknown id is left out.
+
+    """
+    ids = bindparam("relationship_ids", list(relationship_ids), type_=ARRAY(Uuid()))
+    rows = s.scalars(
+        select(CustomerRelationship).where(CustomerRelationship.id == any_(ids))
+    )
+    return {row.id: _ref_of(row) for row in rows}
 
 
 def relationship_ref(s: Session, relationship_id: UUID) -> RelationshipRef:
