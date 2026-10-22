@@ -53,11 +53,14 @@ from tests.helpers import (
     wrapped_keys,
 )
 from tests.modules.monitoring import support as monitoring_support
+from tests.modules.monitoring.captures import support as capture_support
+from tests.modules.monitoring.captures import test_capture_goldens as capture_goldens
 from tests.modules.monitoring.rules import hook_support, lifecycle_support
 from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
 from xolotl.cli import app
+from xolotl.modules.monitoring.captures.models import ReportableEvent
 from xolotl.modules.monitoring.enums import FileStatus, TransactionStatus
 from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.process.job import process_party
@@ -2913,3 +2916,71 @@ def test_rules_simulate_and_activate(
     )
     # The operator who ran each command is on the chain, with ids only.
     _assert_cli_runs(tenant, version.id, row.approved_by, [s.id for s in simulations])
+
+
+def test_monitoring_period_close_reports_discrepancies(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    directory = capture_goldens.GOLDEN / "ITF_ROR_CASH"
+    stage = capture_support.build_stage(tenant, admin_engine, directory / "units.yaml")
+    try:
+        _ = capture_goldens.run_golden(stage, directory)
+    finally:
+        reset_processing_hooks()
+    new_year = datetime(2027, 1, 1, 10, tzinfo=UTC)
+    monkeypatch.setattr(clock, "now", lambda: new_year)
+
+    clean = runner.invoke(app, ["monitoring", "period-close", "--tenant", tenant.slug])
+
+    assert clean.exit_code == 0, clean.output
+    assert clean.stdout.splitlines() == [
+        "AVI_XVI_A 2026-12 CLOSED events=0 reconciled=0 discrepancies=0",
+        "AVI_XVI_B 2026-12 CLOSED events=0 reconciled=0 discrepancies=0",
+        "ITF_FX_CASH 2026-Q4 CLOSED events=0 reconciled=0 discrepancies=0",
+        "ITF_INTL_TRANSFER 2026-12 CLOSED events=0 reconciled=0 discrepancies=0",
+        "ITF_ROR_CASH 2026-Q4 CLOSED events=2 reconciled=2 discrepancies=0",
+        "ITF_VA_OPS 2026-Q4 CLOSED events=0 reconciled=0 discrepancies=0",
+    ]
+    nothing = runner.invoke(
+        app, ["monitoring", "period-close", "--tenant", tenant.slug]
+    )
+    assert nothing.exit_code == 0, nothing.output
+    assert nothing.stdout == "period-close: no period to close\n"
+
+    with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
+        first = s.scalars(
+            select(ReportableEvent).order_by(ReportableEvent.occurred_at)
+        ).first()
+        assert first is not None
+        s.delete(first)
+    named = ["--capture", "ITF_ROR_CASH", "--period", "2026-Q4"]
+    gap = runner.invoke(
+        app, ["monitoring", "period-close", "--tenant", tenant.slug, *named]
+    )
+
+    assert gap.exit_code == 1, gap.output
+    assert gap.stdout == (
+        "ITF_ROR_CASH 2026-Q4 CLOSED events=2 reconciled=2 discrepancies=1\n"
+    )
+    alone = runner.invoke(
+        app,
+        ["monitoring", "period-close", "--tenant", tenant.slug, "--capture", "X"],
+    )
+    assert alone.exit_code == 2
+    # One word: the usage box wraps and colours the message on a narrow terminal.
+    assert "together" in alone.output
+    early = runner.invoke(
+        app,
+        [
+            "monitoring",
+            "period-close",
+            "--tenant",
+            tenant.slug,
+            "--capture",
+            "ITF_ROR_CASH",
+            "--period",
+            "2027-Q1",
+        ],
+    )
+    assert early.exit_code == 1
+    assert "PERIOD_NOT_ENDED" in early.output

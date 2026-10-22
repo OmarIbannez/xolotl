@@ -196,6 +196,9 @@ class Settings(BaseSettings):
     monitoring_simulation_max_age_days: int = Field(default=30, ge=1)
     # The longest range a rule simulation replays, in days.
     monitoring_simulation_max_days: int = Field(default=190, ge=1)
+    # Per-tenant monthly close of the capture periods that ended, five-field cron in
+    # Mexico City: each is reconciled by re-evaluation and closed (plan 4b).
+    monitoring_period_close_cron: str = "0 4 1 * *"
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")
@@ -224,6 +227,7 @@ class Settings(BaseSettings):
         "monitoring_partitions_cron",
         "monitoring_retention_cron",
         "monitoring_profile_cron",
+        "monitoring_period_close_cron",
     )
     @classmethod
     def _check_cron(cls, value: str, info: ValidationInfo) -> str:
