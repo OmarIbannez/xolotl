@@ -39,19 +39,22 @@ in the partition whoever's it is. A partition still holding another tenant's row
 (a longer period, a held party, no policy) stays until that tenant retires them.
 
 **Legal hold.** Every step starts by locking the month's parties (those with a
-transaction, a hit first seen, or a decision made in the month) ``FOR SHARE`` and
-reading ``legal_hold``. Setting a hold takes the party row ``FOR UPDATE``, so a
+transaction, a hit first seen, or a decision made in the month) ``FOR KEY SHARE``
+and reading ``legal_hold``. Setting a hold takes the party row ``FOR UPDATE``, so a
 hold is either committed before the step, which then stops the month (named among
-the skipped months), or waits until the step commits. Steps done before the hold
-existed stay done.
+the skipped months), or waits until the step commits; an ordinary edit of the
+party does not wait. Steps done before the hold existed stay done. Every delete
+also leaves out a held party's rows itself, so a row that reached the month after
+the step took its locks (a late BACKFILL row of a party already on hold) is kept.
 
 **Audit.** Each step that touched anything writes a ``monitoring.retention_step``
-row (month, step, counts) in its own transaction, before it commits, and so does a
-partition drop right after it; nothing deleted is ever unaudited, whatever fails
-later. One ``monitoring.retention_ran`` row on the tenant sums the run up: the
-period, the counts per retired month, the skipped months, the purged
-counterparties and the pruned buckets. A run with no policy in force is summed up
-too, with ``period`` null.
+row (month, step, counts) in its own transaction, before it commits; a partition
+drop and the counterparty purge write theirs in the admin transaction that does
+the work. Nothing deleted is ever unaudited, whatever fails later. One
+``monitoring.retention_ran`` row on the tenant sums the run up: the period, the
+counts per retired month, the skipped months, the purged counterparties and the
+pruned buckets. A run with no policy in force is summed up too, with ``period``
+null.
 
 **Locks.** A partition drop takes ``ACCESS EXCLUSIVE`` on the parent and on every
 table referencing it or referenced by it (``retirement_lock_set``: for
@@ -101,6 +104,7 @@ from sqlalchemy import (
     Connection,
     CursorResult,
     Engine,
+    TextClause,
     and_,
     delete,
     exists,
@@ -128,6 +132,7 @@ from xolotl.platform.audit import AuditEvent, record
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import (
     SessionFactory,
+    apply_context,
     bound_context,
     get_admin_engine,
     tenant_session,
@@ -374,8 +379,10 @@ def months_due(s: Session, *, today: date, period: str) -> list[date]:
 
 
 # The month's parties: those with a transaction in it, a hit first seen in it, or
-# a decision made in it for one of their relationships. Locked FOR SHARE, which a
-# hold being set (it takes the party row FOR UPDATE) conflicts with.
+# a decision made in it for one of their relationships. Locked FOR KEY SHARE: a
+# hold being set takes the party row FOR UPDATE (get_party(for_update=True)) and
+# conflicts with it, while an ordinary edit of the party (FOR NO KEY UPDATE) does
+# not wait for the step.
 _MONTH_PARTIES = text(
     """
     SELECT p.legal_hold FROM party p
@@ -391,13 +398,13 @@ _MONTH_PARTIES = text(
         ON r.tenant_id = d.tenant_id AND r.id = d.relationship_id
       WHERE d.decided_at >= :lower AND d.decided_at < :upper)
     ORDER BY p.id
-    FOR SHARE OF p
+    FOR KEY SHARE OF p
     """
 )
 
 
 def held_parties_in(s: Session, month: date) -> int:
-    """Lock the month's parties for the transaction and count those on legal hold.
+    """Lock the month's parties (key share) and count those on legal hold.
 
     Called first in each step's transaction: a hold committed before the step is
     seen, and a hold being placed waits until the step commits. The earlier steps'
@@ -415,11 +422,37 @@ def held_parties_in(s: Session, month: date) -> int:
     return sum(holds)
 
 
+# Every delete also leaves out a held party's rows itself: a row that reached the
+# month after the step locked its parties (a late BACKFILL row of a party already
+# on hold) is never deleted. Each fragment names the table its statement deletes.
+_TXN_NOT_HELD = """NOT EXISTS (
+    SELECT 1 FROM party p WHERE p.tenant_id = transaction.tenant_id
+      AND p.id = transaction.party_id AND p.legal_hold)"""
+_LINKED_TXN_NOT_HELD = """NOT EXISTS (
+    SELECT 1 FROM transaction t JOIN party p
+      ON p.tenant_id = t.tenant_id AND p.id = t.party_id
+    WHERE t.tenant_id = {table}.tenant_id AND t.occurred_at = {table}.occurred_at
+      AND t.id = {table}.transaction_id AND p.legal_hold)"""
+_PARTY_NOT_HELD = """NOT EXISTS (
+    SELECT 1 FROM party p WHERE p.tenant_id = {table}.tenant_id
+      AND p.id = {table}.party_id AND p.legal_hold)"""
+_DECISION_NOT_HELD = """NOT EXISTS (
+    SELECT 1 FROM customer_relationship r JOIN party p
+      ON p.tenant_id = r.tenant_id AND p.id = r.party_id
+    WHERE r.tenant_id = txn_decision.tenant_id
+      AND r.id = txn_decision.relationship_id AND p.legal_hold)"""
+
+
+def _not_held(fragment: str, table: str = "") -> TextClause:
+    return text(fragment.replace("{table}", table))
+
+
 def _delete_hit_links(s: Session, month: date) -> dict[str, int]:
     deleted = _rowcount(
         s.execute(
             delete(RuleHitTransaction).where(
-                _within(RuleHitTransaction.occurred_at, month)
+                _within(RuleHitTransaction.occurred_at, month),
+                _not_held(_LINKED_TXN_NOT_HELD, "rule_hit_transaction"),
             )
         )
     )
@@ -456,7 +489,10 @@ def _delete_events(s: Session, month: date) -> dict[str, int]:
     )
     events = _rowcount(
         s.execute(
-            delete(ReportableEvent).where(_within(ReportableEvent.occurred_at, month))
+            delete(ReportableEvent).where(
+                _within(ReportableEvent.occurred_at, month),
+                _not_held(_PARTY_NOT_HELD, "reportable_event"),
+            )
         )
     )
     emptied = 0
@@ -477,12 +513,15 @@ def _delete_events(s: Session, month: date) -> dict[str, int]:
 
 
 def _delete_hits(s: Session, month: date) -> dict[str, int]:
-    hits = select(RuleHit.id).where(_within(RuleHit.first_occurred_at, month))
+    not_held = _not_held(_PARTY_NOT_HELD, "rule_hit")
+    hits = select(RuleHit.id).where(_within(RuleHit.first_occurred_at, month), not_held)
     links = _rowcount(
         s.execute(delete(RuleHitTransaction).where(RuleHitTransaction.hit_id.in_(hits)))
     )
     deleted = _rowcount(
-        s.execute(delete(RuleHit).where(_within(RuleHit.first_occurred_at, month)))
+        s.execute(
+            delete(RuleHit).where(_within(RuleHit.first_occurred_at, month), not_held)
+        )
     )
     return {"hits": deleted, "hit_links": links}
 
@@ -516,7 +555,12 @@ def _clear_decision_links(s: Session, month: date) -> dict[str, int]:
 
 def _delete_decisions(s: Session, month: date) -> dict[str, int]:
     deleted = _rowcount(
-        s.execute(delete(TxnDecision).where(_within(TxnDecision.decided_at, month)))
+        s.execute(
+            delete(TxnDecision).where(
+                _within(TxnDecision.decided_at, month),
+                _not_held(_DECISION_NOT_HELD),
+            )
+        )
     )
     return {"decisions": deleted}
 
@@ -525,7 +569,8 @@ def _delete_parked(s: Session, month: date) -> dict[str, int]:
     deleted = _rowcount(
         s.execute(
             delete(TransactionParked).where(
-                _within(TransactionParked.occurred_at, month)
+                _within(TransactionParked.occurred_at, month),
+                _not_held(_LINKED_TXN_NOT_HELD, "transaction_parked"),
             )
         )
     )
@@ -535,7 +580,10 @@ def _delete_parked(s: Session, month: date) -> dict[str, int]:
 def _delete_refs(s: Session, month: date) -> dict[str, int]:
     deleted = _rowcount(
         s.execute(
-            delete(TransactionRef).where(_within(TransactionRef.occurred_at, month))
+            delete(TransactionRef).where(
+                _within(TransactionRef.occurred_at, month),
+                _not_held(_LINKED_TXN_NOT_HELD, "transaction_ref"),
+            )
         )
     )
     return {"refs": deleted}
@@ -543,9 +591,31 @@ def _delete_refs(s: Session, month: date) -> dict[str, int]:
 
 def _delete_transactions(s: Session, month: date) -> dict[str, int]:
     deleted = _rowcount(
-        s.execute(delete(Transaction).where(_within(Transaction.occurred_at, month)))
+        s.execute(
+            delete(Transaction).where(
+                _within(Transaction.occurred_at, month), _not_held(_TXN_NOT_HELD)
+            )
+        )
     )
     return {"transactions": deleted}
+
+
+def _audit_on(
+    conn: Connection, *, tenant_id: UUID, actor_id: str, detail: dict[str, JsonValue]
+) -> None:
+    """Audit a step done on an admin connection, in that connection's transaction."""
+    with Session(bind=conn) as s:
+        apply_context(s, TenantContext.system(tenant_id, actor_id))
+        _ = record(
+            s,
+            AuditEvent(
+                action=STEP_ACTION,
+                entity_type="tenant",
+                entity_id=str(tenant_id),
+                detail=detail,
+            ),
+        )
+        s.flush()
 
 
 def _audit_step(s: Session, *, month: date, step: str, counts: dict[str, int]) -> None:
@@ -649,8 +719,12 @@ def _in_use(
     return False
 
 
-def _retire_one(admin_engine: Engine, *, table: str, month: date) -> bool:
+def _retire_one(
+    admin_engine: Engine, *, table: str, month: date, actor: tuple[UUID, str]
+) -> bool:
     """Retire one partition, keeping it when a row or a lock got in the way.
+
+    The drop is audited in its own transaction, for the tenant whose run did it.
 
     Returns:
         Whether the partition was dropped.
@@ -660,9 +734,22 @@ def _retire_one(admin_engine: Engine, *, table: str, month: date) -> bool:
             deadlock.
 
     """
+    tenant_id, actor_id = actor
     try:
         with admin_engine.begin() as conn:
-            return retire_partition(conn, table=table, month=month)
+            dropped = retire_partition(conn, table=table, month=month)
+            if dropped:
+                _audit_on(
+                    conn,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    detail={
+                        "month": f"{month:%Y-%m}",
+                        "step": "partitions",
+                        "partition": partition_name(table, month),
+                    },
+                )
+            return dropped
     except ValueError as exc:
         logger.warning(
             "partition kept: %s",
@@ -681,7 +768,12 @@ def _retire_one(admin_engine: Engine, *, table: str, month: date) -> bool:
 
 
 def retire_partitions(
-    session_factory: SessionFactory, admin_engine: Engine, *, month: date, today: date
+    session_factory: SessionFactory,
+    admin_engine: Engine,
+    *,
+    month: date,
+    today: date,
+    actor: tuple[UUID, str],
 ) -> tuple[str, ...]:
     """Drop ``month``'s partitions of both tables once every tenant is done with them.
 
@@ -698,7 +790,7 @@ def retire_partitions(
     for table, column in _PARTITIONED:
         if _in_use(session_factory, column=column, month=month, today=today):
             continue
-        if _retire_one(admin_engine, table=table, month=month):
+        if _retire_one(admin_engine, table=table, month=month, actor=actor):
             dropped.append(partition_name(table, month))
     return tuple(dropped)
 
@@ -781,24 +873,41 @@ _ORPHANS = text(
               + CAST(:period AS interval) > :now)
     """
 )
-_PURGE = tuple(
-    text(statement)
-    for statement in (
-        """
+# The purge's statements in dependency order, each with the count it reports.
+_PURGE: tuple[tuple[str | None, TextClause], ...] = (
+    (
+        None,
+        text(
+            """
         UPDATE counterparty SET screening_subject_id = NULL
         WHERE tenant_id = :tenant AND id = ANY(:ids)
-        """,
         """
+        ),
+    ),
+    (
+        "allow_list",
+        text(
+            """
         DELETE FROM screening_whitelist
         WHERE tenant_id = :tenant AND subject_id = ANY(:subjects)
-        """,
         """
+        ),
+    ),
+    (
+        "dispositions",
+        text(
+            """
         DELETE FROM match_disposition
         WHERE tenant_id = :tenant AND match_id IN (
           SELECT id FROM screening_match
           WHERE tenant_id = :tenant AND subject_id = ANY(:subjects))
-        """,
         """
+        ),
+    ),
+    (
+        "screening_hits",
+        text(
+            """
         DELETE FROM screening_hit
         WHERE tenant_id = :tenant AND (
           run_id IN (
@@ -807,25 +916,49 @@ _PURGE = tuple(
           OR match_id IN (
             SELECT id FROM screening_match
             WHERE tenant_id = :tenant AND subject_id = ANY(:subjects)))
-        """,
         """
+        ),
+    ),
+    (
+        "findings",
+        text(
+            """
         DELETE FROM screening_match
         WHERE tenant_id = :tenant AND subject_id = ANY(:subjects)
-        """,
         """
+        ),
+    ),
+    (
+        "runs",
+        text(
+            """
         DELETE FROM screening_run
         WHERE tenant_id = :tenant AND subject_id = ANY(:subjects)
-        """,
         """
+        ),
+    ),
+    (
+        "subjects",
+        text(
+            """
         DELETE FROM screening_subject
         WHERE tenant_id = :tenant AND id = ANY(:subjects)
-        """,
         """
+        ),
+    ),
+    (
+        "name_index",
+        text(
+            """
         DELETE FROM counterparty_name_index
         WHERE tenant_id = :tenant AND counterparty_id = ANY(:ids)
-        """,
-        "DELETE FROM counterparty WHERE tenant_id = :tenant AND id = ANY(:ids)",
-    )
+        """
+        ),
+    ),
+    (
+        "counterparties",
+        text("DELETE FROM counterparty WHERE tenant_id = :tenant AND id = ANY(:ids)"),
+    ),
 )
 
 
@@ -857,7 +990,9 @@ def recount_counterparties(admin_engine: Engine, *, tenant_id: UUID) -> int:
         after = ids[-1]
 
 
-def _purge(conn: Connection, *, tenant_id: UUID, period: str, now: datetime) -> int:
+def _purge(
+    conn: Connection, *, tenant_id: UUID, period: str, now: datetime, actor_id: str
+) -> int:
     candidates = cast(
         "list[UUID]", conn.scalars(_CANDIDATES, {"tenant": tenant_id}).all()
     )
@@ -877,15 +1012,25 @@ def _purge(conn: Connection, *, tenant_id: UUID, period: str, now: datetime) -> 
     subjects = [cast("UUID", row[1]) for row in rows if row[1] is not None]
     if not ids:
         return 0
-    for statement in _PURGE:
-        _ = conn.execute(
+    detail: dict[str, JsonValue] = {"step": "counterparties"}
+    for name, statement in _PURGE:
+        result = conn.execute(
             statement, {"tenant": tenant_id, "ids": ids, "subjects": subjects}
         )
+        if name is not None:
+            detail[name] = _rowcount(result)
+    # In the purge's own transaction: what it deleted is audited or not deleted.
+    _audit_on(conn, tenant_id=tenant_id, actor_id=actor_id, detail=detail)
     return len(ids)
 
 
 def purge_counterparties(
-    admin_engine: Engine, *, tenant_id: UUID, period: str, now: datetime
+    admin_engine: Engine,
+    *,
+    tenant_id: UUID,
+    period: str,
+    now: datetime,
+    actor_id: str,
 ) -> int:
     """Purge the tenant's counterparties that nothing references any more.
 
@@ -909,7 +1054,9 @@ def purge_counterparties(
         with admin_engine.begin() as conn:
             _ = conn.execute(_BIND_TENANT, {"tenant": str(tenant_id)})
             _ = conn.execute(_SET_LOCK_TIMEOUT, {"value": PURGE_LOCK_TIMEOUT})
-            return _purge(conn, tenant_id=tenant_id, period=period, now=now)
+            return _purge(
+                conn, tenant_id=tenant_id, period=period, now=now, actor_id=actor_id
+            )
     except DBAPIError as exc:
         sqlstate = cast("str | None", getattr(exc.orig, "sqlstate", None))
         if sqlstate not in _RETRYABLE:
@@ -1004,6 +1151,7 @@ class RetentionJob:
         """
         now = clock.now()
         today = policy_date(now)
+        actor_id = bound_context(session).actor_id
         months = partition_months(session)
         since = months[0] if months else today.replace(day=1)
         period = retention_period(session, today=today, since=since)
@@ -1029,19 +1177,17 @@ class RetentionJob:
                             admin_engine,
                             month=month,
                             today=today,
+                            actor=(job.tenant_id, actor_id),
                         ),
                     )
-                    _audit_step(
-                        session,
-                        month=month,
-                        step="partitions",
-                        counts={"partitions": len(done.partitions_dropped)},
-                    )
-                    session.commit()
                 if done.deleted_anything():
                     retired.append(done)
             purged = purge_counterparties(
-                admin_engine, tenant_id=job.tenant_id, period=period, now=now
+                admin_engine,
+                tenant_id=job.tenant_id,
+                period=period,
+                now=now,
+                actor_id=actor_id,
             )
             pruned = prune_buckets(session, now=now)
         report = RetentionReport(

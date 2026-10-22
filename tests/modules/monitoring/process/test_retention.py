@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import ColumnElement, Connection, Engine, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from tests.e2e.conftest import drain
@@ -61,6 +62,7 @@ from xolotl.modules.monitoring.txn.models import (
     TransactionRef,
 )
 from xolotl.modules.monitoring.txn.schema import KeyKind, Rail
+from xolotl.modules.party.customer import set_legal_hold
 from xolotl.modules.party.models import Party
 from xolotl.modules.screening.catalog.models import PrivateList, PrivateListEntryRow
 from xolotl.modules.screening.counterparty.models import (
@@ -675,11 +677,13 @@ def test_each_step_commits_on_its_own(
     (month,) = detail["retired"]
     assert (month["refs"], month["transactions"], month["hits"]) == (2, 2, 0)
     steps = audits(itf, "monitoring.retention_step")
-    assert [step["step"] for step in steps][-3:] == [
-        "refs",
-        "transactions",
-        "partitions",
-    ]
+    names = [step["step"] for step in steps]
+    assert names[-4:] == ["refs", "transactions", "partitions", "partitions"]
+    # Each drop is audited in the transaction that dropped it.
+    assert {step.get("partition") for step in steps[-2:]} == {
+        partition_name("txn_decision", OLD),
+        partition_name("transaction", OLD),
+    }
 
 
 def test_a_partition_is_dropped_only_once_every_tenant_has_retired_its_month(
@@ -921,6 +925,48 @@ def test_orphaned_counterparties_go_with_their_subjects_findings_and_disposition
         assert kept.txn_count == 1
     assert count(itf, CounterpartyNameIndex) == 1
     assert audits(itf)[0]["counterparties_purged"] == 1
+    (purge,) = [
+        step
+        for step in audits(itf, "monitoring.retention_step")
+        if step["step"] == "counterparties"
+    ]
+    assert purge == {
+        "step": "counterparties",
+        "counterparties": 1,
+        "subjects": 1,
+        "runs": 1,
+        "findings": 1,
+        "screening_hits": 1,
+        "dispositions": 1,
+        "allow_list": 1,
+        "name_index": 1,
+    }
+
+
+def test_the_purge_is_audited_even_when_a_later_step_fails(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    seeder = Seeder(itf, queue)
+    gone = seeder.txn(_at(OLD, 5), counterparty="Ana Pérez Gómez")
+    assert gone.counterparty_id is not None
+    _ = _screen(seeder, gone.counterparty_id, decided_at=_at(OLD, 6))
+
+    def broken(s: Session, *, now: datetime) -> int:
+        msg = "the bucket pruning failed"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(f"{retention.__name__}.prune_buckets", broken)
+    with pytest.raises(RuntimeError, match="pruning failed"):
+        run_retention(itf)
+    assert count(itf, Counterparty, Counterparty.id == gone.counterparty_id) == 0
+    assert audits(itf) == []
+    steps = audits(itf, "monitoring.retention_step")
+    purged = [step for step in steps if step["step"] == "counterparties"]
+    assert [step["dispositions"] for step in purged] == [1]
 
 
 def test_a_counterparty_with_recent_screening_records_is_kept(
@@ -1291,3 +1337,58 @@ def test_the_purge_skips_a_counterparty_whose_subject_is_busy(
     run_retention(itf)
     assert count(itf, Counterparty, Counterparty.id == gone.counterparty_id) == 0
     assert audits(itf)[1]["counterparties_purged"] == 1
+
+
+def test_the_hold_lock_stops_a_hold_being_set_and_lets_edits_through(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+):
+    # The step's FOR KEY SHARE conflicts with set_legal_hold's FOR UPDATE, not with
+    # an ordinary edit of the party.
+    seeder = Seeder(itf, queue)
+    _ = seeder.month(OLD)
+    with tenant_session(system_ctx(itf.tenant_id)) as step:
+        assert retention.held_parties_in(step, OLD) == 0  # takes the locks
+        with staff_session(itf.tenant_id, itf.admin_user_id) as edit:
+            _ = edit.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            _ = edit.execute(
+                update(Party).where(Party.id == seeder.party_id).values(updated_at=NOW)
+            )
+        with (
+            pytest.raises(DBAPIError) as caught,
+            staff_session(itf.tenant_id, itf.admin_user_id) as hold,
+        ):
+            _ = hold.execute(text("SET LOCAL lock_timeout = '200ms'"))
+            _ = set_legal_hold(hold, seeder.party_id, legal_hold=True)
+    assert getattr(caught.value.orig, "sqlstate", None) == "55P03"
+
+
+def test_a_held_partys_rows_are_never_deleted_even_unlocked(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+    admin_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # A row that reaches the month after the step locked its parties (a BACKFILL
+    # row of an already held party) is still kept by the deletes themselves.
+    seeder = Seeder(itf, queue)
+    _ = seeder.month(OLD)
+    seeder.hold()
+
+    def nobody_held(_s: Session, _month: date) -> int:
+        return 0
+
+    monkeypatch.setattr(f"{retention.__name__}.held_parties_in", nobody_held)
+    run_retention(itf)
+    assert count(itf, Transaction) == 2
+    assert count(itf, TransactionRef) == 2
+    assert count(itf, TransactionParked) == 1
+    assert count(itf, RuleHit) == 1
+    assert count(itf, RuleHitTransaction) == 2
+    assert count(itf, ReportableEvent) == 2
+    assert count(itf, TxnDecision) == 1
+    assert len(partitions_left(admin_engine, OLD)) == 2

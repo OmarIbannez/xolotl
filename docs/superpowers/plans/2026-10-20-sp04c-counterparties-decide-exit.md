@@ -651,6 +651,7 @@ Notes from C7 (where the code on `main` or safety required a departure from the 
   - Every step first locks the month's parties `FOR SHARE` and re-reads `legal_hold` (`set_legal_hold` takes the row `FOR UPDATE`); a hold stops the month and names it skipped (`test_a_hold_placed_during_the_run_stops_the_later_steps`).
   - `retire_partition` takes `ACCESS EXCLUSIVE NOWAIT` on the whole `retirement_lock_set` (the parent, every referencing and every referenced table) at once, so it never queues ahead of readers of `party` or `transaction`; a busy table fails it with 55P03 and a later run retries. It restores the caller's `row_security`.
   - The purge recounts `txn_count` in its own committed pages, id order, `FOR UPDATE SKIP LOCKED`, counting in a new statement after the locks; it runs with `lock_timeout` 1 s and `SKIP LOCKED` on subjects (`test_the_purge_skips_a_counterparty_whose_subject_is_busy`).
+- Review fix round 2: the counterparty purge and each partition drop write their `monitoring.retention_step` row inside the admin transaction that does the work (the purge's counts: counterparties, subjects, runs, findings, screening hits, dispositions, allow-list and name-index rows); the month's parties are locked `FOR KEY SHARE` (still conflicting with `set_legal_hold`'s `FOR UPDATE`, not with an ordinary party edit); every delete also leaves out a held party's rows itself.
 
 ---
 
