@@ -24,6 +24,12 @@ from xolotl.modules.monitoring.captures.models import (
     CapturePeriod,
     ReportableEvent,
 )
+from xolotl.modules.monitoring.decide.enums import (
+    DecisionMode,
+    DecisionOutcome,
+    FailMode,
+)
+from xolotl.modules.monitoring.decide.models import RailSetting, TxnDecision
 from xolotl.modules.monitoring.enums import (
     AccountKind,
     BatchSource,
@@ -31,6 +37,7 @@ from xolotl.modules.monitoring.enums import (
     FileStatus,
     ParkReason,
 )
+from xolotl.modules.monitoring.profiles.models import BehaviourProfile
 from xolotl.modules.monitoring.rules.enums import (
     HitTransactionRole,
     NoticeSource,
@@ -1396,6 +1403,62 @@ def counterparty_name_index(session: Session, tenant_id: UUID) -> None:
     session.flush()
 
 
+def rail_setting(session: Session, tenant_id: UUID) -> None:
+    session.add(
+        RailSetting(
+            tenant_id=tenant_id,
+            rail=Rail.SPEI,
+            fail_mode=FailMode.FAIL_CLOSED,
+            changed_by=_staff_user(session, tenant_id).id,
+        )
+    )
+    session.flush()
+
+
+def txn_decision(session: Session, tenant_id: UUID) -> None:
+    owner = _account(session, tenant_id)
+    session.add(
+        TxnDecision(
+            tenant_id=tenant_id,
+            decided_at=clock.now(),
+            external_id=f"ext-{uuid7().hex[:12]}",
+            rail=Rail.SPEI,
+            relationship_id=owner.relationship_id,
+            account_id=owner.id,
+            decision=DecisionOutcome.ALLOW,
+            mode=DecisionMode.EVALUATED,
+            reasons=[],
+            ruleset_hash=b"\x00" * 32,
+            policy_snapshot_id=_policy_snapshot(session, tenant_id).id,
+            latency_ms=5,
+            db_ms=1,
+            actor="api_client:harness",
+        )
+    )
+    session.flush()
+
+
+def behaviour_profile(session: Session, tenant_id: UUID) -> None:
+    relationship = _customer_relationship(session, tenant_id)
+    session.add(
+        BehaviourProfile(
+            tenant_id=tenant_id,
+            relationship_id=relationship.id,
+            party_id=relationship.party_id,
+            month="2026-09",
+            metrics={"inflow_minor": "0", "currency": "MXN"},
+        )
+    )
+    session.flush()
+
+
+def _register_decide_and_profiles() -> None:
+    # Plan 4c's tables (migration 0014).
+    register_isolation_factory("rail_setting", rail_setting)
+    register_isolation_factory("txn_decision", txn_decision)
+    register_isolation_factory("behaviour_profile", behaviour_profile)
+
+
 def _register_rules_and_captures() -> None:
     # The SP-04 rule and capture tables (plan 4b) and the counterparty name index.
     register_isolation_factory("monitoring_rule", monitoring_rule)
@@ -1409,6 +1472,7 @@ def _register_rules_and_captures() -> None:
     register_isolation_factory("reportable_event", reportable_event)
     register_isolation_factory("capture_period", capture_period)
     register_isolation_factory("counterparty_name_index", counterparty_name_index)
+    _register_decide_and_profiles()
 
 
 def _register_monitoring() -> None:

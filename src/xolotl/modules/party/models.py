@@ -283,3 +283,7 @@ class CustomerRelationship(TenantTableMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
     )
+    # {"monthly_inflow_minor", "monthly_outflow_minor", "currency",
+    # "expected_countries", "expected_instruments"}; staff set it until onboarding
+    # does (SP-04 spec Decision 10; migration 0014).
+    declared_profile: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)

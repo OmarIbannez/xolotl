@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
+from xolotl.modules.monitoring import routes_decide as decide_routes
 from xolotl.modules.monitoring import routes_monitoring as monitoring_routes
 from xolotl.modules.monitoring import routes_transactions as transaction_routes
 from xolotl.modules.monitoring.composition import register_monitoring
@@ -307,6 +308,8 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             private_list_routes.router,
             screening_routes.router,
             counterparty_routes.router,
+            # Before the transactions router: /transactions/decide is literal.
+            decide_routes.router,
             transaction_routes.router,
             monitoring_routes.router,
             audit_routes.router,
