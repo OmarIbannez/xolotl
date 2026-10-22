@@ -49,6 +49,7 @@
     "privateLists": "Private lists",
     "ruleHits": "Rule hits",
     "monitoringRules": "Monitoring rules",
+    "captures": "Captures and limits",
     "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check",
     "transactions": "Transactions",
@@ -2018,6 +2019,123 @@
       "back": "Rules"
     }
   },
+  "captures": {
+    "title": "Captures and limits",
+    "description": "The effective policy's captures and limits, read only, and the reconciliation of their periods. Staff only: none of this reaches the customer.",
+    "propose": "Propose a change",
+    "limits": {
+      "title": "Captures and limits in force",
+      "label": "The policy's captures and limits",
+      "description": "Read from the policy in force. A threshold changes only through a policy override, and only to make it stricter.",
+      "on": "In force on",
+      "product": "Product",
+      "productHint": "Leave empty for the workspace-wide assignment.",
+      "apply": "Look up",
+      "source": "Resolved from: {{source}}",
+      "noPolicy": "No policy is assigned for that date and product.",
+      "empty": "The policy has no captures or limits.",
+      "table": {
+        "code": "Code",
+        "kind": "Kind",
+        "threshold": "Threshold",
+        "rule": "Conversion",
+        "window": "Window",
+        "period": "Period",
+        "report": "Report",
+        "basis": "Legal basis",
+        "confidence": "Confidence",
+        "propose": "Change"
+      },
+      "rule": {
+        "SAME_DAY": "Same-day value",
+        "PRIOR_BANKING_DAY": "Prior banking day",
+        "LAST_DAY_PREV_MONTH": "Last day of the previous month",
+        "PREV_MONTH_AVG": "Previous month's average",
+        "SEMIANNUAL_SNAPSHOT": "Semiannual snapshot"
+      },
+      "periodOf": {
+        "MONTH": "Monthly",
+        "QUARTER": "Quarterly"
+      }
+    },
+    "kind": {
+      "THRESHOLD": "Threshold",
+      "ACCUMULATION": "Accumulation",
+      "FEE_THRESHOLD": "Fee threshold",
+      "TIER_LIMIT": "Tier limit"
+    },
+    "period": {
+      "title": "Periods",
+      "label": "Capture periods",
+      "description": "Each period closes and reconciles by itself once it ends. Dates are Mexico City days.",
+      "empty": "No periods yet.",
+      "range": "{{start}} to {{end}}"
+    },
+    "status": {
+      "OPEN": "Open",
+      "CLOSED": "Closed",
+      "REOPENED": "Reopened"
+    },
+    "table": {
+      "capture": "Capture",
+      "period": "Period",
+      "status": "Status",
+      "events": "Captures",
+      "reconciled": "Reconciled",
+      "discrepancies": "Discrepancies",
+      "actions": "Actions"
+    },
+    "close": {
+      "action": "Close period",
+      "actionFor": "Close period {{capture}} {{period}}",
+      "pending": "Closing…",
+      "title": "Close {{capture}} · {{period}}",
+      "confirm": "Closing reconciles the period now: it recomputes the captures, restores the missing ones and voids the extra ones, even when a report already includes them, which would then need a correction. The close is audited under your name.",
+      "done": "Period closed and reconciled."
+    },
+    "discrepancies": {
+      "show": "Show transactions ({{count}})",
+      "hide": "Hide transactions",
+      "missing": "Missing (restored)",
+      "extra": "Extra (voided)",
+      "none": "None",
+      "pending": "Not reconciled"
+    },
+    "events": {
+      "title": "Captures",
+      "label": "Captured operations",
+      "description": "The operations captured for a report, newest first.",
+      "filtered": "Captures of {{capture}} in {{period}}",
+      "show": "Show captures",
+      "showFor": "Show captures of {{capture}} {{period}}",
+      "all": "Show all",
+      "empty": "No captures.",
+      "table": {
+        "capture": "Capture",
+        "report": "Report",
+        "kind": "Kind",
+        "transaction": "Transaction",
+        "occurredAt": "Operation",
+        "period": "Period",
+        "status": "Status",
+        "capturedAt": "Captured"
+      },
+      "status": {
+        "CAPTURED": "Captured",
+        "INCLUDED": "Included in a report",
+        "VOIDED": "Voided",
+        "SUPERSEDED": "No longer reportable"
+      },
+      "statusHint": {
+        "SUPERSEDED": "The operation dropped out of this capture's report (a late operation regrouped the accumulation, for example). No capture replaces it; if a report already included it, that report needs a correction."
+      }
+    },
+    "transaction": {
+      "title": "Captures of this transaction",
+      "label": "The transaction's captures",
+      "empty": "This transaction was not captured for any report."
+    }
+  },
   "forbidden": {
     "title": "No access",
     "body": "Your role does not allow viewing this section."
@@ -2072,7 +2190,8 @@
     "RULE_PARAM_OUT_OF_BOUNDS": "A parameter is outside its template's bounds.",
     "RULE_TRANSITION_NOT_ALLOWED": "This action is not allowed for this version now.",
     "SIMULATION_RANGE_TOO_LONG": "The simulation period is too long.",
-    "RULE_TEMPLATE_UNKNOWN": "There is no such template in the library."
+    "RULE_TEMPLATE_UNKNOWN": "There is no such template in the library.",
+    "PERIOD_NOT_ENDED": "The period has not ended: it can be closed from the day after its last day (Mexico City)."
   },
   "counterparties": {
     "title": "Counterparties",

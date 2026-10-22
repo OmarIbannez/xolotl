@@ -151,6 +151,14 @@ describe('the rules access', () => {
   })
 })
 
+describe('the captures access', () => {
+  it('lets every staff role read the captures through the rules area and only MLRO and ADMIN close a period', () => {
+    const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.capturesClose))).toEqual(['MLRO', 'ADMIN'])
+    expect(hasAnyRole([], ACCESS.capturesClose)).toBe(false)
+  })
+})
+
 describe('redirectTarget', () => {
   it('returns the remembered in-console path, query included', () => {
     expect(redirectTarget({ from: '/staff' })).toBe('/staff')

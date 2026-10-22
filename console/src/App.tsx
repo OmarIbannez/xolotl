@@ -95,6 +95,10 @@ const router = createBrowserRouter([
                     path: '/rules/monitoring/:ruleId',
                     lazy: () => import('@/features/rules/RulePage').then((m) => ({ Component: m.RulePage })),
                   },
+                  {
+                    path: '/rules/captures',
+                    lazy: () => import('@/features/captures/CapturesPage').then((m) => ({ Component: m.CapturesPage })),
+                  },
                 ],
               },
               {
