@@ -116,6 +116,7 @@ describe('translation catalogues', () => {
       'RULE_TRANSITION_NOT_ALLOWED',
       'SIMULATION_RANGE_TOO_LONG',
       'RULE_TEMPLATE_UNKNOWN',
+      'PERIOD_NOT_ENDED',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

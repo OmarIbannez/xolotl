@@ -49,6 +49,7 @@
     "privateLists": "Listas privadas",
     "ruleHits": "Hallazgos de reglas",
     "monitoringRules": "Reglas de monitoreo",
+    "captures": "Capturas y límites",
     "screeningEvaluation": "Evaluación del motor",
     "screeningCheck": "Consulta ad hoc",
     "transactions": "Transacciones",
@@ -2018,6 +2019,123 @@
       "back": "Reglas"
     }
   },
+  "captures": {
+    "title": "Capturas y límites",
+    "description": "Las capturas y los límites de la política vigente, de solo lectura, y la conciliación de sus periodos. Solo para el personal: nada de esto llega al cliente.",
+    "propose": "Proponer ajuste",
+    "limits": {
+      "title": "Capturas y límites vigentes",
+      "label": "Capturas y límites de la política",
+      "description": "Se leen de la política en vigor. Un umbral solo se ajusta con un ajuste de política, y solo para hacerlo más estricto.",
+      "on": "Vigente el",
+      "product": "Producto",
+      "productHint": "Déjalo vacío para la asignación de todo el espacio de trabajo.",
+      "apply": "Consultar",
+      "source": "Resuelto de: {{source}}",
+      "noPolicy": "No hay ninguna política asignada para esa fecha y producto.",
+      "empty": "La política no tiene capturas ni límites.",
+      "table": {
+        "code": "Código",
+        "kind": "Tipo",
+        "threshold": "Umbral",
+        "rule": "Conversión",
+        "window": "Ventana",
+        "period": "Periodo",
+        "report": "Reporte",
+        "basis": "Fundamento",
+        "confidence": "Confianza",
+        "propose": "Ajuste"
+      },
+      "rule": {
+        "SAME_DAY": "Valor del mismo día",
+        "PRIOR_BANKING_DAY": "Día hábil anterior",
+        "LAST_DAY_PREV_MONTH": "Último día del mes anterior",
+        "PREV_MONTH_AVG": "Promedio del mes anterior",
+        "SEMIANNUAL_SNAPSHOT": "Corte semestral"
+      },
+      "periodOf": {
+        "MONTH": "Mensual",
+        "QUARTER": "Trimestral"
+      }
+    },
+    "kind": {
+      "THRESHOLD": "Umbral",
+      "ACCUMULATION": "Acumulación",
+      "FEE_THRESHOLD": "Umbral de comisión",
+      "TIER_LIMIT": "Límite de nivel"
+    },
+    "period": {
+      "title": "Periodos",
+      "label": "Periodos de captura",
+      "description": "Cada periodo se cierra y concilia solo al terminar. Las fechas son días de Ciudad de México.",
+      "empty": "Todavía no hay periodos.",
+      "range": "{{start}} a {{end}}"
+    },
+    "status": {
+      "OPEN": "Abierto",
+      "CLOSED": "Cerrado",
+      "REOPENED": "Reabierto"
+    },
+    "table": {
+      "capture": "Captura",
+      "period": "Periodo",
+      "status": "Estado",
+      "events": "Capturas",
+      "reconciled": "Conciliadas",
+      "discrepancies": "Diferencias",
+      "actions": "Acciones"
+    },
+    "close": {
+      "action": "Cerrar periodo",
+      "actionFor": "Cerrar periodo {{capture}} {{period}}",
+      "pending": "Cerrando…",
+      "title": "Cerrar {{capture}} · {{period}}",
+      "confirm": "El cierre concilia el periodo ahora: vuelve a calcular sus capturas, restaura las que falten y anula las que sobren, aunque ya estén incluidas en un reporte, que entonces habría que corregir. El cierre queda auditado a tu nombre.",
+      "done": "Periodo cerrado y conciliado."
+    },
+    "discrepancies": {
+      "show": "Ver transacciones ({{count}})",
+      "hide": "Ocultar transacciones",
+      "missing": "Faltantes (restauradas)",
+      "extra": "Sobrantes (anuladas)",
+      "none": "Ninguna",
+      "pending": "Sin conciliar"
+    },
+    "events": {
+      "title": "Capturas",
+      "label": "Operaciones capturadas",
+      "description": "Las operaciones capturadas para un reporte, las más recientes primero.",
+      "filtered": "Capturas de {{capture}} en {{period}}",
+      "show": "Ver capturas",
+      "showFor": "Ver capturas de {{capture}} {{period}}",
+      "all": "Ver todas",
+      "empty": "No hay capturas.",
+      "table": {
+        "capture": "Captura",
+        "report": "Reporte",
+        "kind": "Tipo",
+        "transaction": "Transacción",
+        "occurredAt": "Operación",
+        "period": "Periodo",
+        "status": "Estado",
+        "capturedAt": "Capturada"
+      },
+      "status": {
+        "CAPTURED": "Capturada",
+        "INCLUDED": "Incluida en un reporte",
+        "VOIDED": "Anulada",
+        "SUPERSEDED": "Ya no reportable"
+      },
+      "statusHint": {
+        "SUPERSEDED": "La operación salió del reporte de esta captura (por ejemplo, una operación tardía rehízo la acumulación). No hay captura que la reemplace; si un reporte ya la incluía, hay que corregirlo."
+      }
+    },
+    "transaction": {
+      "title": "Capturas de esta transacción",
+      "label": "Capturas de la transacción",
+      "empty": "Esta transacción no se capturó para ningún reporte."
+    }
+  },
   "forbidden": {
     "title": "Sin acceso",
     "body": "Tu rol no permite ver esta sección."
@@ -2072,7 +2190,8 @@
     "RULE_PARAM_OUT_OF_BOUNDS": "Un parámetro está fuera de los límites de su plantilla.",
     "RULE_TRANSITION_NOT_ALLOWED": "Esta acción no está permitida para esta versión ahora.",
     "SIMULATION_RANGE_TOO_LONG": "El periodo de la simulación es demasiado largo.",
-    "RULE_TEMPLATE_UNKNOWN": "No existe esa plantilla en la biblioteca."
+    "RULE_TEMPLATE_UNKNOWN": "No existe esa plantilla en la biblioteca.",
+    "PERIOD_NOT_ENDED": "El periodo aún no termina: se puede cerrar desde el día siguiente a su último día (Ciudad de México)."
   },
   "counterparties": {
     "title": "Contrapartes",

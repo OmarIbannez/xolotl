@@ -260,6 +260,21 @@ export type ActivateRequest = Schemas['ActivateRequest']
 /** The reason is required (1 to 500 characters) but the API keeps only that one was given. */
 export type RejectRequest = Schemas['RejectRequest']
 
+// Captures and limits (SP-04 plan 4b, B11): staff only, never shown to an API client (a capture
+// says a customer is being reported; tipping-off, spec section 10.1). Ids, codes and amounts only.
+export type CaptureKind = Schemas['CaptureKind']
+export type CapturePeriodStatus = Schemas['CapturePeriodStatus']
+export type ReportableEventStatus = Schemas['ReportableEventStatus']
+/** A capture or a tier's monthly limit of the effective policy, with its provenance; `threshold` is a decimal string. */
+export type CaptureLimitView = Schemas['CaptureLimitView']
+/** A capture code's period and its close; `discrepancies` names the transactions found `missing` or `extra`. */
+export type CapturePeriodResponse = Schemas['CapturePeriodResponse']
+export type Page_CapturePeriodResponse_ = Schemas['Page_CapturePeriodResponse_']
+export type ReportableEventSummary = Schemas['ReportableEventSummary']
+export type Page_ReportableEventSummary_ = Schemas['Page_ReportableEventSummary_']
+/** An event with its pre-mapped report fields, unit values and accumulation group. */
+export type ReportableEventDetail = Schemas['ReportableEventDetail']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

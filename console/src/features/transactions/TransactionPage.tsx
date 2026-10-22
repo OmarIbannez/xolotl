@@ -10,6 +10,7 @@ import { KeyValues, PageHeader } from '@/components/common/page'
 import { ErrorBlock, LoadingBlock } from '@/components/common/states'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { TransactionCapturesCard } from '@/features/captures/TransactionCapturesCard'
 import { TransactionHitsCard } from '@/features/hits/TransactionHitsCard'
 import { useFormat } from '@/i18n/use-locale'
 import { NotFound } from '@/NotFound'
@@ -138,8 +139,9 @@ function ParkedCard({ parked }: { parked: ParkedInfo }) {
 
 /**
  * Detalle de transacción: the canonical fields, the unit amounts with the unit values used,
- * the period keys, the masked counterparty, why it is parked if it is, the hits it is linked to
- * and the payload as sent. The counterparty's values and the payload come from one audited reveal.
+ * the period keys, the masked counterparty, why it is parked if it is, the hits it is linked to,
+ * the captures it was recorded as and the payload as sent. The counterparty's values and the
+ * payload come from one audited reveal.
  */
 function TransactionDetail({ transactionId }: { transactionId: string }) {
   const { t } = useTranslation()
@@ -170,6 +172,7 @@ function TransactionDetail({ transactionId }: { transactionId: string }) {
         </div>
         <UnitAmountsCard amounts={data.unit_amounts} />
         {hasRole(ACCESS.monitoring) && <TransactionHitsCard transactionId={data.id} />}
+        {hasRole(ACCESS.rules) && <TransactionCapturesCard transactionId={data.id} />}
         {/* A failed reveal is announced once: in the counterparty card when there is one. */}
         <RawPayloadCard reveal={reveal} showError={data.counterparty === null} />
       </div>

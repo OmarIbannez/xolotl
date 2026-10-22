@@ -152,18 +152,6 @@ request (audited).
 
 ### Not in the console yet / coming next
 
-- **Monitoring rules.** The Mexico rule templates (sixteen typologies) and the rule
-  version lifecycle (draft, simulated, in review, approved, active, retired, with
-  four eyes) exist, with the rules API (`/v1/monitoring/templates`, `/rules`,
-  `/simulations`, `/assignments`) and the CLI (`xolotl rules ...`); no console
-  screen yet.
-- **Rule screens:** the rule editor and simulation pages.
-- **Regulatory captures:** each transaction a report must carry (Formato 41 and
-  avisos) is recorded as it is processed and each period is closed by
-  re-evaluation, with a staff API; the Capturas y límites page comes next.
-- **The real-time decide endpoint** for payment rails (`POST
-  /v1/transactions/decide`), with per-rail fail-mode settings
-  (`/v1/monitoring/rails`).
 - **Effectiveness metrics** for screening and monitoring.
 
 ## Status
@@ -1019,6 +1007,16 @@ transaction.
 
 An API key never reaches these routes, whatever its scopes: a capture says a customer
 is being reported (tipping-off).
+
+In the console, Reglas › Capturas y límites (`/rules/captures`, every staff role)
+shows the effective policy's captures and tier limits read only, with their legal
+basis and confidence and a "Proponer ajuste" link to the Políticas page (a threshold
+changes only through a stricter policy override); the capture periods with their
+events, reconciled count and discrepancies (the transaction ids behind a disclosure);
+and the captured operations, newest first, of every period or of the one chosen. The
+MLRO and ADMIN may close an ended period that is not closed yet, after a confirmation
+that says the close may void an event a report already includes. A transaction's
+detail lists the captures it was recorded as.
 
 ## Connectors
 

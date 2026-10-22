@@ -46,6 +46,9 @@ export const ACCESS = {
   rulesWrite: ['SENIOR_ANALYST', 'MLRO', 'ADMIN'],
   // Who may approve, reject, activate and retire a version; never its author (the API says why).
   rulesApprove: ['MLRO', 'ADMIN'],
+  // Who may close a capture period now (Reglas › Capturas y límites); every staff role reads them
+  // through ACCESS.rules. A close reconciles the period and may void an event already in a report.
+  capturesClose: ['MLRO', 'ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */
