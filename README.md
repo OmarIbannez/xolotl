@@ -156,9 +156,7 @@ request (audited).
   version lifecycle (draft, simulated, in review, approved, active, retired, with
   four eyes) exist; templates are managed from the CLI (`xolotl rules ...`), with no
   API or console screen yet.
-- **Rule hits:** evaluating the active rules against processed transactions (in
-  review).
-- **Rule screens:** the rule editor, simulation and hits pages.
+- **Rule screens:** the rule editor and simulation pages.
 - **Regulatory captures:** recording each transaction a report must carry
   (Formato 41 and avisos) as it is processed (in review); the period close, its
   API and the Capturas y límites page come next.
@@ -833,6 +831,14 @@ relationship, limit and month.
 Hits are staff only: an API key, whatever its scopes, is refused (403
 `ROLE_FORBIDDEN`) on every route below, and a client's view of a transaction never
 mentions one. Any staff role, `AUDITOR_RO` included, reads and reveals.
+
+In the console, Hallazgos de reglas lists the hits by severity (it opens on the most
+severe tab with a hit), filtered by rule, typology, outcome and age. A hit's detail
+shows the rendered sentence, the aggregates it read beside its parameters, the
+evidence transactions with their counterparties masked, the dedup key, the cooldown
+and the decision, and reveals the party and the counterparties only on request
+(audited). A transaction's detail lists the hits it is linked to and a customer's page
+lists their hits. There is no disposition in SP-04: hits become alerts later.
 
 | Route | Who | What |
 |---|---|---|

@@ -12,7 +12,7 @@ starts: from there on the groups are what they were.
 Every replaced group becomes ``SUPERSEDED`` and points at the rebuilt group that
 holds its start (or the last one). In each rebuilt group that crosses, every
 member is captured: an event of a replaced group is captured again in place
-(``capture_member``; one row per transaction and capture, plan 4b Deviation 21),
+(``capture_member``; one row per transaction and capture, plan 4b Deviation 22),
 an event retired earlier is brought back, and a member without one gets one. An
 event of a replaced group whose transaction is in no crossed group any more is
 retired (``SUPERSEDED`` with no successor: not reportable for the capture) and
