@@ -1,0 +1,13 @@
+hits:
+- trigger: dep-2
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12
+  window_start: '2026-12-01T06:00:00+00:00'
+  window_end: '2026-12-10T16:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates:
+    mtd_in:
+      value: '21000'
+      unit: MXN/SAME_DAY
+      window: MONTH
+      count: 2

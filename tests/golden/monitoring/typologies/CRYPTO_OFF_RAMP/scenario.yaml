@@ -1,0 +1,13 @@
+# 5,000 USD of crypto in, then fiat out the same day reaching 80 % of it. The
+# first outflow (2,000 USD) is short of 4,000 USD and must not fire.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: va-in, occurred_at: "2026-12-07T10:00:00-06:00", usd: "5000", product: CRYPTO, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, channel: APP, crypto: {network: ETH, asset_code: ETH, asset_qty: "2"}}
+  - {external_id: out-1, occurred_at: "2026-12-07T12:00:00-06:00", usd: "2000", product: CRYPTO, direction: OUT, rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: out-2, occurred_at: "2026-12-07T15:00:00-06:00", usd: "2500", product: CRYPTO, direction: OUT, rail: SPEI, instrument: TRANSFER, channel: APP}

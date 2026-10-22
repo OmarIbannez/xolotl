@@ -1,0 +1,13 @@
+hits:
+- trigger: back-2
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12-07T00:00:00+00:00
+  window_start: '2026-12-05T21:00:00+00:00'
+  window_end: '2026-12-07T21:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates:
+    window_sum:
+      value: '2200'
+      unit: USD/PRIOR_BANKING_DAY
+      window: P2D
+      count: 2

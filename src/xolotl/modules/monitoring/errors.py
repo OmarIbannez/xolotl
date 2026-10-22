@@ -128,6 +128,13 @@ class RuleParamOutOfBoundsError(ValidationFailedError):
     default_detail: ClassVar[str] = "a parameter is outside the template's bounds"
 
 
+class SimulationRangeTooLongError(ValidationFailedError):
+    """A simulation range spans more than ``MONITORING_SIMULATION_MAX_DAYS``."""
+
+    default_code: ClassVar[str] = "SIMULATION_RANGE_TOO_LONG"
+    default_detail: ClassVar[str] = "the simulation range is too long"
+
+
 class RuleTransitionNotAllowedError(DomainError):
     """The current user may not take this action on this rule version now.
 

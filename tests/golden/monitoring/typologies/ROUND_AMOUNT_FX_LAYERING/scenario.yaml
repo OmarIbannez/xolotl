@@ -1,0 +1,16 @@
+# Five foreign exchange operations in round thousands of pesos within a week fire
+# on the fifth. 10,500 MXN is not a round thousand and counts for nothing.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: fx-1, occurred_at: "2026-12-07T10:00:00-06:00", pesos: "10000", rail: CASH, instrument: FX, channel: BRANCH}
+  - {external_id: fx-2, occurred_at: "2026-12-07T11:00:00-06:00", pesos: "20000", rail: CASH, instrument: FX, channel: BRANCH}
+  - {external_id: odd-1, occurred_at: "2026-12-08T12:00:00-06:00", pesos: "10500", rail: CASH, instrument: FX, channel: BRANCH}
+  - {external_id: fx-3, occurred_at: "2026-12-08T13:00:00-06:00", pesos: "5000", rail: CASH, instrument: FX, channel: BRANCH}
+  - {external_id: fx-4, occurred_at: "2026-12-09T14:00:00-06:00", pesos: "30000", rail: CASH, instrument: FX, channel: BRANCH}
+  - {external_id: fx-5, occurred_at: "2026-12-10T15:00:00-06:00", pesos: "10000", rail: CASH, instrument: FX, channel: BRANCH}

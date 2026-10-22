@@ -1,0 +1,13 @@
+# A relationship opened on 1 December receives 3,300 USD in one day. The second
+# deposit brings the day to 2,500 USD only and must not fire.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3, relationship_started_at: "2026-12-01T09:00:00-06:00"}
+transactions:
+  - {external_id: dep-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "1000", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: dep-2, occurred_at: "2026-12-07T11:00:00-06:00", usd: "1500", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: dep-3, occurred_at: "2026-12-07T12:00:00-06:00", usd: "800", rail: SPEI, instrument: TRANSFER, channel: APP}

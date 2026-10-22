@@ -21,7 +21,7 @@ its own transaction:
    is cleared first) and the ``capture_group`` rows they leave empty, then every
    group without an event whose window ended by the month's end (a group that
    elapsed without crossing, or one a regrouping superseded after moving its
-   events, plan 4b Deviation 22), a pointer to it from a superseded group
+   events, plan 4b Deviation 23), a pointer to it from a superseded group
    cleared first;
 3. the ``rule_hit`` rows whose ``first_occurred_at`` is in the month, with every
    link of those hits (a ``WINDOW`` or ``COOLDOWN`` link may point at a later

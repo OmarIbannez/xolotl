@@ -16,7 +16,9 @@ Per tenant, the sweep
    ``monitoring.agg_backfill`` job (a backfill that went ``DEAD``, or a late split
    whose enqueue a running backfill deduplicated), unless one went ``DEAD`` within
    ``DEAD_BACKFILL_BACKOFF``, and logs every transactions file left
-   ``PROCESSING`` with no live ``monitoring.ingest_file`` job.
+   ``PROCESSING`` with no live ``monitoring.ingest_file`` job;
+6. fails every rule simulation whose run was lost (its one-attempt job is no
+   longer live), so the staff view stops showing it running (plan 4b B8).
 
 An un-parked row keeps its ``transaction_parked`` entry: parking it again counts the
 attempt (Deviation 10), so every reader of parked rows joins ``status = PARKED``.
@@ -52,6 +54,7 @@ from xolotl.modules.monitoring.aggregates.models import AggDeclaration
 from xolotl.modules.monitoring.enums import FileStatus, ParkReason, TransactionStatus
 from xolotl.modules.monitoring.kinds import AGG_BACKFILL_KIND, INGEST_FILE_KIND
 from xolotl.modules.monitoring.process.enqueue import enqueue_processing
+from xolotl.modules.monitoring.simulation.job import fail_lost_simulations
 from xolotl.modules.monitoring.txn.models import (
     Transaction,
     TransactionFile,
@@ -101,6 +104,7 @@ class SweepReport:
     notified: bool
     backfills: int = 0
     stranded_files: int = 0
+    lost_simulations: int = 0
 
 
 def _parked_join() -> ColumnElement[bool]:
@@ -414,6 +418,7 @@ def sweep(
     notified = _notify_parked(session, notifier, now=now)
     backfills = _requeue_backfills(session, queue, now=now)
     files = _stranded_files(session)
+    lost = fail_lost_simulations(session, now=now)
     if files:
         logger.warning(
             "transactions files left processing with no live ingest job",
@@ -426,6 +431,7 @@ def sweep(
         notified=notified,
         backfills=backfills,
         stranded_files=len(files),
+        lost_simulations=lost,
     )
 
 
@@ -457,5 +463,6 @@ class SweepJob:
                 "notified": report.notified,
                 "backfills": report.backfills,
                 "stranded_files": report.stranded_files,
+                "lost_simulations": report.lost_simulations,
             },
         )

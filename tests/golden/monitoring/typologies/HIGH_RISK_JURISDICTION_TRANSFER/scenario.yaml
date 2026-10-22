@@ -1,0 +1,13 @@
+# A 1,200 USD transfer to North Korea (FATF call for action) fires. 500 USD to
+# Iran is under the threshold and 5,000 USD to the United States is not listed.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: tr-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "500", direction: OUT, rail: SWIFT, instrument: TRANSFER, channel: APP, counterparty_country: IR}
+  - {external_id: tr-2, occurred_at: "2026-12-07T11:00:00-06:00", usd: "5000", direction: OUT, rail: SWIFT, instrument: TRANSFER, channel: APP, counterparty_country: US}
+  - {external_id: tr-3, occurred_at: "2026-12-07T12:00:00-06:00", usd: "1200", direction: OUT, rail: SWIFT, instrument: TRANSFER, channel: APP, counterparty_country: KP}
