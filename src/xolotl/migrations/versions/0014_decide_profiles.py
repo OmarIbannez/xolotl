@@ -19,6 +19,14 @@ tables get forced row-level security and the default grant. ``counterparty`` gai
 ``ix_counterparty_identifier_hash`` for the reverse blocking of plan 4c C2, which
 looks counterparties up by a list entry's identifiers. Downgrade reverses each step;
 ``txn_decision`` takes its partitions with it.
+
+Locking. ``transaction`` and ``txn_decision`` reference each other, so creating a
+partition of either one locks the other against writes while it runs. Partition
+maintenance must therefore stay months ahead (``ensure_partitions`` and the daily
+``monitoring.partitions`` job) and never run on the decide hot path. Adding
+``fk_transaction_decision`` validates every ``transaction`` partition and blocks
+ingest while it does: Postgres 17 has no ``NOT VALID`` foreign key on a partitioned
+table. Run this upgrade in a quiet window.
 """
 
 from collections.abc import Sequence

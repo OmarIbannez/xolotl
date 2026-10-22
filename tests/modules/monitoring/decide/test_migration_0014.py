@@ -24,7 +24,13 @@ from xolotl.modules.monitoring.profiles.models import BehaviourProfile
 from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.platform import clock, migrate
 from xolotl.platform.db import APP_ROLE, tenant_session
-from xolotl.platform.partitions import next_month, partition_name
+from xolotl.platform.partitions import (
+    PartitionedTable,
+    ensure_all_partitions,
+    next_month,
+    partition_name,
+    partitioned_tables,
+)
 
 REVISION, BEFORE = "0014_decide_profiles", "0013_rules_captures"
 TABLES = ("rail_setting", "txn_decision", "behaviour_profile")
@@ -117,6 +123,23 @@ def test_txn_decision_has_a_default_and_three_months_of_partitions_with_forced_r
     assert sorted(row[0] for row in partitions) == sorted(expected)
     assert all(row[2] and row[3] for row in partitions)
     assert granted == []
+
+
+def test_partition_maintenance_keeps_txn_decision_months_ahead(admin_engine: Engine):
+    assert PartitionedTable("txn_decision", "decided_at", None) in partitioned_tables()
+    last = _expected_partitions()[-1]
+    with admin_engine.connect() as conn, conn.begin() as txn:
+        # fk_transaction_decision depends on every decision partition, so one is
+        # detached before it can be dropped; the transaction is rolled back.
+        _ = conn.execute(text(f"ALTER TABLE txn_decision DETACH PARTITION {last}"))
+        _ = conn.execute(text(f"DROP TABLE {last}"))
+        reports = ensure_all_partitions(conn, months_ahead=3)
+        present = conn.scalars(PARTITIONS).all()
+        hardened = conn.execute(FORCED, {"names": [last]}).one()
+        txn.rollback()
+    assert reports["txn_decision"].created == [last]
+    assert sorted(present) == sorted(_expected_partitions())
+    assert (hardened[2], hardened[3]) == (True, True)
 
 
 def test_the_decision_and_counterparty_indexes_exist(admin_engine: Engine):
