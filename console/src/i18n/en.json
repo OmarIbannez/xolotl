@@ -2029,7 +2029,7 @@
       "description": "Read from the policy in force. A threshold changes only through a policy override, and only to make it stricter.",
       "on": "In force on",
       "product": "Product",
-      "productHint": "Leave empty for the tenant-wide assignment.",
+      "productHint": "Leave empty for the workspace-wide assignment.",
       "apply": "Look up",
       "source": "Resolved from: {{source}}",
       "noPolicy": "No policy is assigned for that date and product.",
@@ -2087,6 +2087,7 @@
     },
     "close": {
       "action": "Close period",
+      "actionFor": "Close period {{capture}} {{period}}",
       "pending": "Closing…",
       "title": "Close {{capture}} · {{period}}",
       "confirm": "Closing reconciles the period now: it recomputes the captures, restores the missing ones and voids the extra ones, even when a report already includes them, which would then need a correction. The close is audited under your name.",
@@ -2106,6 +2107,7 @@
       "description": "The operations captured for a report, newest first.",
       "filtered": "Captures of {{capture}} in {{period}}",
       "show": "Show captures",
+      "showFor": "Show captures of {{capture}} {{period}}",
       "all": "Show all",
       "empty": "No captures.",
       "table": {
@@ -2122,7 +2124,10 @@
         "CAPTURED": "Captured",
         "INCLUDED": "Included in a report",
         "VOIDED": "Voided",
-        "SUPERSEDED": "Superseded"
+        "SUPERSEDED": "No longer reportable"
+      },
+      "statusHint": {
+        "SUPERSEDED": "The operation dropped out of this capture's report (a late operation regrouped the accumulation, for example). No capture replaces it; if a report already included it, that report needs a correction."
       }
     },
     "transaction": {

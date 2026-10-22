@@ -1,5 +1,5 @@
 import { CircleAlert, CircleCheck } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -249,11 +249,20 @@ function EventsCard({ chosen, onShowAll }: { chosen: Chosen | undefined; onShowA
   const captures = useCaptures(chosen ?? {}, cursor)
   const page = captures.data
   const showPager = cursor !== undefined || (page !== undefined && page.items.length > 0)
+  const title = useRef<HTMLDivElement>(null)
+
+  // The card is mounted again for each chosen period: the focus follows the choice to the list it
+  // narrowed, so a keyboard or screen-reader user is not left on a button whose effect is elsewhere.
+  useEffect(() => {
+    if (chosen !== undefined) title.current?.focus()
+  }, [chosen])
 
   return (
     <Card className="animate-fade-in-up">
       <CardHeader>
-        <CardTitle>{t('captures.events.title')}</CardTitle>
+        <CardTitle ref={title} tabIndex={-1} className="outline-none">
+          {t('captures.events.title')}
+        </CardTitle>
         <CardDescription>
           {chosen === undefined
             ? t('captures.events.description')

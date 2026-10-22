@@ -152,18 +152,6 @@ request (audited).
 
 ### Not in the console yet / coming next
 
-- **Monitoring rules.** The Mexico rule templates (sixteen typologies) and the rule
-  version lifecycle (draft, simulated, in review, approved, active, retired, with
-  four eyes) exist, with the rules API (`/v1/monitoring/templates`, `/rules`,
-  `/simulations`, `/assignments`) and the CLI (`xolotl rules ...`); no console
-  screen yet.
-- **Rule screens:** the rule editor and simulation pages.
-- **Regulatory captures:** each transaction a report must carry (Formato 41 and
-  avisos) is recorded as it is processed and each period is closed by
-  re-evaluation, with a staff API and the console's Capturas y límites page.
-- **The real-time decide endpoint** for payment rails (`POST
-  /v1/transactions/decide`), with per-rail fail-mode settings
-  (`/v1/monitoring/rails`).
 - **Effectiveness metrics** for screening and monitoring.
 
 ## Status

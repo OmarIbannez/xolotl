@@ -38,6 +38,8 @@ describe('PeriodTable', () => {
 
     const row = within(screen.getByText('2026-09').closest('tr') as HTMLElement)
     expect(row.getByText(text.status.OPEN)).toBeTruthy()
+    // The period's days as dates, not ISO strings.
+    expect(row.getByText('1 sep 2026 a 30 sep 2026')).toBeTruthy()
     expect(row.getByText('2')).toBeTruthy()
     expect(row.getByText(text.discrepancies.pending)).toBeTruthy()
   })
@@ -46,8 +48,8 @@ describe('PeriodTable', () => {
     const { user, onClose, onShowEvents } = setup()
 
     const row = within(screen.getByText('2026-09').closest('tr') as HTMLElement)
-    await user.click(row.getByRole('button', { name: text.close.action }))
-    await user.click(row.getByRole('button', { name: text.events.show }))
+    await user.click(row.getByRole('button', { name: 'Cerrar periodo ITF_ROR_CASH 2026-09' }))
+    await user.click(row.getByRole('button', { name: 'Ver capturas de ITF_ROR_CASH 2026-09' }))
 
     expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }))
     expect(onShowEvents).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1' }))

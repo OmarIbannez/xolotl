@@ -7,6 +7,8 @@ import { DataTable, type Column } from '@/components/common/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { mexicoCityDate } from '@/features/transactions/time'
+import { useFormat } from '@/i18n/use-locale'
 
 const STATUS: Record<CapturePeriodStatus, { variant: 'info' | 'good' | 'warning'; icon: LucideIcon }> = {
   OPEN: { variant: 'info', icon: Clock },
@@ -32,6 +34,14 @@ export function PeriodStatusBadge({ status }: { status: CapturePeriodStatus }) {
  */
 function closable(period: CapturePeriodResponse, today: string): boolean {
   return period.status !== 'CLOSED' && period.period_end < today
+}
+
+/**
+ * "1 sept 2026": a calendar day (`YYYY-MM-DD`) as the console writes dates. Noon UTC of that day
+ * is the same day in Mexico City, so the day never shifts.
+ */
+function formatDay(day: string, locale: ReturnType<typeof useFormat>['locale']): string {
+  return mexicoCityDate(`${day}T12:00:00Z`, locale)
 }
 
 function IdList({ label, ids }: { label: string; ids: readonly string[] }) {
@@ -99,6 +109,8 @@ interface PeriodTableProps {
  */
 export function PeriodTable({ rows, loading, today, canClose, onClose, onShowEvents }: PeriodTableProps) {
   const { t } = useTranslation()
+  const { locale } = useFormat()
+  const named = (row: CapturePeriodResponse) => ({ capture: row.capture_code, period: row.period_key })
   const columns: Column<CapturePeriodResponse>[] = [
     {
       id: 'capture',
@@ -117,7 +129,7 @@ export function PeriodTable({ rows, loading, today, canClose, onClose, onShowEve
         <div className="space-y-0.5">
           <span className="block font-mono text-xs">{row.period_key}</span>
           <span className="block text-xs whitespace-nowrap text-muted-foreground">
-            {t('captures.period.range', { start: row.period_start, end: row.period_end })}
+            {t('captures.period.range', { start: formatDay(row.period_start, locale), end: formatDay(row.period_end, locale) })}
           </span>
         </div>
       ),
@@ -141,11 +153,23 @@ export function PeriodTable({ rows, loading, today, canClose, onClose, onShowEve
       header: <span className="sr-only">{t('captures.table.actions')}</span>,
       cell: (row) => (
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" size="sm" variant="ghost" onClick={() => onShowEvents(row)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            aria-label={t('captures.events.showFor', named(row))}
+            onClick={() => onShowEvents(row)}
+          >
             {t('captures.events.show')}
           </Button>
           {canClose && closable(row, today) && (
-            <Button type="button" size="sm" variant="outline" onClick={() => onClose(row)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label={t('captures.close.actionFor', named(row))}
+              onClick={() => onClose(row)}
+            >
               {t('captures.close.action')}
             </Button>
           )}

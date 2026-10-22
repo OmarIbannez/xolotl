@@ -14,6 +14,10 @@ import { captureLimit, closedPeriod, period, reportableEvent, SOURCE, tierLimit 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const text = esMX.captures
+
+/** The row buttons name their capture and period (`{{capture}}` and `{{period}}` in the catalogue). */
+const named = (template: string, period: string, capture = 'ITF_ROR_CASH') =>
+  template.replace('{{capture}}', capture).replace('{{period}}', period)
 const EFFECTIVE = 'GET /v1/monitoring/captures/effective'
 const PERIODS = 'GET /v1/monitoring/captures/periods'
 const CAPTURES = 'GET /v1/monitoring/captures'
@@ -109,10 +113,10 @@ describe('CapturesPage', () => {
     })
 
     const september = await rowOf('2026-09')
-    expect((await rowOf('2026-10')).queryByRole('button', { name: text.close.action })).toBeNull()
-    expect((await rowOf('2026-08')).queryByRole('button', { name: text.close.action })).toBeNull()
+    expect((await rowOf('2026-10')).queryByRole('button', { name: named(text.close.actionFor, '2026-10') })).toBeNull()
+    expect((await rowOf('2026-08')).queryByRole('button', { name: named(text.close.actionFor, '2026-08') })).toBeNull()
 
-    await user.click(september.getByRole('button', { name: text.close.action }))
+    await user.click(september.getByRole('button', { name: named(text.close.actionFor, '2026-09') }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/anula/)).toBeTruthy()
     await user.click(within(dialog).getByRole('button', { name: text.close.action }))
@@ -124,17 +128,49 @@ describe('CapturesPage', () => {
     await waitFor(async () => expect((await rowOf('2026-09')).getByText(text.status.CLOSED)).toBeTruthy())
   })
 
+  describe('a period has ended once its last day is over in Mexico City', () => {
+    const october = period({ id: 'p2', period_key: '2026-10', period_start: '2026-10-01', period_end: '2026-10-31' })
+    const routes: FakeRoutes = { [PERIODS]: () => json({ items: [october, period()], next_cursor: null }) }
+
+    it('offers no close on the last evening of the month, already the 1st in UTC', async () => {
+      // 31 October 2026, 21:00 in Mexico City.
+      vi.setSystemTime(new Date('2026-11-01T03:00:00Z'))
+      setup('MLRO', routes)
+
+      expect((await rowOf('2026-10')).queryByRole('button', { name: named(text.close.actionFor, '2026-10') })).toBeNull()
+      expect((await rowOf('2026-09')).getByRole('button', { name: named(text.close.actionFor, '2026-09') })).toBeTruthy()
+    })
+
+    it('offers the close once the next day starts in Mexico City', async () => {
+      // 1 November 2026, 01:00 in Mexico City.
+      vi.setSystemTime(new Date('2026-11-01T07:00:00Z'))
+      setup('MLRO', routes)
+
+      expect((await rowOf('2026-10')).getByRole('button', { name: named(text.close.actionFor, '2026-10') })).toBeTruthy()
+    })
+
+    it('offers the close on an ended period reopened by a late event', async () => {
+      setup('ADMIN', {
+        [PERIODS]: () => json({ items: [closedPeriod({ status: 'REOPENED', change_count: 1 })], next_cursor: null }),
+      })
+
+      const august = await rowOf('2026-08')
+      expect(august.getByText(text.status.REOPENED)).toBeTruthy()
+      expect(august.getByRole('button', { name: named(text.close.actionFor, '2026-08') })).toBeTruthy()
+    })
+  })
+
   it('offers no close to an analyst', async () => {
     setup('ANALYST')
 
     await rowOf('2026-09')
-    expect(screen.queryByRole('button', { name: text.close.action })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Cerrar periodo/ })).toBeNull()
   })
 
   it('a not-ended close shows the problem', async () => {
     const { user } = setup('ADMIN', { [CLOSE]: () => problem(409, 'PERIOD_NOT_ENDED') })
 
-    await user.click((await rowOf('2026-09')).getByRole('button', { name: text.close.action }))
+    await user.click((await rowOf('2026-09')).getByRole('button', { name: named(text.close.actionFor, '2026-09') }))
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: text.close.action }))
 
@@ -149,7 +185,11 @@ describe('CapturesPage', () => {
     expect(within(events).getByRole('link', { name: 't1' }).getAttribute('href')).toBe('/transactions/t1')
     expect(fakeApi.queries(CAPTURES)[0]?.get('period_key')).toBeNull()
 
-    await user.click((await rowOf('2026-09')).getByRole('button', { name: text.events.show }))
+    await user.click((await rowOf('2026-09')).getByRole('button', { name: named(text.events.showFor, '2026-09') }))
+
+    // The list it narrowed is where the focus goes, so the change is not silent.
+    await waitFor(() => expect(document.activeElement?.textContent).toBe(text.events.title))
+    expect(screen.getByText(named(text.events.filtered, '2026-09'))).toBeTruthy()
 
     await waitFor(() => {
       const query = fakeApi.queries(CAPTURES).at(-1)

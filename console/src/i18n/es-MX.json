@@ -2029,7 +2029,7 @@
       "description": "Se leen de la política en vigor. Un umbral solo se ajusta con un ajuste de política, y solo para hacerlo más estricto.",
       "on": "Vigente el",
       "product": "Producto",
-      "productHint": "Déjalo vacío para la asignación de todo el tenant.",
+      "productHint": "Déjalo vacío para la asignación de todo el espacio de trabajo.",
       "apply": "Consultar",
       "source": "Resuelto de: {{source}}",
       "noPolicy": "No hay ninguna política asignada para esa fecha y producto.",
@@ -2087,6 +2087,7 @@
     },
     "close": {
       "action": "Cerrar periodo",
+      "actionFor": "Cerrar periodo {{capture}} {{period}}",
       "pending": "Cerrando…",
       "title": "Cerrar {{capture}} · {{period}}",
       "confirm": "El cierre concilia el periodo ahora: vuelve a calcular sus capturas, restaura las que falten y anula las que sobren, aunque ya estén incluidas en un reporte, que entonces habría que corregir. El cierre queda auditado a tu nombre.",
@@ -2106,6 +2107,7 @@
       "description": "Las operaciones capturadas para un reporte, las más recientes primero.",
       "filtered": "Capturas de {{capture}} en {{period}}",
       "show": "Ver capturas",
+      "showFor": "Ver capturas de {{capture}} {{period}}",
       "all": "Ver todas",
       "empty": "No hay capturas.",
       "table": {
@@ -2122,7 +2124,10 @@
         "CAPTURED": "Capturada",
         "INCLUDED": "Incluida en un reporte",
         "VOIDED": "Anulada",
-        "SUPERSEDED": "Reemplazada"
+        "SUPERSEDED": "Ya no reportable"
+      },
+      "statusHint": {
+        "SUPERSEDED": "La operación salió del reporte de esta captura (por ejemplo, una operación tardía rehízo la acumulación). No hay captura que la reemplace; si un reporte ya la incluía, hay que corregirlo."
       }
     },
     "transaction": {

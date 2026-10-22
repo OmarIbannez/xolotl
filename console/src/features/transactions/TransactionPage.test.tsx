@@ -210,7 +210,9 @@ describe('TransactionPage', () => {
     expect(await within(card).findByText('ITF_ROR_CASH')).toBeTruthy()
     expect(within(card).getByText('ITF_ROR')).toBeTruthy()
     expect(within(card).getByText('2026-09')).toBeTruthy()
-    expect(within(card).getByText(esMX.captures.events.status.SUPERSEDED)).toBeTruthy()
+    // A retired event has no successor: it dropped out of the report, so it is not "superseded".
+    const status = within(card).getByText('Ya no reportable')
+    expect(status.closest('[title]')?.getAttribute('title')).toBe(esMX.captures.events.statusHint.SUPERSEDED)
     expect(within(card).getByText(esMX.transactions.lateBadge)).toBeTruthy()
     expect(fakeApi.queries(CAPTURES)[0]?.get('transaction_id')).toBe('t1')
   })

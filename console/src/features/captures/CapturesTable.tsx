@@ -18,8 +18,10 @@ const STATUS: Record<ReportableEventStatus, { variant: 'info' | 'good' | 'muted'
 export function EventStatusBadge({ status }: { status: ReportableEventStatus }) {
   const { t } = useTranslation()
   const { variant, icon: Icon } = STATUS[status]
+  // A SUPERSEDED event has no successor (plan 4b Deviation 23): the title says what it means.
+  const hint = status === 'SUPERSEDED' ? t('captures.events.statusHint.SUPERSEDED') : undefined
   return (
-    <Badge variant={variant}>
+    <Badge variant={variant} title={hint}>
       <Icon aria-hidden />
       {t(`captures.events.status.${status}`)}
     </Badge>
