@@ -1,0 +1,12 @@
+# A transfer from a counterparty confirmed on a sanctions list fires whatever its
+# amount. The same relationship's transfer from a clear counterparty must not.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: tr-1, occurred_at: "2026-12-07T10:00:00-06:00", pesos: "900", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000201", counterparty_key: "00000000000000000000000000000000000000000000000000000000000000c9", counterparty_screening_status: CLEAR}
+  - {external_id: tr-2, occurred_at: "2026-12-07T11:00:00-06:00", pesos: "100", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000202", counterparty_key: "00000000000000000000000000000000000000000000000000000000000000ca", counterparty_screening_status: TRUE_MATCH}

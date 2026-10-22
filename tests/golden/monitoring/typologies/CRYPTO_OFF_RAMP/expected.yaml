@@ -1,0 +1,18 @@
+hits:
+- trigger: out-2
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12-07T00:00:00+00:00
+  window_start: '2026-12-06T21:00:00+00:00'
+  window_end: '2026-12-07T21:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates:
+    crypto_in_sum:
+      value: '5000'
+      unit: USD/PRIOR_BANKING_DAY
+      window: P1D
+      count: 1
+    fiat_out_sum:
+      value: '4500'
+      unit: USD/PRIOR_BANKING_DAY
+      window: P1D
+      count: 2

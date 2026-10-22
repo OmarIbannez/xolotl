@@ -6,7 +6,7 @@ import logging
 import os
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
@@ -27,7 +27,9 @@ from xolotl.app import (
     build_worker,
     register_processing,
 )
+from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.enums import TransactionStatus
+from xolotl.modules.monitoring.errors import RuleTransitionNotAllowedError
 from xolotl.modules.monitoring.kinds import INGEST_FILE_KIND
 from xolotl.modules.monitoring.process.backfill import (
     BackfillJob,
@@ -40,13 +42,26 @@ from xolotl.modules.monitoring.process.partitions import (
     maintain_partitions,
 )
 from xolotl.modules.monitoring.process.sweep import sweep
+from xolotl.modules.monitoring.rules.enums import RuleBlockedReason, RuleVersionStatus
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_library
+from xolotl.modules.monitoring.rules.lifecycle import (
+    activate_version,
+    approve_version,
+    submit_version,
+)
+from xolotl.modules.monitoring.rules.models import (
+    MonitoringRule,
+    MonitoringRuleVersion,
+    RuleAssignment,
+    RuleSimulation,
+)
 from xolotl.modules.monitoring.rules.templates import (
     definition_of,
     load_templates,
     template_version,
 )
 from xolotl.modules.monitoring.rules.versions import WRITERS, seed_tenant_rules
+from xolotl.modules.monitoring.simulation.job import run_simulation_now
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
     JSONL_TYPE,
@@ -101,12 +116,20 @@ from xolotl.platform.db import (
     BootstrapError,
     RoleBypassError,
     assert_app_role_safe,
+    bound_context,
     get_admin_engine,
     get_engine,
     get_sessionmaker,
     tenant_session,
 )
-from xolotl.platform.enums import HolidayScope, KeyPurpose, StaffStatus, TenantEnv
+from xolotl.platform.enums import (
+    ActorType,
+    HolidayScope,
+    KeyPurpose,
+    Role,
+    StaffStatus,
+    TenantEnv,
+)
 from xolotl.platform.errors import NotFoundError, ValidationFailedError, XolotlError
 from xolotl.platform.events import InAppNotifier
 from xolotl.platform.ids import uuid7
@@ -1032,6 +1055,189 @@ def rules_seed_tenant(
     for line in lines:
         typer.echo(line)
     typer.echo(f"{len(lines)} drafts for {slug}")
+
+
+# ``rules activate`` simulates the last 30 days unless told otherwise.
+_ACTIVATE_SIMULATION_DAYS = 30
+_SIMULABLE = frozenset({RuleVersionStatus.DRAFT, RuleVersionStatus.SIMULATED})
+
+
+def _staff_context(session: Session, tenant_id: UUID, user_id: UUID) -> TenantContext:
+    """Act as an active staff user of the tenant, with that user's roles.
+
+    The lifecycle moves a version only for a staff user, who is the author or the
+    approver its rows and audit name, so the CLI acts as that user.
+
+    Returns:
+        The staff context.
+
+    Raises:
+        NotFoundError: When the tenant has no such active user.
+
+    """
+    user = session.scalar(
+        select(StaffUser).where(
+            StaffUser.id == user_id, StaffUser.status == StaffStatus.ACTIVE
+        )
+    )
+    if user is None:
+        msg = "the user is not an active staff user of this tenant"
+        raise NotFoundError(msg)
+    return TenantContext(
+        tenant_id=tenant_id,
+        actor_type=ActorType.STAFF,
+        actor_id=str(user.id),
+        roles=frozenset(Role(role) for role in user.roles),
+    )
+
+
+def _rule_version(session: Session, version_id: UUID) -> MonitoringRuleVersion:
+    version = session.get(
+        MonitoringRuleVersion, (bound_context(session).require_tenant_id(), version_id)
+    )
+    if version is None:
+        msg = "rule version not found"
+        raise NotFoundError(msg)
+    return version
+
+
+def _simulation_line(simulation: RuleSimulation) -> str:
+    weeks = len(simulation.hits_per_week or [])
+    return (
+        f"simulation {simulation.id}: {simulation.hit_count} hits, "
+        f"{simulation.customers_hit} customers, {weeks} weeks"
+    )
+
+
+def _simulate_as_author(
+    actor: str, tenant_id: UUID, version_id: UUID, *, start: date, end: date
+) -> str:
+    with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+        author = _staff_context(s, tenant_id, _rule_version(s, version_id).author_id)
+    register_processing(queue=PostgresJobQueue(get_sessionmaker()))
+    with tenant_session(author) as s:
+        simulation = run_simulation_now(s, version_id, range_start=start, range_end=end)
+        return _simulation_line(simulation)
+
+
+@rules_app.command("simulate")
+def rules_simulate(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    version: Annotated[UUID, typer.Option("--version", help="Rule version id")],
+    range_from: Annotated[
+        datetime, typer.Option("--from", formats=["%Y-%m-%d"], help="First day")
+    ],
+    range_to: Annotated[
+        datetime, typer.Option("--to", formats=["%Y-%m-%d"], help="Last day")
+    ],
+) -> None:
+    """Replay a range of processed transactions through a rule version.
+
+    Runs in this process as the version's author, writes only the simulation row
+    and prints its summary; a completed simulation marks a draft ``SIMULATED``.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        line = _simulate_as_author(
+            actor, tenant_id, version, start=range_from.date(), end=range_to.date()
+        )
+    typer.echo(line)
+
+
+def _activation_users(
+    actor: str, tenant_id: UUID, version_id: UUID, approver_email: str
+) -> tuple[TenantContext, TenantContext]:
+    with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+        version = _rule_version(s, version_id)
+        approver = s.scalar(
+            select(StaffUser.id).where(
+                func.lower(StaffUser.email) == approver_email.strip().lower(),
+                StaffUser.status == StaffStatus.ACTIVE,
+            )
+        )
+        if approver is None:
+            msg = f"no staff user {approver_email!r} in this tenant"
+            raise NotFoundError(msg)
+        if approver == version.author_id:
+            # Four eyes (SEC-501): refused before anything moves.
+            raise RuleTransitionNotAllowedError([RuleBlockedReason.SAME_AUTHOR])
+        return (
+            _staff_context(s, tenant_id, version.author_id),
+            _staff_context(s, tenant_id, approver),
+        )
+
+
+def _status(context: TenantContext, version_id: UUID) -> RuleVersionStatus:
+    with tenant_session(context) as s:
+        return _rule_version(s, version_id).status
+
+
+@rules_app.command("activate")
+def rules_activate(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    version: Annotated[UUID, typer.Option("--version", help="Rule version id")],
+    approved_by: Annotated[
+        str,
+        typer.Option("--approved-by", help="Email of the approver, not the author"),
+    ],
+    simulate_from: Annotated[
+        datetime | None,
+        typer.Option(formats=["%Y-%m-%d"], help="First day; default 30 days ago"),
+    ] = None,
+    simulate_to: Annotated[
+        datetime | None,
+        typer.Option(formats=["%Y-%m-%d"], help="Last day; default today"),
+    ] = None,
+) -> None:
+    """Simulate, submit, approve and activate a rule version from today.
+
+    The author simulates and submits, the approver (an MLRO or an admin other
+    than the author) approves and activates it for every product from today. A
+    step already taken is skipped. Prints the simulation's summary and the new
+    assignment.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        author, approver = _activation_users(actor, tenant_id, version, approved_by)
+        today = policy_date(clock.now())
+        if _status(author, version) in _SIMULABLE:
+            end = today if simulate_to is None else simulate_to.date()
+            start = (
+                end - timedelta(days=_ACTIVATE_SIMULATION_DAYS - 1)
+                if simulate_from is None
+                else simulate_from.date()
+            )
+            typer.echo(
+                _simulate_as_author(actor, tenant_id, version, start=start, end=end)
+            )
+            with tenant_session(author) as s:
+                _ = submit_version(s, version)
+        if _status(approver, version) is RuleVersionStatus.IN_REVIEW:
+            with tenant_session(approver) as s:
+                _ = approve_version(s, version)
+        with tenant_session(approver) as s:
+            row = activate_version(
+                s,
+                version,
+                effective_from=today,
+                product=None,
+                queue=PostgresJobQueue(get_sessionmaker()),
+            )
+            code = s.get_one(MonitoringRule, (tenant_id, row.rule_id)).code
+            assignment = s.scalars(
+                select(RuleAssignment.id).where(
+                    RuleAssignment.rule_version_id == row.id
+                )
+            ).one()
+            line = (
+                f"active {code} v{row.version} from {today.isoformat()}: "
+                f"assignment {assignment}"
+            )
+    typer.echo(line)
 
 
 @lists_app.command("seed")

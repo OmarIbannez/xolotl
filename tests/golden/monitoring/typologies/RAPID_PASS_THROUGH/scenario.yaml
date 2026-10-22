@@ -1,0 +1,13 @@
+# 3,000 USD in, then within two days outflows reaching 90 % of it. The first
+# outflow (1,000 USD) is short of 2,700 USD and must not fire; the second does.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: in-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "3000", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: out-1, occurred_at: "2026-12-07T12:00:00-06:00", usd: "1000", direction: OUT, rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: out-2, occurred_at: "2026-12-08T09:00:00-06:00", usd: "2000", direction: OUT, rail: SPEI, instrument: TRANSFER, channel: APP}

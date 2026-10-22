@@ -1,0 +1,18 @@
+hits:
+- trigger: in-10
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12-07T00:00:00+00:00
+  window_start: '2026-12-03T16:00:00+00:00'
+  window_end: '2026-12-10T16:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates:
+    distinct_counterparties_in:
+      value: '10'
+      unit: null
+      window: P7D
+      count: 11
+    in_sum:
+      value: '6600'
+      unit: USD/PRIOR_BANKING_DAY
+      window: P7D
+      count: 11

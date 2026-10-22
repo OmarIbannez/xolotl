@@ -1,0 +1,15 @@
+# Three cash deposits in [3,500, 5,000) USD within seven days whose sum reaches
+# 5,000 USD fire on the third. A 6,000 USD deposit between them is above the band
+# and counts for nothing: had it counted, the rule would have fired on it.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: dep-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "3600"}
+  - {external_id: dep-2, occurred_at: "2026-12-08T10:00:00-06:00", usd: "3700"}
+  - {external_id: big-1, occurred_at: "2026-12-08T14:00:00-06:00", usd: "6000"}
+  - {external_id: dep-3, occurred_at: "2026-12-09T10:00:00-06:00", usd: "3800"}

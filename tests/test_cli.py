@@ -53,7 +53,7 @@ from tests.helpers import (
     wrapped_keys,
 )
 from tests.modules.monitoring import support as monitoring_support
-from tests.modules.monitoring.rules import hook_support
+from tests.modules.monitoring.rules import hook_support, lifecycle_support
 from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
@@ -61,7 +61,13 @@ from xolotl.cli import app
 from xolotl.modules.monitoring.enums import FileStatus, TransactionStatus
 from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.process.job import process_party
+from xolotl.modules.monitoring.rules.enums import RuleVersionStatus
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typology
+from xolotl.modules.monitoring.rules.models import (
+    MonitoringRuleVersion,
+    RuleAssignment,
+    RuleSimulation,
+)
 from xolotl.modules.monitoring.txn import files
 from xolotl.modules.monitoring.txn.models import (
     Transaction,
@@ -2716,3 +2722,77 @@ def test_monitoring_show_reveal_audits(
     assert {(e.actor_type, e.actor_id) for e in shown} == {
         ("PLATFORM_OPERATOR", f"cli:{getpass.getuser()}")
     }
+
+
+def test_rules_simulate_and_activate(
+    admin_engine: Engine, tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    _ = monitoring_support.both_packs_tenant(tenant, admin_engine)
+    lifecycle_support.load_library(admin_engine)
+    version = lifecycle_support.draft(tenant, "CASH_STRUCTURING")
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        s.add(
+            StaffUser(
+                tenant_id=tenant.tenant_id,
+                email="mlro@acme.mx",
+                display_name="Oficial",
+                roles=[Role.MLRO.value],
+                status=StaffStatus.ACTIVE,
+            )
+        )
+    # Reconciliation finding 23: the demo activates on 30 June 2026.
+    monkeypatch.setattr(clock, "now", lambda: datetime(2026, 6, 30, 15, tzinfo=UTC))
+    target = ["--tenant", "acme", "--version", str(version.id)]
+
+    simulated = runner.invoke(
+        app,
+        ["rules", "simulate", *target, "--from", "2026-06-01", "--to", "2026-06-29"],
+    )
+    assert simulated.exit_code == 0, simulated.stderr
+    assert re.fullmatch(
+        r"simulation [0-9a-f-]{36}: 0 hits, 0 customers, 0 weeks\n", simulated.stdout
+    )
+    too_long = runner.invoke(
+        app,
+        ["rules", "simulate", *target, "--from", "2025-12-01", "--to", "2026-06-29"],
+    )
+    assert too_long.exit_code == 1
+    assert too_long.stderr.startswith("error: SIMULATION_RANGE_TOO_LONG: ")
+
+    activate = ["rules", "activate", *target]
+    same = runner.invoke(app, [*activate, "--approved-by", "admin@acme.mx"])
+    assert same.exit_code == 1
+    assert same.stderr.startswith("error: RULE_TRANSITION_NOT_ALLOWED: ")
+    activated = runner.invoke(app, [*activate, "--approved-by", "MLRO@acme.mx"])
+    assert activated.exit_code == 0, activated.stderr
+    summary, line = activated.stdout.splitlines()
+    assert re.fullmatch(
+        r"simulation [0-9a-f-]{36}: 0 hits, 0 customers, 0 weeks", summary
+    )
+    match = re.fullmatch(
+        r"active CASH_STRUCTURING v1 from 2026-06-30: assignment ([0-9a-f-]{36})", line
+    )
+    assert match is not None
+    with db.tenant_session(system_ctx(tenant.tenant_id)) as s:
+        row = s.get_one(MonitoringRuleVersion, (tenant.tenant_id, version.id))
+        assignment = s.get_one(RuleAssignment, (tenant.tenant_id, UUID(match[1])))
+        simulations = s.scalars(
+            select(RuleSimulation).order_by(RuleSimulation.created_at)
+        ).all()
+    assert row.status is RuleVersionStatus.ACTIVE
+    assert row.approved_by is not None
+    assert row.approved_by != row.author_id == tenant.admin_user_id
+    assert (assignment.rule_version_id, assignment.effective_from) == (
+        version.id,
+        date(2026, 6, 30),
+    )
+    assert assignment.product is None
+    # The default range is the last 30 days, the second run's.
+    assert [(r.range_start, r.range_end) for r in simulations] == [
+        (date(2026, 6, 1), date(2026, 6, 29)),
+        (date(2026, 6, 1), date(2026, 6, 30)),
+    ]
+    assert row.simulation_id == simulations[-1].id
+    again = runner.invoke(app, [*activate, "--approved-by", "mlro@acme.mx"])
+    assert again.exit_code == 1
+    assert again.stderr.startswith("error: RULE_TRANSITION_NOT_ALLOWED: ")

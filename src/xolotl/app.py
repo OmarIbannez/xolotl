@@ -10,6 +10,7 @@ unless ``XOLOTL_EMBEDDED_WORKER`` is false.
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import cast
 from uuid import UUID
 
@@ -35,6 +36,7 @@ from xolotl.modules.screening.api import party_view
 from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.screening.composition import register_screening
+from xolotl.modules.screening.engine.enums import SubjectStatus
 from xolotl.modules.screening.engine.holder import get_index_holder
 from xolotl.modules.screening.rescreen import (
     ensure_screening_index,
@@ -98,6 +100,22 @@ def party_screening_status(s: Session, party_id: UUID) -> str | None:
     return None if status is None else status.value
 
 
+def party_true_match_at(s: Session, party_id: UUID) -> datetime | None:
+    """Read when a party whose screening status is ``TRUE_MATCH`` was last screened.
+
+    A rule simulation counts the parties matched after its simulated hits
+    (SP-04 §13.1); monitoring may not import the screening engine.
+
+    Returns:
+        The last screening's instant, or None when the party is not a true match.
+
+    """
+    view = party_view(s, party_id, staff=False)
+    if view.status is not SubjectStatus.TRUE_MATCH:
+        return None
+    return view.last_screened_at
+
+
 def register_processing(*, queue: PostgresJobQueue) -> None:
     """Register what processing runs on each row beyond its aggregates.
 
@@ -106,7 +124,11 @@ def register_processing(*, queue: PostgresJobQueue) -> None:
     row is evaluated the same way wherever it is processed. Plan 4b's captures
     hook (B10) is registered from ``register_rules`` too.
     """
-    register_rules(queue=queue, screening_status=party_screening_status)
+    register_rules(
+        queue=queue,
+        screening_status=party_screening_status,
+        true_match=party_true_match_at,
+    )
 
 
 def build_object_store(settings: Settings) -> ObjectStore:

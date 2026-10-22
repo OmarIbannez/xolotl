@@ -1,0 +1,12 @@
+# Any transaction of a party whose screening status is TRUE_MATCH fires. The
+# deposit made before the party was matched must not.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: dep-1, occurred_at: "2026-12-07T10:00:00-06:00", pesos: "500", profile: {party_screening_status: CLEAR}}
+  - {external_id: dep-2, occurred_at: "2026-12-08T10:00:00-06:00", pesos: "500", profile: {party_screening_status: TRUE_MATCH}}

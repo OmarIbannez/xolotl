@@ -43,6 +43,7 @@ from xolotl.modules.monitoring.process.backfill import BackfillJob
 from xolotl.modules.monitoring.process.job import ProcessJob
 from xolotl.modules.monitoring.process.partitions import PartitionsJob
 from xolotl.modules.monitoring.process.sweep import SweepJob
+from xolotl.modules.monitoring.simulation.job import SIMULATE_KIND, handle_simulate
 from xolotl.modules.monitoring.txn.files import IngestFileJob
 from xolotl.modules.screening.catalog.poll import LISTS_POLL_KIND, ListsPollJob
 from xolotl.modules.screening.rescreen.party_events import (
@@ -634,6 +635,7 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
         (PARTITIONS_KIND, PartitionsJob),
     ):
         assert isinstance(getattr(job_handler(kind), "__self__", None), handler)
+    assert job_handler(SIMULATE_KIND) is handle_simulate
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):

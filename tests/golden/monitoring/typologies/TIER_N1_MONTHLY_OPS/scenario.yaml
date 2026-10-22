@@ -1,0 +1,14 @@
+# An N1 account receives 760 UDI in December, over its 750 UDI monthly limit:
+# BLOCK. The deposit that brings the month to exactly 750 UDI reaches the limit
+# without exceeding it and must not fire.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N1}
+transactions:
+  - {external_id: dep-1, occurred_at: "2026-12-02T10:00:00-06:00", udi: "400", tier: N1, product: EMONEY}
+  - {external_id: dep-2, occurred_at: "2026-12-07T10:00:00-06:00", udi: "350", tier: N1, product: EMONEY}
+  - {external_id: dep-3, occurred_at: "2026-12-09T10:00:00-06:00", udi: "10", tier: N1, product: EMONEY}

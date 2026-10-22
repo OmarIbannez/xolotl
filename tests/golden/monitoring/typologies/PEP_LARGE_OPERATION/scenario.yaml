@@ -1,0 +1,12 @@
+# A domestic PEP's 12,000 USD transfer fires; their 9,000 USD one is under the
+# 10,000 USD threshold and must not.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3, pep_status: DOMESTIC}
+transactions:
+  - {external_id: tr-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "9000", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: tr-2, occurred_at: "2026-12-08T10:00:00-06:00", usd: "12000", rail: SPEI, instrument: TRANSFER, channel: APP}

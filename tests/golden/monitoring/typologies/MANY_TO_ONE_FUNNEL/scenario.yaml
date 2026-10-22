@@ -1,0 +1,21 @@
+# Ten counterparties pay one relationship 600 USD each within a week. Before the
+# tenth only nine are distinct (one pays twice), so nothing fires until it.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: in-1, occurred_at: "2026-12-07T09:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000101", counterparty_key: "0000000000000000000000000000000000000000000000000000000000000065"}
+  - {external_id: in-2, occurred_at: "2026-12-07T10:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000102", counterparty_key: "0000000000000000000000000000000000000000000000000000000000000066"}
+  - {external_id: in-3, occurred_at: "2026-12-07T11:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000103", counterparty_key: "0000000000000000000000000000000000000000000000000000000000000067"}
+  - {external_id: in-4, occurred_at: "2026-12-07T12:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000104", counterparty_key: "0000000000000000000000000000000000000000000000000000000000000068"}
+  - {external_id: in-5, occurred_at: "2026-12-08T09:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000105", counterparty_key: "0000000000000000000000000000000000000000000000000000000000000069"}
+  - {external_id: again-1, occurred_at: "2026-12-08T15:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000101", counterparty_key: "0000000000000000000000000000000000000000000000000000000000000065"}
+  - {external_id: in-6, occurred_at: "2026-12-08T10:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000106", counterparty_key: "000000000000000000000000000000000000000000000000000000000000006a"}
+  - {external_id: in-7, occurred_at: "2026-12-08T11:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000107", counterparty_key: "000000000000000000000000000000000000000000000000000000000000006b"}
+  - {external_id: in-8, occurred_at: "2026-12-08T12:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000108", counterparty_key: "000000000000000000000000000000000000000000000000000000000000006c"}
+  - {external_id: in-9, occurred_at: "2026-12-09T09:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000109", counterparty_key: "000000000000000000000000000000000000000000000000000000000000006d"}
+  - {external_id: in-10, occurred_at: "2026-12-10T10:00:00-06:00", usd: "600", rail: SPEI, instrument: TRANSFER, channel: APP, counterparty_id: "00000000-0000-0000-0000-000000000110", counterparty_key: "000000000000000000000000000000000000000000000000000000000000006e"}
