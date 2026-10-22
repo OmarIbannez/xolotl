@@ -54,6 +54,7 @@ from xolotl.modules.monitoring.errors import PeriodNotEndedError
 from xolotl.modules.monitoring.events import (
     CAPTURE_PERIOD_CHANGED,
     CAPTURE_PERIOD_CLOSED,
+    REPORTABLE_EVENT_SUPERSEDED,
 )
 from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.txn.models import Transaction
@@ -346,6 +347,13 @@ def test_voiding_an_included_event_tells_reporting_the_period_changed(
     (voided,) = [e for e in events(stage, ROR) if e.transaction_id == ror_2]
     assert voided.status is ReportableEventStatus.VOIDED
     assert voided.void_reason == "RECONCILIATION"
+    # Reporting sees the line go, as for a retired event (review I1).
+    (superseded,) = outbox(stage, REPORTABLE_EVENT_SUPERSEDED)
+    assert superseded.data == {
+        "reportable_event_id": str(voided.id),
+        "superseded_by_id": None,
+        "period_key": Q4,
+    }
 
 
 @pytest.mark.usefixtures("forget_hooks")

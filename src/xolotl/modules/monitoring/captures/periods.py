@@ -56,7 +56,11 @@ from xolotl.modules.monitoring.captures.groups import (
     members_between,
     window_of,
 )
-from xolotl.modules.monitoring.captures.models import CapturePeriod, ReportableEvent
+from xolotl.modules.monitoring.captures.models import (
+    CaptureGroup,
+    CapturePeriod,
+    ReportableEvent,
+)
 from xolotl.modules.monitoring.captures.record import (
     LIVE,
     CaptureRun,
@@ -67,6 +71,7 @@ from xolotl.modules.monitoring.captures.record import (
     open_period,
     period_bounds,
     reopen_touched,
+    void_event,
 )
 from xolotl.modules.monitoring.captures.supersede import partition
 from xolotl.modules.monitoring.enrich.policy import policy_date
@@ -79,9 +84,15 @@ from xolotl.modules.monitoring.events import (
     publish_monitoring_event,
 )
 from xolotl.modules.monitoring.txn.models import Transaction
-from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
+from xolotl.modules.monitoring.txn.schema import (
+    EnrichedTransaction,
+    Instrument,
+    KeyKind,
+)
 from xolotl.platform import clock
+from xolotl.platform.audit import AuditEvent, record
 from xolotl.platform.calendar import Holidays, load_holidays
+from xolotl.platform.db import bound_context
 from xolotl.platform.enums import HolidayScope
 from xolotl.platform.errors import NotFoundError, ValidationFailedError
 from xolotl.platform.jobs.queue import Job
@@ -99,9 +110,11 @@ if TYPE_CHECKING:
 
 PERIOD_CLOSE_KIND = "monitoring.period_close"
 RECONCILIATION = "RECONCILIATION"
+CLOSED_BY_HAND = "captures.period_closed"
 _OPEN = (CapturePeriodStatus.OPEN, CapturePeriodStatus.REOPENED)
 _MONTHS_PER_QUARTER = 3
 _QUARTERS = 4
+_STREAM_PAGE = 500
 _DAYS_PER_MONTH = 30
 _LONGEST_MONTH = 31
 
@@ -227,11 +240,14 @@ def _ended_periods(
 def ensure_periods(s: Session, *, ended_before: date) -> int:
     """Give every capture a row for each period that ended (Deviation 11).
 
-    From the month and quarter of the tenant's earliest ``PROCESSED`` transaction
-    to the last ones ending before ``ended_before``, every capture of every
-    policy in force on the period's last day gets its row (``MONTH`` captures a
-    month's, ``QUARTER`` captures a quarter's), so a period without events is
-    reconciled too.
+    From the month and quarter of the tenant's earliest ``PROCESSED`` transaction,
+    or from the day after the earliest of each capture's latest closed period when
+    later (what earlier runs already covered), to the last ones ending before
+    ``ended_before``, every capture of every policy in force on the period's last
+    day gets its row (``MONTH`` captures a month's, ``QUARTER`` captures a
+    quarter's), so a period without events is reconciled too. On a first deploy
+    no period is closed yet, so every period since the first processed
+    transaction gets its row and is closed by the run.
 
     Returns:
         How many rows were created.
@@ -244,9 +260,17 @@ def ensure_periods(s: Session, *, ended_before: date) -> int:
     )
     if earliest is None:
         return 0
+    first = policy_date(earliest)
+    latest_closed = s.scalars(
+        select(func.max(CapturePeriod.period_end))
+        .where(CapturePeriod.status == CapturePeriodStatus.CLOSED)
+        .group_by(CapturePeriod.capture_code)
+    ).all()
+    if latest_closed:
+        first = max(first, min(latest_closed) + timedelta(days=1))
     by_day: dict[date, Definitions] = {}
     created = 0
-    for period, key, last_day in _ended_periods(policy_date(earliest), ended_before):
+    for period, key, last_day in _ended_periods(first, ended_before):
         if last_day not in by_day:
             by_day[last_day] = definitions_on(s, last_day)
         for definition in by_day[last_day].values():
@@ -260,15 +284,24 @@ def ensure_periods(s: Session, *, ended_before: date) -> int:
     return created
 
 
-def _processed(
-    s: Session, snapshots: _Snapshots, code: str, period_key: str
-) -> list[EnrichedTransaction]:
-    """Read the period's processed transactions whose snapshot has the capture.
+type Candidates = list[tuple[EnrichedTransaction, CaptureDefinition]]
+
+
+def _period_candidates(
+    s: Session, snapshots: _Snapshots, codes: Sequence[str], period_key: str
+) -> dict[str, Candidates]:
+    """Stream the period's processed rows, keeping each capture's candidates.
+
+    Only rows whose snapshot has the first capture are read, in pages
+    (``yield_per``), restricted in SQL to the instruments the captures look at;
+    a row is kept, per code, when its snapshot's definition's ``on`` matches it
+    and its period is ``period_key``. The rest is never held (B11 review I2).
 
     Returns:
-        The transactions, enriched, in ``occurred_at`` order.
+        The candidates of each code, in ``occurred_at`` order.
 
     """
+    found: dict[str, Candidates] = {code: [] for code in codes}
     start, end = _instants(period_key)
     in_range = (
         Transaction.status == TransactionStatus.PROCESSED,
@@ -278,15 +311,40 @@ def _processed(
     snapshot_ids = s.scalars(
         select(Transaction.policy_snapshot_id).where(*in_range).distinct()
     ).all()
-    wanted = [sid for sid in snapshot_ids if code in snapshots.of(sid)]
+    wanted = [sid for sid in snapshot_ids if codes[0] in snapshots.of(sid)]
     if not wanted:
-        return []
-    rows = s.scalars(
-        select(Transaction)
-        .where(*in_range, Transaction.policy_snapshot_id.in_(wanted))
-        .order_by(Transaction.occurred_at, Transaction.id)
+        return found
+    stmt = select(Transaction).where(
+        *in_range, Transaction.policy_snapshot_id.in_(wanted)
     )
-    return [enriched_from_row(row) for row in rows]
+    filters = [
+        definition.on.instrument
+        for sid in wanted
+        for code in codes
+        if (definition := snapshots.of(sid).get(code)) is not None
+    ]
+    if filters and all(filters):
+        instruments: set[Instrument] = set()
+        for instrument in filters:
+            instruments |= instrument
+        stmt = stmt.where(Transaction.instrument.in_(instruments))
+    rows = s.scalars(
+        stmt.order_by(Transaction.occurred_at, Transaction.id).execution_options(
+            yield_per=_STREAM_PAGE
+        )
+    )
+    for row in rows:
+        txn = enriched_from_row(row)
+        definitions = snapshots.of(txn.policy_snapshot_id)
+        for code in codes:
+            definition = definitions.get(code)
+            if (
+                definition is not None
+                and matches(definition.on, txn)
+                and definition.period_key_of(txn) == period_key
+            ):
+                found[code].append((txn, definition))
+    return found
 
 
 def _reach(window: str) -> timedelta:
@@ -325,6 +383,35 @@ def _chain_start(
         cursor = reaching[0].occurred_at
 
 
+def _group_anchor(
+    s: Session, definition: CaptureDefinition, relationship_id: UUID, at: datetime
+) -> datetime | None:
+    """Find where processing opened the relationship's window holding ``at``.
+
+    Processing opens a group for every accumulated operation not in a window, so
+    the latest live group opened by ``at`` starts a chain that reaches ``at``.
+
+    Returns:
+        That group's ``window_start``, or None when there is none.
+
+    """
+    return s.scalars(
+        select(CaptureGroup.window_start)
+        .where(
+            CaptureGroup.capture_code == definition.code,
+            CaptureGroup.key_kind == KeyKind.RELATIONSHIP,
+            CaptureGroup.key == str(relationship_id),
+            CaptureGroup.status.in_((
+                CaptureGroupStatus.OPEN,
+                CaptureGroupStatus.CROSSED,
+            )),
+            CaptureGroup.window_start <= at,
+        )
+        .order_by(CaptureGroup.window_start.desc())
+        .limit(1)
+    ).first()
+
+
 def _crossed_members(
     s: Session,
     definition: CaptureDefinition,
@@ -337,7 +424,9 @@ def _crossed_members(
 
     Every accumulated operation of a window that crosses is captured, whenever it
     crossed: the windows holding an operation in ``[start, end)`` are chained from
-    ``_chain_start`` and read to their own end.
+    the start of the relationship's latest live group opened by ``start`` (one
+    read, when its first operation is where it opens), else from ``_chain_start``
+    (B11 review I3), and read to their own end.
 
     Returns:
         The ids of the members of those windows that cross.
@@ -345,13 +434,23 @@ def _crossed_members(
     """
     window = window_of(definition)
     horizon = accum_window(end - timedelta(microseconds=1), window)[1]
-    members = members_between(
-        s,
-        definition,
-        relationship_id,
-        start=_chain_start(s, definition, relationship_id, start),
-        end=horizon,
-    )
+    members: list[EnrichedTransaction] | None = None
+    anchor = _group_anchor(s, definition, relationship_id, start)
+    if anchor is not None:
+        members = members_between(
+            s, definition, relationship_id, start=anchor, end=horizon
+        )
+        # Verified against the rows: the group's first operation opens it.
+        if members and accum_window(members[0].occurred_at, window)[0] != anchor:
+            members = None
+    if members is None:
+        members = members_between(
+            s,
+            definition,
+            relationship_id,
+            start=_chain_start(s, definition, relationship_id, start),
+            end=horizon,
+        )
     if not members:
         return set()
     # No kept group starts: every window, the way processing in order opens them.
@@ -379,7 +478,7 @@ def _measured(
 
 def _firing(
     s: Session,
-    candidates: Sequence[tuple[EnrichedTransaction, CaptureDefinition]],
+    candidates: Candidates,
     *,
     period_key: str,
     units: UnitService,
@@ -409,24 +508,6 @@ def _firing(
     return fired
 
 
-def _candidates(
-    rows: Sequence[EnrichedTransaction],
-    snapshots: _Snapshots,
-    code: str,
-    period_key: str,
-) -> list[tuple[EnrichedTransaction, CaptureDefinition]]:
-    found: list[tuple[EnrichedTransaction, CaptureDefinition]] = []
-    for txn in rows:
-        definition = snapshots.of(txn.policy_snapshot_id).get(code)
-        if (
-            definition is not None
-            and matches(definition.on, txn)
-            and definition.period_key_of(txn) == period_key
-        ):
-            found.append((txn, definition))
-    return found
-
-
 def _check(
     s: Session,
     definition: CaptureDefinition,
@@ -436,17 +517,17 @@ def _check(
     holidays: Holidays,
 ) -> dict[UUID, EnrichedTransaction]:
     snapshots = _Snapshots(s)
-    rows = _processed(s, snapshots, definition.code, period_key)
-    candidates = _candidates(rows, snapshots, definition.code, period_key)
+    target = definition.merge_into
+    codes = (definition.code,) if target is None else (definition.code, target)
+    found = _period_candidates(s, snapshots, codes, period_key)
+    candidates = found[definition.code]
     fired = _firing(
         s, candidates, period_key=period_key, units=units, holidays=holidays
     )
-    target = definition.merge_into
     if target is not None and fired:
         # One report for both: where the target fires, this capture is merged.
-        targets = _candidates(rows, snapshots, target, period_key=period_key)
         fired -= _firing(
-            s, targets, period_key=period_key, units=units, holidays=holidays
+            s, found[target], period_key=period_key, units=units, holidays=holidays
         )
     return {txn.id: txn for txn, _ in candidates if txn.id in fired}
 
@@ -479,35 +560,37 @@ def check_captures(
     )
 
 
-def _restore(
+def _run_for(
     s: Session,
-    code: str,
-    txn: EnrichedTransaction,
+    snapshot_id: UUID | None,
     *,
     runs: dict[UUID | None, CaptureRun],
     snapshots: _Snapshots,
     units: UnitService,
     holidays: Holidays,
-) -> None:
+) -> CaptureRun:
+    run = runs.get(snapshot_id)
+    if run is None:
+        run = CaptureRun(s, snapshots.of(snapshot_id), units, holidays)
+        runs[snapshot_id] = run
+    return run
+
+
+def _restore(run: CaptureRun, code: str, txn: EnrichedTransaction) -> None:
     """Write a missing event, or capture its row again in place, as ``late``.
 
     An accumulated operation joins the live crossed group holding it, if there is
     one; anything else is captured on its own.
     """
-    definitions = snapshots.of(txn.policy_snapshot_id)
-    definition = definitions[code]
-    run = runs.get(txn.policy_snapshot_id)
-    if run is None:
-        run = CaptureRun(s, definitions, units, holidays)
-        runs[txn.policy_snapshot_id] = run
+    definition = run.definitions[code]
     fee = None
     group = None
     if definition.kind is CaptureKind.FEE_THRESHOLD:
-        fee = fee_amount(definition, txn, units=units, holidays=holidays)
+        fee = fee_amount(definition, txn, units=run.units, holidays=run.holidays)
     elif definition.kind is CaptureKind.ACCUMULATION and matches(
         definition.accumulates, txn
     ):
-        group = group_containing(s, definition, txn)
+        group = group_containing(run.s, definition, txn)
         if group is not None and group.status is not CaptureGroupStatus.CROSSED:
             group = None
     _ = capture_member(run, definition, txn, group, late=True, fee=fee)
@@ -578,21 +661,30 @@ def close_period(
     runs: dict[UUID | None, CaptureRun] = {}
     snapshots = _Snapshots(s)
     for txn_id in missing:
-        _restore(
+        txn = expected[txn_id]
+        run = _run_for(
             s,
-            period.capture_code,
-            expected[txn_id],
+            txn.policy_snapshot_id,
             runs=runs,
             snapshots=snapshots,
             units=units,
             holidays=holidays,
         )
+        _restore(run, period.capture_code, txn)
     included = False
     for txn_id in extra:
         event = stored[txn_id]
         included = included or event.status is ReportableEventStatus.INCLUDED
-        event.status = ReportableEventStatus.VOIDED
-        event.void_reason = RECONCILIATION
+        run = _run_for(
+            s,
+            event.policy_snapshot_id,
+            runs=runs,
+            snapshots=snapshots,
+            units=units,
+            holidays=holidays,
+        )
+        # Published as superseded, and what merged into it comes back (review I1).
+        void_event(run, event, RECONCILIATION)
     own = (period.capture_code, period.period_key)
     for run in runs.values():
         # This period is closed below; others touched are reopened.
@@ -635,21 +727,77 @@ def close_period(
 def close_due_periods(s: Session, *, units: UnitService) -> list[CapturePeriod]:
     """Close every open or reopened period that ended, after opening the missing.
 
-    Periods close in order of their last day, then capture code, so a capture
-    merging into another (``AVI_XVI_B`` into ``AVI_XVI_A``) closes after it.
+    Each period closes in its own transaction, committed before the next: its
+    ``FOR UPDATE`` lock is held only while it closes, and a period that fails
+    (logged) does not keep the others open. Periods close in order of their last
+    day, then capture code, so a capture merging into another (``AVI_XVI_B`` into
+    ``AVI_XVI_A``) closes after it.
 
     Returns:
         The periods closed, in that order.
 
+    Raises:
+        RuntimeError: When any period failed to close, after the others closed
+            (the job runs again and closes what is left).
+
     """
     today = policy_date(clock.now())
     _ = ensure_periods(s, ended_before=today)
+    tenant_id = bound_context(s).require_tenant_id()
     due = s.scalars(
-        select(CapturePeriod)
+        select(CapturePeriod.id)
         .where(CapturePeriod.status.in_(_OPEN), CapturePeriod.period_end < today)
         .order_by(CapturePeriod.period_end, CapturePeriod.capture_code)
     ).all()
-    return [close_period(s, period, units=units) for period in due]
+    s.commit()
+    closed: list[CapturePeriod] = []
+    failed = 0
+    for period_id in due:
+        try:
+            with s.begin_nested():
+                period = s.get_one(CapturePeriod, (tenant_id, period_id))
+                closed.append(close_period(s, period, units=units))
+        except Exception:
+            failed += 1
+            logger.exception(
+                "capture period failed to close",
+                extra={"capture_period_id": str(period_id)},
+            )
+        s.commit()
+    if failed:
+        msg = f"{failed} of {len(due)} capture periods failed to close"
+        raise RuntimeError(msg)
+    return closed
+
+
+def close_period_by_hand(
+    s: Session, period: CapturePeriod, *, units: UnitService
+) -> CapturePeriod:
+    """Close a period on a person's request (API, CLI), recording who asked.
+
+    The audit row (``captures.period_closed`` on the period, ids and counts only)
+    names the actor; ``capture_period`` has no ``closed_by`` column.
+
+    Returns:
+        The period, ``CLOSED``.
+
+    """
+    closed = close_period(s, period, units=units)
+    _ = record(
+        s,
+        AuditEvent(
+            action=CLOSED_BY_HAND,
+            entity_type="capture_period",
+            entity_id=str(closed.id),
+            detail={
+                "capture_code": closed.capture_code,
+                "period_key": closed.period_key,
+                "discrepancy_count": discrepancy_count(closed),
+                "change_count": closed.change_count,
+            },
+        ),
+    )
+    return closed
 
 
 def close_named_period(
@@ -683,7 +831,7 @@ def close_named_period(
             msg = "no capture has this code for the period"
             raise NotFoundError(msg)
         period = open_period(s, definition, period_key)
-    return close_period(s, period, units=units)
+    return close_period_by_hand(s, period, units=units)
 
 
 def handle_period_close(s: Session, job: Job) -> None:

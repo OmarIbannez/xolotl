@@ -989,7 +989,8 @@ anything, each under its own policy snapshot (thresholds, fees and every member 
 an accumulation window that crosses, the windows chained in order as processing
 chains them), and compares the transactions it expects with the period's live
 events: a missing event is written (or captured again in place) as late, an extra
-one is voided (`void_reason = RECONCILIATION`). The period records
+one is voided (`void_reason = RECONCILIATION`) and published as superseded with no
+successor, as a retired event is, and what merged into it is captured again. The period records
 `reconciled_count`, `event_count`, the ids of what it found (`discrepancies`), becomes
 `CLOSED` and publishes `monitoring.capture_period_closed.v1` with its
 `discrepancy_count`. A discrepancy is a defect, not a business event: on clean data
@@ -997,7 +998,14 @@ the close finds nothing, and `xolotl monitoring period-close` exits 1 when it fi
 one. Voiding an event a report already included, or changing a period closed
 before, counts as a change (`change_count`, `monitoring.capture_period_changed.v1`)
 so reporting regenerates. A late event in a closed period reopens it, and the next
-close closes it again.
+close closes it again. Writers and the close lock the period row against each other
+(writers `FOR KEY SHARE`, the close `FOR UPDATE`): a close waits for the events
+being written and counts them, and an event written after it reopens the period.
+Each period closes in its own transaction, so one that fails (logged; the job
+retries) does not keep the others open. A close by hand (the API or the CLI) is
+audited as `captures.period_closed` with the actor. On a first deploy every period
+since the first processed transaction is created and closed; later runs start
+after the last closed period.
 
 | Route | Who | What |
 |---|---|---|

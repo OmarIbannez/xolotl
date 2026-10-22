@@ -19,7 +19,7 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 
-from tests.helpers import new_tenant
+from tests.helpers import audit_events, new_tenant
 from tests.modules.monitoring.captures.support import (
     CaptureStage,
     build_stage,
@@ -208,6 +208,12 @@ def test_a_manual_close_by_the_mlro(
     assert body["status"] == "CLOSED"
     assert body["event_count"] == body["reconciled_count"] == 1
     assert body["discrepancies"] is None
+    (audited,) = [
+        row
+        for row in audit_events(scenario.tenant.tenant_id)
+        if row.action == "captures.period_closed"
+    ]
+    assert (audited.actor_type, audited.entity_id) == ("STAFF", by_key["2026-07"])
     only_closed = client.get(PERIODS, params={"status": "CLOSED"}, headers=who["audit"])
     assert _ids(only_closed.json()) == [by_key["2026-07"]]
     missing = post(client, who["mlro"], f"{PERIODS}/{scenario.late}/close", {}, "c-4")

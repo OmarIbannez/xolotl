@@ -33,7 +33,7 @@ from xolotl.modules.monitoring.captures.models import (
     CapturePeriod,
     ReportableEvent,
 )
-from xolotl.modules.monitoring.captures.periods import close_period
+from xolotl.modules.monitoring.captures.periods import close_period_by_hand
 from xolotl.modules.monitoring.captures.record import LIVE
 from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.rules.tier_limits import LIMIT_CODE_MONTHLY_OPS
@@ -356,7 +356,7 @@ def close_capture_period(
     if period is None:
         msg = "capture period not found"
         raise NotFoundError(msg)
-    closed = close_period(session, period, units=UnitService(session))
+    closed = close_period_by_hand(session, period, units=UnitService(session))
     return _period_view(closed, None)
 
 
