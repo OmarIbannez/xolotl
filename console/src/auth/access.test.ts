@@ -126,6 +126,13 @@ describe('the transactions access', () => {
   })
 })
 
+describe('the rails access', () => {
+  it('lets only ADMIN open Admin › Rieles, as only ADMIN may change a fail mode', () => {
+    const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.rails))).toEqual(['ADMIN'])
+  })
+})
+
 describe('redirectTarget', () => {
   it('returns the remembered in-console path, query included', () => {
     expect(redirectTarget({ from: '/staff' })).toBe('/staff')

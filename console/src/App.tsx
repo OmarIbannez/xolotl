@@ -217,6 +217,16 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.rails} />,
+                children: [
+                  {
+                    path: '/admin/rails',
+                    lazy: () =>
+                      import('@/features/rails/RailsPage').then((m) => ({ Component: m.RailsPage })),
+                  },
+                ],
+              },
+              {
                 path: '/security',
                 lazy: () =>
                   import('@/features/security/SecurityPage').then((m) => ({

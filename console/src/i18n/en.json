@@ -50,7 +50,8 @@
     "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check",
     "transactions": "Transactions",
-    "counterparties": "Counterparties"
+    "counterparties": "Counterparties",
+    "rails": "Rails"
   },
   "header": {
     "tenant": "Workspace",
@@ -147,7 +148,9 @@
     "fileType": "Choose a PDF, JPEG or PNG file.",
     "ownership": "Enter a percentage above 0 and up to 100, with at most 4 decimals; it applies to shareholders only.",
     "uuid": "Paste the full id of the other person or company (it is in the address of its page).",
-    "countryCodes": "Use two-letter country codes separated by commas, for example MX, VE."
+    "countryCodes": "Use two-letter country codes separated by commas, for example MX, VE.",
+    "amountMxn": "Enter an amount in pesos, unsigned, with at most two decimals, for example 125000.50.",
+    "instrumentCodes": "Use upper-case instrument codes, for example CASH."
   },
   "home": {
     "title": "Home",
@@ -358,7 +361,8 @@
         "relationships": "Relationships",
         "documents": "Documents",
         "customer": "Customer relationships",
-        "label": "Person or company records"
+        "label": "Person or company records",
+        "profile": "Behaviour profile"
       }
     },
     "reveal": {
@@ -540,6 +544,67 @@
       "label": "The customer's latest transactions",
       "viewAll": "View all",
       "empty": "This customer has no transactions."
+    },
+    "profile": {
+      "title": "Behaviour profile · {{ref}}",
+      "description": "Monthly inflows and outflows in MXN over the last 12 months, against the declared profile.",
+      "empty": "No profile yet",
+      "emptyHint": "The profile is computed every month from the previous month's processed operations.",
+      "noRelationships": "No open customer relationships.",
+      "declared": {
+        "title": "Declared profile",
+        "none": "No declared profile",
+        "inflow": "Declared monthly inflow",
+        "outflow": "Declared monthly outflow",
+        "countries": "Expected countries",
+        "instruments": "Expected instruments",
+        "noneListed": "None"
+      },
+      "edit": "Edit declared profile",
+      "clear": "Remove declared profile",
+      "clearConfirm": "Without a declared profile, the following months are no longer compared with a declaration. The change is recorded in the audit log.",
+      "clearing": "Removing…",
+      "cleared": "Declared profile removed",
+      "deviated": "Deviation",
+      "chart": {
+        "label": "Inflows and outflows per month, {{from}} to {{to}}",
+        "inflow": "Inflow",
+        "outflow": "Outflow",
+        "declared": "Declared"
+      },
+      "table": {
+        "label": "Metrics per month",
+        "month": "Month",
+        "inflow": "Inflow",
+        "outflow": "Outflow",
+        "operations": "Operations (in / out)",
+        "counterparties": "Distinct counterparties",
+        "activeDays": "Active days",
+        "cash": "Cash",
+        "international": "International",
+        "crypto": "Crypto",
+        "deviation": "Against the declaration"
+      },
+      "deviation": {
+        "none": "No declaration",
+        "inflowRatio": "Inflow {{ratio}}",
+        "outflowRatio": "Outflow {{ratio}}",
+        "inflowDeclaredZero": "Inflow declared as zero, with movements",
+        "outflowDeclaredZero": "Outflow declared as zero, with movements"
+      },
+      "dialog": {
+        "title": "Declared profile",
+        "description": "Expected monthly amounts in MXN. Every change is recorded in the audit log.",
+        "inflow": "Monthly inflow (MXN)",
+        "outflow": "Monthly outflow (MXN)",
+        "amountHint": "Pesos with at most two decimals.",
+        "countries": "Expected countries",
+        "countriesHint": "Two-letter codes separated by commas, for example MX, US.",
+        "instruments": "Expected instruments",
+        "submit": "Save profile",
+        "submitting": "Saving…",
+        "saved": "Declared profile saved"
+      }
     }
   },
   "audit": {
@@ -1667,7 +1732,8 @@
     "EXTERNAL_ID_CONFLICT": "A transaction with that external id and different data already exists.",
     "TRANSACTION_FILE_TOO_LARGE": "The file exceeds the maximum size allowed.",
     "TRANSACTION_FILE_INVALID": "The file could not be read: check its format and headers.",
-    "BACKFILL_RANGE_INVALID": "The backfill date range is not valid."
+    "BACKFILL_RANGE_INVALID": "The backfill date range is not valid.",
+    "RAIL_UNKNOWN": "That rail does not exist."
   },
   "counterparties": {
     "title": "Counterparties",
@@ -1736,5 +1802,39 @@
       "identifier": "Identifier",
       "empty": "No personal data to show."
     }
+  },
+  "rails": {
+    "title": "Rails",
+    "description": "What a decision answers when the engine cannot evaluate it within its time budget.",
+    "explainer": "Permissive answers REVIEW: the operation goes ahead and is left for review. Restrictive answers BLOCK: the operation does not go through. A rail that is not set follows the installation's default mode.",
+    "mode": {
+      "FAIL_OPEN": "Permissive: review",
+      "FAIL_CLOSED": "Restrictive: block"
+    },
+    "default": "Default",
+    "explicit": "Set",
+    "table": {
+      "label": "Fail mode per rail",
+      "rail": "Rail",
+      "mode": "Fail mode",
+      "source": "Source",
+      "updatedAt": "Last change",
+      "restrictive": "Restrictive"
+    },
+    "toggle": "Block on {{rail}} when the engine cannot evaluate",
+    "confirm": {
+      "FAIL_CLOSED": {
+        "title": "Block on {{rail}}?",
+        "description": "When the engine cannot evaluate a {{rail}} operation within its time budget, the decision will be BLOCK and the operation will not go through, even a legitimate one."
+      },
+      "FAIL_OPEN": {
+        "title": "Review on {{rail}}?",
+        "description": "When the engine cannot evaluate a {{rail}} operation within its time budget, the decision will be REVIEW: the operation goes ahead unevaluated and is left for review."
+      },
+      "submit": "Change mode",
+      "pending": "Saving…"
+    },
+    "changed": "{{rail}} is now {{mode}}",
+    "empty": "There are no rails."
   }
 }
