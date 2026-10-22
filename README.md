@@ -468,6 +468,9 @@ responses: an API client sees the subject's status only (`CLEAR`, `PENDING_REVIE
 | `DELETE /v1/screening/whitelist/{id}` | MLRO | revoke a false-positive whitelist row |
 | `GET /v1/screening/batches` | staff | re-screen batches newest first (filters `kind`, `status`): progress counts, `total`, start and finish times |
 | `GET /v1/screening/evaluation` | staff | the matcher's evaluation report shipped with the build: recall, precision at `ALERT` and retrieval recall per list kind, the hard-negative alert rate and each floor; 404 when the build ships none |
+| `GET /v1/counterparties` | staff | counterparties masked (initials, last four of the account, wallet and identifier), newest last sighting first, with screening status and `txn_count` (filters `status`, `kind`, `seen_after`) |
+| `GET /v1/counterparties/{id}` | staff | the masked counterparty with its subject's findings (newest first, linking into the queue) and its last ten runs |
+| `GET /v1/counterparties/{id}/reveal` | staff | the name, account, wallet address and identifier in plaintext; one `VIEW_PII` per value, recorded before decryption |
 
 ## Screening
 

@@ -24,6 +24,7 @@ from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
 from xolotl.modules.party import routes_relationships as party_relationship_routes
 from xolotl.modules.party.retention import register_party
+from xolotl.modules.screening import routes_counterparties as counterparty_routes
 from xolotl.modules.screening import routes_lists as lists_routes
 from xolotl.modules.screening import routes_private_lists as private_list_routes
 from xolotl.modules.screening import routes_screening as screening_routes
@@ -306,6 +307,7 @@ def build_app(session_factory: SessionFactory | None = None) -> FastAPI:
             lists_routes.router,
             private_list_routes.router,
             screening_routes.router,
+            counterparty_routes.router,
             # Before the transactions router: /transactions/decide is literal.
             decide_routes.router,
             transaction_routes.router,

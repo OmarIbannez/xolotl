@@ -208,6 +208,8 @@ class PartyScreeningResponse(BaseModel):
 class MaskedSubject(BaseModel):
     kind: SubjectKind
     party_id: UUID | None
+    # Set for a counterparty's subject (SP-04 plan 4c, C3); a party's is None.
+    counterparty_id: UUID | None
     entity_type: str
     initials: str
     # "<ID_TYPE> <masked value>" for each screened identifier.
@@ -218,6 +220,7 @@ class MatchSummary(BaseModel):
     id: UUID
     subject_id: UUID
     party_id: UUID | None
+    counterparty_id: UUID | None
     # Initials and masked identifiers: no plaintext, nothing audited.
     subject: MaskedSubject
     list_code: str

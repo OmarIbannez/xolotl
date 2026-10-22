@@ -7,7 +7,7 @@ import type { Role } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
 import { json, noContent, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
-import { matchDetail, matchReveal } from './fixtures'
+import { maskedSubject, matchDetail, matchReveal } from './fixtures'
 import { MatchPage } from './MatchPage'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
@@ -83,6 +83,25 @@ describe('MatchPage', () => {
     expect(screen.getByText('Juan Peres Lopes')).toBeTruthy()
     expect(document.body.textContent).not.toContain('V12345678')
     expect(document.body.textContent).toContain('5678')
+  })
+
+  it('links a counterparty finding to its counterparty instead of a customer', async () => {
+    setup({
+      [DETAIL]: () =>
+        json(
+          matchDetail({
+            party_id: null,
+            counterparty_id: 'c1',
+            subject: maskedSubject({ kind: 'COUNTERPARTY', party_id: null, counterparty_id: 'c1', initials: 'R.A.P.', identifiers: [] }),
+          }),
+        ),
+    })
+
+    const link = await screen.findByRole('link', { name: text.match.openCounterparty })
+
+    expect(link.getAttribute('href')).toBe('/counterparties/c1')
+    expect(screen.queryByRole('link', { name: text.match.openParty })).toBeNull()
+    expect(screen.getByText(text.match.kinds.COUNTERPARTY)).toBeTruthy()
   })
 
   it('offers only the allowed decisions and explains the blocked ones', async () => {
