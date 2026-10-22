@@ -777,6 +777,35 @@ date" is answered from the assignment rows. Each process caches a tenant's rule
 set for a date and product for `XOLOTL_MONITORING_RULE_CACHE_SECONDS`; an
 activation or a retirement is seen on the next read.
 
+### Rule hits
+
+Processing evaluates the rules in force on each row's date inside the row's
+database transaction, after its aggregates, so a hit commits or rolls back with the
+row. A firing becomes a `rule_hit` keyed by its rule version and dedup key
+`<key_kind>:<key>:<bucket>`: the bucket is the row's Mexico City month for a `MONTH`
+dedup window, else `occurred_at` floored in UTC to the window (a `P7D` bucket is a
+Monday-to-Sunday UTC week, `P1D` a UTC day). Another firing in the same bucket links
+its transaction as `WINDOW` and counts it (`fired_count`); a firing after the key's
+latest hit but before its `cooldown_until` (`occurred_at` plus `dedup.cooldown`, none
+for `P0D`) links as `COOLDOWN`; anything else is a new hit. A new hit links its
+trigger (`TRIGGER`) and the window's matching processed transactions (`WINDOW`, at
+most 500, newest first), and its `evidence` keeps the aggregate values the rule read,
+its parameters, the rendered es-MX sentence and the jurisdiction lists' hash: ids,
+amounts, units and codes, never a name. It also records the policy snapshot, the
+version's definition hash and the assignment. Replaying a stream, two sessions
+firing at once and a late row that re-evaluates the party's later rows (out of order,
+`reevaluate_later`) all leave one hit per version and dedup key. A rule whose
+aggregate is not backfilled yet fires nothing.
+
+`monitoring.rule_hit_created.v1`, like every other rules, captures, periods,
+lifecycle and simulation event, is staff-only (`register_rules` marks them), so no
+webhook ever carries one. The one tenant-facing event is
+`monitoring.tier_limit_reached.v1` (`relationship_id`, `account_id`, `tier`,
+`limit_code`, `period_key`, `outcome`, never an amount): a `TIER_LIMIT` firing makes a
+`BLOCK` or `REVIEW` hit and a `tier_limit_notice` row, and only the call that inserts
+that row, from processing or the decide path, publishes the event, once per
+relationship, limit and month.
+
 ## Connectors
 
 A connector calls an external verification service (`sat_rfc`, `banxico_sie`) behind a

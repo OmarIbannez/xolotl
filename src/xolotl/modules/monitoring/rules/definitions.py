@@ -41,7 +41,7 @@ from xolotl.modules.monitoring.aggregates.declarations import (
 )
 from xolotl.modules.monitoring.rules.render import Locale, render
 from xolotl.modules.monitoring.txn.schema import KeyKind
-from xolotl.platform.policy.durations import check_iso_duration
+from xolotl.platform.policy.durations import check_iso_duration, iso_duration_days
 from xolotl.platform.policy.jurisdictions import (
     COUNTRY_CODE,
     REGION_CODE,
@@ -204,7 +204,12 @@ class Dedup(BaseModel):
     @field_validator("window")
     @classmethod
     def _check_window(cls, value: str) -> str:
-        return _window(value)
+        window = _window(value)
+        # A zero window has no bucket to collapse firings into (B7 review I3).
+        if window != MONTH and iso_duration_days(window) <= 0:
+            msg = f"a dedup window must be longer than zero, not {value!r}"
+            raise ValueError(msg)
+        return window
 
     @field_validator("cooldown")
     @classmethod

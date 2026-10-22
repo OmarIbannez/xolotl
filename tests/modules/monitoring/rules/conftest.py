@@ -4,16 +4,21 @@ The transaction is an MXN cash deposit of 1,000 on 2026-12-10 at 10:00 Mexico
 City, with unit amounts at fixed rates (USD 18.0, UDI 8.6, UMA 117.31, MXN 1).
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
+from sqlalchemy import Engine
+
+from tests.modules.monitoring.rules.hook_support import Stage, build_stage
 from tests.modules.monitoring.rules.samples import document
 from tests.platform.policy_support import REPO, both_packs
 from xolotl.modules.monitoring.aggregates.store import AggregateValue
 from xolotl.modules.monitoring.aggregates.windows import MEXICO_CITY_ZONE
+from xolotl.modules.monitoring.process.hooks import reset_processing_hooks
 from xolotl.modules.monitoring.rules.definitions import RuleDefinition, RuleKind
 from xolotl.modules.monitoring.rules.kinds import (
     INCOMPLETE,
@@ -30,6 +35,7 @@ from xolotl.modules.monitoring.txn.schema import (
     Rail,
     UnitAmount,
 )
+from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.policy import EffectivePolicy, load_jurisdictions
 from xolotl.platform.policy.jurisdictions import JURISDICTIONS_FILE, JurisdictionLists
 
@@ -280,3 +286,17 @@ _EXTRA: dict[RuleKind, dict[str, Any]] = {
         ],
     },
 }
+
+
+@pytest.fixture
+def stage(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Stage]:
+    """Tenant A with the three rules active from 30 June 2026 (plan 4b B7).
+
+    Yields:
+        The stage; the processing hooks are forgotten afterwards.
+
+    """
+    yield build_stage(tenant, admin_engine, monkeypatch)
+    reset_processing_hooks()
