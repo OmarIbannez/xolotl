@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { HitsTable } from './HitsTable'
-import { SEVERITIES, useHits, useSeveritiesWithHits } from './queries'
+import { SEVERITIES, useDefaultSeverity, useHits } from './queries'
 
 const OUTCOMES: readonly HitOutcome[] = ['ALERT', 'BLOCK', 'REVIEW']
 const AGES = ['1', '7', '30'] as const
@@ -32,8 +32,8 @@ function code(value: string): string | undefined {
 }
 
 /**
- * Hallazgos de reglas: the hits by severity tab (it opens on the most severe tab that has a hit),
- * filtered by rule, typology, outcome and age. Read only: a hit has no disposition in SP-04 (spec
+ * Hallazgos de reglas: the hits by severity tab (it opens on the most severe tab that has a hit,
+ * or on one that could not be checked), filtered by rule, typology, outcome and age. Read only: a hit has no disposition in SP-04 (spec
  * section 17). Every row opens the hit's detail.
  */
 export function HitsPage() {
@@ -47,9 +47,11 @@ export function HitsPage() {
   const [cursor, setCursor] = useState<string | undefined>(undefined)
 
   const narrowing = { ...codes, outcome, created_before: age?.before }
-  const withHits = useSeveritiesWithHits(narrowing)
-  // Until the user picks a tab, the queue opens on the most severe one with a hit.
-  const severity = chosen ?? (withHits === undefined ? undefined : (withHits[0] ?? 'CRITICAL'))
+  // The queue opens on the most severe tab with a hit, then stays on it (or on the tab the user
+  // picks): a filter change never moves the tab, and the severities are checked only once.
+  const opening = useDefaultSeverity(narrowing, { enabled: chosen === undefined })
+  if (chosen === undefined && opening !== undefined) setChosen(opening)
+  const severity = chosen ?? opening
   const hits = useHits({ ...narrowing, severity }, cursor, { enabled: severity !== undefined })
   const page = hits.data
   const showPager = cursor !== undefined || (page !== undefined && page.items.length > 0)

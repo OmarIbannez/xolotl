@@ -3,7 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Severity } from '@/api/types'
 import esMX from '@/i18n/es-MX.json'
-import { json, type FakeRoutes } from '@/test/fake-network'
+import { json, problem, type FakeRoutes } from '@/test/fake-network'
 import { makeMe, renderApp } from '@/test/render-app'
 import { chooseOption, stubPointerCapture } from '@/test/select'
 import { HIT_PARTY_ID, hitSummary } from './fixtures'
@@ -106,5 +106,35 @@ describe('HitsPage', () => {
     expect(await screen.findByRole('link', { name: 'RULE_LOW' })).toBeTruthy()
     expect(fakeApi.queries(HITS).at(-1)?.get('severity')).toBe('LOW')
     expect(fakeApi.queries(HITS).at(-1)?.get('created_before')).toBeTruthy()
+  })
+
+  it('opens on a severity whose check failed, showing the error, rather than skip past it', async () => {
+    setup({
+      [HITS]: (request) => {
+        const severity = new URL(request.url).searchParams.get('severity')
+        if (severity === 'CRITICAL') return problem(500, 'INTERNAL')
+        return json({ items: severity === 'HIGH' ? [hitSummary({ severity: 'HIGH' })] : [], next_cursor: null })
+      },
+    })
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: text.severity.CRITICAL }).getAttribute('aria-selected')).toBe('true'),
+    )
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'CASH_STRUCTURING' })).toBeNull()
+  })
+
+  it('keeps the opening tab once it is known and checks the severities only once', async () => {
+    const { user, fakeApi } = setup()
+    await loadedTable()
+    const probes = () => fakeApi.queries(HITS).filter((query) => query.get('limit') === '1')
+    expect(probes()).toHaveLength(4)
+
+    // A filter change never moves the tab or asks the four severities again.
+    await chooseOption(user, screen.getByLabelText(text.filters.outcome), text.outcome.BLOCK)
+    await waitFor(() => expect(fakeApi.queries(HITS).at(-1)?.get('outcome')).toBe('BLOCK'))
+
+    expect(screen.getByRole('tab', { name: text.severity.HIGH }).getAttribute('aria-selected')).toBe('true')
+    expect(probes()).toHaveLength(4)
   })
 })

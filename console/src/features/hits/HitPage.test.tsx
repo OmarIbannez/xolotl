@@ -15,6 +15,7 @@ const REVEAL = 'GET /v1/monitoring/hits/h1/reveal'
 function setup(routes: FakeRoutes = {}) {
   return renderApp(
     <>
+      <Link to="/monitoring/hits/h1">first hit</Link>
       <Link to="/monitoring/hits/h2">next hit</Link>
       <Routes>
         <Route path="/monitoring/hits/:hitId" element={<HitPage />} />
@@ -101,7 +102,13 @@ describe('HitPage', () => {
     const { user } = setup({
       'GET /v1/monitoring/hits/h2': () => json(hitDetail({ id: 'h2', rule_code: 'RAPID_PASS_THROUGH' })),
     })
+    // Visit h2 first, so its detail is cached and the page renders it at once on the way back:
+    // only the page's key, not a loading state, can then drop h1's reveal.
     await screen.findByText(hitDetail().sentence)
+    await user.click(screen.getByRole('link', { name: 'next hit' }))
+    await screen.findByText('RAPID_PASS_THROUGH')
+    await user.click(screen.getByRole('link', { name: 'first hit' }))
+    await screen.findByText('CASH_STRUCTURING')
     await user.click(screen.getByRole('button', { name: text.reveal.button }))
     await screen.findByText('María López Ruiz')
 
@@ -110,6 +117,19 @@ describe('HitPage', () => {
     expect(await screen.findByText('RAPID_PASS_THROUGH')).toBeTruthy()
     expect(document.body.textContent).not.toContain('María López Ruiz')
     expect(screen.getByRole('button', { name: text.reveal.button })).toBeTruthy()
+  })
+
+  it('announces a failed reveal once and shows nothing personal', async () => {
+    const { user } = setup({ [REVEAL]: () => problem(500, 'INTERNAL') })
+    await screen.findByText(hitDetail().sentence)
+
+    await user.click(screen.getByRole('button', { name: text.reveal.button }))
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    expect(document.body.textContent).not.toContain('María López Ruiz')
+    expect(document.body.textContent).not.toContain('Laura')
+    expect(screen.queryByText(text.reveal.notice)).toBeNull()
   })
 
   it('shows the cooldown and the decision when there are', async () => {

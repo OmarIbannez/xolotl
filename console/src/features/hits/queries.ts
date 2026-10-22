@@ -60,23 +60,30 @@ export function useHits(filters: HitFilters, cursor?: string, { enabled = true }
 }
 
 /**
- * Which severities have a hit under `filters`: one single-row request per severity, so the queue
- * can open on the most severe tab that is not empty. Undefined until every probe has answered.
+ * The tab the queue opens on: the most severe one with a hit under `filters`, read with one
+ * single-row request per severity. A severity whose request failed is chosen as soon as it is
+ * reached, so its tab opens on the error rather than a less severe tab hiding it. `CRITICAL`
+ * when none has a hit; undefined while a more severe answer is still missing. `enabled: false`
+ * once the tab is known, so a filter change never asks again.
  */
-export function useSeveritiesWithHits(filters: Omit<HitFilters, 'severity'>): readonly Severity[] | undefined {
-  const { tenant, enabled } = useSignedIn()
+export function useDefaultSeverity(filters: Omit<HitFilters, 'severity'>, { enabled = true } = {}): Severity | undefined {
+  const signedIn = useSignedIn()
   const query = compact(filters)
   return useQueries({
     queries: SEVERITIES.map((severity) => ({
-      queryKey: [HITS, tenant, 'any', severity, query],
+      queryKey: [HITS, signedIn.tenant, 'any', severity, query],
       queryFn: () => listHits({ ...query, severity }, 1, undefined),
-      enabled,
+      enabled: signedIn.enabled && enabled,
     })),
-    combine: (results) =>
-      // A probe that failed counts as empty: the queue then opens and shows its own error.
-      results.every((result) => result.data !== undefined || result.isError)
-        ? SEVERITIES.filter((_, index) => (results[index]?.data?.items.length ?? 0) > 0)
-        : undefined,
+    combine: (results) => {
+      for (const [index, severity] of SEVERITIES.entries()) {
+        const result = results[index]
+        if (result?.isError === true) return severity
+        if (result?.data === undefined) return undefined
+        if (result.data.items.length > 0) return severity
+      }
+      return 'CRITICAL'
+    },
   })
 }
 
