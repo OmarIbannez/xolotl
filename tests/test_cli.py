@@ -56,6 +56,7 @@ from tests.modules.monitoring import support as monitoring_support
 from tests.modules.monitoring.captures import support as capture_support
 from tests.modules.monitoring.captures import test_capture_goldens as capture_goldens
 from tests.modules.monitoring.rules import hook_support, lifecycle_support
+from tests.modules.monitoring.simulation.replay_support import clone_rule, process_week
 from tests.modules.monitoring.support import add_customer
 from tests.modules.screening.catalog.support import load_shared, seed_sources
 from tests.modules.screening.review.support import assign_itf
@@ -70,6 +71,7 @@ from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_typolog
 from xolotl.modules.monitoring.rules.models import (
     MonitoringRuleVersion,
     RuleAssignment,
+    RuleHit,
     RuleSimulation,
 )
 from xolotl.modules.monitoring.rules.versions import VersionInput, update_version
@@ -2984,3 +2986,60 @@ def test_monitoring_period_close_reports_discrepancies(
     )
     assert early.exit_code == 1
     assert "PERIOD_NOT_ENDED" in early.output
+
+
+def test_monitoring_replay_dry_run_compares_a_week_with_the_stored_hits(
+    tenant: CreatedTenant, admin_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    try:
+        stage = hook_support.build_stage(tenant, admin_engine, monkeypatch)
+        process_week(stage)
+    finally:
+        reset_processing_hooks()
+    _ = clone_rule(
+        stage,
+        "CASH_BY_COUNTERPARTY",
+        effective_from=hook_support.EFFECTIVE_FROM,
+        dedup_key="COUNTERPARTY",
+    )
+    week = ["monitoring", "replay", "--tenant", tenant.slug]
+    week += ["--from", "2026-12-07", "--to", "2026-12-13"]
+
+    same = runner.invoke(app, [*week, "--dry-run"])
+
+    assert same.exit_code == 0, same.output
+    assert same.stdout.splitlines() == [
+        "CASH_BY_COUNTERPARTY v1: not compared (keyed across parties), stored 0",
+        "CASH_STRUCTURING v1: simulated 1, stored 1, missing 0, extra 0",
+        "COUNTERPARTY_TRUE_MATCH v1: simulated 0, stored 0, missing 0, extra 0",
+        "TIER_N1_MONTHLY_OPS v1: simulated 0, stored 0, missing 0, extra 0",
+        "identical",
+    ]
+    with admin_engine.begin() as conn:
+        _ = conn.execute(
+            update(RuleHit)
+            .where(RuleHit.rule_code == "CASH_STRUCTURING")
+            .values(dedup_key="forged")
+        )
+    changed = runner.invoke(app, [*week, "--dry-run"])
+    assert changed.exit_code == 1, changed.output
+    assert changed.stdout.splitlines()[1] == (
+        "CASH_STRUCTURING v1: simulated 1, stored 1, missing 1, extra 1"
+    )
+    assert changed.stdout.splitlines()[-1] == "differs"
+
+    live = runner.invoke(app, week)
+    assert live.exit_code == 2
+    assert live.stderr == "error: only --dry-run is supported in SP-04\n"
+    too_long = ["monitoring", "replay", "--tenant", tenant.slug, "--dry-run"]
+    too_long += ["--from", "2026-01-01", "--to", "2026-12-31"]
+    refused = runner.invoke(app, too_long)
+    assert refused.exit_code == 1
+    assert refused.stderr.startswith("error: SIMULATION_RANGE_TOO_LONG")
+    # Before 30 June 2026 no rule is in force: nothing is compared, which is
+    # not "identical".
+    june = ["monitoring", "replay", "--tenant", tenant.slug, "--dry-run"]
+    june += ["--from", "2026-06-01", "--to", "2026-06-07"]
+    empty = runner.invoke(app, june)
+    assert empty.exit_code == 3, empty.output
+    assert empty.stdout == "nothing compared\n"

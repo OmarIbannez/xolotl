@@ -71,6 +71,7 @@ from xolotl.modules.monitoring.rules.templates import (
 )
 from xolotl.modules.monitoring.rules.versions import WRITERS, seed_tenant_rules
 from xolotl.modules.monitoring.simulation.job import run_simulation_now
+from xolotl.modules.monitoring.simulation.replay import RuleReplay, replay_range
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
     JSONL_TYPE,
@@ -2125,6 +2126,67 @@ def monitoring_period_close(
     for line in lines:
         typer.echo(line)
     if found:
+        raise typer.Exit(code=1)
+
+
+def _replay_line(rule: RuleReplay) -> str:
+    head = f"{rule.rule_code} v{rule.version}"
+    if not rule.compared:
+        return f"{head}: not compared (keyed across parties), stored {rule.stored}"
+    return (
+        f"{head}: simulated {rule.simulated}, stored {rule.stored}, "
+        f"missing {rule.missing}, extra {rule.extra}"
+    )
+
+
+@monitoring_app.command("replay")
+def monitoring_replay(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    range_from: Annotated[
+        datetime,
+        typer.Option("--from", formats=["%Y-%m-%d"], help="First day, Mexico City"),
+    ],
+    range_to: Annotated[
+        datetime,
+        typer.Option("--to", formats=["%Y-%m-%d"], help="Last day, included"),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Compare with the stored hits, write nothing"),
+    ] = False,
+) -> None:
+    """Replay a range through the rules in force and compare with stored hits.
+
+    One line per rule version in force on the last day, then ``identical`` or
+    ``differs``; the exit status is 1 when the replay differs (spec §13.1). When
+    no rule was compared (none in force, or only cross-party ones) the last line
+    is ``nothing compared`` and the status 3. Only ``--dry-run`` exists in SP-04
+    (plan 4c Deviation 10).
+
+    Raises:
+        Exit: With status 2 without ``--dry-run``, 1 when the replay differs and
+            3 when nothing was compared.
+
+    """
+    if not dry_run:
+        typer.echo("error: only --dry-run is supported in SP-04", err=True)
+        raise typer.Exit(code=2)
+    actor = _cli_actor()
+    with _cli_errors():
+        _ensure_key_provider()
+        tenant_id, _ = _resolve_tenant(actor, tenant)
+        with tenant_session(TenantContext.system(tenant_id, actor)) as s:
+            report = replay_range(
+                s, range_start=range_from.date(), range_end=range_to.date()
+            )
+    for rule in report.rules:
+        typer.echo(_replay_line(rule))
+    if report.nothing_compared:
+        typer.echo("nothing compared")
+        raise typer.Exit(code=3)
+    typer.echo("identical" if report.identical else "differs")
+    if not report.identical:
         raise typer.Exit(code=1)
 
 

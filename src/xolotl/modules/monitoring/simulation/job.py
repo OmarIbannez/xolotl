@@ -130,7 +130,14 @@ def _check_range(range_start: date, range_end: date, *, today: date) -> None:
         raise SimulationRangeTooLongError(msg)
 
 
-def _cross_party_keys(definition: RuleDefinition) -> bool:
+def cross_party_keys(definition: RuleDefinition) -> bool:
+    """Tell whether a definition keys on something several parties share.
+
+    Returns:
+        True when its key, dedup key or a declaration is ``COUNTERPARTY`` or
+        ``DEVICE``.
+
+    """
     # Simulation replays one party at a time (plan 4b Deviation 12), so a key
     # that several parties share would be counted and deduplicated per party.
     kinds = {
@@ -164,7 +171,7 @@ def _create(
     if RuleAction.SIMULATE not in actions.allowed:
         raise RuleTransitionNotAllowedError(actions.blocked[RuleAction.SIMULATE])
     _check_range(range_start, range_end, today=policy_date(now))
-    if _cross_party_keys(RuleDefinition.model_validate(version.definition)):
+    if cross_party_keys(RuleDefinition.model_validate(version.definition)):
         msg = (
             "a rule keyed on COUNTERPARTY or DEVICE cannot be simulated: the "
             "simulation replays one party at a time"

@@ -762,11 +762,28 @@ uv run xolotl monitoring backfill --tenant acme --from 2026-01-20 --to 2026-01-2
 uv run xolotl monitoring partitions ensure                            # create the months ahead now
 uv run xolotl monitoring profiles --tenant acme --month 2027-01       # compute a month's profiles
 uv run xolotl monitoring period-close --tenant acme [--capture ITF_ROR_CASH --period 2026-Q4]
+uv run xolotl monitoring replay --tenant acme --from 2026-12-07 --to 2026-12-13 --dry-run
 ```
 
 `monitoring backfill` audits the request (`monitoring.backfill_requested`), queues its
 job as the API does and runs it in place: the held rows of those Mexico City days are
 processed, late, with the same code as the worker.
+
+`monitoring replay --dry-run` replays the range's processed rows through the rules in
+force on its last day, in memory and in a read-only transaction, and compares the hits
+with the stored `rule_hit` rows: one line per rule version (`simulated`, `stored`,
+`missing`, `extra`), then `identical` (exit 0) or `differs` (exit 1), or `nothing
+compared` (exit 3) when no rule in force could be compared. Windows start
+cold at the first day, so start a window early; a rule keyed on a counterparty or a
+device is listed but not compared. Without `--dry-run` it exits 2.
+
+`GET /v1/monitoring/metrics?period=YYYY-MM` computes a Mexico City month's
+effectiveness on read, for staff only: hits, parties hit and hits per severity overall
+and per rule version (with the median and p95 seconds from the transaction to the hit),
+the rules in force per typology tag, the captures of every period overlapping the month
+against the close's reconciled count (per period: a quarter shows in each of its months,
+so never sum them across months), and the decide latencies (p50, p95, p99) with the
+fail-open and fail-closed counts. `rule_version_id` narrows the hit figures.
 
 A payment rail asks `POST /v1/transactions/decide` before it executes a payment and
 gets `ALLOW`, `REVIEW` or `BLOCK` within `XOLOTL_MONITORING_DECIDE_BUDGET_MS`. The
@@ -787,6 +804,7 @@ pass a tight budget, which on a `FAIL_CLOSED` rail answers `BLOCK`.
 | `GET /v1/monitoring/decisions/{id}` | staff; API key `transactions:read` | staff: the decision with the rules that fired, their aggregates, the rule-set hash, timings and the linked transaction; API key: `{decision_id, external_id, decision, mode, decided_at}` |
 | `GET /v1/monitoring/rails` | staff | every rail's fail mode: the one an ADMIN set, or `XOLOTL_MONITORING_DECIDE_FAIL_MODE` with `explicit` false |
 | `PUT /v1/monitoring/rails/{rail}` | staff `ADMIN` | `{fail_mode}` for one rail, audited `monitoring.rail_setting_changed`; 404 `RAIL_UNKNOWN` for a rail that does not exist |
+| `GET /v1/monitoring/metrics?period=YYYY-MM[&rule_version_id=]` | staff (no API key) | the month's hits, `rules`, `typology_coverage`, `captures`, `decisions`; `alert_to_case_rate` and `case_to_report_rate` null until SP-06; 422 `PERIOD_INVALID` |
 | `GET /v1/monitoring/profiles/{relationship_id}` | staff | the relationship's last 12 behaviour profiles, newest first: `month`, `metrics`, `declared_profile`, `deviation`, `deviated`, `computed_at`; 404 for an unknown relationship |
 | `PATCH /v1/relationships/{id}` | staff writers; API key `parties:write` | `{declared_profile}` (`monthly_inflow_minor`, `monthly_outflow_minor`, `currency` `MXN`, `expected_countries`, `expected_instruments`), or `null` to clear it; audited `relationship.declared_profile_set`; 422 for another currency or an unknown field |
 
