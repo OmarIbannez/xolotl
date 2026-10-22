@@ -981,8 +981,9 @@ SP-04's measurements (`tests/perf/test_sp04_perf.py`) append to `.perf/sp04.json
 - `alert_latency_p95_over_1000_transactions` (`NFR-TM-002`): one 1,000-row batch
   over 100 relationships with ten planted cash-structuring scenarios, drained by
   one runner: the time from `received_at` to the last `processed_at`,
-  transactions per second, and the p50 and p95 of `rule_hit.created_at -
-  received_at` (the spec's 5 s p95). The test fails only past a 300 s drain.
+  transactions per second, the p50 and p95 of each row's `processed_at -
+  received_at`, and the p50 and p95 of `rule_hit.created_at - received_at` (the
+  spec's 5 s p95). The test fails only past a 300 s drain.
 - `counterparty_first_sight_throughput` (spec §11.1): 1,000 counterparties
   resolved in one minute (5 % carrying an OFAC name) and the first-sight job
   drained: counterparties screened per second (floor 20/s), the resolve rate,

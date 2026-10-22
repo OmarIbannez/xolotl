@@ -552,6 +552,8 @@ class AlertOutcome:
     """What the batch left behind once drained."""
 
     statuses: list[TransactionStatus]
+    # processed_at - received_at of every row, in seconds
+    processing_s: list[float]
     received: datetime
     last_processed: datetime
     # (rule_hit.created_at, the trigger's received_at) per CASH_STRUCTURING hit
@@ -562,9 +564,9 @@ class AlertOutcome:
 def _alert_outcome(tenant_id: UUID) -> AlertOutcome:
     with tenant_session(system_ctx(tenant_id)) as s:
         rows = s.execute(
-            select(Transaction.status, Transaction.received_at).where(
-                Transaction.external_id.like("a-%")
-            )
+            select(
+                Transaction.status, Transaction.received_at, Transaction.processed_at
+            ).where(Transaction.external_id.like("a-%"))
         ).all()
         last_processed = s.scalar(select(func.max(Transaction.processed_at)))
         hits = s.execute(
@@ -575,8 +577,13 @@ def _alert_outcome(tenant_id: UUID) -> AlertOutcome:
         all_hits = s.scalar(select(func.count()).select_from(RuleHit)) or 0
     assert last_processed is not None
     return AlertOutcome(
-        statuses=[status for status, _ in rows],
-        received=min(received for _, received in rows),
+        statuses=[status for status, _, _ in rows],
+        processing_s=[
+            (processed - received).total_seconds()
+            for _, received, processed in rows
+            if processed is not None
+        ],
+        received=min(received for _, received, _ in rows),
         last_processed=last_processed,
         hits=[(created, received) for created, received in hits],
         all_hits=all_hits,
@@ -630,6 +637,8 @@ def test_alert_latency_p95_over_1000_transactions(
         jobs=jobs,
         received_to_last_processed_s=round(elapsed, 2),
         transactions_per_s=round(ALERT_TRANSACTIONS / elapsed, 1),
+        processed_latency_p50_s=round(statistics.median(outcome.processing_s), 2),
+        processed_latency_p95_s=round(_quantile(outcome.processing_s, 20, 19), 2),
         structuring_hits=len(outcome.hits),
         all_hits=outcome.all_hits,
         hit_latency_p50_ms=round(statistics.median(hit_ms), 1),
