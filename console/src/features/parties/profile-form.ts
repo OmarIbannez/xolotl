@@ -11,19 +11,26 @@ import { msgKey } from '@/i18n/validation'
 export const INSTRUMENTS: readonly Instrument[] = ['TRANSFER', 'CASH', 'CARD', 'CHEQUE', 'CRYPTO', 'FX', 'FEE']
 
 const CENTS_PER_PESO = 100n
-/** Pesos with up to two decimals; 13 integer digits keep the centavos a safe JSON integer. */
-const PESOS = /^(\d{1,13})(?:\.(\d{1,2}))?$/
+/**
+ * Pesos with up to two decimals after a point. A comma is accepted only as thousands grouping
+ * ("125,000.50"), never as a decimal separator: "125000,50" read as grouping would declare 100 times
+ * the amount, so it is refused. 13 integer digits keep the centavos a safe JSON integer.
+ */
+const PESOS = /^(\d{1,3}(?:,\d{3})+|\d{1,13})(?:\.(\d{1,2}))?$/
+const MAX_WHOLE_DIGITS = 13
 const COUNTRY = /^[A-Z]{2}$/
 /** The API's instrument code pattern (`DeclaredProfile.expected_instruments`). */
 const INSTRUMENT = /^[A-Z_]{2,16}$/
 const DIGITS = /^\d+$/
 const SHARE = /^(\d+)\.(\d{4})$/
 
-/** "125,000.50" or "125000.5" pesos as centavos; null for anything else (a sign, a third decimal). */
+/** "125,000.50" or "125000.5" pesos as centavos; null for anything else (a sign, a third decimal, a decimal comma). */
 export function parseMxn(text: string): bigint | null {
-  const match = PESOS.exec(text.trim().replaceAll(',', ''))
+  const match = PESOS.exec(text.trim())
   if (match === null) return null
-  const [, whole = '0', fraction = ''] = match
+  const [, grouped = '0', fraction = ''] = match
+  const whole = grouped.replaceAll(',', '')
+  if (whole.length > MAX_WHOLE_DIGITS) return null
   return BigInt(whole) * CENTS_PER_PESO + BigInt(fraction.padEnd(2, '0'))
 }
 

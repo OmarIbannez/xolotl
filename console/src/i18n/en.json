@@ -149,7 +149,7 @@
     "ownership": "Enter a percentage above 0 and up to 100, with at most 4 decimals; it applies to shareholders only.",
     "uuid": "Paste the full id of the other person or company (it is in the address of its page).",
     "countryCodes": "Use two-letter country codes separated by commas, for example MX, VE.",
-    "amountMxn": "Enter an amount in pesos, unsigned, with at most two decimals, for example 125000.50.",
+    "amountMxn": "Enter an amount in pesos, unsigned, with a decimal point and at most two decimals, for example 125000.50. A comma only separates thousands (125,000.50).",
     "instrumentCodes": "Use upper-case instrument codes, for example CASH."
   },
   "home": {
@@ -597,7 +597,7 @@
         "description": "Expected monthly amounts in MXN. Every change is recorded in the audit log.",
         "inflow": "Monthly inflow (MXN)",
         "outflow": "Monthly outflow (MXN)",
-        "amountHint": "Pesos with at most two decimals.",
+        "amountHint": "Pesos with a decimal point and at most two decimals; a comma only separates thousands.",
         "countries": "Expected countries",
         "countriesHint": "Two-letter codes separated by commas, for example MX, US.",
         "instruments": "Expected instruments",
@@ -1806,7 +1806,7 @@
   "rails": {
     "title": "Rails",
     "description": "What a decision answers when the engine cannot evaluate it within its time budget.",
-    "explainer": "Permissive answers REVIEW: the operation goes ahead and is left for review. Restrictive answers BLOCK: the operation does not go through. A rail that is not set follows the installation's default mode.",
+    "explainer": "Permissive answers REVIEW; Restrictive answers BLOCK. What happens to the operation on each answer is up to the client that asked for the decision. A rail that is not set follows the installation's default mode.",
     "mode": {
       "FAIL_OPEN": "Permissive: review",
       "FAIL_CLOSED": "Restrictive: block"
@@ -1825,11 +1825,11 @@
     "confirm": {
       "FAIL_CLOSED": {
         "title": "Block on {{rail}}?",
-        "description": "When the engine cannot evaluate a {{rail}} operation within its time budget, the decision will be BLOCK and the operation will not go through, even a legitimate one."
+        "description": "When the engine cannot evaluate a {{rail}} operation within its time budget, the decision will be BLOCK, for a legitimate operation too."
       },
       "FAIL_OPEN": {
         "title": "Review on {{rail}}?",
-        "description": "When the engine cannot evaluate a {{rail}} operation within its time budget, the decision will be REVIEW: the operation goes ahead unevaluated and is left for review."
+        "description": "When the engine cannot evaluate a {{rail}} operation within its time budget, the decision will be REVIEW."
       },
       "submit": "Change mode",
       "pending": "Saving…"

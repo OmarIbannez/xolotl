@@ -27,7 +27,9 @@ describe('MXN amounts as minor units, without floats', () => {
     expect(parseMxn('125,000')).toBe(12500000n)
     expect(parseMxn(' 0 ')).toBe(0n)
     expect(parseMxn('0.07')).toBe(7n)
-    // Beyond a double's exact range a float would round; the conversion does not.
+    expect(parseMxn('1,234.5')).toBe(123450n)
+    expect(parseMxn('1,234,567.89')).toBe(123456789n)
+    // The 13-digit cap keeps the largest amount's centavos a safe integer for the JSON body.
     expect(parseMxn('9999999999999.99')).toBe(999999999999999n)
   })
 
@@ -37,6 +39,16 @@ describe('MXN amounts as minor units, without floats', () => {
     expect(parseMxn('12a')).toBeNull()
     expect(parseMxn('')).toBeNull()
     expect(parseMxn('10000000000000')).toBeNull()
+  })
+
+  it('takes a comma only as a thousands separator, never as a decimal one', () => {
+    // A decimal comma read as grouping would declare 100 times the amount.
+    expect(parseMxn('125000,50')).toBeNull()
+    expect(parseMxn('1,5')).toBeNull()
+    expect(parseMxn('1,2,3')).toBeNull()
+    expect(parseMxn('1234,567')).toBeNull()
+    expect(parseMxn(',125')).toBeNull()
+    expect(parseMxn('125,')).toBeNull()
   })
 
   it('writes centavos back as an input value', () => {

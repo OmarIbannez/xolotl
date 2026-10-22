@@ -149,7 +149,7 @@
     "ownership": "Escribe un porcentaje mayor que 0 y hasta 100, con 4 decimales como máximo; solo aplica a accionistas.",
     "uuid": "Pega el identificador completo de la otra persona o empresa (lo ves en la dirección de su página).",
     "countryCodes": "Usa códigos de país de dos letras separados por comas, por ejemplo MX, VE.",
-    "amountMxn": "Escribe un monto en pesos, sin signo y con dos decimales como máximo, por ejemplo 125000.50.",
+    "amountMxn": "Escribe un monto en pesos, sin signo, con punto decimal y dos decimales como máximo, por ejemplo 125000.50. La coma solo separa miles (125,000.50).",
     "instrumentCodes": "Usa códigos de instrumento en mayúsculas, por ejemplo CASH."
   },
   "home": {
@@ -597,7 +597,7 @@
         "description": "Montos mensuales esperados en MXN. Cada cambio queda en la bitácora de auditoría.",
         "inflow": "Entradas por mes (MXN)",
         "outflow": "Salidas por mes (MXN)",
-        "amountHint": "Pesos con dos decimales como máximo.",
+        "amountHint": "Pesos con punto decimal y dos decimales como máximo; la coma solo separa miles.",
         "countries": "Países esperados",
         "countriesHint": "Códigos de dos letras separados por comas, por ejemplo MX, US.",
         "instruments": "Instrumentos esperados",
@@ -1806,7 +1806,7 @@
   "rails": {
     "title": "Rieles",
     "description": "Qué responde una decisión cuando el motor no alcanza a evaluarla dentro del presupuesto.",
-    "explainer": "Permisivo responde REVISAR: la operación sigue su curso y queda para revisión. Restrictivo responde BLOQUEAR: la operación no pasa. Un riel sin configurar sigue el modo predeterminado de la instalación.",
+    "explainer": "Permisivo responde REVISAR; Restrictivo responde BLOQUEAR. Qué hace con la operación cada respuesta lo decide el cliente que pidió la decisión. Un riel sin configurar sigue el modo predeterminado de la instalación.",
     "mode": {
       "FAIL_OPEN": "Permisivo: revisar",
       "FAIL_CLOSED": "Restrictivo: bloquear"
@@ -1825,11 +1825,11 @@
     "confirm": {
       "FAIL_CLOSED": {
         "title": "¿Bloquear en {{rail}}?",
-        "description": "Si el motor no alcanza a evaluar una operación de {{rail}} dentro del presupuesto, la decisión será BLOQUEAR y la operación no pasará, aunque sea legítima."
+        "description": "Si el motor no alcanza a evaluar una operación de {{rail}} dentro del presupuesto, la decisión será BLOQUEAR, también para una operación legítima."
       },
       "FAIL_OPEN": {
         "title": "¿Revisar en {{rail}}?",
-        "description": "Si el motor no alcanza a evaluar una operación de {{rail}} dentro del presupuesto, la decisión será REVISAR: la operación seguirá su curso sin evaluar y quedará para revisión."
+        "description": "Si el motor no alcanza a evaluar una operación de {{rail}} dentro del presupuesto, la decisión será REVISAR."
       },
       "submit": "Cambiar modo",
       "pending": "Guardando…"

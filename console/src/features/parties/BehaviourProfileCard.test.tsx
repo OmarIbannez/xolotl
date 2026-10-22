@@ -86,6 +86,9 @@ describe('BehaviourProfileCard', () => {
     expect(within(rows[0] as HTMLElement).getByText('12.34 %')).toBeTruthy()
     const chart = screen.getByRole('img', { name: /2025.*2026/ })
     expect(chart.querySelectorAll('[data-bar]')).toHaveLength(24)
+    // The chart's numbers are in the metrics table, which describes it.
+    const described = document.getElementById(chart.getAttribute('aria-describedby') ?? '')
+    expect(described?.contains(screen.getByRole('table', { name: text.table.label }))).toBe(true)
     expect(screen.getByText(text.declared.none)).toBeTruthy()
   })
 

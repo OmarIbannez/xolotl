@@ -88,4 +88,43 @@ describe('DeclaredProfileDialog', () => {
     expect(await screen.findByText(esMX.errors.ROLE_FORBIDDEN)).toBeTruthy()
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  // The console never shows the server's English `msg`; the field gets the translated message.
+  it('shows a server refusal under the field it names and keeps the dialog open', async () => {
+    const refusal = () =>
+      new Response(
+        JSON.stringify({
+          type: 'about:blank',
+          title: 'Validation failed',
+          status: 422,
+          detail: 'invalid',
+          instance: '/v1/relationships/r1',
+          code: 'VALIDATION_FAILED',
+          errors: [
+            { loc: ['body', 'declared_profile', 'expected_countries', 0], msg: 'country not allowed', type: 'value_error' },
+            { loc: ['body', 'declared_profile', 'monthly_inflow_minor'], msg: 'inflow too large', type: 'value_error' },
+          ],
+        }),
+        { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+      )
+    const { user, onClose } = setup(null, { [PATCH]: refusal })
+
+    await user.type(screen.getByLabelText(text.inflow), '100')
+    await user.type(screen.getByLabelText(text.outflow), '100')
+    await user.type(screen.getByLabelText(text.countries), 'XX')
+    await user.click(screen.getByRole('button', { name: text.submit }))
+
+    const countries = screen.getByLabelText(text.countries)
+    await waitFor(() => expect(countries.getAttribute('aria-invalid')).toBe('true'))
+    expect(document.getElementById(countries.getAttribute('aria-describedby')?.split(' ').at(-1) ?? '')?.textContent).toBe(
+      esMX.validation.invalid,
+    )
+    const inflow = screen.getByLabelText(text.inflow)
+    expect(inflow.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(inflow.getAttribute('aria-describedby')?.split(' ').at(-1) ?? '')?.textContent).toBe(
+      esMX.validation.invalid,
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
 })

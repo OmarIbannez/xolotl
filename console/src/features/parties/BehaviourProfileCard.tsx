@@ -1,5 +1,5 @@
 import { Pencil, TriangleAlert, X } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { BehaviourProfileResponse, CustomerRelationshipResponse, Instrument } from '@/api/types'
@@ -56,10 +56,11 @@ const AXIS = 18
 
 /**
  * Inflow and outflow per month (oldest left), with each month's declared amounts as dashed lines.
+ * The metrics table, which carries every number, describes it for screen readers.
  * Pixel heights are the only place amounts become floats; every number shown is formatted from the
  * API's centavo strings.
  */
-function ProfileChart({ rows }: { rows: readonly BehaviourProfileResponse[] }) {
+function ProfileChart({ rows, describedBy }: { rows: readonly BehaviourProfileResponse[]; describedBy: string }) {
   const { t } = useTranslation()
   const locale = useLocale()
   const months = rows.toReversed().map((row) => ({
@@ -83,6 +84,7 @@ function ProfileChart({ rows }: { rows: readonly BehaviourProfileResponse[] }) {
     <figure className="space-y-2">
       <svg
         role="img"
+        aria-describedby={describedBy}
         aria-label={t('parties.profile.chart.label', {
           from: monthLabel(first, locale, 'long'),
           to: monthLabel(last, locale, 'long'),
@@ -222,6 +224,7 @@ export function BehaviourProfileCard({ relationship }: { relationship: CustomerR
   const clear = useSetDeclaredProfile(relationship.id)
   const [editing, setEditing] = useState(false)
   const [clearing, setClearing] = useState(false)
+  const tableId = useId()
   const hasDeclaration = relationship.declared_profile !== null && relationship.declared_profile !== undefined
 
   function cancelClear() {
@@ -289,14 +292,16 @@ export function BehaviourProfileCard({ relationship }: { relationship: CustomerR
   } else {
     body = (
       <>
-        <ProfileChart rows={profiles.data} />
-        <DataTable
-          label={t('parties.profile.table.label')}
-          columns={columns}
-          rows={profiles.data}
-          getRowId={(row) => row.month}
-          empty={t('parties.profile.empty')}
-        />
+        <ProfileChart rows={profiles.data} describedBy={tableId} />
+        <div id={tableId}>
+          <DataTable
+            label={t('parties.profile.table.label')}
+            columns={columns}
+            rows={profiles.data}
+            getRowId={(row) => row.month}
+            empty={t('parties.profile.empty')}
+          />
+        </div>
       </>
     )
   }
