@@ -174,6 +174,11 @@ class Settings(BaseSettings):
     monitoring_partition_months_ahead: int = Field(default=3, ge=1, le=12)
     # New counterparties each screening.screen_counterparties job screens (plan 4c).
     monitoring_counterparty_screen_batch: int = Field(default=100, ge=1)
+    # The decide path's budget in milliseconds, and what a rail without a setting
+    # answers when the budget or the database gives out: FAIL_OPEN answers REVIEW,
+    # FAIL_CLOSED answers BLOCK (plan 4c).
+    monitoring_decide_budget_ms: int = Field(default=80, ge=1)
+    monitoring_decide_fail_mode: Literal["FAIL_OPEN", "FAIL_CLOSED"] = "FAIL_OPEN"
     # Render and most PaaS hosts inject a bare PORT.
     port: int = Field(
         default=8000, validation_alias=AliasChoices("PORT", "XOLOTL_PORT")

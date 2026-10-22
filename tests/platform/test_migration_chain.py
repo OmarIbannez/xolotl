@@ -21,6 +21,7 @@ CHAIN = [
     "0011_screening_hit_run_index",
     "0012_transactions",
     "0013_rules_captures",
+    "0014_decide_profiles",
 ]
 
 

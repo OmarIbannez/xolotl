@@ -7,6 +7,7 @@ from xolotl.modules.monitoring.errors import (
     ExternalIdConflictError,
     FileInvalidError,
     FileTooLargeError,
+    RailUnknownError,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
 from xolotl.modules.screening.errors import (
@@ -84,6 +85,7 @@ from xolotl.platform.units.errors import (
         (FileTooLargeError, 413, "TRANSACTION_FILE_TOO_LARGE"),
         (FileInvalidError, 422, "TRANSACTION_FILE_INVALID"),
         (BackfillRangeInvalidError, 422, "BACKFILL_RANGE_INVALID"),
+        (RailUnknownError, 404, "RAIL_UNKNOWN"),
     ],
 )
 def test_error_status_and_default_code(cls, status, code):

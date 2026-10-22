@@ -111,6 +111,8 @@ driver is added.
 | `XOLOTL_MONITORING_AGG_BACKFILL_BATCH` | `5000` | Transactions each page of an aggregate backfill reads (1 or more). |
 | `XOLOTL_MONITORING_BATCH_MAX_ITEMS` | `1000` | Most transactions in one `POST /v1/transactions` batch (1 to 10000). |
 | `XOLOTL_MONITORING_COUNTERPARTY_SCREEN_BATCH` | `100` | New counterparties each first-sight `screening.screen_counterparties` job screens in one transaction (1 or more). |
+| `XOLOTL_MONITORING_DECIDE_BUDGET_MS` | `80` | Budget of one `POST /v1/transactions/decide`, in milliseconds (1 or more); past it the rail's fail mode answers. |
+| `XOLOTL_MONITORING_DECIDE_FAIL_MODE` | `FAIL_OPEN` | Fail mode of a rail without a setting: `FAIL_OPEN` answers `REVIEW`, `FAIL_CLOSED` answers `BLOCK`. |
 | `XOLOTL_MONITORING_FILE_CHUNK_ROWS` | `1000` | Rows of a transactions file ingested per page of the `monitoring.ingest_file` job (1 or more). |
 | `XOLOTL_MONITORING_FILE_MAX_MB` | `50` | Largest transactions file upload, in MB (1 to 1024). |
 | `XOLOTL_MONITORING_FILE_MAX_ROWS` | `500000` | Most rows in one transactions file. |
@@ -527,6 +529,11 @@ uv run xolotl monitoring partitions ensure                            # create t
 `monitoring backfill` audits the request (`monitoring.backfill_requested`), queues its
 job as the API does and runs it in place: the held rows of those Mexico City days are
 processed, late, with the same code as the worker.
+
+| Route | Who | What |
+|---|---|---|
+| `GET /v1/monitoring/rails` | staff | every rail's fail mode: the one an ADMIN set, or `XOLOTL_MONITORING_DECIDE_FAIL_MODE` with `explicit` false |
+| `PUT /v1/monitoring/rails/{rail}` | staff `ADMIN` | `{fail_mode}` for one rail, audited `monitoring.rail_setting_changed`; 404 `RAIL_UNKNOWN` for a rail that does not exist |
 
 ## Connectors
 
