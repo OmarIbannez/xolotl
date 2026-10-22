@@ -32,12 +32,30 @@ with ``BLOCK``, both with the one reason ``DECIDE_UNAVAILABLE``; never a 503. Th
 row is still written when it can be; a row that cannot be written is logged
 ``monitoring.decision_unrecorded`` and the answer goes out anyway (Deviation 9).
 
+When step 1 itself fails on the database, before the rail's setting was read, the
+configured default fail mode answers and no row can be written (it needs the
+relationship); the answer is logged ``monitoring.decision_unrecorded``. A second
+decision of one ``external_id`` stored at the very same instant is retried once a
+microsecond later, so ``ux_txn_decision_external`` never drops an answered one.
+
 The decide path never waits on processing: it takes no advisory lock and reads
-``agg_bucket`` without row locks, and a ``lock_timeout`` of the budget bounds the
-few writes that could meet another transaction's uncommitted row (the policy
-snapshot, the notice). A notice that times out is left to the path holding it.
-Nothing here creates a partition: ``txn_decision`` falls into its ``DEFAULT``
-partition when the month's is missing (partition maintenance runs months ahead).
+``agg_bucket`` without row locks. A ``statement_timeout`` of the remaining budget
+cancels a step's statement that stalls (a slow read), and a ``lock_timeout`` of the
+budget bounds the few writes that could meet another transaction's uncommitted row
+(the policy snapshot, the notice). A notice that times out is left to the
+transaction holding it; one that fails on the database is recorded by the next
+firing of the month (the next decision or the processed transaction), and the
+client already had ``TIER_LIMIT`` in this answer. Nothing here creates a
+partition: ``txn_decision`` falls into its ``DEFAULT`` partition when the month's
+is missing (partition maintenance runs months ahead).
+
+``latency_ms``, on the row and in the answer, is the whole call: the steps, the
+row's insert and the notice. ``db_ms`` is the time of the read steps (2 to 4).
+The first decision of a process, or the first after the rule-set cache
+(``XOLOTL_MONITORING_RULE_CACHE_SECONDS``) expired, loads the rule set and the
+policy cold and may pass a tight budget: on a ``FAIL_CLOSED`` rail that answer is
+``BLOCK``. Nothing is warmed at start-up (the caches are per tenant, date and
+product); C10 measures it.
 
 The client sees the decision, its id, the latency and ``reasons`` of codes only:
 ``TIER_LIMIT`` with the tier and limit code, ``RISK_REVIEW`` for any other firing,
@@ -47,7 +65,7 @@ row's ``reasons`` keep the rule versions and aggregates for staff.
 
 import logging
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
@@ -55,7 +73,7 @@ from uuid import UUID
 
 from pydantic import JsonValue
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.aggregates.declarations import (
@@ -144,10 +162,12 @@ _ANSWER: dict[FailMode, tuple[DecisionOutcome, DecisionMode]] = {
     FailMode.FAIL_CLOSED: (DecisionOutcome.BLOCK, DecisionMode.FAIL_CLOSED),
 }
 _UNAVAILABLE: tuple[dict[str, JsonValue], ...] = ({"code": DECIDE_UNAVAILABLE},)
-_LOCK_TIMEOUT = text(
-    "SELECT current_setting('lock_timeout'), set_config('lock_timeout', :value, true)"
-)
-_RESTORE_LOCK_TIMEOUT = text("SELECT set_config('lock_timeout', :value, true)")
+# Sets a timeout setting for the rest of the transaction; returns the old value.
+_SET_TIMEOUT = text("SELECT current_setting(:name), set_config(:name, :value, true)")
+_RESTORE_TIMEOUT = text("SELECT set_config(:name, :value, true)")
+# A second decision of one external_id at the very same instant moves this far, so
+# ux_txn_decision_external keeps both.
+_TIE_BREAK = timedelta(microseconds=1)
 # An ACCUM window measured on the 360-day scale may fall up to a week short of the
 # calendar (P1Y is 360 days); the seed reads that much further back.
 _ACCUM_SLACK = timedelta(days=7)
@@ -376,13 +396,15 @@ def _evaluate(
 
 
 @contextmanager
-def _lock_timeout(s: Session, budget_ms: int) -> Generator[None]:
-    # Postgres reads a lock_timeout of 0 as "wait forever".
-    previous = s.execute(_LOCK_TIMEOUT, {"value": f"{max(budget_ms, 1)}ms"}).scalar()
+def _timeout(s: Session, name: str, ms: int) -> Generator[None]:
+    # Postgres reads a timeout of 0 as "wait forever".
+    previous = s.execute(
+        _SET_TIMEOUT, {"name": name, "value": f"{max(ms, 1)}ms"}
+    ).scalar()
     try:
         yield
     finally:
-        _ = s.execute(_RESTORE_LOCK_TIMEOUT, {"value": previous})
+        _ = s.execute(_RESTORE_TIMEOUT, {"name": name, "value": previous})
 
 
 def record_decision(s: Session, row: TxnDecision) -> None:
@@ -445,13 +467,23 @@ def _attempt(
         return resolved, None
 
 
-def _stored(s: Session, row: TxnDecision) -> bool:
-    try:
-        with s.begin_nested():
-            record_decision(s, row)
-    except SQLAlchemyError:
-        return False
-    return True
+def _stored(
+    s: Session, build: Callable[[datetime], TxnDecision], now: datetime
+) -> TxnDecision | None:
+    # A decision of the same external_id stored at the same instant (no
+    # idempotency key, a frozen clock) is another decision: it is retried once, a
+    # microsecond on.
+    for at in (now, now + _TIE_BREAK):
+        row = build(at)
+        try:
+            with s.begin_nested():
+                record_decision(s, row)
+        except IntegrityError:
+            continue
+        except SQLAlchemyError:
+            return None
+        return row
+    return None
 
 
 def decide(s: Session, item: TransactionInput, *, actor: str) -> DecisionResult:
@@ -473,8 +505,13 @@ def decide(s: Session, item: TransactionInput, *, actor: str) -> DecisionResult:
     timer = _Timer(budget_ms=get_settings().monitoring_decide_budget_ms)
     decision_id = uuid7()
     now = clock.now()
-    with _lock_timeout(s, timer.budget_ms):
-        resolved, evaluated = _attempt(s, item, now=now, timer=timer)
+    with _timeout(s, "lock_timeout", timer.budget_ms):
+        # Cancels a step's statement that stalls past the budget without waiting
+        # on a lock (an OperationalError, so the fail mode answers). Set outside
+        # the steps' savepoint, so its rollback keeps the setting.
+        remaining = timer.budget_ms - timer.elapsed_ms()
+        with _timeout(s, "statement_timeout", remaining):
+            resolved, evaluated = _attempt(s, item, now=now, timer=timer)
         if evaluated is not None:
             decision, mode = evaluated.decision, DecisionMode.EVALUATED
             reasons = evaluated.reasons
@@ -482,29 +519,35 @@ def decide(s: Session, item: TransactionInput, *, actor: str) -> DecisionResult:
             fail_mode = default_fail_mode() if resolved is None else resolved.fail_mode
             decision, mode = _ANSWER[fail_mode]
             reasons = _UNAVAILABLE
-        latency_ms = timer.elapsed_ms()
-        recorded = resolved is not None and _stored(
-            s,
-            TxnDecision(
-                tenant_id=bound_context(s).require_tenant_id(),
-                decided_at=now,
-                id=decision_id,
-                external_id=item.external_id,
-                rail=item.rail,
-                relationship_id=resolved.relationship.id,
-                account_id=resolved.account_id,
-                decision=decision,
-                mode=mode,
-                reasons=list(reasons),
-                # Nothing was evaluated under the fail mode, so no rule set.
-                ruleset_hash=b"" if evaluated is None else evaluated.ruleset_hash,
-                policy_snapshot_id=None if evaluated is None else evaluated.snapshot_id,
-                latency_ms=latency_ms,
-                db_ms=int(timer.db_seconds * _MS),
-                actor=actor,
-            ),
-        )
-        if not recorded:
+
+        row: TxnDecision | None = None
+        if resolved is not None:
+            customer = resolved
+
+            def build(at: datetime) -> TxnDecision:
+                return TxnDecision(
+                    tenant_id=bound_context(s).require_tenant_id(),
+                    decided_at=at,
+                    id=decision_id,
+                    external_id=item.external_id,
+                    rail=item.rail,
+                    relationship_id=customer.relationship.id,
+                    account_id=customer.account_id,
+                    decision=decision,
+                    mode=mode,
+                    reasons=list(reasons),
+                    # Nothing was evaluated under the fail mode, so no rule set.
+                    ruleset_hash=b"" if evaluated is None else evaluated.ruleset_hash,
+                    policy_snapshot_id=(
+                        None if evaluated is None else evaluated.snapshot_id
+                    ),
+                    latency_ms=timer.elapsed_ms(),
+                    db_ms=int(timer.db_seconds * _MS),
+                    actor=actor,
+                )
+
+            row = _stored(s, build, now)
+        if row is None:
             logger.warning(
                 DECISION_UNRECORDED,
                 extra={
@@ -515,6 +558,11 @@ def decide(s: Session, item: TransactionInput, *, actor: str) -> DecisionResult:
             )
         elif evaluated is not None:
             _notify_limits(s, evaluated)
+        latency_ms = timer.elapsed_ms()
+        if row is not None:
+            # The whole request's time, the insert and the notice included; the
+            # update goes out with the request's commit.
+            row.latency_ms = latency_ms
     return DecisionResult(
         decision=decision,
         decision_id=decision_id,

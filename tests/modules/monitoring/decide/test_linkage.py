@@ -14,6 +14,7 @@ from sqlalchemy import select
 from tests.helpers import system_ctx
 from tests.modules.monitoring.decide.support import (
     DECISIONS,
+    N2,
     NOW,
     UDI_100,
     UDI_350,
@@ -139,7 +140,7 @@ def test_the_latest_decision_of_an_external_id_is_the_one_linked(
 def test_linking_nothing_writes_nothing(decide_stage: DecideStage):
     with tenant_session(system_ctx(decide_stage.tenant_id)) as s:
         assert link_decisions(s, []) == 0
-        assert link_decisions(s, [(UUID(int=1), NOW, "nobody")]) == 0
+        assert link_decisions(s, [(UUID(int=1), NOW, "nobody", UUID(int=2))]) == 0
         assert s.scalars(select(TxnDecision)).all() == []
 
 
@@ -167,3 +168,21 @@ def test_the_hit_detail_shows_the_decision(
         "EVALUATED",
     )
     assert datetime.fromisoformat(decision["decided_at"]) == NOW
+
+
+def test_a_decision_of_another_customer_is_not_linked(
+    client: TestClient, decide_stage: DecideStage
+):
+    # The client reused an external_id across customers: no cross-customer link.
+    decision_id = _decide(client, decide_stage, candidate("pay-1", UDI_100))
+
+    [txn_id] = ingest(
+        decide_stage.stage,
+        [candidate("pay-1", UDI_100, customer_ref=N2)],
+        received=NOW + timedelta(hours=1),
+    )
+
+    decision = decision_row(decide_stage.tenant_id, decision_id)
+    assert decision is not None
+    assert decision.transaction_id is None
+    assert _transaction(decide_stage.tenant_id, txn_id).decision_id is None

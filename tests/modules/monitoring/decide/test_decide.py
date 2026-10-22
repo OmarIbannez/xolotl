@@ -10,6 +10,7 @@ mode answers 200 and never a 503. It never waits on processing's locks.
 import hashlib
 import logging
 import time
+from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -19,6 +20,7 @@ from fastapi.testclient import TestClient
 from httpx2 import Response
 from sqlalchemy import Engine, select, text, update
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from tests.helpers import staff_session, system_ctx
 from tests.modules.monitoring.decide.support import (
@@ -444,10 +446,13 @@ def test_a_notice_held_by_another_transaction_does_not_hold_the_decision(
     assert body["decision"] == "BLOCK"
     # It waited for the notice no longer than the lock timeout (the budget).
     assert 1 <= waited < 10
+    # The answer's latency and the row's include that wait.
+    assert body["latency_ms"] >= 1000
     assert [r for r in caplog.records if r.message == service.NOTICE_DEFERRED]
     row = decision_row(tenant_id, str(body["decision_id"]))
     assert row is not None
     assert row.mode == "EVALUATED"
+    assert row.latency_ms == body["latency_ms"]
     with tenant_session(system_ctx(tenant_id)) as s:
         [notice] = s.scalars(select(TierLimitNotice)).all()
     assert notice.source == "PROCESS"
@@ -465,3 +470,45 @@ def test_the_decision_is_stamped_with_the_clock(
     assert row.decided_at.astimezone(MEXICO_CITY_ZONE).date().isoformat() == (
         "2026-12-14"
     )
+
+
+def test_a_slow_query_is_cancelled_at_the_budget(
+    client: TestClient, decide_stage: DecideStage, monkeypatch: pytest.MonkeyPatch
+):
+    # A read that stalls without waiting on a lock is cut off by statement_timeout.
+    monkeypatch.setattr(get_settings(), "monitoring_decide_budget_ms", 200)
+
+    def stalled(s: Session) -> frozenset[str]:
+        _ = s.execute(text("SELECT pg_sleep(2)"))
+        return frozenset()
+
+    monkeypatch.setattr(service, "backfilled_ids", stalled)
+    started = time.monotonic()
+
+    body = _ok(ask(client, decide_stage.writer, candidate("d-1", UDI_100)))
+
+    assert time.monotonic() - started < 1.5
+    assert (body["decision"], body["reasons"]) == (
+        "REVIEW",
+        [{"code": "DECIDE_UNAVAILABLE"}],
+    )
+    row = decision_row(decide_stage.tenant_id, str(body["decision_id"]))
+    assert row is not None
+    assert row.mode == "FAIL_OPEN"
+
+
+def test_a_second_decision_at_the_same_instant_is_still_recorded(
+    client: TestClient, decide_stage: DecideStage
+):
+    # Same external_id, same frozen clock, two keys: the second row moves a microsecond.
+    first = _ok(ask(client, decide_stage.writer, candidate("d-1", UDI_100), key="a"))
+    second = _ok(ask(client, decide_stage.writer, candidate("d-1", UDI_50), key="b"))
+
+    rows = [
+        decision_row(decide_stage.tenant_id, str(body["decision_id"]))
+        for body in (first, second)
+    ]
+    assert all(row is not None for row in rows)
+    assert decision_count(decide_stage.tenant_id) == 2
+    decided = [row.decided_at for row in rows if row is not None]
+    assert decided[1] - decided[0] == timedelta(microseconds=1)

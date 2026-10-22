@@ -749,7 +749,9 @@ mode answers (`FAIL_OPEN`: `REVIEW`, `FAIL_CLOSED`: `BLOCK`, reason
 `DECIDE_UNAVAILABLE`); the route never answers 503. Every answer is stored in
 `txn_decision` and linked to the transaction submitted later under the same
 `external_id` (within seven days). The client sees codes only: `TIER_LIMIT` with the
-tier and limit, or `RISK_REVIEW`; never a rule name.
+tier and limit, or `RISK_REVIEW`; never a rule name. The first decision after a
+start (or after the rule-set cache expires) loads the rules and policy cold and may
+pass a tight budget, which on a `FAIL_CLOSED` rail answers `BLOCK`.
 
 | Route | Who | What |
 |---|---|---|

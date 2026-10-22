@@ -17,7 +17,8 @@ Deviation 4 left step 3, decision linking, to plan 4c):
    when a concurrent batch won the ref, the row is deleted again, its
    counterparty count taken back, and the item is classified as above.
 3. Link the created rows to their decisions (plan 4c C5's ``link_decisions``):
-   the latest decision of each ``external_id`` from the last seven days.
+   the latest decision of each ``external_id`` and relationship from the last
+   seven days.
 4. Enqueue one ``monitoring.process`` job per party with a ``RECEIVED`` row.
 5. Publish ``monitoring.transaction_batch_accepted.v1``.
 
@@ -462,7 +463,11 @@ def ingest_batch(
     batch.duplicates = len(items) - len(created)
     session.flush()
     _ = link_decisions(
-        session, [(row.id, row.occurred_at, row.external_id) for row in created]
+        session,
+        [
+            (row.id, row.occurred_at, row.external_id, row.relationship_id)
+            for row in created
+        ],
     )
     party_ids = frozenset(row.party_id for row in received)
     _ = enqueue_processing(session, queue, party_ids)
