@@ -15,6 +15,7 @@ from uuid import UUID
 import psycopg
 import typer
 import uvicorn
+import yaml
 from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
@@ -35,6 +36,12 @@ from xolotl.modules.monitoring.process.partitions import (
 )
 from xolotl.modules.monitoring.process.sweep import sweep
 from xolotl.modules.monitoring.rules.library import TYPOLOGIES_DIR, read_library
+from xolotl.modules.monitoring.rules.templates import (
+    definition_of,
+    load_templates,
+    template_version,
+)
+from xolotl.modules.monitoring.rules.versions import WRITERS, seed_tenant_rules
 from xolotl.modules.monitoring.txn.files import (
     CSV_TYPE,
     JSONL_TYPE,
@@ -77,7 +84,7 @@ from xolotl.modules.screening.errors import ListMassRemovalError
 from xolotl.modules.screening.lists import ListFormatError
 from xolotl.modules.screening.rescreen.walkers import start_rescreen
 from xolotl.modules.tenants import service
-from xolotl.modules.tenants.models import Tenant
+from xolotl.modules.tenants.models import StaffUser, Tenant
 from xolotl.platform import clock, migrate
 from xolotl.platform.audit import verify_chain
 from xolotl.platform.calendar import read_holiday_file, seed_holidays
@@ -94,7 +101,7 @@ from xolotl.platform.db import (
     get_sessionmaker,
     tenant_session,
 )
-from xolotl.platform.enums import HolidayScope, KeyPurpose, TenantEnv
+from xolotl.platform.enums import HolidayScope, KeyPurpose, StaffStatus, TenantEnv
 from xolotl.platform.errors import NotFoundError, ValidationFailedError, XolotlError
 from xolotl.platform.events import InAppNotifier
 from xolotl.platform.ids import uuid7
@@ -314,6 +321,38 @@ def _seed_list_sources(path: Path = SOURCES_FILE) -> str:
     )
 
 
+def _typologies_dir() -> Path:
+    # The library inside packs_dir, which the image sets to /app/policy-packs.
+    return get_settings().packs_dir / TYPOLOGIES_DIR.relative_to("policy-packs")
+
+
+def _load_rules(path: Path) -> tuple[list[str], str]:
+    """Install the typology library as the database owner.
+
+    Returns:
+        One line per template version created, and the count line.
+
+    """
+    files = read_library(path)
+    owner = sessionmaker(bind=get_admin_engine(), expire_on_commit=False)
+    actor = _cli_actor()
+    with tenant_session(TenantContext.platform(actor), factory=owner) as s:
+        report = load_templates(s, files, loaded_by=actor)
+    created = [f"created {label}" for label in report.created]
+    return created, f"{len(report.created)} created, {len(report.unchanged)} unchanged"
+
+
+def _load_rule_library() -> str:
+    """Load the typology library; ``db upgrade`` and ``serve`` run it after the lists.
+
+    Returns:
+        The one-line report, such as ``rule templates: 16 created, 0 unchanged``.
+
+    """
+    _, counts = _load_rules(_typologies_dir())
+    return f"rule templates: {counts}"
+
+
 def _resolve_tenant(actor: str, slug: str) -> tuple[UUID, str]:
     """Look a tenant up by slug as the platform operator.
 
@@ -364,6 +403,7 @@ def serve(
         _ = migrate.ensure_app_role()
         migrate.upgrade()
         logger.info(_seed_list_sources())
+        logger.info(_load_rule_library())
         assert_app_role_safe(get_engine())
     _report_object_store(settings.object_store_root)
     uvicorn.run(
@@ -407,7 +447,7 @@ def db_bootstrap() -> None:
 
 @db_app.command("upgrade")
 def db_upgrade() -> None:
-    """Apply migrations up to head, then seed the shared list catalog.
+    """Apply migrations up to head, then seed the list catalog and the rule library.
 
     Logs what the migrations do like ``serve`` does. Exits 1 with one line on stderr
     when the database cannot be reached.
@@ -416,7 +456,9 @@ def db_upgrade() -> None:
     with _cli_errors():
         migrate.upgrade()
         seeded = _seed_list_sources()
+        rules = _load_rule_library()
     typer.echo(seeded)
+    typer.echo(rules)
     typer.echo("database upgraded to head")
 
 
@@ -884,6 +926,107 @@ def rules_validate(
         digest = template.definition_hash.hex()[:12]
         kind = template.definition.kind
         typer.echo(f"{template.code} v{template.version} {kind} {digest} {packs}")
+
+
+@rules_app.command("load")
+def rules_load(
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="The typology library directory; default the MX library"),
+    ] = None,
+) -> None:
+    """Install the typology library (idempotent; template versions are immutable).
+
+    Runs as the database owner, the only role that writes the template tables.
+    Prints one line per template version created and a count; a loaded version
+    whose definition changed is refused and nothing is written.
+    """
+    with _cli_errors():
+        created, counts = _load_rules(path or _typologies_dir())
+    for line in created:
+        typer.echo(line)
+    typer.echo(counts)
+
+
+@rules_app.command("show")
+def rules_show(
+    code: Annotated[
+        str, typer.Argument(help="Template code, such as CASH_STRUCTURING")
+    ],
+    *,
+    version: Annotated[
+        int | None, typer.Option(help="The loaded version; default the latest")
+    ] = None,
+) -> None:
+    """Print a loaded template's definition as YAML and its sentence in both locales."""
+    with (
+        _cli_errors(),
+        tenant_session(TenantContext.platform(_cli_actor())) as s,
+    ):
+        row = template_version(s, code, version)
+        definition = definition_of(row)
+        shown = yaml.safe_dump(
+            {"code": code, "version": row.version, "definition": row.definition},
+            sort_keys=False,
+            allow_unicode=True,
+        )
+    typer.echo(shown, nl=False)
+    typer.echo(f"es-MX: {definition.render('es-MX')}")
+    typer.echo(f"en: {definition.render('en')}")
+
+
+def _rule_author_id(session: Session, email: str) -> UUID:
+    """Find an active staff user of the session's tenant who writes rules.
+
+    Returns:
+        The user's id.
+
+    Raises:
+        NotFoundError: When the tenant has no such active user.
+        ValidationFailedError: When the user is not a senior analyst, an MLRO or
+            an admin, so could not take the drafts further.
+
+    """
+    user = session.scalar(
+        select(StaffUser).where(
+            func.lower(StaffUser.email) == email.strip().lower(),
+            StaffUser.status == StaffStatus.ACTIVE,
+        )
+    )
+    if user is None:
+        msg = f"no staff user {email!r} in this tenant"
+        raise NotFoundError(msg)
+    if not {role.value for role in WRITERS} & set(user.roles):
+        msg = "the author must be a senior analyst, an MLRO or an admin"
+        raise ValidationFailedError(msg)
+    return user.id
+
+
+@rules_app.command("seed-tenant")
+def rules_seed_tenant(
+    *,
+    tenant: Annotated[str, typer.Option("--tenant", help="Tenant slug")],
+    author: Annotated[
+        str, typer.Option("--author", help="Email of the staff user who authors them")
+    ],
+) -> None:
+    """Give a tenant a draft rule of every template its assigned packs carry.
+
+    Templates the tenant already has a rule for are skipped. Prints one line per
+    draft created.
+    """
+    actor = _cli_actor()
+    with _cli_errors():
+        tenant_id, slug = _resolve_tenant(actor, tenant)
+        with tenant_session(TenantContext.platform(actor, tenant_id=tenant_id)) as s:
+            author_id = _rule_author_id(s, author)
+            lines = [
+                f"draft {row.definition['code']} v{row.version} ({row.id})"
+                for row in seed_tenant_rules(s, author_id=author_id)
+            ]
+    for line in lines:
+        typer.echo(line)
+    typer.echo(f"{len(lines)} drafts for {slug}")
 
 
 @lists_app.command("seed")

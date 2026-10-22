@@ -278,6 +278,7 @@ def test_env_example_is_a_valid_configuration():
         "monitoring_partitions_cron",
         "monitoring_partition_months_ahead",
         "monitoring_counterparty_screen_batch",
+        "monitoring_allow_custom_rules",
     } <= s.model_fields_set
     assert s.master_key_bytes == make_settings().master_key_bytes
 
@@ -698,6 +699,7 @@ def test_monitoring_settings_default_to_the_spec_values():
     assert s.monitoring_partitions_cron == "0 1 * * *"
     assert s.monitoring_partition_months_ahead == 3
     assert s.monitoring_counterparty_screen_batch == 100
+    assert s.monitoring_allow_custom_rules is False
 
 
 @pytest.mark.parametrize(
