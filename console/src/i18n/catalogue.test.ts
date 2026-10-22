@@ -46,6 +46,10 @@ const SAME_IN_BOTH = new Set([
   'parties.identifierType.NIT',
   'lists.idType.RFC', // identifier acronyms on list entries, as parties.identifierType
   'lists.idType.CURP',
+  'transactions.rail.SPEI', // payment rail names: the same text in both languages
+  'transactions.rail.CODI',
+  'transactions.rail.SWIFT',
+  'transactions.channel.API',
 ])
 
 describe('translation catalogues', () => {
@@ -100,6 +104,12 @@ describe('translation catalogues', () => {
       'PRIVATE_LIST_EXISTS',
       'DISPOSITION_NOT_ALLOWED',
       'SCREENING_INDEX_UNAVAILABLE',
+      'TRANSACTION_BATCH_INVALID',
+      'TRANSACTION_BATCH_TOO_LARGE',
+      'EXTERNAL_ID_CONFLICT',
+      'TRANSACTION_FILE_TOO_LARGE',
+      'TRANSACTION_FILE_INVALID',
+      'BACKFILL_RANGE_INVALID',
       'INTERNAL',
       'NETWORK_ERROR',
     ]

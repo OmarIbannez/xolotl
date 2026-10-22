@@ -49,6 +49,7 @@
     "privateLists": "Private lists",
     "screeningEvaluation": "Matcher evaluation",
     "screeningCheck": "Ad hoc check",
+    "transactions": "Transactions",
     "counterparties": "Counterparties"
   },
   "header": {
@@ -1120,7 +1121,6 @@
       "initials": "Initials",
       "identifiers": "Identifiers",
       "openParty": "Open customer",
-      "openCounterparty": "Open counterparty",
       "list": "List",
       "score": "Score",
       "band": "Band",
@@ -1193,7 +1193,8 @@
       "timelineEmpty": "No decisions yet.",
       "decidedBy": "Decided by",
       "system": "System",
-      "staffMember": "Staff"
+      "staffMember": "Staff",
+      "openCounterparty": "Open counterparty"
     },
     "decision": {
       "FALSE_POSITIVE": "False positive",
@@ -1346,6 +1347,240 @@
       "noFinding": "No finding"
     }
   },
+  "transactions": {
+    "title": "Transactions",
+    "description": "The transactions the client sent, with their processing status, their unit amounts and their masked counterparty.",
+    "empty": "No transactions match these filters.",
+    "lateBadge": "Late",
+    "table": {
+      "label": "Transactions",
+      "externalId": "External id",
+      "occurredAt": "Occurred at (Mexico City time)",
+      "customer": "Customer",
+      "instrumentRail": "Instrument and rail",
+      "amount": "Amount",
+      "status": "Status"
+    },
+    "filters": {
+      "partyId": "Party id",
+      "externalId": "External id",
+      "from": "From",
+      "to": "To",
+      "status": "Status",
+      "statusAll": "All statuses",
+      "instrument": "Instrument",
+      "instrumentAll": "All instruments",
+      "rail": "Rail",
+      "railAll": "All rails",
+      "late": "Late only",
+      "apply": "Apply",
+      "clear": "Clear",
+      "rangeInvalid": "The start date must be on or before the end date.",
+      "partyIdInvalid": "Type the party id as its page shows it."
+    },
+    "status": {
+      "RECEIVED": "Received",
+      "PROCESSED": "Processed",
+      "PARKED": "Parked",
+      "BACKFILL": "Awaiting backfill"
+    },
+    "instrument": {
+      "CASH": "Cash",
+      "TRANSFER": "Transfer",
+      "CARD": "Card",
+      "CHEQUE": "Check",
+      "CRYPTO": "Crypto asset",
+      "FX": "Foreign exchange",
+      "FEE": "Fee"
+    },
+    "rail": {
+      "SPEI": "SPEI",
+      "CODI": "CoDi",
+      "CASH": "Cash",
+      "CARD": "Card network",
+      "WALLET": "Wallet",
+      "SWIFT": "SWIFT",
+      "CRYPTO_ONCHAIN": "On-chain",
+      "OTHER": "Other"
+    },
+    "direction": {
+      "IN": "Incoming",
+      "OUT": "Outgoing",
+      "INTERNAL": "Internal"
+    },
+    "channel": {
+      "APP": "Mobile app",
+      "WEB": "Website",
+      "API": "API",
+      "BRANCH": "Branch",
+      "ATM": "ATM",
+      "AGENT": "Agent",
+      "OTHER": "Other"
+    },
+    "counterpartyKind": {
+      "PERSON": "Natural person",
+      "ORGANIZATION": "Legal entity",
+      "UNKNOWN": "Unspecified"
+    },
+    "parkReason": {
+      "UNIT_VALUE_MISSING": "A unit value for its date is missing",
+      "POLICY_NOT_ASSIGNED": "The tenant has no policy assigned for its date"
+    },
+    "screeningStatus": {
+      "UNSCREENED": "Not screened",
+      "CLEAR": "Clear",
+      "PENDING_REVIEW": "Under review",
+      "TRUE_MATCH": "Confirmed match"
+    },
+    "rule": {
+      "SAME_DAY": "Same-day value",
+      "PRIOR_BANKING_DAY": "Prior banking day value",
+      "LAST_DAY_PREV_MONTH": "Last day of the previous month",
+      "PREV_MONTH_AVG": "Previous month average",
+      "SEMIANNUAL_SNAPSHOT": "Semiannual value"
+    },
+    "detail": {
+      "title": "Transaction detail",
+      "back": "Back to transactions",
+      "revealNotice": "This view was recorded in the audit log.",
+      "fields": {
+        "title": "Transaction data",
+        "externalId": "External id",
+        "status": "Status",
+        "occurredAt": "Occurred at",
+        "receivedAt": "Received at",
+        "processedAt": "Processed at",
+        "party": "Party",
+        "account": "Account",
+        "product": "Product",
+        "direction": "Direction",
+        "channel": "Channel",
+        "instrument": "Instrument",
+        "rail": "Rail",
+        "amount": "Amount",
+        "fee": "Fee",
+        "asset": "Asset",
+        "purposeCode": "Purpose code",
+        "tier": "Account tier",
+        "riskRating": "Risk rating",
+        "monitoringProfile": "Monitoring profile",
+        "snapshot": "Policy snapshot",
+        "batch": "Batch",
+        "device": "Device on record",
+        "geo": "Location",
+        "timeZone": "Dates and times in Mexico City time."
+      },
+      "units": {
+        "title": "Unit amounts",
+        "description": "The amount converted to every unit of the effective policy, with the unit value used.",
+        "label": "Unit amounts",
+        "unit": "Unit",
+        "rule": "Conversion basis",
+        "amount": "Amount",
+        "unitValue": "Unit value",
+        "resolvedDate": "Value date",
+        "empty": "No unit amounts yet: the transaction has not been processed."
+      },
+      "periods": {
+        "title": "Periods",
+        "DAY": "Day",
+        "MONTH": "Month",
+        "QUARTER": "Quarter",
+        "BUSINESS_DAY": "Business day",
+        "empty": "No periods yet: the transaction has not been processed."
+      },
+      "counterparty": {
+        "title": "Counterparty",
+        "none": "The transaction has no counterparty.",
+        "kind": "Kind",
+        "institution": "Institution",
+        "country": "Country",
+        "walletNetwork": "Wallet network",
+        "onRecord": "On record",
+        "nothingOnRecord": "None",
+        "has_name": "Name on record",
+        "has_account": "Account on record",
+        "has_wallet": "Wallet on record",
+        "has_identifier": "Identifier on record",
+        "screeningStatus": "List screening status",
+        "statusAtProcessing": "Status when processed",
+        "txnCount": "Transactions with this counterparty",
+        "name": "Name",
+        "account": "Account",
+        "wallet": "Wallet",
+        "identifier": "Identifier"
+      },
+      "reveal": {
+        "button": "Reveal",
+        "hide": "Hide",
+        "running": "Revealing…"
+      },
+      "raw": {
+        "title": "Payload as sent",
+        "description": "The transaction as the client sent it. Revealing it is recorded in the audit log."
+      },
+      "parked": {
+        "title": "On hold",
+        "reason": "Reason",
+        "unit": "Unit",
+        "neededOn": "Needed for",
+        "attempts": "Attempts",
+        "parkedAt": "On hold since",
+        "lastError": "Last error"
+      }
+    }
+  },
+  "forbidden": {
+    "title": "No access",
+    "body": "Your role does not allow viewing this section."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "body": "The page you are looking for does not exist or has moved."
+  },
+  "boot": {
+    "errorTitle": "Your session could not be loaded"
+  },
+  "errors": {
+    "generic": "An unexpected error occurred. Try again.",
+    "reference": "Reference: {{id}}",
+    "UNAUTHENTICATED": "Your session is not valid or has expired. Sign in again.",
+    "ROLE_FORBIDDEN": "Your role is not allowed to perform this action.",
+    "SCOPE_MISSING": "The credential does not include the permission this operation needs.",
+    "TENANT_SUSPENDED": "The workspace is suspended. Contact your administrator.",
+    "PASSWORD_CHANGE_REQUIRED": "You must change your password before continuing.",
+    "FORBIDDEN": "You are not allowed to perform this action.",
+    "NOT_FOUND": "We could not find what you were looking for.",
+    "CONFLICT": "The operation conflicts with the current state. Refresh and try again.",
+    "BAD_REQUEST": "The request is not valid.",
+    "IDEMPOTENCY_KEY_REQUIRED": "The request is missing its idempotency key.",
+    "IDEMPOTENCY_KEY_REUSED": "This request was already sent with different data. Start again.",
+    "IDEMPOTENCY_IN_PROGRESS": "The previous request is still being processed. Wait a moment and try again.",
+    "VALIDATION_FAILED": "Check the data you entered: some values are not valid.",
+    "INTERNAL": "An internal error occurred. Try again in a few minutes.",
+    "NETWORK_ERROR": "Could not reach the server. Check your connection and try again.",
+    "CONNECTOR_NO_ROUTE": "No connector serves this check in this country.",
+    "UNIT_VALUE_MISSING": "The unit's value for that date is missing, and nothing fills it in silently. Try again once it is published.",
+    "POLICY_NOT_ASSIGNED": "No policy pack is assigned for that date and product.",
+    "POLICY_LOOSENING": "The override would loosen the policy: only overrides stricter than the pack are allowed.",
+    "IDENTIFIER_EXISTS": "A party with that identifier already exists.",
+    "IDENTIFIER_INVALID": "The identifier is not valid for its type.",
+    "OBJECT_CORRUPT": "The stored file failed its integrity check. Tell support.",
+    "LIST_MANDATORY": "This list is mandatory and cannot be turned off.",
+    "LIST_MASS_REMOVAL": "The new version removed too many records at once and was refused.",
+    "LIST_FORMAT_INVALID": "The list file is not in the expected format.",
+    "LIST_CODE_UNSUPPORTED": "This list cannot be read yet.",
+    "PRIVATE_LIST_INVALID": "The file has rows that do not follow the template; nothing was loaded.",
+    "PRIVATE_LIST_EXISTS": "A private list with this code already exists.",
+    "DISPOSITION_NOT_ALLOWED": "This decision is not allowed on this finding.",
+    "SCREENING_INDEX_UNAVAILABLE": "Screening is not ready yet. Try again in a few minutes.",
+    "TRANSACTION_BATCH_INVALID": "The batch has transactions with invalid data.",
+    "TRANSACTION_BATCH_TOO_LARGE": "The batch exceeds the maximum number of transactions.",
+    "EXTERNAL_ID_CONFLICT": "A transaction with that external id and different data already exists.",
+    "TRANSACTION_FILE_TOO_LARGE": "The file exceeds the maximum size allowed.",
+    "TRANSACTION_FILE_INVALID": "The file could not be read: check its format and headers.",
+    "BACKFILL_RANGE_INVALID": "The backfill date range is not valid."
+  },
   "counterparties": {
     "title": "Counterparties",
     "description": "The other side of each transaction, masked, with its screening status. Open one to see its findings.",
@@ -1413,50 +1648,5 @@
       "identifier": "Identifier",
       "empty": "No personal data to show."
     }
-  },
-  "forbidden": {
-    "title": "No access",
-    "body": "Your role does not allow viewing this section."
-  },
-  "notFound": {
-    "title": "Page not found",
-    "body": "The page you are looking for does not exist or has moved."
-  },
-  "boot": {
-    "errorTitle": "Your session could not be loaded"
-  },
-  "errors": {
-    "generic": "An unexpected error occurred. Try again.",
-    "reference": "Reference: {{id}}",
-    "UNAUTHENTICATED": "Your session is not valid or has expired. Sign in again.",
-    "ROLE_FORBIDDEN": "Your role is not allowed to perform this action.",
-    "SCOPE_MISSING": "The credential does not include the permission this operation needs.",
-    "TENANT_SUSPENDED": "The workspace is suspended. Contact your administrator.",
-    "PASSWORD_CHANGE_REQUIRED": "You must change your password before continuing.",
-    "FORBIDDEN": "You are not allowed to perform this action.",
-    "NOT_FOUND": "We could not find what you were looking for.",
-    "CONFLICT": "The operation conflicts with the current state. Refresh and try again.",
-    "BAD_REQUEST": "The request is not valid.",
-    "IDEMPOTENCY_KEY_REQUIRED": "The request is missing its idempotency key.",
-    "IDEMPOTENCY_KEY_REUSED": "This request was already sent with different data. Start again.",
-    "IDEMPOTENCY_IN_PROGRESS": "The previous request is still being processed. Wait a moment and try again.",
-    "VALIDATION_FAILED": "Check the data you entered: some values are not valid.",
-    "INTERNAL": "An internal error occurred. Try again in a few minutes.",
-    "NETWORK_ERROR": "Could not reach the server. Check your connection and try again.",
-    "CONNECTOR_NO_ROUTE": "No connector serves this check in this country.",
-    "UNIT_VALUE_MISSING": "The unit's value for that date is missing, and nothing fills it in silently. Try again once it is published.",
-    "POLICY_NOT_ASSIGNED": "No policy pack is assigned for that date and product.",
-    "POLICY_LOOSENING": "The override would loosen the policy: only overrides stricter than the pack are allowed.",
-    "IDENTIFIER_EXISTS": "A party with that identifier already exists.",
-    "IDENTIFIER_INVALID": "The identifier is not valid for its type.",
-    "OBJECT_CORRUPT": "The stored file failed its integrity check. Tell support.",
-    "LIST_MANDATORY": "This list is mandatory and cannot be turned off.",
-    "LIST_MASS_REMOVAL": "The new version removed too many records at once and was refused.",
-    "LIST_FORMAT_INVALID": "The list file is not in the expected format.",
-    "LIST_CODE_UNSUPPORTED": "This list cannot be read yet.",
-    "PRIVATE_LIST_INVALID": "The file has rows that do not follow the template; nothing was loaded.",
-    "PRIVATE_LIST_EXISTS": "A private list with this code already exists.",
-    "DISPOSITION_NOT_ALLOWED": "This decision is not allowed on this finding.",
-    "SCREENING_INDEX_UNAVAILABLE": "Screening is not ready yet. Try again in a few minutes."
   }
 }

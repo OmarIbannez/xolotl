@@ -49,6 +49,7 @@
     "privateLists": "Listas privadas",
     "screeningEvaluation": "Evaluación del motor",
     "screeningCheck": "Consulta ad hoc",
+    "transactions": "Transacciones",
     "counterparties": "Contrapartes"
   },
   "header": {
@@ -1120,7 +1121,6 @@
       "initials": "Iniciales",
       "identifiers": "Identificadores",
       "openParty": "Ver cliente",
-      "openCounterparty": "Abrir contraparte",
       "list": "Lista",
       "score": "Puntaje",
       "band": "Banda",
@@ -1193,7 +1193,8 @@
       "timelineEmpty": "Aún no hay decisiones.",
       "decidedBy": "Decidió",
       "system": "Sistema",
-      "staffMember": "Personal"
+      "staffMember": "Personal",
+      "openCounterparty": "Abrir contraparte"
     },
     "decision": {
       "FALSE_POSITIVE": "Falso positivo",
@@ -1346,6 +1347,240 @@
       "noFinding": "Sin hallazgo"
     }
   },
+  "transactions": {
+    "title": "Transacciones",
+    "description": "Las transacciones que el cliente envió, con su estado de procesamiento, sus montos en unidades y su contraparte enmascarada.",
+    "empty": "No hay transacciones con estos filtros.",
+    "lateBadge": "Tardía",
+    "table": {
+      "label": "Transacciones",
+      "externalId": "ID externo",
+      "occurredAt": "Fecha de operación (hora de CDMX)",
+      "customer": "Cliente",
+      "instrumentRail": "Instrumento y riel",
+      "amount": "Monto",
+      "status": "Estado"
+    },
+    "filters": {
+      "partyId": "ID de persona",
+      "externalId": "ID externo",
+      "from": "Desde",
+      "to": "Hasta",
+      "status": "Estado",
+      "statusAll": "Todos los estados",
+      "instrument": "Instrumento",
+      "instrumentAll": "Todos los instrumentos",
+      "rail": "Riel",
+      "railAll": "Todos los rieles",
+      "late": "Solo tardías",
+      "apply": "Aplicar",
+      "clear": "Limpiar",
+      "rangeInvalid": "La fecha inicial debe ser igual o anterior a la final.",
+      "partyIdInvalid": "Escribe el ID de la persona tal como aparece en su ficha."
+    },
+    "status": {
+      "RECEIVED": "Recibida",
+      "PROCESSED": "Procesada",
+      "PARKED": "Estacionada",
+      "BACKFILL": "Pendiente de backfill"
+    },
+    "instrument": {
+      "CASH": "Efectivo",
+      "TRANSFER": "Transferencia",
+      "CARD": "Tarjeta",
+      "CHEQUE": "Cheque",
+      "CRYPTO": "Criptoactivo",
+      "FX": "Cambio de divisas",
+      "FEE": "Comisión"
+    },
+    "rail": {
+      "SPEI": "SPEI",
+      "CODI": "CoDi",
+      "CASH": "Efectivo",
+      "CARD": "Red de tarjetas",
+      "WALLET": "Monedero",
+      "SWIFT": "SWIFT",
+      "CRYPTO_ONCHAIN": "Cadena de bloques",
+      "OTHER": "Otro"
+    },
+    "direction": {
+      "IN": "Entrada",
+      "OUT": "Salida",
+      "INTERNAL": "Interna"
+    },
+    "channel": {
+      "APP": "Aplicación móvil",
+      "WEB": "Sitio web",
+      "API": "API",
+      "BRANCH": "Sucursal",
+      "ATM": "Cajero automático",
+      "AGENT": "Corresponsal",
+      "OTHER": "Otro"
+    },
+    "counterpartyKind": {
+      "PERSON": "Persona física",
+      "ORGANIZATION": "Persona moral",
+      "UNKNOWN": "Sin especificar"
+    },
+    "parkReason": {
+      "UNIT_VALUE_MISSING": "Falta el valor de una unidad para su fecha",
+      "POLICY_NOT_ASSIGNED": "El tenant no tiene una política asignada para su fecha"
+    },
+    "screeningStatus": {
+      "UNSCREENED": "Sin consultar",
+      "CLEAR": "Sin coincidencias",
+      "PENDING_REVIEW": "En revisión",
+      "TRUE_MATCH": "Coincidencia confirmada"
+    },
+    "rule": {
+      "SAME_DAY": "Valor del mismo día",
+      "PRIOR_BANKING_DAY": "Valor del día hábil anterior",
+      "LAST_DAY_PREV_MONTH": "Valor del último día del mes anterior",
+      "PREV_MONTH_AVG": "Promedio del mes anterior",
+      "SEMIANNUAL_SNAPSHOT": "Valor semestral"
+    },
+    "detail": {
+      "title": "Detalle de transacción",
+      "back": "Volver a transacciones",
+      "revealNotice": "Esta consulta quedó registrada en la bitácora de auditoría.",
+      "fields": {
+        "title": "Datos de la transacción",
+        "externalId": "ID externo",
+        "status": "Estado",
+        "occurredAt": "Fecha de operación",
+        "receivedAt": "Fecha de recepción",
+        "processedAt": "Fecha de procesamiento",
+        "party": "Persona",
+        "account": "Cuenta",
+        "product": "Producto",
+        "direction": "Dirección",
+        "channel": "Canal",
+        "instrument": "Instrumento",
+        "rail": "Riel",
+        "amount": "Monto",
+        "fee": "Comisión",
+        "asset": "Activo",
+        "purposeCode": "Código de propósito",
+        "tier": "Nivel de cuenta",
+        "riskRating": "Grado de riesgo",
+        "monitoringProfile": "Perfil de monitoreo",
+        "snapshot": "Instantánea de política",
+        "batch": "Lote",
+        "device": "Dispositivo registrado",
+        "geo": "Ubicación",
+        "timeZone": "Fechas y horas en hora de la Ciudad de México."
+      },
+      "units": {
+        "title": "Montos en unidades",
+        "description": "El monto convertido a cada unidad de la política vigente, con el valor de unidad usado.",
+        "label": "Montos en unidades",
+        "unit": "Unidad",
+        "rule": "Criterio de conversión",
+        "amount": "Monto",
+        "unitValue": "Valor de unidad",
+        "resolvedDate": "Fecha del valor",
+        "empty": "Aún no hay montos en unidades: la transacción no se ha procesado."
+      },
+      "periods": {
+        "title": "Periodos",
+        "DAY": "Día",
+        "MONTH": "Mes",
+        "QUARTER": "Trimestre",
+        "BUSINESS_DAY": "Día hábil",
+        "empty": "Aún no hay periodos: la transacción no se ha procesado."
+      },
+      "counterparty": {
+        "title": "Contraparte",
+        "none": "La transacción no tiene contraparte.",
+        "kind": "Tipo",
+        "institution": "Institución",
+        "country": "País",
+        "walletNetwork": "Red del monedero",
+        "onRecord": "Datos registrados",
+        "nothingOnRecord": "Ninguno",
+        "has_name": "Nombre registrado",
+        "has_account": "Cuenta registrada",
+        "has_wallet": "Monedero registrado",
+        "has_identifier": "Identificador registrado",
+        "screeningStatus": "Estado de consulta en listas",
+        "statusAtProcessing": "Estado al procesarse",
+        "txnCount": "Transacciones con esta contraparte",
+        "name": "Nombre",
+        "account": "Cuenta",
+        "wallet": "Monedero",
+        "identifier": "Identificador"
+      },
+      "reveal": {
+        "button": "Revelar",
+        "hide": "Ocultar",
+        "running": "Revelando…"
+      },
+      "raw": {
+        "title": "Datos enviados",
+        "description": "La transacción tal como la envió el cliente. Revelarla queda registrado en la auditoría."
+      },
+      "parked": {
+        "title": "En espera",
+        "reason": "Motivo",
+        "unit": "Unidad",
+        "neededOn": "Fecha requerida",
+        "attempts": "Intentos",
+        "parkedAt": "En espera desde",
+        "lastError": "Último error"
+      }
+    }
+  },
+  "forbidden": {
+    "title": "Sin acceso",
+    "body": "Tu rol no permite ver esta sección."
+  },
+  "notFound": {
+    "title": "Página no encontrada",
+    "body": "La página que buscas no existe o cambió de lugar."
+  },
+  "boot": {
+    "errorTitle": "No se pudo cargar tu sesión"
+  },
+  "errors": {
+    "generic": "Ocurrió un error inesperado. Inténtalo de nuevo.",
+    "reference": "Referencia: {{id}}",
+    "UNAUTHENTICATED": "Tu sesión no es válida o expiró. Inicia sesión de nuevo.",
+    "ROLE_FORBIDDEN": "Tu rol no tiene permiso para realizar esta acción.",
+    "SCOPE_MISSING": "La credencial no incluye el permiso necesario para esta operación.",
+    "TENANT_SUSPENDED": "El espacio de trabajo está suspendido. Contacta a tu administrador.",
+    "PASSWORD_CHANGE_REQUIRED": "Debes cambiar tu contraseña antes de continuar.",
+    "FORBIDDEN": "No tienes permiso para realizar esta acción.",
+    "NOT_FOUND": "No se encontró lo que buscas.",
+    "CONFLICT": "La operación entra en conflicto con el estado actual. Actualiza e inténtalo de nuevo.",
+    "BAD_REQUEST": "La solicitud no es válida.",
+    "IDEMPOTENCY_KEY_REQUIRED": "A la solicitud le falta su llave de idempotencia.",
+    "IDEMPOTENCY_KEY_REUSED": "Esta solicitud ya se envió con otros datos. Vuelve a intentarlo desde el inicio.",
+    "IDEMPOTENCY_IN_PROGRESS": "La solicitud anterior sigue en proceso. Espera un momento y vuelve a intentarlo.",
+    "VALIDATION_FAILED": "Revisa los datos capturados: hay valores no válidos.",
+    "INTERNAL": "Ocurrió un error interno. Inténtalo de nuevo en unos minutos.",
+    "NETWORK_ERROR": "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
+    "CONNECTOR_NO_ROUTE": "Ningún conector atiende esta verificación en este país.",
+    "UNIT_VALUE_MISSING": "Falta el valor de la unidad para esa fecha; nadie lo completa en silencio. Inténtalo cuando se haya publicado.",
+    "POLICY_NOT_ASSIGNED": "No hay ningún paquete de política asignado para esa fecha y producto.",
+    "POLICY_LOOSENING": "El ajuste relajaría la política: solo se permiten ajustes más estrictos que el paquete.",
+    "IDENTIFIER_EXISTS": "Ya existe una persona o empresa con ese identificador.",
+    "IDENTIFIER_INVALID": "El identificador no es válido para su tipo.",
+    "OBJECT_CORRUPT": "El archivo guardado no pasó la verificación de integridad. Avisa a soporte.",
+    "LIST_MANDATORY": "Esta lista es obligatoria y no se puede desactivar.",
+    "LIST_MASS_REMOVAL": "La nueva versión quitaba demasiados registros a la vez y se rechazó.",
+    "LIST_FORMAT_INVALID": "El archivo de la lista no tiene el formato esperado.",
+    "LIST_CODE_UNSUPPORTED": "Todavía no se puede leer esta lista.",
+    "PRIVATE_LIST_INVALID": "El archivo tiene filas que no siguen la plantilla; no se cargó nada.",
+    "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código.",
+    "DISPOSITION_NOT_ALLOWED": "Esta decisión no está permitida para este hallazgo.",
+    "SCREENING_INDEX_UNAVAILABLE": "La revisión contra listas aún no está lista. Intenta de nuevo en unos minutos.",
+    "TRANSACTION_BATCH_INVALID": "El lote tiene transacciones con datos inválidos.",
+    "TRANSACTION_BATCH_TOO_LARGE": "El lote supera el número máximo de transacciones.",
+    "EXTERNAL_ID_CONFLICT": "Ya existe una transacción con ese ID externo y datos distintos.",
+    "TRANSACTION_FILE_TOO_LARGE": "El archivo supera el tamaño máximo permitido.",
+    "TRANSACTION_FILE_INVALID": "El archivo no se pudo leer: revisa el formato y los encabezados.",
+    "BACKFILL_RANGE_INVALID": "El rango de fechas del backfill no es válido."
+  },
   "counterparties": {
     "title": "Contrapartes",
     "description": "Las otras partes de las operaciones, enmascaradas, con su estado de revisión contra las listas. Abre una para ver sus hallazgos.",
@@ -1413,50 +1648,5 @@
       "identifier": "Identificador",
       "empty": "No hay datos personales que mostrar."
     }
-  },
-  "forbidden": {
-    "title": "Sin acceso",
-    "body": "Tu rol no permite ver esta sección."
-  },
-  "notFound": {
-    "title": "Página no encontrada",
-    "body": "La página que buscas no existe o cambió de lugar."
-  },
-  "boot": {
-    "errorTitle": "No se pudo cargar tu sesión"
-  },
-  "errors": {
-    "generic": "Ocurrió un error inesperado. Inténtalo de nuevo.",
-    "reference": "Referencia: {{id}}",
-    "UNAUTHENTICATED": "Tu sesión no es válida o expiró. Inicia sesión de nuevo.",
-    "ROLE_FORBIDDEN": "Tu rol no tiene permiso para realizar esta acción.",
-    "SCOPE_MISSING": "La credencial no incluye el permiso necesario para esta operación.",
-    "TENANT_SUSPENDED": "El espacio de trabajo está suspendido. Contacta a tu administrador.",
-    "PASSWORD_CHANGE_REQUIRED": "Debes cambiar tu contraseña antes de continuar.",
-    "FORBIDDEN": "No tienes permiso para realizar esta acción.",
-    "NOT_FOUND": "No se encontró lo que buscas.",
-    "CONFLICT": "La operación entra en conflicto con el estado actual. Actualiza e inténtalo de nuevo.",
-    "BAD_REQUEST": "La solicitud no es válida.",
-    "IDEMPOTENCY_KEY_REQUIRED": "A la solicitud le falta su llave de idempotencia.",
-    "IDEMPOTENCY_KEY_REUSED": "Esta solicitud ya se envió con otros datos. Vuelve a intentarlo desde el inicio.",
-    "IDEMPOTENCY_IN_PROGRESS": "La solicitud anterior sigue en proceso. Espera un momento y vuelve a intentarlo.",
-    "VALIDATION_FAILED": "Revisa los datos capturados: hay valores no válidos.",
-    "INTERNAL": "Ocurrió un error interno. Inténtalo de nuevo en unos minutos.",
-    "NETWORK_ERROR": "No se pudo conectar con el servidor. Revisa tu conexión e inténtalo de nuevo.",
-    "CONNECTOR_NO_ROUTE": "Ningún conector atiende esta verificación en este país.",
-    "UNIT_VALUE_MISSING": "Falta el valor de la unidad para esa fecha; nadie lo completa en silencio. Inténtalo cuando se haya publicado.",
-    "POLICY_NOT_ASSIGNED": "No hay ningún paquete de política asignado para esa fecha y producto.",
-    "POLICY_LOOSENING": "El ajuste relajaría la política: solo se permiten ajustes más estrictos que el paquete.",
-    "IDENTIFIER_EXISTS": "Ya existe una persona o empresa con ese identificador.",
-    "IDENTIFIER_INVALID": "El identificador no es válido para su tipo.",
-    "OBJECT_CORRUPT": "El archivo guardado no pasó la verificación de integridad. Avisa a soporte.",
-    "LIST_MANDATORY": "Esta lista es obligatoria y no se puede desactivar.",
-    "LIST_MASS_REMOVAL": "La nueva versión quitaba demasiados registros a la vez y se rechazó.",
-    "LIST_FORMAT_INVALID": "El archivo de la lista no tiene el formato esperado.",
-    "LIST_CODE_UNSUPPORTED": "Todavía no se puede leer esta lista.",
-    "PRIVATE_LIST_INVALID": "El archivo tiene filas que no siguen la plantilla; no se cargó nada.",
-    "PRIVATE_LIST_EXISTS": "Ya existe una lista privada con ese código.",
-    "DISPOSITION_NOT_ALLOWED": "Esta decisión no está permitida para este hallazgo.",
-    "SCREENING_INDEX_UNAVAILABLE": "La revisión contra listas aún no está lista. Intenta de nuevo en unos minutos."
   }
 }
