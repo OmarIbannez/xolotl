@@ -1,0 +1,8 @@
+# Cash foreign exchange on Wednesday 9 December 2026: USD 500 or more at the FIX of
+# 8 December is captured; an exchange settled by SPEI is not a cash one.
+relationships:
+  - {ref: cust-1, product: EMONEY}
+items:
+  - {external_id: fx-1, occurred_at: "2026-12-09T10:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: IN, rail: CASH, instrument: FX, amount: "600.00", currency: USD, channel: BRANCH, fx: {from_ccy: MXN, to_ccy: USD, rate: "18.15", from_amount_minor: 1089000, to_amount_minor: 60000}}
+  - {external_id: fx-2, occurred_at: "2026-12-09T11:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: IN, rail: CASH, instrument: FX, amount: "400.00", currency: USD, channel: BRANCH, fx: {from_ccy: MXN, to_ccy: USD, rate: "18.15", from_amount_minor: 726000, to_amount_minor: 40000}}
+  - {external_id: fx-3, occurred_at: "2026-12-09T12:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: IN, rail: SPEI, instrument: FX, amount: "900.00", currency: USD, channel: APP, fx: {from_ccy: MXN, to_ccy: USD, rate: "18.15", from_amount_minor: 1633500, to_amount_minor: 90000}}

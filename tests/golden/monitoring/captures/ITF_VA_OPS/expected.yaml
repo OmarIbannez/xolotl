@@ -1,0 +1,47 @@
+events:
+- transaction: va-1
+  capture_code: ITF_VA_OPS
+  capture_kind: THRESHOLD
+  report_code: MX_ITF_VA_OPS
+  period_key: 2026-Q4
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 7000000
+      currency: MXN
+    branch: '0000'
+    crypto:
+      network: bitcoin
+      asset_qty: '0.0500000000'
+      asset_code: BTC
+    locality: null
+    instrument: ACTIVO_VIRTUAL
+    account_ref: acct-1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-10'
+    operation_type: VENTA
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: SAME_DAY
+      amount: '64597.50'
+      currency: MXN
+      resolved_date: '2026-12-10'
+      unit_value_id: UDI 2026-12-10
+    threshold:
+      unit: UDI
+      amount: '7500'
+    transaction:
+      unit: UDI
+      amount: '8127.249507'
+      resolved_date: '2026-12-10'
+      unit_value_id: UDI 2026-12-10
+groups: []

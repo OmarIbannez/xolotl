@@ -159,7 +159,9 @@ request (audited).
 - **Rule hits:** evaluating the active rules against processed transactions (in
   review).
 - **Rule screens:** the rule editor, simulation and hits pages.
-- **Regulatory captures and period close** (Formato 41 and avisos).
+- **Regulatory captures:** recording each transaction a report must carry
+  (Formato 41 and avisos) as it is processed (in review); the period close, its
+  API and the Capturas y límites page come next.
 - **The real-time decide endpoint** for payment rails; the per-rail fail-mode
   settings API (`/v1/monitoring/rails`) already exists.
 - **Behaviour profiles** per customer.
@@ -805,6 +807,34 @@ webhook ever carries one. The one tenant-facing event is
 `BLOCK` or `REVIEW` hit and a `tier_limit_notice` row, and only the call that inserts
 that row, from processing or the decide path, publishes the event, once per
 relationship, limit and month.
+
+### Captures
+
+A capture is the legal fact "this transaction must appear in report R for period
+P", recorded whether or not anything looks suspicious, so it never opens a hit and
+never reaches an API client or a webhook. Captures are policy, not rules: each
+capture of the transaction's policy snapshot (`ITF_ROR_CASH`, `ITF_FX_CASH`,
+`ITF_INTL_TRANSFER`, `ITF_VA_OPS` under ITF; `AVI_XVI_A`, `AVI_XVI_B` under AVI)
+brings its threshold, unit, conversion rule, window and period, and
+`captures/triggers.yaml` says which transactions it looks at (cash, cash foreign
+exchange, cross-border transfers, crypto). Processing runs them after the rules, in
+the row's database transaction: a transaction at or above the threshold in the
+threshold's unit (USD at the prior banking day's FIX, UDI or UMA on the day) gets a
+`reportable_event` with its period key (`2026-12` or `2026-Q4`), pre-mapped report
+fields (codes from the report's field map in `captures/field_maps/`, amounts, the
+account reference, the counterparty's country, never a name, account or wallet) and
+the unit values on both sides of the comparison. A fee capture compares the fee.
+
+An accumulation capture (`AVI_XVI_A`, 210 UMA over six months from the first
+operation) adds a relationship's operations below the threshold in a
+`capture_group`; when the group crosses, every operation in it is captured, each
+with its own month, and later operations of the window as they arrive. An operation
+that also triggers a capture merging into it (`AVI_XVI_B`, a fee of 4 UMA or more)
+yields one event naming both. A late operation that moves a group's window earlier
+or its crossing point supersedes the group: a new group is rebuilt from the
+transactions, the old group's events are re-captured into it in place (one row per
+transaction and capture) and published as superseded and captured again, and a
+closed period they fall in is reopened (`monitoring.capture_period_changed.v1`).
 
 ## Connectors
 

@@ -1,0 +1,11 @@
+# Aviso de actividad vulnerable fr. XVI (AVI_XVI_A, AVI_XVI_B). The operation types
+# follow the aviso's detail blocks (operaciones_compra, _venta, _intercambio in
+# report-defs/MX_AVISO_AVI/xsd/avi.xsd); SP-05 places each event in its block.
+report_code: MX_AVISO_AVI
+codetables: {}
+operation_type:
+  IN/CRYPTO: COMPRA
+  OUT/CRYPTO: VENTA
+  INTERNAL/CRYPTO: INTERCAMBIO
+instrument:
+  CRYPTO: ACTIVO_VIRTUAL

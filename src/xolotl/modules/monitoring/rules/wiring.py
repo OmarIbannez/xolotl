@@ -4,6 +4,7 @@
 adds the simulation handler here, B10 the captures hook and B11 the period close.
 """
 
+from xolotl.modules.monitoring.captures.hook import CapturesHook
 from xolotl.modules.monitoring.events import RULES_STAFF_ONLY_EVENT_TYPES
 from xolotl.modules.monitoring.process.hooks import register_processing_hook
 from xolotl.modules.monitoring.rules.evaluate import (
@@ -18,7 +19,7 @@ from xolotl.platform.jobs.queue import PostgresJobQueue
 def register_rules(
     *, queue: PostgresJobQueue, screening_status: ScreeningStatusReader | None
 ) -> None:
-    """Mark the staff-only rules events and register the rules hook.
+    """Mark the staff-only rules events and register the rules and captures hooks.
 
     ``screening_status`` reads a party's screening status for the evaluator's
     profile; the composition root passes screening's, which monitoring may not
@@ -29,3 +30,5 @@ def register_rules(
         register_staff_only(event_type)
     use_screening_status(screening_status)
     register_processing_hook(RulesHook())
+    # After the rules: a capture never depends on a hit (spec §10.1).
+    register_processing_hook(CapturesHook())

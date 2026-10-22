@@ -1,0 +1,9 @@
+# ITF cash foreign-exchange report (ITF_FX_CASH), filed by manual upload: no code
+# table is defined for it yet, so the values are written as they are.
+report_code: MX_ITF_FX_CASH
+codetables: {}
+operation_type:
+  IN/FX: COMPRA
+  OUT/FX: VENTA
+instrument:
+  FX: EFECTIVO
