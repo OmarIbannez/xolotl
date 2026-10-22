@@ -17,7 +17,8 @@ from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, select, text, update
+from sqlalchemy import Engine, event, select, text, update
+from sqlalchemy.orm import Session
 
 from tests.e2e.conftest import drain
 from tests.helpers import staff_session, system_ctx
@@ -40,6 +41,7 @@ from xolotl.modules.monitoring.events import (
     BEHAVIOUR_PROFILE_UPDATED,
     STAFF_ONLY_EVENT_TYPES,
 )
+from xolotl.modules.monitoring.profiles import job
 from xolotl.modules.monitoring.profiles.job import (
     PROFILES_KIND,
     compute_profiles,
@@ -64,7 +66,7 @@ from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.crypto.encrypted import encrypt_json
-from xolotl.platform.db import get_sessionmaker, tenant_session
+from xolotl.platform.db import get_engine, get_sessionmaker, tenant_session
 from xolotl.platform.events import is_staff_only
 from xolotl.platform.events.event import Event, event_from_row
 from xolotl.platform.events.models import OutboxRow
@@ -108,8 +110,12 @@ class Book:
         country: str | None = None,
         counterparty_id: UUID | None = None,
         status: TransactionStatus = TransactionStatus.PROCESSED,
+        original: tuple[int, str] | None = None,
     ) -> UUID:
         """Insert one enriched row of the relationship as processing leaves it.
+
+        ``pesos`` is the row's ``MXN/SAME_DAY`` amount; ``original`` the amount in
+        minor units and currency it arrived in, when not pesos.
 
         Returns:
             The row's id.
@@ -117,6 +123,7 @@ class Book:
         """
         local = at.astimezone(MEXICO_CITY_ZONE).date()
         quarter = (local.month - 1) // 3 + 1
+        amount_minor, currency = original or (int(Decimal(pesos) * 100), "MXN")
         with tenant_session(system_ctx(self.tenant_id)) as s:
             row = Transaction(
                 tenant_id=self.tenant_id,
@@ -132,8 +139,8 @@ class Book:
                 rail=rail,
                 instrument=instrument,
                 channel=Channel.APP,
-                amount_minor=int(Decimal(pesos) * 100),
-                currency="MXN",
+                amount_minor=amount_minor,
+                currency=currency,
                 unit_amounts={
                     "MXN/SAME_DAY": {
                         "amount": pesos,
@@ -209,15 +216,25 @@ def book(tenant: CreatedTenant, external_ref: str) -> Book:
 
 
 def golden_month(ledger: Book) -> None:
-    """Six rows of January 2027 and three that must not count.
+    """Seven rows of January 2027 and three that must not count.
 
-    In: 10,000.00 by SPEI from a Mexican counterparty, 5,000.00 in cash,
+    In: 10,000.00 by SPEI from a Mexican counterparty, USD 500.00 from the same
+    one, worth 9,250.00 at its FIX (only its MXN/SAME_DAY amount counts), 5,000.00
+    in cash,
     20,000.00 by SWIFT from a US counterparty, 1,000.00 from a Guatemalan one at
     23:30 on 31 January in Mexico City (already February in UTC). Out: 15,000.00
     in crypto and 4,000.50 by SPEI to the Mexican counterparty again.
     """
     a, b, c, d = (ledger.counterparty() for _ in range(4))
     _ = ledger.add(_local(1, 5), IN, "10000.00", country="MX", counterparty_id=a)
+    _ = ledger.add(
+        _local(1, 5, 11),
+        IN,
+        "9250.00",
+        country="MX",
+        counterparty_id=a,
+        original=(50_000, "USD"),
+    )
     _ = ledger.add(
         _local(1, 5, 15), IN, "5000.00", instrument=Instrument.CASH, rail=Rail.CASH
     )
@@ -243,13 +260,13 @@ def golden_month(ledger: Book) -> None:
 
 
 GOLDEN = {
-    "inflow_minor": "3600000",
+    "inflow_minor": "4525000",
     "outflow_minor": "1900050",
-    "inflow_count": 4,
+    "inflow_count": 5,
     "outflow_count": 2,
-    "cash_share": "0.0909",
-    "international_share": "0.3818",
-    "crypto_share": "0.2727",
+    "cash_share": "0.0778",
+    "international_share": "0.3268",
+    "crypto_share": "0.2335",
     "distinct_counterparties": 4,
     "active_days": 4,
     "currency": "MXN",
@@ -341,13 +358,13 @@ def test_a_ratio_at_or_above_the_threshold_marks_deviated_and_publishes(
     webhook_stack.settle(tenant.tenant_id)
     _ = make_endpoint(tenant.tenant_id, event_types=["*"])
     golden_month(ledger)
-    # 3,600,000 over 1,800,000 is exactly 2.0; 1,900,050 over 2,000,000 is 0.95.
-    declare(ledger, 1_800_000, 2_000_000)
+    # 4,525,000 over 2,262,500 is exactly 2.0; 1,900,050 over 2,000,000 is 0.95.
+    declare(ledger, 2_262_500, 2_000_000)
     assert compute(tenant.tenant_id) == 1
 
     (row,) = profiles(tenant.tenant_id)
     assert row.declared_profile == {
-        "monthly_inflow_minor": 1_800_000,
+        "monthly_inflow_minor": 2_262_500,
         "monthly_outflow_minor": 2_000_000,
         "currency": "MXN",
         "expected_countries": [],
@@ -375,13 +392,37 @@ def test_a_ratio_below_the_threshold_does_not_deviate(
     tenant: CreatedTenant, ledger: Book
 ):
     golden_month(ledger)
-    # 3,600,000 over 1,800,001 is 1.99999: shown as 1.9, not deviated.
-    declare(ledger, 1_800_001, 0)
+    # 4,525,000 over 2,262,501 is 1.99999: shown as 1.9, not deviated.
+    declare(ledger, 2_262_501, 2_000_000)
     assert compute(tenant.tenant_id) == 1
     (row,) = profiles(tenant.tenant_id)
-    # A declared zero gives no ratio.
-    assert row.deviation == {"monthly_inflow": "1.9"}
+    assert row.deviation == {"monthly_inflow": "1.9", "monthly_outflow": "0.9"}
     assert row.deviated is False
+
+
+def test_a_declared_zero_with_activity_deviates_without_a_ratio(
+    tenant: CreatedTenant, ledger: Book
+):
+    golden_month(ledger)
+    # Nothing out declared, 19,000.50 out moved: no ratio, but deviated.
+    declare(ledger, 9_000_000, 0)
+    other = book(tenant, "cust-2")
+    _ = other.add(_local(1, 9), Direction.OUT, "250.00")
+    # A declared zero in a direction without activity is no deviation.
+    declare(other, 0, 100_000)
+    assert compute(tenant.tenant_id) == 2
+
+    by_relationship = {row.relationship_id: row for row in profiles(tenant.tenant_id)}
+    row = by_relationship[ledger.relationship.id]
+    assert row.deviation == {
+        "monthly_inflow": "0.5",
+        "monthly_outflow": None,
+        "reasons": {"monthly_outflow": "DECLARED_ZERO"},
+    }
+    assert row.deviated is True
+    quiet = by_relationship[other.relationship.id]
+    assert quiet.deviation == {"monthly_outflow": "0.2"}
+    assert quiet.deviated is False
 
 
 def test_the_threshold_setting_is_honoured(
@@ -391,10 +432,11 @@ def test_the_threshold_setting_is_honoured(
         get_settings(), "monitoring_profile_deviation_ratio", Decimal("3.0")
     )
     golden_month(ledger)
-    declare(ledger, 1_800_000, 2_000_000)
+    declare(ledger, 2_262_500, 2_000_000)
     assert compute(tenant.tenant_id) == 1
     assert profiles(tenant.tenant_id)[0].deviated is False
-    declare(ledger, 1_200_000, 2_000_000)
+    # 4,525,000 over 1,508,333 is 3.0000007.
+    declare(ledger, 1_508_333, 2_000_000)
     assert compute(tenant.tenant_id) == 1
     (row,) = profiles(tenant.tenant_id)
     assert row.deviation == {"monthly_inflow": "3.0", "monthly_outflow": "0.9"}
@@ -416,15 +458,56 @@ def test_recomputing_a_month_updates_the_row_and_publishes_only_on_change(
     assert compute(tenant.tenant_id) == 1
     (changed,) = profiles(tenant.tenant_id)
     assert changed.id == first.id
-    assert changed.deviation == {"monthly_inflow": "3.6", "monthly_outflow": "1.9"}
+    assert changed.deviation == {"monthly_inflow": "4.5", "monthly_outflow": "1.9"}
     assert changed.deviated is True
     assert [e.data["deviated"] for e in updates(tenant.tenant_id)] == [False, True]
 
     # A late row of the month changes the metrics: one more event.
     _ = ledger.add(_local(1, 25), Direction.IN, "100.00")
     assert compute(tenant.tenant_id) == 1
-    assert profiles(tenant.tenant_id)[0].metrics["inflow_minor"] == "3610000"
+    assert profiles(tenant.tenant_id)[0].metrics["inflow_minor"] == "4535000"
     assert len(updates(tenant.tenant_id)) == 3
+
+
+def test_a_row_another_computation_inserted_first_is_compared_not_duplicated(
+    tenant: CreatedTenant, ledger: Book, monkeypatch: pytest.MonkeyPatch
+):
+    golden_month(ledger)
+    assert compute(tenant.tenant_id) == 1
+
+    # Another run inserted the month's row after this one looked: the insert
+    # does nothing and the row is compared as if it had been read.
+    def nothing_yet(_s: Session, _month: str) -> dict[UUID, BehaviourProfile]:
+        return {}
+
+    monkeypatch.setattr(job, "_existing", nothing_yet)
+    assert compute(tenant.tenant_id) == 1
+    assert len(profiles(tenant.tenant_id)) == 1
+    assert len(updates(tenant.tenant_id)) == 1
+    declare(ledger, 2_262_500, 2_000_000)
+    assert compute(tenant.tenant_id) == 1
+    (row,) = profiles(tenant.tenant_id)
+    assert row.deviated is True
+    assert [e.data["deviated"] for e in updates(tenant.tenant_id)] == [False, True]
+
+
+def test_the_month_is_read_through_the_period_index_expression(
+    tenant: CreatedTenant, ledger: Book
+):
+    golden_month(ledger)
+    seen: list[str] = []
+
+    def record(*args: object) -> None:
+        seen.append(str(args[2]))
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        assert compute(tenant.tenant_id) == 1
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    # ix_transaction_period is built on (period_keys ->> 'MONTH').
+    assert any("period_keys ->> 'MONTH'" in statement for statement in seen)
 
 
 def test_the_previous_mexico_city_month():

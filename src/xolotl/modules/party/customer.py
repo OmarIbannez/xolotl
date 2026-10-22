@@ -8,11 +8,12 @@ closed is never opened.
 
 The declared profile of a relationship (SP-04 spec §13.3) is what the customer said
 it would move in a month; monitoring's behaviour profile and ``PROFILE_DEVIATION``
-compare the actual volume with it. Its audit row names the currency only, never an
-amount.
+compare the actual volume with it. Its audit row names the currency, the fields
+that changed and whether it was cleared, never an amount.
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import select
@@ -32,6 +33,9 @@ from xolotl.platform.audit import AuditEvent, record
 from xolotl.platform.db import bound_context
 from xolotl.platform.errors import DomainError, NotFoundError, ValidationFailedError
 from xolotl.platform.policy import add_iso_duration, effective_policy, snapshot_policy
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 OPEN_STATUSES: frozenset[CustomerRelationshipStatus] = frozenset({
     CustomerRelationshipStatus.PENDING,
@@ -209,7 +213,11 @@ def set_legal_hold(s: Session, party_id: UUID, *, legal_hold: bool) -> Party:
 def set_declared_profile(
     s: Session, relationship_id: UUID, profile: DeclaredProfile | None
 ) -> CustomerRelationship:
-    """Set or clear (None) a relationship's declared profile, audited.
+    """Set or clear (None) a relationship's declared profile, audited on change.
+
+    The audit row names the currency, the fields that changed and whether the
+    profile was cleared, never a value; a write that changes nothing records
+    nothing.
 
     Returns:
         The relationship.
@@ -228,7 +236,18 @@ def set_declared_profile(
     if row is None:
         msg = "relationship not found"
         raise NotFoundError(msg)
-    row.declared_profile = None if profile is None else profile.model_dump(mode="json")
+    before = row.declared_profile or {}
+    after: dict[str, JsonValue] = (
+        {} if profile is None else profile.model_dump(mode="json")
+    )
+    changed: list[JsonValue] = [
+        name
+        for name in sorted(before.keys() | after.keys())
+        if before.get(name) != after.get(name)
+    ]
+    if not changed:
+        return row
+    row.declared_profile = None if profile is None else after
     s.flush()
     _ = record(
         s,
@@ -236,7 +255,11 @@ def set_declared_profile(
             action="relationship.declared_profile_set",
             entity_type="customer_relationship",
             entity_id=str(row.id),
-            detail={"currency": None if profile is None else profile.currency},
+            detail={
+                "currency": None if profile is None else profile.currency,
+                "changed": changed,
+                "cleared": profile is None,
+            },
         ),
     )
     return row

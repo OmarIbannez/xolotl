@@ -331,7 +331,9 @@ class CustomerRelationshipResponse(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     created_at: datetime
-    declared_profile: DeclaredProfile | None = None
+    # As stored, not re-validated: a value written outside today's PATCH schema
+    # (a later onboarding, a fix by hand) must never fail a relationship's view.
+    declared_profile: dict[str, JsonValue] | None = None
 
 
 class PartyStaffResponse(PartyResponse):

@@ -17,13 +17,18 @@ or above ``XOLOTL_MONITORING_PROFILE_DEVIATION_RATIO``.
   ``rail = SWIFT``, as the aggregates read it) and of ``instrument = CRYPTO``, with
   four places. ``INTERNAL`` movements between a customer's own accounts are left out.
 - A ratio is shown with one place, rounded down, so a shown ratio at or above the
-  threshold is exactly a deviated one.
+  threshold is exactly a deviated one. A declared zero in a direction with activity
+  is unbounded: its ratio is null, the month is deviated and ``deviation.reasons``
+  names the direction ``DECLARED_ZERO`` (the conservative reading; B7's
+  ``PROFILE_DEVIATION`` fires on it too). A declared zero without activity is none.
 
 A row written or changed publishes the staff-only
 ``monitoring.behaviour_profile_updated.v1`` (ids, the month and the flag), which
 risk scoring (SP-07) consumes to re-score; a recomputation that changes nothing
 writes and publishes nothing. The month is computed in one transaction: one grouped
-read over the month's partition, however many relationships it has.
+read over the month's partition (through ``ix_transaction_period``'s expression),
+however many relationships it has. A new row is inserted ``ON CONFLICT DO NOTHING``
+and re-read when another computation of the month inserted it first.
 """
 
 import logging
@@ -34,8 +39,10 @@ from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import Numeric, and_, cast, func, or_, select
+from sqlalchemy import Numeric, Text, and_, cast, func, literal_column, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from xolotl.modules.monitoring.aggregates.windows import MEXICO_CITY_ZONE
 from xolotl.modules.monitoring.enrich.policy import policy_date
@@ -51,6 +58,7 @@ from xolotl.modules.party.service import relationship_ref, relationship_refs
 from xolotl.platform import clock
 from xolotl.platform.config import get_settings
 from xolotl.platform.db import bound_context
+from xolotl.platform.ids import uuid7
 from xolotl.platform.jobs.queue import Job
 from xolotl.platform.policy.models import PolicySnapshot
 
@@ -65,6 +73,8 @@ _MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _MINOR_PER_MAJOR = Decimal(100)
 _SHARE_PLACES = Decimal("0.0001")
 _RATIO_PLACES = Decimal("0.1")
+# Why a direction is deviated without a ratio.
+DECLARED_ZERO = "DECLARED_ZERO"
 _DECLARED = (
     ("monthly_inflow", "monthly_inflow_minor"),
     ("monthly_outflow", "monthly_outflow_minor"),
@@ -175,7 +185,7 @@ def _activity(s: Session, month: str) -> list[_Activity]:
             Transaction.status == TransactionStatus.PROCESSED,
             Transaction.occurred_at >= start,
             Transaction.occurred_at < end,
-            func.jsonb_extract_path_text(Transaction.period_keys, "MONTH") == month,
+            _month_key() == month,
             Transaction.direction.in_((Direction.IN, Direction.OUT)),
         )
         .group_by(Transaction.relationship_id, Transaction.party_id)
@@ -197,6 +207,13 @@ def _activity(s: Session, month: str) -> list[_Activity]:
         )
         for row in rows
     ]
+
+
+def _month_key() -> ColumnElement[str]:
+    # Spelled as ix_transaction_period's expression, so the index can serve it.
+    return Transaction.period_keys.op("->>", return_type=Text)(
+        literal_column("'MONTH'")
+    )
 
 
 def _minor(pesos: Decimal) -> str:
@@ -235,16 +252,56 @@ def _deviation(
         "monthly_outflow": activity.outflow * _MINOR_PER_MAJOR,
     }
     ratios: dict[str, JsonValue] = {}
+    reasons: dict[str, JsonValue] = {}
     deviated = False
     for name, field in _DECLARED:
         amount = declared.get(field)
-        # A declared zero, or a value that is not an amount, gives no ratio.
-        if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+        # A value that is not an amount declares nothing for its direction.
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount < 0:
+            continue
+        if amount == 0:
+            # Nothing declared and nothing moved is no deviation; anything moved
+            # against a declared zero is, with no finite ratio to show.
+            if actual[name] > 0:
+                ratios[name] = None
+                reasons[name] = DECLARED_ZERO
+                deviated = True
             continue
         ratio = actual[name] / Decimal(amount)
         ratios[name] = str(ratio.quantize(_RATIO_PLACES, ROUND_FLOOR))
         deviated = deviated or ratio >= threshold
+    if reasons:
+        ratios["reasons"] = reasons
     return ratios, deviated
+
+
+def _existing(s: Session, month: str) -> dict[UUID, BehaviourProfile]:
+    return {
+        row.relationship_id: row
+        for row in s.scalars(
+            select(BehaviourProfile)
+            .where(BehaviourProfile.month == month)
+            .with_for_update()
+        )
+    }
+
+
+def _published(
+    s: Session, profile_id: UUID, activity: _Activity, *, month: str, deviated: bool
+) -> None:
+    _ = publish_monitoring_event(
+        s,
+        BEHAVIOUR_PROFILE_UPDATED,
+        entity="behaviour_profile",
+        entity_id=profile_id,
+        key=str(activity.relationship_id),
+        data={
+            "relationship_id": str(activity.relationship_id),
+            "party_id": str(activity.party_id),
+            "month": month,
+            "deviated": deviated,
+        },
+    )
 
 
 def compute_profiles(s: Session, *, month: str) -> int:
@@ -263,14 +320,7 @@ def compute_profiles(s: Session, *, month: str) -> int:
         return 0
     threshold = get_settings().monitoring_profile_deviation_ratio
     refs = relationship_refs(s, [item.relationship_id for item in activities])
-    existing = {
-        row.relationship_id: row
-        for row in s.scalars(
-            select(BehaviourProfile)
-            .where(BehaviourProfile.month == month)
-            .with_for_update()
-        )
-    }
+    existing = _existing(s, month)
     tenant_id = bound_context(s).require_tenant_id()
     now = clock.now()
     for activity in activities:
@@ -280,14 +330,38 @@ def compute_profiles(s: Session, *, month: str) -> int:
         deviation, deviated = _deviation(activity, declared, threshold)
         row = existing.get(activity.relationship_id)
         if row is None:
-            row = BehaviourProfile(
-                tenant_id=tenant_id,
-                relationship_id=activity.relationship_id,
-                party_id=activity.party_id,
-                month=month,
+            inserted = s.scalar(
+                insert(BehaviourProfile)
+                .values(
+                    tenant_id=tenant_id,
+                    id=uuid7(),
+                    relationship_id=activity.relationship_id,
+                    party_id=activity.party_id,
+                    month=month,
+                    metrics=metrics,
+                    declared_profile=declared,
+                    deviation=deviation,
+                    deviated=deviated,
+                    computed_at=now,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["tenant_id", "relationship_id", "month"]
+                )
+                .returning(BehaviourProfile.id)
             )
-            s.add(row)
-        elif (row.metrics, row.declared_profile, row.deviation, row.deviated) == (
+            if inserted is not None:
+                _published(s, inserted, activity, month=month, deviated=deviated)
+                continue
+            # Another computation of the month inserted it first: compare with it.
+            row = s.scalars(
+                select(BehaviourProfile)
+                .where(
+                    BehaviourProfile.relationship_id == activity.relationship_id,
+                    BehaviourProfile.month == month,
+                )
+                .with_for_update()
+            ).one()
+        if (row.metrics, row.declared_profile, row.deviation, row.deviated) == (
             metrics,
             declared,
             deviation,
@@ -300,19 +374,7 @@ def compute_profiles(s: Session, *, month: str) -> int:
         row.deviated = deviated
         row.computed_at = now
         s.flush()
-        _ = publish_monitoring_event(
-            s,
-            BEHAVIOUR_PROFILE_UPDATED,
-            entity="behaviour_profile",
-            entity_id=row.id,
-            key=str(activity.relationship_id),
-            data={
-                "relationship_id": str(activity.relationship_id),
-                "party_id": str(activity.party_id),
-                "month": month,
-                "deviated": deviated,
-            },
-        )
+        _published(s, row.id, activity, month=month, deviated=deviated)
     return len(activities)
 
 

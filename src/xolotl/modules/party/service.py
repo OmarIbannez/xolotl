@@ -17,7 +17,8 @@ from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import Select, or_, select, update
+from sqlalchemy import Select, Uuid, any_, bindparam, or_, select, update
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
 from xolotl.modules.party.enums import (
@@ -1044,14 +1045,16 @@ def relationship_refs(
 ) -> dict[UUID, RelationshipRef]:
     """Load several relationships of the session's tenant in one query.
 
+    The ids travel as one array parameter (``= ANY``), so a month with more
+    relationships than the protocol's 65,535 parameters still reads in one go.
+
     Returns:
         The relationships found, by id; an unknown id is left out.
 
     """
+    ids = bindparam("relationship_ids", list(relationship_ids), type_=ARRAY(Uuid()))
     rows = s.scalars(
-        select(CustomerRelationship).where(
-            CustomerRelationship.id.in_(list(relationship_ids))
-        )
+        select(CustomerRelationship).where(CustomerRelationship.id == any_(ids))
     )
     return {row.id: _ref_of(row) for row in rows}
 

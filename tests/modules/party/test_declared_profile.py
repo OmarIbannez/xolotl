@@ -6,6 +6,7 @@ instruments. Each change is audited ``relationship.declared_profile_set`` with t
 currency only, never an amount.
 """
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -23,12 +24,16 @@ from tests.modules.party.route_support import (
     post,
     staff_headers,
 )
-from xolotl.modules.party import customer
+from xolotl.modules.party import customer, service
 from xolotl.modules.party.models import CustomerRelationship
 from xolotl.modules.party.schemas import DeclaredProfile
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import Role
+from xolotl.platform.ids import uuid7
+
+if TYPE_CHECKING:
+    from pydantic import JsonValue
 
 PARTIES = "/v1/parties"
 RELATIONSHIPS = "/v1/relationships"
@@ -66,6 +71,9 @@ def _stored(tenant: CreatedTenant, rid: str) -> object:
         return row.declared_profile
 
 
+FIELDS = sorted(PROFILE)
+
+
 def test_a_staff_writer_sets_and_clears_the_declared_profile_and_it_is_audited(
     client: TestClient,
     tenant: CreatedTenant,
@@ -80,19 +88,66 @@ def test_a_staff_writer_sets_and_clears_the_declared_profile_and_it_is_audited(
     assert resp.json()["id"] == rid
     assert resp.json()["declared_profile"] == PROFILE
     assert _stored(tenant, rid) == PROFILE
+    # The same body again changes nothing and audits nothing.
+    again = _patch(client, admin_headers, rid, {"declared_profile": PROFILE})
+    assert again.status_code == 200, again.text
+    raised = {**PROFILE, "monthly_inflow_minor": 20_000_000}
+    changed = _patch(client, admin_headers, rid, {"declared_profile": raised})
+    assert changed.status_code == 200, changed.text
 
     cleared = _patch(client, admin_headers, rid, {"declared_profile": None})
     assert cleared.status_code == 200, cleared.text
     assert cleared.json()["declared_profile"] is None
     assert _stored(tenant, rid) is None
+    assert _patch(client, admin_headers, rid, {"declared_profile": None}).is_success
 
     rows = [row for row in audit_events(tenant.tenant_id) if row.action == ACTION]
-    assert [(r.entity_type, r.entity_id) for r in rows] == [
-        ("customer_relationship", rid),
-        ("customer_relationship", rid),
+    assert {(r.entity_type, r.entity_id) for r in rows} == {
+        ("customer_relationship", rid)
+    }
+    # Which fields changed, never their values: an audit row carries no amount.
+    assert [r.detail for r in rows] == [
+        {"currency": "MXN", "changed": FIELDS, "cleared": False},
+        {"currency": "MXN", "changed": ["monthly_inflow_minor"], "cleared": False},
+        {"currency": None, "changed": FIELDS, "cleared": True},
     ]
-    # The currency only: an audit row never carries a declared amount.
-    assert [r.detail for r in rows] == [{"currency": "MXN"}, {"currency": None}]
+
+
+def test_a_stored_profile_outside_the_schema_is_returned_as_stored(
+    client: TestClient,
+    tenant: CreatedTenant,
+    itf_pack: UUID,
+    admin_headers: dict[str, str],
+):
+    # Written by something other than this PATCH (a later onboarding, a fix by
+    # hand): reading the relationship must not fail on it.
+    _ = itf_pack
+    rid = _relationship(client, admin_headers)
+    odd: dict[str, JsonValue] = {
+        "currency": "USD",
+        "monthly_inflow_minor": "lots",
+        "source": "kyc",
+    }
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        row = s.get_one(CustomerRelationship, (tenant.tenant_id, UUID(rid)))
+        row.declared_profile = odd
+        party_id = row.party_id
+    resp = client.get(f"{PARTIES}/{party_id}", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    (listed,) = resp.json()["customer_relationships"]
+    assert listed["declared_profile"] == odd
+
+
+def test_relationship_refs_binds_one_array_whatever_the_number_of_ids(
+    tenant: CreatedTenant, itf_pack: UUID, client: TestClient, admin_headers
+):
+    # One bind parameter per id would pass the protocol's 65,535 limit.
+    _ = itf_pack
+    rid = UUID(_relationship(client, admin_headers))
+    ids = [uuid7() for _ in range(70_000)] + [rid]
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        found = service.relationship_refs(s, ids)
+    assert list(found) == [rid]
 
 
 def test_the_service_stores_the_json_form(

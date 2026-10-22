@@ -737,9 +737,11 @@ with processed rows in it: MXN inflow and outflow (minor units, from each row's
 `MXN/SAME_DAY` amount), counts, the cash, cross-border and crypto shares of the month's
 amount, distinct counterparties and active days. It copies the relationship's declared
 profile, which staff or an API key with `parties:write` set through
-`PATCH /v1/relationships/{id}` (MXN only; audited `relationship.declared_profile_set`
-with the currency, never an amount), and flags the month deviated when actual over
-declared inflow or outflow reaches `XOLOTL_MONITORING_PROFILE_DEVIATION_RATIO`. A
+`PATCH /v1/relationships/{id}` (MXN only; a change is audited
+`relationship.declared_profile_set` with the currency and the names of the fields that
+changed, never an amount), and flags the month deviated when actual over declared inflow
+or outflow reaches `XOLOTL_MONITORING_PROFILE_DEVIATION_RATIO`, or when money moved in a
+direction declared as zero (`deviation.reasons`: `DECLARED_ZERO`). A
 written or changed profile publishes the staff-only
 `monitoring.behaviour_profile_updated.v1`; the `PROFILE_DEVIATION` rules read the same
 declaration.
