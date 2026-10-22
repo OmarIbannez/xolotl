@@ -2967,7 +2967,8 @@ def test_monitoring_period_close_reports_discrepancies(
         ["monitoring", "period-close", "--tenant", tenant.slug, "--capture", "X"],
     )
     assert alone.exit_code == 2
-    assert "--capture and --period" in alone.output
+    # One word: the usage box wraps and colours the message on a narrow terminal.
+    assert "together" in alone.output
     early = runner.invoke(
         app,
         [
