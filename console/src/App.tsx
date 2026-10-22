@@ -85,6 +85,19 @@ const router = createBrowserRouter([
                 ],
               },
               {
+                element: <RequireRole roles={ACCESS.rules} />,
+                children: [
+                  {
+                    path: '/rules/monitoring',
+                    lazy: () => import('@/features/rules/RulesPage').then((m) => ({ Component: m.RulesPage })),
+                  },
+                  {
+                    path: '/rules/monitoring/:ruleId',
+                    lazy: () => import('@/features/rules/RulePage').then((m) => ({ Component: m.RulePage })),
+                  },
+                ],
+              },
+              {
                 element: <RequireRole roles={ACCESS.screening} />,
                 children: [
                   {

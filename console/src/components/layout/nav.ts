@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, Handshake, House, KeyRound, ListChecks, Lock, Plug, ScanSearch, ScrollText, ShieldAlert, ShieldCheck, Siren, Users, Waypoints, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, Handshake, House, KeyRound, ListChecks, Lock, Plug, ScanSearch, ScrollText, ShieldAlert, ShieldCheck, Siren, SlidersHorizontal, Users, Waypoints, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/api/types'
 import { ACCESS } from '@/auth/access'
 
@@ -18,6 +18,7 @@ export interface NavItem {
     | 'nav.lists'
     | 'nav.privateLists'
     | 'nav.ruleHits'
+    | 'nav.monitoringRules'
     | 'nav.screeningEvaluation'
     | 'nav.units'
     | 'nav.calendar'
@@ -45,6 +46,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/lists', labelKey: 'nav.lists', icon: ListChecks, roles: ACCESS.lists },
   { to: '/private-lists', labelKey: 'nav.privateLists', icon: Lock, roles: ACCESS.privateLists },
   { to: '/monitoring/hits', labelKey: 'nav.ruleHits', icon: Siren, roles: ACCESS.monitoring },
+  { to: '/rules/monitoring', labelKey: 'nav.monitoringRules', icon: SlidersHorizontal, roles: ACCESS.rules },
   { to: '/screening/evaluation', labelKey: 'nav.screeningEvaluation', icon: ChartNoAxesColumn, roles: ACCESS.screening },
   { to: '/units', labelKey: 'nav.units', icon: Coins },
   { to: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },

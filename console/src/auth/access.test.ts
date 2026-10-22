@@ -141,6 +141,16 @@ describe('the monitoring access', () => {
   })
 })
 
+describe('the rules access', () => {
+  it('lets every staff role read the rules, the senior analyst, MLRO and ADMIN write them and only MLRO and ADMIN approve', () => {
+    const roles: Role[] = ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN']
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.rules))).toEqual(roles)
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.rulesWrite))).toEqual(['SENIOR_ANALYST', 'MLRO', 'ADMIN'])
+    expect(roles.filter((role) => hasAnyRole([role], ACCESS.rulesApprove))).toEqual(['MLRO', 'ADMIN'])
+    expect(hasAnyRole([], ACCESS.rules)).toBe(false)
+  })
+})
+
 describe('redirectTarget', () => {
   it('returns the remembered in-console path, query included', () => {
     expect(redirectTarget({ from: '/staff' })).toBe('/staff')

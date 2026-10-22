@@ -227,6 +227,39 @@ export type Page_HitTransactionView_ = Schemas['Page_HitTransactionView_']
 /** The hit's party and counterparties in plaintext: audited as `VIEW_PII`. Never cache it. */
 export type HitReveal = Schemas['HitReveal']
 
+// Monitoring rules (SP-04 plan 4b, B9): the typology library, the tenant's rules and versions under
+// the D19 lifecycle, their simulations and assignments. Staff read every tally of a simulation;
+// its `sample` and `overlap` name customers, so they are never kept beyond the page.
+export type RuleFamily = Schemas['RuleFamily']
+export type RuleKind = Schemas['RuleKind']
+export type RuleVersionStatus = Schemas['RuleVersionStatus']
+export type RuleAction = Schemas['RuleAction']
+export type RuleBlockedReason = Schemas['RuleBlockedReason']
+export type SimulationStatus = Schemas['SimulationStatus']
+export type KeyKind = Schemas['KeyKind']
+/** A parameter's value and bounds, spelled as text (decimals exactly); `source` names the bounds' origin. */
+export type ParamView = Schemas['ParamView']
+/** A library template with its sentence in `es-MX` and `en`. */
+export type TemplateResponse = Schemas['TemplateResponse']
+/** A tenant rule with every version, oldest first. */
+export type RuleResponse = Schemas['RuleResponse']
+export type Page_RuleResponse_ = Schemas['Page_RuleResponse_']
+/** A rule version with the caller's `allowed_actions` and `blocked_reasons` per action. */
+export type VersionResponse = Schemas['VersionResponse']
+export type SimulationResponse = Schemas['SimulationResponse']
+export type RuleAssignmentResponse = Schemas['RuleAssignmentResponse']
+export type SegmentFilter = Schemas['SegmentFilter']
+export type Dedup = Schemas['Dedup']
+/** A decimal parameter goes as a string: the API refuses a float. */
+export type ParamValue = Schemas['ParamValue']
+export type RuleCreateRequest = Schemas['RuleCreateRequest']
+export type VersionRequest = Schemas['VersionRequest']
+export type SimulateRequest = Schemas['SimulateRequest']
+export type SimulateAccepted = Schemas['SimulateAccepted']
+export type ActivateRequest = Schemas['ActivateRequest']
+/** The reason is required (1 to 500 characters) but the API keeps only that one was given. */
+export type RejectRequest = Schemas['RejectRequest']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.
@@ -247,6 +280,6 @@ export interface ProblemDetails {
   /** Stable UPPER_SNAKE code, for example `UNAUTHENTICATED` or `ROLE_FORBIDDEN`. */
   code: string
   errors?: ProblemFieldError[]
-  /** Why a refused screening disposition was refused (`DISPOSITION_NOT_ALLOWED` only). */
+  /** Why a refused action was refused (`DISPOSITION_NOT_ALLOWED`, `RULE_TRANSITION_NOT_ALLOWED`). */
   blocked_reasons?: string[]
 }
