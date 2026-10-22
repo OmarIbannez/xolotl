@@ -1,0 +1,14 @@
+# An account last used on 5 June comes back on 7 December, 183 days later, and
+# moves 2,200 USD within two days. The first deposit back (1,000 USD) must not fire.
+# No history months: only the June deposit, seen and old enough, makes it dormant.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3, history_months: 0}
+transactions:
+  - {external_id: old-1, occurred_at: "2026-06-05T10:00:00-06:00", usd: "100", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: back-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "1000", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: back-2, occurred_at: "2026-12-07T15:00:00-06:00", usd: "1200", rail: SPEI, instrument: TRANSFER, channel: APP}

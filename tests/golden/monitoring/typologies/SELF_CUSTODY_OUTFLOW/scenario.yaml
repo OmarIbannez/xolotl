@@ -1,0 +1,13 @@
+# 1,500 USD of crypto sent to a self-custody wallet fires. 3,000 USD to a hosted
+# wallet must not, nor 400 USD to a self-custody one.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N3}
+transactions:
+  - {external_id: va-1, occurred_at: "2026-12-07T10:00:00-06:00", usd: "3000", product: CRYPTO, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, channel: APP, crypto: {network: ETH, asset_code: ETH, asset_qty: "1", self_custody: false}}
+  - {external_id: va-2, occurred_at: "2026-12-07T11:00:00-06:00", usd: "400", product: CRYPTO, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, channel: APP, crypto: {network: ETH, asset_code: ETH, asset_qty: "0.1", self_custody: true}}
+  - {external_id: va-3, occurred_at: "2026-12-07T12:00:00-06:00", usd: "1500", product: CRYPTO, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, channel: APP, crypto: {network: ETH, asset_code: ETH, asset_qty: "0.5", self_custody: true}}

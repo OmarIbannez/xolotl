@@ -1,0 +1,12 @@
+# An N2 account receives 3,001 UDI in December, over its 3,000 UDI monthly limit:
+# REVIEW. The deposit of exactly 3,000 UDI reaches the limit and must not fire.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile: {tier: N2}
+transactions:
+  - {external_id: dep-1, occurred_at: "2026-12-02T10:00:00-06:00", udi: "3000", tier: N2, product: EMONEY}
+  - {external_id: dep-2, occurred_at: "2026-12-09T10:00:00-06:00", udi: "1", tier: N2, product: EMONEY}

@@ -289,6 +289,7 @@ driver is added.
 | `XOLOTL_MONITORING_RETENTION_CRON` | `0 5 1 * *` | When the per-tenant monthly `monitoring.retention` job runs (UTC): transaction months past `retention.transactions`, orphaned counterparties and stale aggregate buckets. |
 | `XOLOTL_MONITORING_RULE_CACHE_SECONDS` | `30` | Seconds a process caches a tenant's active rule set for a date and product (0 disables the cache). An activation or retirement refreshes it at once. |
 | `XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` | `30` | A rule version is submitted and approved only with a completed simulation of its current definition younger than this many days (1 or more). |
+| `XOLOTL_MONITORING_SIMULATION_MAX_DAYS` | `190` | The longest range, in days (both ends included), a rule simulation replays; a longer one is refused with `SIMULATION_RANGE_TOO_LONG` (1 or more). |
 | `XOLOTL_MONITORING_SWEEP_CRON` | `* * * * *` | When the per-tenant `monitoring.sweep` job runs (UTC). |
 | `XOLOTL_OBJECT_STORE` | `local` | Where documents and exports live. `local` (the filesystem) is the only store so far; the port is ready for later adapters. |
 | `XOLOTL_OBJECT_STORE_ROOT` | `./data/local/objects` | Directory of the `local` store. |
@@ -536,7 +537,27 @@ is refused) and quote the `"on"` key (YAML 1.1 reads a bare `on` as `true`).
 uv run xolotl rules load [directory]           # install the library as the database owner; a rerun changes nothing
 uv run xolotl rules show CASH_STRUCTURING [--version 1]   # the definition as YAML and its sentence in es-MX and en
 uv run xolotl rules seed-tenant --tenant acme --author mlro@acme.mx   # a DRAFT rule per template of the tenant's packs
+uv run xolotl rules simulate --tenant acme --version <id> --from 2026-06-01 --to 2026-06-29   # replay history through a version
+uv run xolotl rules activate --tenant acme --version <id> --approved-by mlro@acme.mx [--simulate-from D --simulate-to D]
 ```
+
+`rules simulate` runs a simulation in place as the version's author (see
+"Simulation") and prints `simulation <id>: <hits> hits, <customers> customers, <weeks>
+weeks`. `rules activate` takes a version the rest of the way from today: the author
+simulates it (by default over the last 30 days, today included) and submits it, the
+approver, an MLRO or an admin other than the author, approves it and activates it for
+every product from today; it prints the simulation's summary and `active <code> v<n>
+from <date>: assignment <id>`. An approver who authored or edited the version, or a
+version past `APPROVED`, is refused with `RULE_TRANSITION_NOT_ALLOWED` before anything
+moves, and a step already taken (a version already in review or approved) is
+skipped. Both commands act as the staff users they name, so the lifecycle's audit
+rows name the author and the approver; before those steps each run writes one
+`rules.cli_invoked` row as the operator (`PLATFORM_OPERATOR`, `cli:<os user>`) with
+the command, the version, the author, the approver and the simulation (ids only).
+A run refused later, for its range say, keeps that row. The CLI cannot tell which
+staff user the operator is, so it cannot refuse an operator approving their own
+work: whoever holds the CLI is trusted with both users' names. Activation never starts in the
+past, so a demo whose fixtures predate today runs the command under an earlier clock.
 
 `rules load` prints one line per template version it creates and a count; `xolotl db
 upgrade` and `serve` run it after seeding the list catalog. Loading a version that is
@@ -796,6 +817,40 @@ the transaction's product or for every product, so "which rules applied on this
 date" is answered from the assignment rows. Each process caches a tenant's rule
 set for a date and product for `XOLOTL_MONITORING_RULE_CACHE_SECONDS`; an
 activation or a retirement is seen on the next read.
+
+### Simulation
+
+A senior analyst, an MLRO or an admin simulates a `DRAFT` or `SIMULATED` version over
+a range of Mexico City dates that ends today at the latest and spans at most
+`XOLOTL_MONITORING_SIMULATION_MAX_DAYS` days (190). The request writes a `QUEUED`
+`rule_simulation` row, audits `rules.simulation_requested` and queues one
+`monitoring.simulate` job, which is never retried. The job replays the tenant's
+processed transactions of the range through that version alone, party by party, into
+an in-memory aggregate store and the same evaluator processing runs, with
+processing's dedup and cooldown, so it finds the hits processing would have stored for
+that history. It writes nothing but its own row: no bucket, hit, notice, capture or
+audit row. After each page of whole parties it saves its tallies (`transactions_read`,
+`hit_count`, `customers_hit`, `hits_per_week` by the ISO week of each hit's last
+instant, `overlap` with the hits already stored for the same parties and with the
+parties found `TRUE_MATCH` after their simulated hits, and a `sample` of up to 50
+ids-only hits) and a cursor, so a run that is started again resumes at the next
+party. The job runs once, though: when its worker dies, `monitoring.sweep` finds
+the row `QUEUED` or `RUNNING` with no live job (or, for a CLI run, which has no job,
+a day old) and fails it with `WorkerLost`; staff request another. Windows start
+cold at the range: history before it is not read, so a rule fires later in the
+first days of the range than processing did, and a simulation shorter than four
+months never fires `DECLARED_VS_ACTUAL_VOLUME` on its history branch. A party's
+whole stream in the range is held in memory at once. Since parties are replayed
+one at a time, a rule keyed on `COUNTERPARTY` or `DEVICE` (its key, its dedup key
+or a declaration's) is refused with `VALIDATION_FAILED`: no library template is.
+A "later true match" is a party whose status is `TRUE_MATCH` and whose last
+screening came after its last simulated hit, so a party matched long ago and
+screened again since counts too. On completion
+the row is `COMPLETED` and the version becomes `SIMULATED` unless it was edited
+meanwhile; a failure leaves it `FAILED` with the exception's class only. Either way
+`monitoring.simulation_completed.v1` (staff-only) says so. A completed simulation is
+valid for submission and approval for `XOLOTL_MONITORING_SIMULATION_MAX_AGE_DAYS` (30
+days).
 
 ### Rule hits
 
