@@ -48,7 +48,8 @@
     "lists": "Listas",
     "privateLists": "Listas privadas",
     "screeningEvaluation": "Evaluación del motor",
-    "screeningCheck": "Consulta ad hoc"
+    "screeningCheck": "Consulta ad hoc",
+    "counterparties": "Contrapartes"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -1080,7 +1081,8 @@
         "band": "Banda",
         "score": "Puntaje",
         "status": "Estado",
-        "createdAt": "Creada"
+        "createdAt": "Creada",
+        "counterparty": "Contraparte"
       }
     },
     "band": {
@@ -1111,12 +1113,14 @@
       "kind": "Origen",
       "kinds": {
         "PARTY": "Cliente",
-        "AD_HOC": "Consulta ad hoc"
+        "AD_HOC": "Consulta ad hoc",
+        "COUNTERPARTY": "Contraparte"
       },
       "entityType": "Tipo",
       "initials": "Iniciales",
       "identifiers": "Identificadores",
       "openParty": "Ver cliente",
+      "openCounterparty": "Abrir contraparte",
       "list": "Lista",
       "score": "Puntaje",
       "band": "Banda",
@@ -1340,6 +1344,74 @@
       "finding": "Hallazgo",
       "openFinding": "Ver hallazgo",
       "noFinding": "Sin hallazgo"
+    }
+  },
+  "counterparties": {
+    "title": "Contrapartes",
+    "description": "Las otras partes de las operaciones, enmascaradas, con su estado de revisión contra las listas. Abre una para ver sus hallazgos.",
+    "empty": "No hay contrapartes con este estado.",
+    "unnamed": "Sin nombre",
+    "tabs": {
+      "label": "Estado",
+      "PENDING_REVIEW": "Pendientes de revisión",
+      "TRUE_MATCH": "Coincidencia confirmada",
+      "CLEAR": "Sin alerta",
+      "UNSCREENED": "Sin revisar"
+    },
+    "status": {
+      "UNSCREENED": "Sin revisar",
+      "CLEAR": "Sin alerta",
+      "PENDING_REVIEW": "Pendiente de revisión",
+      "TRUE_MATCH": "Coincidencia confirmada"
+    },
+    "kind": {
+      "PERSON": "Persona",
+      "ORGANIZATION": "Organización",
+      "UNKNOWN": "Sin especificar"
+    },
+    "table": {
+      "label": "Contrapartes",
+      "name": "Nombre",
+      "kind": "Tipo",
+      "country": "País",
+      "institution": "Institución",
+      "value": "Cuenta o cartera",
+      "accountPrefix": "Cuenta",
+      "walletPrefix": "Cartera",
+      "status": "Estado",
+      "firstSeen": "Primera vez",
+      "lastSeen": "Última vez",
+      "transactions": "Operaciones"
+    },
+    "detail": {
+      "title": "Detalle de contraparte",
+      "back": "Contrapartes",
+      "card": "Contraparte",
+      "account": "Cuenta",
+      "wallet": "Cartera",
+      "identifier": "Identificador",
+      "screenedAt": "Última revisión",
+      "findings": "Hallazgos",
+      "findingsEmpty": "Esta contraparte no tiene hallazgos."
+    },
+    "runs": {
+      "title": "Revisiones",
+      "createdAt": "Fecha",
+      "run": "Revisión",
+      "outcome": "Resultado",
+      "empty": "Esta contraparte no se ha revisado."
+    },
+    "reveal": {
+      "title": "Datos personales",
+      "button": "Revelar",
+      "running": "Revelando…",
+      "hide": "Ocultar",
+      "notice": "Esta consulta quedó registrada en la auditoría.",
+      "name": "Nombre",
+      "account": "Cuenta",
+      "wallet": "Cartera",
+      "identifier": "Identificador",
+      "empty": "No hay datos personales que mostrar."
     }
   },
   "forbidden": {

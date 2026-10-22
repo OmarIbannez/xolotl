@@ -157,6 +157,17 @@ export type PartyScreeningResponse = Schemas['PartyScreeningResponse']
 export type PartyScreeningStaffResponse = Schemas['PartyScreeningStaffResponse']
 export type SubjectStatus = Schemas['SubjectStatus']
 
+// Counterparties (SP-04 plan 4c, C3): masked rows and detail, and the audited reveal.
+export type CounterpartyKind = Schemas['CounterpartyKind']
+export type CounterpartyScreeningStatus = Schemas['CounterpartyScreeningStatus']
+/** A counterparty as the Contrapartes list shows it: initials and last-four tails only. */
+export type CounterpartyResponse = Schemas['CounterpartyResponse']
+/** A counterparty with its findings (links into the queue) and its last runs. */
+export type CounterpartyDetail = Schemas['CounterpartyDetail']
+/** A counterparty's values in plaintext; each one was audited as `VIEW_PII`. */
+export type RevealedCounterparty = Schemas['RevealedCounterparty']
+export type RunResponse = Schemas['RunResponse']
+
 // ---------------------------------------------------------------------------
 // Errors: every non-2xx answer is `application/problem+json` (spec section 7).
 // The OpenAPI document does not describe it, so it is typed here.

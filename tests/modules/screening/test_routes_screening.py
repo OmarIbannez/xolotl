@@ -342,6 +342,7 @@ def test_the_match_queue_shows_each_subject_masked(
     assert subjects[party_match] == {
         "kind": "PARTY",
         "party_id": party_id,
+        "counterparty_id": None,
         "entity_type": "PERSON",
         "initials": "J.C.P.G.",
         "identifiers": ["RFC ****0XY2"],
@@ -349,6 +350,7 @@ def test_the_match_queue_shows_each_subject_masked(
     assert subjects[ad_hoc_match] == {
         "kind": "AD_HOC",
         "party_id": None,
+        "counterparty_id": None,
         "entity_type": "PERSON",
         "initials": "J.C.P.G.",
         "identifiers": [],
@@ -356,6 +358,7 @@ def test_the_match_queue_shows_each_subject_masked(
     assert subjects[purged_match] == {
         "kind": "PARTY",
         "party_id": purged_id,
+        "counterparty_id": None,
         "entity_type": "PERSON",
         "initials": "",
         "identifiers": [],
@@ -397,6 +400,7 @@ def test_the_match_detail_is_masked_and_lists_the_allowed_actions(
     assert body["subject"] == {
         "kind": "PARTY",
         "party_id": party_id,
+        "counterparty_id": None,
         "entity_type": "PERSON",
         "initials": "J.C.P.G.",
         "identifiers": ["RFC ****0XY2"],
