@@ -31,7 +31,7 @@ export interface RenderAppOptions {
   routes?: FakeRoutes
   /** The signed-in user's profile. */
   me?: Me
-  /** Where the router starts. */
+  /** Where the router starts, with its query string if any (`/transactions?party_id=p1`). */
   path?: string
   /** Router state of the starting location (where a guard sent the visitor from, say). */
   state?: unknown
@@ -52,10 +52,12 @@ export function renderApp(ui: ReactElement, options: RenderAppOptions = {}) {
     defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false }, mutations: { retry: false } },
   })
   const user = userEvent.setup()
+  const [pathname = '/', query] = (options.path ?? '/').split('?', 2)
+  const search = query === undefined ? '' : `?${query}`
   const rendered = render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <MemoryRouter initialEntries={[{ pathname: options.path ?? '/', state: options.state }]}>{ui}</MemoryRouter>
+        <MemoryRouter initialEntries={[{ pathname, search, state: options.state }]}>{ui}</MemoryRouter>
       </AuthProvider>
     </QueryClientProvider>,
   )
