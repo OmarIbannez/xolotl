@@ -85,6 +85,13 @@ def _assign(tenant: CreatedTenant, assignments: list[tuple[UUID, str | None]]) -
             )
 
 
+def assign_packs(
+    tenant: CreatedTenant, assignments: list[tuple[UUID, str | None]]
+) -> None:
+    """Assign pack versions (by id, per product or tenant-wide) from 2026-01-01."""
+    _assign(tenant, assignments)
+
+
 def itf_tenant(tenant: CreatedTenant, admin_engine: Engine) -> UUID:
     """Assign the ITF pack to every product of ``tenant`` from 2026-01-01.
 

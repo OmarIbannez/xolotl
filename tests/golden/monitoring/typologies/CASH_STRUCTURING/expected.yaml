@@ -1,0 +1,18 @@
+hits:
+- trigger: dep-3
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12-07T00:00:00+00:00
+  window_start: '2026-12-02T16:00:00+00:00'
+  window_end: '2026-12-09T16:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates:
+    near_count:
+      value: '3'
+      unit: null
+      window: P7D
+      count: 3
+    near_sum:
+      value: '11100'
+      unit: USD/PRIOR_BANKING_DAY
+      window: P7D
+      count: 3

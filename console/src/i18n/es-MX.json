@@ -51,7 +51,8 @@
     "screeningEvaluation": "Evaluación del motor",
     "screeningCheck": "Consulta ad hoc",
     "transactions": "Transacciones",
-    "counterparties": "Contrapartes"
+    "counterparties": "Contrapartes",
+    "rails": "Rieles"
   },
   "header": {
     "tenant": "Espacio de trabajo",
@@ -148,7 +149,9 @@
     "fileType": "Elige un archivo PDF, JPEG o PNG.",
     "ownership": "Escribe un porcentaje mayor que 0 y hasta 100, con 4 decimales como máximo; solo aplica a accionistas.",
     "uuid": "Pega el identificador completo de la otra persona o empresa (lo ves en la dirección de su página).",
-    "countryCodes": "Usa códigos de país de dos letras separados por comas, por ejemplo MX, VE."
+    "countryCodes": "Usa códigos de país de dos letras separados por comas, por ejemplo MX, VE.",
+    "amountMxn": "Escribe un monto en pesos, sin signo, con punto decimal y dos decimales como máximo, por ejemplo 125000.50. La coma solo separa miles (125,000.50).",
+    "instrumentCodes": "Usa códigos de instrumento en mayúsculas, por ejemplo CASH."
   },
   "home": {
     "title": "Inicio",
@@ -359,7 +362,8 @@
         "relationships": "Relaciones",
         "documents": "Documentos",
         "customer": "Relaciones de cliente",
-        "label": "Datos de la persona o empresa"
+        "label": "Datos de la persona o empresa",
+        "profile": "Perfil de comportamiento"
       }
     },
     "reveal": {
@@ -541,6 +545,67 @@
       "label": "Últimas transacciones del cliente",
       "viewAll": "Ver todas",
       "empty": "Este cliente no tiene transacciones."
+    },
+    "profile": {
+      "title": "Perfil de comportamiento · {{ref}}",
+      "description": "Entradas y salidas mensuales en MXN de los últimos 12 meses, contra el perfil declarado.",
+      "empty": "Sin perfil todavía",
+      "emptyHint": "El perfil se calcula cada mes con las operaciones procesadas del mes anterior.",
+      "noRelationships": "Sin relaciones de cliente abiertas.",
+      "declared": {
+        "title": "Perfil declarado",
+        "none": "Sin perfil declarado",
+        "inflow": "Entradas declaradas por mes",
+        "outflow": "Salidas declaradas por mes",
+        "countries": "Países esperados",
+        "instruments": "Instrumentos esperados",
+        "noneListed": "Ninguno"
+      },
+      "edit": "Editar perfil declarado",
+      "clear": "Quitar perfil declarado",
+      "clearConfirm": "Sin perfil declarado, los meses siguientes ya no se comparan contra lo declarado. El cambio queda en la bitácora de auditoría.",
+      "clearing": "Quitando…",
+      "cleared": "Perfil declarado quitado",
+      "deviated": "Desviación",
+      "chart": {
+        "label": "Entradas y salidas por mes, de {{from}} a {{to}}",
+        "inflow": "Entradas",
+        "outflow": "Salidas",
+        "declared": "Declarado"
+      },
+      "table": {
+        "label": "Métricas por mes",
+        "month": "Mes",
+        "inflow": "Entradas",
+        "outflow": "Salidas",
+        "operations": "Operaciones (entrada / salida)",
+        "counterparties": "Contrapartes distintas",
+        "activeDays": "Días activos",
+        "cash": "Efectivo",
+        "international": "Internacional",
+        "crypto": "Cripto",
+        "deviation": "Contra lo declarado"
+      },
+      "deviation": {
+        "none": "Sin declaración",
+        "inflowRatio": "Entradas {{ratio}}",
+        "outflowRatio": "Salidas {{ratio}}",
+        "inflowDeclaredZero": "Entradas declaradas en cero, con movimientos",
+        "outflowDeclaredZero": "Salidas declaradas en cero, con movimientos"
+      },
+      "dialog": {
+        "title": "Perfil declarado",
+        "description": "Montos mensuales esperados en MXN. Cada cambio queda en la bitácora de auditoría.",
+        "inflow": "Entradas por mes (MXN)",
+        "outflow": "Salidas por mes (MXN)",
+        "amountHint": "Pesos con punto decimal y dos decimales como máximo; la coma solo separa miles.",
+        "countries": "Países esperados",
+        "countriesHint": "Códigos de dos letras separados por comas, por ejemplo MX, US.",
+        "instruments": "Instrumentos esperados",
+        "submit": "Guardar perfil",
+        "submitting": "Guardando…",
+        "saved": "Perfil declarado guardado"
+      }
     }
   },
   "audit": {
@@ -1787,7 +1852,8 @@
     "EXTERNAL_ID_CONFLICT": "Ya existe una transacción con ese ID externo y datos distintos.",
     "TRANSACTION_FILE_TOO_LARGE": "El archivo supera el tamaño máximo permitido.",
     "TRANSACTION_FILE_INVALID": "El archivo no se pudo leer: revisa el formato y los encabezados.",
-    "BACKFILL_RANGE_INVALID": "El rango de fechas del backfill no es válido."
+    "BACKFILL_RANGE_INVALID": "El rango de fechas del backfill no es válido.",
+    "RAIL_UNKNOWN": "Ese riel no existe."
   },
   "counterparties": {
     "title": "Contrapartes",
@@ -1856,5 +1922,39 @@
       "identifier": "Identificador",
       "empty": "No hay datos personales que mostrar."
     }
+  },
+  "rails": {
+    "title": "Rieles",
+    "description": "Qué responde una decisión cuando el motor no alcanza a evaluarla dentro del presupuesto.",
+    "explainer": "Permisivo responde REVISAR; Restrictivo responde BLOQUEAR. Qué hace con la operación cada respuesta lo decide el cliente que pidió la decisión. Un riel sin configurar sigue el modo predeterminado de la instalación.",
+    "mode": {
+      "FAIL_OPEN": "Permisivo: revisar",
+      "FAIL_CLOSED": "Restrictivo: bloquear"
+    },
+    "default": "Predeterminado",
+    "explicit": "Configurado",
+    "table": {
+      "label": "Modo de falla por riel",
+      "rail": "Riel",
+      "mode": "Modo de falla",
+      "source": "Origen",
+      "updatedAt": "Último cambio",
+      "restrictive": "Restrictivo"
+    },
+    "toggle": "Bloquear en {{rail}} cuando el motor no alcance a evaluar",
+    "confirm": {
+      "FAIL_CLOSED": {
+        "title": "¿Bloquear en {{rail}}?",
+        "description": "Si el motor no alcanza a evaluar una operación de {{rail}} dentro del presupuesto, la decisión será BLOQUEAR, también para una operación legítima."
+      },
+      "FAIL_OPEN": {
+        "title": "¿Revisar en {{rail}}?",
+        "description": "Si el motor no alcanza a evaluar una operación de {{rail}} dentro del presupuesto, la decisión será REVISAR."
+      },
+      "submit": "Cambiar modo",
+      "pending": "Guardando…"
+    },
+    "changed": "{{rail}} quedó en {{mode}}",
+    "empty": "No hay rieles."
   }
 }

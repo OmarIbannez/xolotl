@@ -1,0 +1,15 @@
+# A customer who declared 10,000 MXN of monthly inflows receives 21,000 MXN in
+# December. The first deposit (5,000 MXN, half the declaration) must not fire.
+rates:
+  USD/PRIOR_BANKING_DAY: "18.0"
+  UDI/SAME_DAY: "8.6"
+  UDI/LAST_DAY_PREV_MONTH: "8.6"
+  UMA/SAME_DAY: "117.31"
+  MXN/SAME_DAY: "1"
+profile:
+  tier: N3
+  history_months: 0
+  declared_profile: {monthly_inflow_minor: 1000000, monthly_outflow_minor: null, currency: MXN}
+transactions:
+  - {external_id: dep-1, occurred_at: "2026-12-03T10:00:00-06:00", pesos: "5000", rail: SPEI, instrument: TRANSFER, channel: APP}
+  - {external_id: dep-2, occurred_at: "2026-12-10T10:00:00-06:00", pesos: "16000", rail: SPEI, instrument: TRANSFER, channel: APP}

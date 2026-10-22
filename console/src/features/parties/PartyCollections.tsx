@@ -14,6 +14,7 @@ import { useAuth } from '@/auth/use-auth'
 import { DataTable, type Column } from '@/components/common/DataTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EmptyBlock } from '@/components/common/states'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useFormat } from '@/i18n/use-locale'
@@ -21,11 +22,12 @@ import { AddAddressDialog } from './AddAddressDialog'
 import { AddContactDialog } from './AddContactDialog'
 import { AddIdentifierDialog } from './AddIdentifierDialog'
 import { AddRelationshipDialog } from './AddRelationshipDialog'
+import { BehaviourProfileCard } from './BehaviourProfileCard'
 import { CustomerRelationshipsCard } from './CustomerRelationshipsCard'
 import { calendarDay } from './dates'
 import { DocumentsCard } from './DocumentsCard'
 
-const TABS = ['identifiers', 'contacts', 'addresses', 'relationships', 'documents', 'customer'] as const
+const TABS = ['identifiers', 'contacts', 'addresses', 'relationships', 'documents', 'customer', 'profile'] as const
 type Tab = (typeof TABS)[number]
 type Adding = 'identifiers' | 'contacts' | 'addresses' | 'relationships'
 
@@ -53,14 +55,32 @@ function Section({ addLabel, onAdd, children }: { addLabel: string; onAdd: (() =
 }
 
 /**
+ * The behaviour profile of each opened customer relationship (a pending one has no operations yet).
+ */
+function BehaviourProfiles({ party }: { party: PartyStaffResponse }) {
+  const { t } = useTranslation()
+  const opened = party.customer_relationships.filter((relationship) => relationship.status !== 'PENDING')
+  if (opened.length === 0) return <EmptyBlock>{t('parties.profile.noRelationships')}</EmptyBlock>
+  return (
+    <div className="space-y-6">
+      {opened.map((relationship) => (
+        <BehaviourProfileCard key={relationship.id} relationship={relationship} />
+      ))}
+    </div>
+  )
+}
+
+/**
  * The detail page's collections, one tab each, over the masked staff view: identifiers, contacts,
  * addresses (codes only; the lines come with the reveal), relationships to other parties,
- * documents and customer relationships. Writers get an add action per tab.
+ * documents and customer relationships, and (for the roles that read transactions) the behaviour
+ * profile of each customer relationship. Writers get an add action per tab.
  */
 export function PartyCollections({ party }: { party: PartyStaffResponse }) {
   const { t } = useTranslation()
   const { hasRole } = useAuth()
   const canWrite = hasRole(ACCESS.partiesWrite)
+  const tabs = TABS.filter((tab) => tab !== 'profile' || hasRole(ACCESS.transactions))
   const [adding, setAdding] = useState<Adding | null>(null)
   const addFor = (collection: Adding) => (canWrite ? () => setAdding(collection) : undefined)
   const close = () => setAdding(null)
@@ -173,6 +193,7 @@ export function PartyCollections({ party }: { party: PartyStaffResponse }) {
     ),
     documents: <DocumentsCard partyId={party.id} documents={party.documents} />,
     customer: <CustomerRelationshipsCard partyId={party.id} relationships={party.customer_relationships} />,
+    profile: <BehaviourProfiles party={party} />,
   }
 
   return (
@@ -180,13 +201,13 @@ export function PartyCollections({ party }: { party: PartyStaffResponse }) {
       <CardContent>
         <Tabs defaultValue="identifiers">
           <TabsList aria-label={t('parties.detail.tabs.label')} className="flex-wrap">
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <TabsTrigger key={tab} value={tab}>
                 {t(`parties.detail.tabs.${tab}`)}
               </TabsTrigger>
             ))}
           </TabsList>
-          {TABS.map((tab) => (
+          {tabs.map((tab) => (
             <TabsContent key={tab} value={tab} className="pt-2">
               {panels[tab]}
             </TabsContent>

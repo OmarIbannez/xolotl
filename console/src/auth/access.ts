@@ -35,6 +35,9 @@ export const ACCESS = {
   transactionsWrite: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
   // Who may request a transaction backfill.
   backfill: ['MLRO', 'ADMIN'],
+  // Admin › Rieles: the API lets every staff role read the fail modes, but only ADMIN changes one,
+  // and the page exists to change them.
+  rails: ['ADMIN'],
   // Every staff role reads the rule hits and may reveal a hit's personal data (each reveal is audited).
   monitoring: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
 } as const satisfies Record<string, readonly Role[]>

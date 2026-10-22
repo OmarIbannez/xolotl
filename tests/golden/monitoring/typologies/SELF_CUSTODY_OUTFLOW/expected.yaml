@@ -1,0 +1,8 @@
+hits:
+- trigger: va-3
+  dedup_key: RELATIONSHIP:00000000-0000-0000-0000-000000000003:2026-12-07T00:00:00+00:00
+  window_start: '2026-12-07T18:00:00+00:00'
+  window_end: '2026-12-07T18:00:00+00:00'
+  severity: MEDIUM
+  outcome: ALERT
+  aggregates: {}

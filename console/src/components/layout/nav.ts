@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, Handshake, House, KeyRound, ListChecks, Lock, Plug, ScanSearch, ScrollText, ShieldAlert, ShieldCheck, Siren, Users, type LucideIcon } from 'lucide-react'
+import { ArrowLeftRight, BookOpen, CalendarDays, ChartNoAxesColumn, Coins, Contact, Handshake, House, KeyRound, ListChecks, Lock, Plug, ScanSearch, ScrollText, ShieldAlert, ShieldCheck, Siren, Users, Waypoints, type LucideIcon } from 'lucide-react'
 import type { Role } from '@/api/types'
 import { ACCESS } from '@/auth/access'
 
@@ -22,6 +22,7 @@ export interface NavItem {
     | 'nav.units'
     | 'nav.calendar'
     | 'nav.connectors'
+    | 'nav.rails'
     | 'nav.security'
   icon: LucideIcon
   /** Match the path exactly (for "/"). */
@@ -48,5 +49,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: '/units', labelKey: 'nav.units', icon: Coins },
   { to: '/calendar', labelKey: 'nav.calendar', icon: CalendarDays },
   { to: '/connectors', labelKey: 'nav.connectors', icon: Plug, roles: ACCESS.connectors },
+  { to: '/admin/rails', labelKey: 'nav.rails', icon: Waypoints, roles: ACCESS.rails },
   { to: '/security', labelKey: 'nav.security', icon: ShieldCheck },
 ]
