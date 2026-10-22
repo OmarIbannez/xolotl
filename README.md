@@ -5,6 +5,167 @@ packs, screening, transaction monitoring, regulatory reporting (Formato 41,
 avisos) and case management. This repository is the Python monolith; the
 product and package are named `xolotl`.
 
+## Features
+
+What is on `main` today, shown in the staff console (Spanish by default, English
+available). Every screenshot below comes from a local demo workspace with invented
+people, companies, identifiers and accounts; the sanctions entries are the public list
+samples committed under `tests/modules/screening/fixtures/`.
+
+### Platform
+
+Each regulated entity is a tenant with its own workspace, isolated by Postgres
+row-level security and its own encryption keys. Staff sign in with a password and
+optional TOTP and hold one or more of five roles (analyst, senior analyst, MLRO,
+read-only auditor, admin); the console only offers what a role may do, and the API
+enforces it. Systems call the API with scoped API keys that an admin creates and
+revokes. Changes, sign-ins and every view of personal data land in a per-tenant
+audit chain that an MLRO, admin or auditor can verify from the console.
+
+Regulatory reference data is versioned: policy packs (`MX/ITF-IFPE` and
+`MX/LFPIORPI-AVI` so far) carry account tiers, capture thresholds, mandatory lists,
+retention and governance, each value with its legal basis; an admin assigns a pack
+version to the workspace (optionally per product) and can tighten it, never loosen
+it. UMA, UDI and the USD/MXN FIX are kept as dated unit values, fetched from Banxico
+(or from the committed seed files in demo mode), along with the regulatory holiday
+calendars.
+
+![Sign-in](docs/screenshots/sign-in.png)
+![The effective policy for a date, with its legal basis and the pack assignment](docs/screenshots/policy.png)
+
+<details>
+<summary>More platform screenshots</summary>
+
+![Staff and their roles](docs/screenshots/staff.png)
+![API keys, listed by prefix only](docs/screenshots/api-keys.png)
+![Audit log with a verified chain](docs/screenshots/audit-log.png)
+![Unit values](docs/screenshots/units.png)
+
+</details>
+
+### Customers
+
+People and companies are KYC records with identifiers (CURP, RFC, CLABE and other
+LATAM IDs, each checked for structure and check digit), contacts, addresses,
+documents, ownership and control relationships, and the customer relationships
+(accounts, products) that transactions are booked against. Names, identifiers and
+contact data are stored encrypted. Lists and detail pages show initials and the last
+characters of each identifier; the full data appears only when a user presses
+*Revelar*, and each reveal is recorded in the audit log first. Closing a customer
+relationship starts the retention clock of the effective policy, and an MLRO can put
+a legal hold on a record.
+
+![A customer, masked](docs/screenshots/customer-detail-masked.png)
+![The same customer after an audited reveal](docs/screenshots/customer-detail-revealed.png)
+
+<details>
+<summary>More customer screenshots</summary>
+
+![Customers list](docs/screenshots/customers-list.png)
+![A company's ownership and control relationships](docs/screenshots/customer-relationships.png)
+![A company's documents](docs/screenshots/customer-documents.png)
+
+</details>
+
+### Sanctions and PEP screening
+
+Customers are screened against the shared lists (UN Security Council consolidated
+list, OFAC SDN, EU financial sanctions, UK sanctions list and SAT 69-B) and against the
+tenant's own lists: its blocked-persons list (LPB) and any internal or PEP list it
+uploads from the CSV or XLSX template. PEP status is also recorded on each person.
+Screening runs when a customer is created or changed, on demand, monthly over the
+whole base, and on every new list version, which re-screens only the entries the
+version added or changed and suggests closing findings on removed ones. Findings go
+to a review queue where each match shows how the names aligned, which qualifiers
+(birth date, nationality, country) moved the score and which list version and matcher
+produced it, and decisions follow four-eyes rules (an analyst escalates, an MLRO
+confirms). API clients only ever see a status, never a list, score or finding. The
+matcher's recall and precision on the evaluation corpus ship with each build.
+
+![Review queue](docs/screenshots/screening-match-queue.png)
+![A match explained, with the decision form](docs/screenshots/screening-match-detail.png)
+
+<details>
+<summary>More screening screenshots</summary>
+
+![The match's subject revealed, at the bottom of the page](docs/screenshots/screening-match-revealed.png)
+![List catalogue and freshness](docs/screenshots/lists-catalog.png)
+![A list's versions with their additions, changes and removals](docs/screenshots/list-versions.png)
+![The tenant's blocked-persons list](docs/screenshots/private-list-detail.png)
+![Matcher evaluation report](docs/screenshots/screening-evaluation.png)
+
+</details>
+
+### Transaction monitoring (so far)
+
+Transactions arrive in API batches (`POST /v1/transactions`) or as CSV, JSON Lines
+or XLSX files uploaded from the console or the CLI; a rejected row is reported by row,
+column and code, never with its value. A background job processes each customer's
+transactions in order: it converts the amount to the units the policy needs (MXN,
+UDI, USD), assigns the day, month and quarter periods and updates the running
+aggregates. A transaction whose unit value or policy is not available yet is
+*parked* and retried automatically; one received more than seven days after it
+happened (`XOLOTL_MONITORING_LATE_DAYS`) waits for a *backfill* that an MLRO or admin
+runs for a range of days. The
+Transacciones page lists and filters them, shows the parked and backfill queues,
+looks up an API batch and uploads files; a transaction's detail shows its unit
+amounts, and its counterparty and raw payload only after an audited reveal. Each
+customer's page lists their latest transactions.
+
+![Transactions with filters](docs/screenshots/transactions-list.png)
+![A processed transaction, masked](docs/screenshots/transaction-detail-masked.png)
+
+<details>
+<summary>More monitoring screenshots</summary>
+
+![Filtered to processed transactions](docs/screenshots/transactions-filtered.png)
+![The upload dialog](docs/screenshots/transactions-upload-dialog.png)
+![An uploaded file's result and an API batch looked up](docs/screenshots/transactions-files-batches.png)
+![Parked transactions](docs/screenshots/transactions-parked.png)
+![Transactions waiting for a backfill](docs/screenshots/transactions-backfill.png)
+![Requesting a backfill](docs/screenshots/transactions-backfill-dialog.png)
+![The transaction revealed: counterparty and raw payload](docs/screenshots/transaction-detail-revealed.png)
+![A customer's Transacciones card](docs/screenshots/customer-transactions-card.png)
+
+</details>
+
+### Counterparties
+
+Every counterparty named in a transaction is resolved to one record per tenant (from
+its name, account, wallet address and identifier, compared through blind indexes)
+and screened the first time it is seen,
+including crypto wallets, which match a listed digital-currency address exactly. Its
+findings join the same review queue. The Contrapartes page lists them masked with
+their screening status and number of transactions, and a counterparty's detail shows
+its findings and screening runs, with the name, account and wallet revealed only on
+request (audited).
+
+![Counterparties pending review](docs/screenshots/counterparties-list.png)
+![A wallet counterparty matched on the OFAC SDN list](docs/screenshots/counterparty-detail.png)
+
+<details>
+<summary>More counterparty screenshots</summary>
+
+![The counterparty revealed](docs/screenshots/counterparty-detail-revealed.png)
+
+</details>
+
+### Not in the console yet / coming next
+
+- **Monitoring rules.** The Mexico rule templates (sixteen typologies) and the rule
+  version lifecycle (draft, simulated, in review, approved, active, retired, with
+  four eyes) exist; templates are managed from the CLI (`xolotl rules ...`), with no
+  API or console screen yet.
+- **Rule hits:** evaluating the active rules against processed transactions (in
+  review).
+- **Rule screens:** the rule editor, simulation and hits pages.
+- **Regulatory captures and period close** (Formato 41 and avisos).
+- **The real-time decide endpoint** for payment rails; the per-rail fail-mode
+  settings API (`/v1/monitoring/rails`) already exists.
+- **Behaviour profiles** per customer.
+- **Effectiveness metrics** for screening and monitoring.
+- **Retention of monitoring data** (in review).
+
 ## Status
 
 Plans 1a and 1b of the platform kernel: tenancy with Postgres row-level security,
