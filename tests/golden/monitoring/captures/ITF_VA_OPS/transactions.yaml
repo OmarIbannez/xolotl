@@ -1,0 +1,7 @@
+# Virtual-asset operations of an e-money customer on Thursday 10 December 2026:
+# 7,500 UDI or more at that day's UDI (8.613) is captured.
+relationships:
+  - {ref: cust-1, product: EMONEY}
+items:
+  - {external_id: va-1, occurred_at: "2026-12-10T10:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "70000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.05"}}
+  - {external_id: va-2, occurred_at: "2026-12-10T11:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: OUT, rail: CRYPTO_ONCHAIN, instrument: CRYPTO, amount: "60000.00", currency: MXN, channel: APP, crypto: {network: bitcoin, asset_code: BTC, asset_qty: "0.04"}}

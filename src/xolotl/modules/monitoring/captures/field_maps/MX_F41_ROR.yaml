@@ -1,0 +1,13 @@
+# Formato 41, reporte de operaciones relevantes (ITF_ROR_CASH). The codes are the
+# F41 code tables' (report-defs/codetables/MX); a test checks every value exists.
+report_code: MX_F41_ROR
+codetables:
+  operation_type: f41_tipo_operacion
+  instrument: f41_instrumento_monetario
+# "<DIRECTION>/<INSTRUMENT>" -> tipo de operación: 01 DEPOSITO, 02 RETIRO.
+operation_type:
+  IN/CASH: "01"
+  OUT/CASH: "02"
+# "<INSTRUMENT>" -> instrumento monetario: 01 EFECTIVO.
+instrument:
+  CASH: "01"

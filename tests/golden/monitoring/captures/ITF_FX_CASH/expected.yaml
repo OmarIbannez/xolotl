@@ -1,0 +1,45 @@
+events:
+- transaction: fx-1
+  capture_code: ITF_FX_CASH
+  capture_kind: THRESHOLD
+  report_code: MX_ITF_FX_CASH
+  period_key: 2026-Q4
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 60000
+      currency: USD
+    branch: '0000'
+    crypto: null
+    locality: null
+    instrument: EFECTIVO
+    account_ref: acct-1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty: null
+    operation_date: '2026-12-09'
+    operation_type: COMPRA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: PRIOR_BANKING_DAY
+      amount: '9060.00'
+      currency: MXN
+      resolved_date: '2026-12-08'
+      unit_value_id: USD_MXN_FIX 2026-12-08
+    threshold:
+      unit: USD
+      amount: '500'
+    transaction:
+      unit: USD
+      amount: '600.00'
+      resolved_date: '2026-12-09'
+      unit_value_id: null
+groups: []

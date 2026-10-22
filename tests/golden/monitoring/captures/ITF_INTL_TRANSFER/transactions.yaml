@@ -1,0 +1,9 @@
+# Transfers on Wednesday 9 December 2026: a SWIFT transfer of USD 1,500 to the US
+# is captured; a domestic SPEI transfer is not, whatever its amount, and a
+# cross-border one under USD 1,000 is not either.
+relationships:
+  - {ref: cust-1, product: EMONEY}
+items:
+  - {external_id: intl-1, occurred_at: "2026-12-09T10:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: OUT, rail: SWIFT, instrument: TRANSFER, amount: "1500.00", currency: USD, channel: WEB, counterparty: {kind: PERSON, name: John Smith, country: US}}
+  - {external_id: intl-2, occurred_at: "2026-12-09T11:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: OUT, rail: SPEI, instrument: TRANSFER, amount: "30000.00", currency: MXN, channel: WEB, counterparty: {kind: PERSON, name: Ana López, country: MX}}
+  - {external_id: intl-3, occurred_at: "2026-12-09T12:00:00-06:00", customer_ref: cust-1, account_ref: acct-1, direction: IN, rail: SPEI, instrument: TRANSFER, amount: "800.00", currency: USD, channel: WEB, counterparty: {kind: PERSON, name: John Smith, country: US}}

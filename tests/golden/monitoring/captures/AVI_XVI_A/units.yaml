@@ -1,0 +1,12 @@
+# The unit rows of the six-month accumulation (fixture values, plan 4b B10): the
+# 2026 UMA every operation is valued in, and the FIX of the banking day before
+# each operation (the typology library's USD pair reads it).
+fetched_at: "2026-12-14T12:00:00+00:00"
+rows:
+  - {unit_code: UMA, valid_from: 2026-02-01, valid_to: 2027-01-31, value: "117.31"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-07-14, value: "18.2100"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-08-13, value: "18.3000"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-09-14, value: "18.2500"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-10-14, value: "18.1800"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-11-17, value: "18.1600"}
+  - {unit_code: USD_MXN_FIX, valid_from: 2026-12-08, value: "18.1200"}

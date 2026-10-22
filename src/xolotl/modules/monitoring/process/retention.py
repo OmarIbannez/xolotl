@@ -18,7 +18,11 @@ its own transaction:
 
 1. the ``rule_hit_transaction`` links of the month's transactions;
 2. the ``reportable_event`` rows of the month (a link from another month's event
-   is cleared first) and the ``capture_group`` rows they leave empty;
+   is cleared first) and the ``capture_group`` rows they leave empty, then every
+   group without an event whose window ended by the month's end (a group that
+   elapsed without crossing, or one a regrouping superseded after moving its
+   events, plan 4b Deviation 23), a pointer to it from a superseded group
+   cleared first;
 3. the ``rule_hit`` rows whose ``first_occurred_at`` is in the month, with every
    link of those hits (a ``WINDOW`` or ``COOLDOWN`` link may point at a later
    month);
@@ -509,7 +513,51 @@ def _delete_events(s: Session, month: date) -> dict[str, int]:
                 )
             )
         )
-    return {"events": events, "event_links": links, "groups": emptied}
+    return {
+        "events": events,
+        "event_links": links,
+        "groups": emptied + _delete_ended_groups(s, month),
+    }
+
+
+# A group is kept per relationship (key_kind RELATIONSHIP): a held party's
+# groups stay, as its events and transactions do.
+_GROUP_NOT_HELD = """NOT EXISTS (
+    SELECT 1 FROM customer_relationship r JOIN party p
+      ON p.tenant_id = r.tenant_id AND p.id = r.party_id
+    WHERE r.tenant_id = capture_group.tenant_id
+      AND capture_group.key_kind = 'RELATIONSHIP'
+      AND r.id::text = capture_group.key AND p.legal_hold)"""
+
+
+def _delete_ended_groups(s: Session, month: date) -> int:
+    """Delete the groups without an event whose window ended by the month's end.
+
+    A superseded group pointing at one of them loses the pointer first, so the
+    ``superseded_by_id`` chain never blocks a delete.
+
+    Returns:
+        How many groups were deleted.
+
+    """
+    _, upper = _bounds(month)
+    ended = list(
+        s.scalars(
+            select(CaptureGroup.id).where(
+                CaptureGroup.window_end <= upper,
+                ~exists().where(ReportableEvent.capture_group_id == CaptureGroup.id),
+                text(_GROUP_NOT_HELD),
+            )
+        )
+    )
+    if not ended:
+        return 0
+    _ = s.execute(
+        update(CaptureGroup)
+        .where(CaptureGroup.superseded_by_id.in_(ended))
+        .values(superseded_by_id=None)
+    )
+    return _rowcount(s.execute(delete(CaptureGroup).where(CaptureGroup.id.in_(ended))))
 
 
 def _delete_hits(s: Session, month: date) -> dict[str, int]:

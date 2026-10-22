@@ -5,6 +5,7 @@ added the simulation handler here, B10 adds the captures hook and B11 the period
 close.
 """
 
+from xolotl.modules.monitoring.captures.hook import CapturesHook
 from xolotl.modules.monitoring.events import RULES_STAFF_ONLY_EVENT_TYPES
 from xolotl.modules.monitoring.process.hooks import register_processing_hook
 from xolotl.modules.monitoring.rules.evaluate import (
@@ -28,7 +29,7 @@ def register_rules(
     screening_status: ScreeningStatusReader | None,
     true_match: TrueMatchReader | None = None,
 ) -> None:
-    """Mark the staff-only rules events, register the rules hook and simulation.
+    """Mark the staff-only rules events; register the hooks and simulation.
 
     ``screening_status`` reads a party's screening status for the evaluator's
     profile, and ``true_match`` when a party found ``TRUE_MATCH`` was last
@@ -41,4 +42,6 @@ def register_rules(
     use_screening_status(screening_status)
     use_true_match_reader(true_match)
     register_processing_hook(RulesHook())
+    # After the rules: a capture never depends on a hit (spec §10.1).
+    register_processing_hook(CapturesHook())
     register_job_handler(SIMULATE_KIND, handle_simulate)

@@ -1,0 +1,48 @@
+events:
+- transaction: intl-1
+  capture_code: ITF_INTL_TRANSFER
+  capture_kind: THRESHOLD
+  report_code: MX_ITF_INTL_TRANSFER
+  period_key: 2026-12
+  capture_group: null
+  status: CAPTURED
+  void_reason: null
+  late: false
+  fields:
+    fee: null
+    amount:
+      minor: 150000
+      currency: USD
+    branch: '0000'
+    crypto: null
+    locality: null
+    instrument: TRANSFERENCIA
+    account_ref: acct-1
+    period_keys:
+      MONTH: 2026-12
+      QUARTER: 2026-Q4
+    counterparty:
+      country: US
+      institution: null
+      account_hash: null
+    operation_date: '2026-12-09'
+    operation_type: ENVIADA
+    unmapped: []
+    merged_captures: []
+  unit_values:
+    fee: null
+    converted:
+      rule: PRIOR_BANKING_DAY
+      amount: '18120.00'
+      currency: MXN
+      resolved_date: '2026-12-08'
+      unit_value_id: USD_MXN_FIX 2026-12-08
+    threshold:
+      unit: USD
+      amount: '1000'
+    transaction:
+      unit: USD
+      amount: '1500.00'
+      resolved_date: '2026-12-09'
+      unit_value_id: null
+groups: []

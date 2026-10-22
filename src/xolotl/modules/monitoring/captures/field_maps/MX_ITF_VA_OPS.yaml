@@ -1,0 +1,10 @@
+# ITF virtual-asset operations report (ITF_VA_OPS), filed by manual upload: no
+# code table is defined for it yet, so the values are written as they are.
+report_code: MX_ITF_VA_OPS
+codetables: {}
+operation_type:
+  IN/CRYPTO: COMPRA
+  OUT/CRYPTO: VENTA
+  INTERNAL/CRYPTO: INTERCAMBIO
+instrument:
+  CRYPTO: ACTIVO_VIRTUAL
