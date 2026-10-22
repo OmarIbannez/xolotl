@@ -15,6 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from xolotl.modules.monitoring.decide.enums import FailMode
 from xolotl.modules.monitoring.enums import (
     BatchSource,
     FileStatus,
@@ -199,3 +200,19 @@ class MonitoringStatus(BaseModel):
     oldest_received_at: datetime | None
     running_process_jobs: int
     partitions_ahead: dict[str, int]
+
+
+class RailSettingResponse(BaseModel):
+    """A rail's fail mode; ``explicit`` is false when it is the configured default."""
+
+    rail: Rail
+    fail_mode: FailMode
+    explicit: bool
+    changed_by: UUID | None
+    updated_at: datetime | None
+
+
+class RailSettingRequest(BaseModel):
+    """The body of ``PUT /v1/monitoring/rails/{rail}``."""
+
+    fail_mode: FailMode
