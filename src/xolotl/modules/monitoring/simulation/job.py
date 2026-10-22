@@ -420,6 +420,21 @@ def _mark_version(s: Session, simulation: RuleSimulation) -> None:
         version.simulation_id = simulation.id
 
 
+def _still_running(s: Session, simulation: RuleSimulation) -> bool:
+    # Lock the row and read it again: the sweep may have failed it as lost while
+    # this page was replayed, and its verdict stands (the run stops unwritten).
+    current = s.scalars(
+        select(RuleSimulation)
+        .where(RuleSimulation.id == simulation.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+    if current.status is SimulationStatus.RUNNING:
+        return True
+    s.rollback()
+    return False
+
+
 def _replay(s: Session, simulation: RuleSimulation) -> None:
     version = s.get_one(
         MonitoringRuleVersion, (simulation.tenant_id, simulation.rule_version_id)
@@ -445,10 +460,14 @@ def _replay(s: Session, simulation: RuleSimulation) -> None:
         page=get_settings().monitoring_agg_backfill_batch,
         after=after,
     ):
+        if not _still_running(s, simulation):
+            return
         tallies.add(s, page)
         tallies.write(simulation)
         simulation.cursor = str(page.last_party_id)
         s.commit()
+    if not _still_running(s, simulation):
+        return
     _mark_version(s, simulation)
     simulation.status = SimulationStatus.COMPLETED
     simulation.finished_at = clock.now()

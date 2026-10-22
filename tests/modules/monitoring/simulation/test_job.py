@@ -616,3 +616,37 @@ def test_another_tenants_rows_and_versions_stay_out(
     with pytest.raises(XolotlError) as raised:
         _ = _request(stage, theirs.id)
     assert raised.value.code == "NOT_FOUND"
+
+
+def test_a_run_failed_by_the_sweep_stops_at_its_next_page(
+    frozen: Stage, monkeypatch: pytest.MonkeyPatch
+):
+    stage = frozen
+    _ = add_relationship(stage.tenant, "cust-a", "N3")
+    _ = feed(stage, _near_three("cust-a"))
+    version = _draft(stage)
+    simulation_id = _request(stage, version.id)
+    real = replay_pages
+
+    def failed_meanwhile(*args: Any, **kwargs: Any) -> Iterator[ReplayPage]:
+        for page in real(*args, **kwargs):
+            # The sweep judged the worker lost while this page was replayed.
+            with tenant_session(system_ctx(stage.tenant_id)) as s:
+                _ = s.execute(
+                    update(RuleSimulation)
+                    .where(RuleSimulation.id == simulation_id)
+                    .values(status=SimulationStatus.FAILED, last_error="WorkerLost")
+                )
+            yield page
+
+    monkeypatch.setattr(job_module, "replay_pages", failed_meanwhile)
+    _ = _work(stage)
+
+    stopped = _simulation(stage, simulation_id)
+    assert (stopped.status, stopped.last_error) == (
+        SimulationStatus.FAILED,
+        "WorkerLost",
+    )
+    assert (stopped.transactions_read, stopped.cursor) == (0, None)
+    assert events_of(stage.tenant_id, SIMULATION_COMPLETED) == []
+    assert _version(stage, version.id).status is RuleVersionStatus.DRAFT
