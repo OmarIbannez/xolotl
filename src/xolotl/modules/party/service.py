@@ -13,7 +13,7 @@ import re
 from collections import defaultdict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import JsonValue
@@ -26,6 +26,7 @@ from xolotl.modules.party.enums import (
     IdentifierType,
     PartyStatus,
     PartyType,
+    PepStatus,
     RelationshipType,
 )
 from xolotl.modules.party.errors import IdentifierExistsError, IdentifierInvalidError
@@ -976,6 +977,21 @@ def screening_profile(s: Session, party_id: UUID) -> PartyScreeningProfile:
     )
 
 
+def pep_status_of(s: Session, party_id: UUID) -> PepStatus:
+    """Read a party's PEP status for transaction monitoring (SP-04 §9.1).
+
+    Returns:
+        The person's status; an organization is never a PEP (``NONE``). An
+        unknown party raises ``get_party``'s ``NotFoundError``.
+
+    """
+    status = s.scalar(select(Person.pep_status).where(Person.id == party_id))
+    if status is None:
+        _ = get_party(s, party_id)
+        return PepStatus.NONE
+    return status
+
+
 @dataclass(frozen=True, slots=True)
 class RelationshipRef:
     """What transaction monitoring needs of a customer relationship (SP-04 §6.1)."""
@@ -985,6 +1001,8 @@ class RelationshipRef:
     product: str | None
     account_tier: str | None
     status: CustomerRelationshipStatus
+    # When the relationship began, for the new-account gates (SP-04 §9.1).
+    started_at: datetime | None = None
 
 
 def _ref_of(row: CustomerRelationship) -> RelationshipRef:
@@ -994,6 +1012,7 @@ def _ref_of(row: CustomerRelationship) -> RelationshipRef:
         product=row.product,
         account_tier=row.account_tier,
         status=row.status,
+        started_at=row.started_at,
     )
 
 

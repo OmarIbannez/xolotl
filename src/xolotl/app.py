@@ -11,8 +11,10 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import cast
+from uuid import UUID
 
 from fastapi import FastAPI
+from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 from starlette.types import Lifespan
 
@@ -20,6 +22,7 @@ from xolotl.modules.monitoring import routes_decide as decide_routes
 from xolotl.modules.monitoring import routes_monitoring as monitoring_routes
 from xolotl.modules.monitoring import routes_transactions as transaction_routes
 from xolotl.modules.monitoring.composition import register_monitoring
+from xolotl.modules.monitoring.rules.wiring import register_rules
 from xolotl.modules.party import routes as party_routes
 from xolotl.modules.party import routes_documents as party_document_routes
 from xolotl.modules.party import routes_relationships as party_relationship_routes
@@ -28,6 +31,7 @@ from xolotl.modules.screening import routes_counterparties as counterparty_route
 from xolotl.modules.screening import routes_lists as lists_routes
 from xolotl.modules.screening import routes_private_lists as private_list_routes
 from xolotl.modules.screening import routes_screening as screening_routes
+from xolotl.modules.screening.api import party_view
 from xolotl.modules.screening.catalog.fetcher import HttpListFetcher
 from xolotl.modules.screening.catalog.poll import register_lists
 from xolotl.modules.screening.composition import register_screening
@@ -77,6 +81,21 @@ from xolotl.platform.workflows import PostgresWorkflowRunner
 from xolotl.worker import EmbeddedWorker, Worker
 
 logger = logging.getLogger(__name__)
+
+
+def party_screening_status(s: Session, party_id: UUID) -> str | None:
+    """Read a party's screening status for the rules' profile (SP-04 §9.5).
+
+    Monitoring may not import the screening engine, so the composition root hands
+    this reader to ``register_rules``. Only the status is read, which the staff
+    and client views share, so the cheaper client view is built.
+
+    Returns:
+        The ``SubjectStatus`` value, or None when the party was never screened.
+
+    """
+    status = party_view(s, party_id, staff=False).status
+    return None if status is None else status.value
 
 
 def build_object_store(settings: Settings) -> ObjectStore:
@@ -190,6 +209,9 @@ def wire_platform(
         store=store,
         notifier=InAppNotifier(),
     )
+    # The rules' staff-only events and their processing hook, which reads the
+    # party's screening status through screening's API.
+    register_rules(queue=queue, screening_status=party_screening_status)
     return PlatformServices(
         session_factory=session_factory,
         bus=bus,
