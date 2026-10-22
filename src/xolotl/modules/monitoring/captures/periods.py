@@ -68,7 +68,6 @@ from xolotl.modules.monitoring.captures.record import (
     discrepancy_count,
     fee_amount,
     insert_period,
-    open_period,
     period_bounds,
     reopen_touched,
     void_event,
@@ -240,9 +239,10 @@ def _ended_periods(
 def ensure_periods(s: Session, *, ended_before: date) -> int:
     """Give every capture a row for each period that ended (Deviation 11).
 
-    From the month and quarter of the tenant's earliest ``PROCESSED`` transaction,
-    or from the day after the earliest of each capture's latest closed period when
-    later (what earlier runs already covered), to the last ones ending before
+    From the month and quarter of the tenant's earliest ``PROCESSED`` transaction
+    (or, when every capture in force has closed a period, from the day after the
+    earliest of their latest closes: what earlier runs covered), skipping each
+    capture's periods up to its own latest close, to the last ones ending before
     ``ended_before``, every capture of every policy in force on the period's last
     day gets its row (``MONTH`` captures a month's, ``QUARTER`` captures a
     quarter's), so a period without events is reconciled too. On a first deploy
@@ -261,20 +261,30 @@ def ensure_periods(s: Session, *, ended_before: date) -> int:
     if earliest is None:
         return 0
     first = policy_date(earliest)
-    latest_closed = s.scalars(
-        select(func.max(CapturePeriod.period_end))
-        .where(CapturePeriod.status == CapturePeriodStatus.CLOSED)
-        .group_by(CapturePeriod.capture_code)
-    ).all()
-    if latest_closed:
-        first = max(first, min(latest_closed) + timedelta(days=1))
-    by_day: dict[date, Definitions] = {}
+    closed_through: dict[str, date] = dict(
+        s.execute(
+            select(CapturePeriod.capture_code, func.max(CapturePeriod.period_end))
+            .where(CapturePeriod.status == CapturePeriodStatus.CLOSED)
+            .group_by(CapturePeriod.capture_code)
+        ).all()
+    )
+    yesterday = ended_before - timedelta(days=1)
+    in_force = definitions_on(s, yesterday)
+    if closed_through and all(code in closed_through for code in in_force):
+        # Every capture in force has closed: what earlier runs covered is skipped.
+        first = max(first, min(closed_through.values()) + timedelta(days=1))
+    by_day: dict[date, Definitions] = {yesterday: in_force}
     created = 0
     for period, key, last_day in _ended_periods(first, ended_before):
         if last_day not in by_day:
             by_day[last_day] = definitions_on(s, last_day)
         for definition in by_day[last_day].values():
-            if definition.period == period and insert_period(
+            through = closed_through.get(definition.code)
+            if definition.period != period or (
+                through is not None and last_day <= through
+            ):
+                continue
+            if insert_period(
                 s,
                 capture_code=definition.code,
                 report_code=definition.report_code,
@@ -354,6 +364,23 @@ def _reach(window: str) -> timedelta:
     )
 
 
+def _reaching(
+    s: Session, definition: CaptureDefinition, relationship_id: UUID, cursor: datetime
+) -> list[EnrichedTransaction]:
+    """List the earlier operations whose own window reaches past ``cursor``.
+
+    Returns:
+        Them, in order; when there are none, the first operation from ``cursor``
+        opens a window.
+
+    """
+    window = window_of(definition)
+    earlier = members_between(
+        s, definition, relationship_id, start=cursor - _reach(window), end=cursor
+    )
+    return [txn for txn in earlier if accum_window(txn.occurred_at, window)[1] > cursor]
+
+
 def _chain_start(
     s: Session, definition: CaptureDefinition, relationship_id: UUID, at: datetime
 ) -> datetime:
@@ -368,19 +395,10 @@ def _chain_start(
         That instant (``at`` itself when nothing earlier reaches it).
 
     """
-    window = window_of(definition)
-    reach = _reach(window)
     cursor = at
-    while True:
-        earlier = members_between(
-            s, definition, relationship_id, start=cursor - reach, end=cursor
-        )
-        reaching = [
-            txn for txn in earlier if accum_window(txn.occurred_at, window)[1] > cursor
-        ]
-        if not reaching:
-            return cursor
+    while reaching := _reaching(s, definition, relationship_id, cursor):
         cursor = reaching[0].occurred_at
+    return cursor
 
 
 def _group_anchor(
@@ -424,9 +442,11 @@ def _crossed_members(
 
     Every accumulated operation of a window that crosses is captured, whenever it
     crossed: the windows holding an operation in ``[start, end)`` are chained from
-    the start of the relationship's latest live group opened by ``start`` (one
-    read, when its first operation is where it opens), else from ``_chain_start``
-    (B11 review I3), and read to their own end.
+    ``_chain_start``, which walks back from the start of the relationship's latest
+    live group opened by ``start`` (the period's start when there is none): one
+    step confirms that start when no earlier window reaches past it, so a
+    misplaced group never misleads the check (B11 review I3, re-review I-R1).
+    The windows are read to their own end.
 
     Returns:
         The ids of the members of those windows that cross.
@@ -434,23 +454,18 @@ def _crossed_members(
     """
     window = window_of(definition)
     horizon = accum_window(end - timedelta(microseconds=1), window)[1]
-    members: list[EnrichedTransaction] | None = None
+    # Processing's group start is where the walk begins, not where it ends: its
+    # first step confirms it, or walks on (B11 re-review I-R1).
     anchor = _group_anchor(s, definition, relationship_id, start)
-    if anchor is not None:
-        members = members_between(
-            s, definition, relationship_id, start=anchor, end=horizon
-        )
-        # Verified against the rows: the group's first operation opens it.
-        if members and accum_window(members[0].occurred_at, window)[0] != anchor:
-            members = None
-    if members is None:
-        members = members_between(
-            s,
-            definition,
-            relationship_id,
-            start=_chain_start(s, definition, relationship_id, start),
-            end=horizon,
-        )
+    members = members_between(
+        s,
+        definition,
+        relationship_id,
+        start=_chain_start(
+            s, definition, relationship_id, start if anchor is None else anchor
+        ),
+        end=horizon,
+    )
     if not members:
         return set()
     # No kept group starts: every window, the way processing in order opens them.
@@ -819,18 +834,25 @@ def close_named_period(
     except ValueError as error:
         msg = "the period must be written YYYY-MM or YYYY-Qn"
         raise ValidationFailedError(msg) from error
-    period = s.scalars(
-        select(CapturePeriod).where(
-            CapturePeriod.capture_code == capture_code,
-            CapturePeriod.period_key == period_key,
-        )
-    ).first()
+    find = select(CapturePeriod).where(
+        CapturePeriod.capture_code == capture_code,
+        CapturePeriod.period_key == period_key,
+    )
+    period = s.scalars(find).first()
     if period is None:
         definition = definitions_on(s, last).get(capture_code)
         if definition is None:
             msg = "no capture has this code for the period"
             raise NotFoundError(msg)
-        period = open_period(s, definition, period_key)
+        # Inserted, then locked FOR UPDATE by the close itself: two closes of a
+        # new row serialise instead of both upgrading a shared lock (M-R1).
+        _ = insert_period(
+            s,
+            capture_code=capture_code,
+            report_code=definition.report_code,
+            period_key=period_key,
+        )
+        period = s.scalars(find).one()
     return close_period_by_hand(s, period, units=units)
 
 

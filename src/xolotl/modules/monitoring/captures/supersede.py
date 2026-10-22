@@ -41,6 +41,7 @@ from xolotl.modules.monitoring.captures.record import (
     LIVE,
     CaptureRun,
     capture_member,
+    hold_period,
     retire_event,
 )
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
@@ -164,6 +165,18 @@ def regroup(
     replaced = [
         group for group in live if stopped_at is None or group.window_start < stopped_at
     ]
+    # The periods first, then their events: the order of a close (re-review M-R1).
+    for code, period_key in sorted(
+        s.execute(
+            select(ReportableEvent.capture_code, ReportableEvent.period_key)
+            .where(
+                ReportableEvent.capture_group_id.in_([g.id for g in replaced]),
+                ReportableEvent.status.in_(LIVE),
+            )
+            .distinct()
+        ).all()
+    ):
+        hold_period(run, code, period_key)
     old_events = list(
         s.scalars(
             select(ReportableEvent)

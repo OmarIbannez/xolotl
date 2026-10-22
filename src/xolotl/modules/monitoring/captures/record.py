@@ -32,7 +32,7 @@ import calendar
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -56,6 +56,7 @@ from xolotl.modules.monitoring.captures.models import (
     CapturePeriod,
     ReportableEvent,
 )
+from xolotl.modules.monitoring.enrich.periods import period_keys_for
 from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.enrich.service import enriched_from_row
 from xolotl.modules.monitoring.enrich.units import (
@@ -348,6 +349,28 @@ def reopen_period(
     return period
 
 
+def hold_period(run: CaptureRun, code: str, period_key: str) -> None:
+    """Hold a period against its close before locking one of its events.
+
+    Every writer takes the period's ``FOR KEY SHARE`` before an event row, the
+    order the close takes them in (period ``FOR UPDATE``, then its events), so the
+    two never wait on each other in a cycle (B11 re-review M-R1). A period without
+    a row has no close to wait for, so none is created here.
+    """
+    _ = _period_row(run.s, code, period_key, share=True).first()
+
+
+def period_key_at(run: CaptureRun, code: str, occurred_at: datetime) -> str:
+    """Name a capture's period holding an instant (``period_keys`` of 4a).
+
+    Returns:
+        Its ``MONTH`` or ``QUARTER`` key.
+
+    """
+    keys = period_keys_for(occurred_at, holidays=run.holidays)
+    return keys.MONTH if run.definitions[code].period == "MONTH" else keys.QUARTER
+
+
 def note_period(
     run: CaptureRun, definition: CaptureDefinition, period_key: str
 ) -> None:
@@ -448,6 +471,7 @@ def _merge(run: CaptureRun, event: ReportableEvent) -> None:
     """Void the transaction's live events that merge into ``event``'s capture."""
     voided: list[str] = []
     for code in run.merged_from(event.capture_code):
+        hold_period(run, code, period_key_at(run, code, event.occurred_at))
         other = event_of(run.s, code, event.transaction_id)
         if other is None or other.status not in LIVE:
             continue
@@ -590,6 +614,7 @@ def capture_member(
 
     """
     group_id = None if group is None else group.id
+    hold_period(run, definition.code, definition.period_key_of(txn))
     existing = event_of(run.s, definition.code, txn.id)
     if existing is None:
         return write_event(run, definition, txn, late=late, group=group, fee=fee)
@@ -615,6 +640,9 @@ def _take_out(
     status: ReportableEventStatus,
     void_reason: str | None,
 ) -> None:
+    # Usually held already (the close, regroup before its events); taken again,
+    # it costs nothing and keeps the order for any other caller.
+    hold_period(run, event.capture_code, event.period_key)
     event.status = status
     event.superseded_by_id = None
     event.void_reason = void_reason

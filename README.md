@@ -1005,7 +1005,9 @@ Each period closes in its own transaction, so one that fails (logged; the job
 retries) does not keep the others open. A close by hand (the API or the CLI) is
 audited as `captures.period_closed` with the actor. On a first deploy every period
 since the first processed transaction is created and closed; later runs start
-after the last closed period.
+after the last closed period, except for a capture that has never closed (a pack
+assigned afterwards), whose periods are covered from the first processed
+transaction.
 
 | Route | Who | What |
 |---|---|---|
