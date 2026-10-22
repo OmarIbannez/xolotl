@@ -35,6 +35,8 @@ export const ACCESS = {
   transactionsWrite: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'ADMIN'],
   // Who may request a transaction backfill.
   backfill: ['MLRO', 'ADMIN'],
+  // Every staff role reads the rule hits and may reveal a hit's personal data (each reveal is audited).
+  monitoring: ['ANALYST', 'SENIOR_ANALYST', 'MLRO', 'AUDITOR_RO', 'ADMIN'],
 } as const satisfies Record<string, readonly Role[]>
 
 /** True when no role is required, or the user holds at least one of the required roles. */

@@ -47,6 +47,7 @@
     "matches": "Coincidencias",
     "lists": "Listas",
     "privateLists": "Listas privadas",
+    "ruleHits": "Hallazgos de reglas",
     "screeningEvaluation": "Evaluación del motor",
     "screeningCheck": "Consulta ad hoc",
     "transactions": "Transacciones",
@@ -1616,6 +1617,125 @@
       "running": "Solicitando…",
       "requested": "Backfill solicitado; se ejecuta en segundo plano.",
       "rangeOrder": "La fecha final no puede ser anterior a la inicial."
+    }
+  },
+  "hits": {
+    "title": "Hallazgos de reglas",
+    "description": "Lo que las reglas de monitoreo detectaron en las transacciones, por severidad y antigüedad.",
+    "tabs": {
+      "label": "Severidad"
+    },
+    "empty": "No hay hallazgos de esta severidad con estos filtros.",
+    "filters": {
+      "rule": "Regla",
+      "rulePlaceholder": "p. ej. CASH_STRUCTURING",
+      "typology": "Tipología",
+      "typologyPlaceholder": "p. ej. STRUCTURING",
+      "outcome": "Resultado",
+      "outcomeAll": "Todos",
+      "age": "Antigüedad",
+      "ageAny": "Cualquiera",
+      "age1": "Más de 1 día",
+      "age7": "Más de 7 días",
+      "age30": "Más de 30 días",
+      "apply": "Aplicar",
+      "clear": "Limpiar"
+    },
+    "table": {
+      "label": "Hallazgos",
+      "party": "Cliente",
+      "rule": "Regla",
+      "typology": "Tipología",
+      "severity": "Severidad",
+      "outcome": "Resultado",
+      "window": "Ventana",
+      "firedCount": "Transacciones",
+      "createdAt": "Creado"
+    },
+    "severity": {
+      "CRITICAL": "Crítica",
+      "HIGH": "Alta",
+      "MEDIUM": "Media",
+      "LOW": "Baja"
+    },
+    "outcome": {
+      "ALERT": "Alerta",
+      "BLOCK": "Bloqueo",
+      "REVIEW": "Revisión"
+    },
+    "role": {
+      "TRIGGER": "Disparadora",
+      "WINDOW": "En la ventana",
+      "COOLDOWN": "En enfriamiento"
+    },
+    "detail": {
+      "title": "Detalle del hallazgo",
+      "back": "Hallazgos",
+      "sentence": "Regla",
+      "explanation": "Texto registrado al disparar",
+      "summary": "Resumen",
+      "firstOccurredAt": "Primera transacción",
+      "timeZone": "Fechas y horas de la Ciudad de México.",
+      "params": "Parámetros",
+      "aggregates": "Valores al disparar",
+      "transactions": "Transacciones de la evidencia",
+      "transactionsLabel": "Transacciones ligadas al hallazgo",
+      "transactionsTotal": "{{count}} transacciones ligadas en total, de la más reciente a la más antigua.",
+      "transactionsEmpty": "No hay transacciones ligadas.",
+      "dedup": "Llave de deduplicación",
+      "cooldown": "Enfriamiento",
+      "cooldownNone": "Sin enfriamiento",
+      "cooldownActive": "Activo hasta {{date}}",
+      "cooldownEnded": "Terminó el {{date}}",
+      "state": "Deduplicación, enfriamiento y decisión",
+      "decision": "Decisión",
+      "decided": "Decisión {{id}}",
+      "undecided": "Sin decisión",
+      "definitionHash": "Huella de la definición",
+      "snapshot": "Instantánea de política",
+      "listsHash": "Huella de las listas"
+    },
+    "evidence": {
+      "name": "Nombre",
+      "value": "Valor",
+      "unit": "Unidad",
+      "window": "Ventana",
+      "noAggregates": "Esta regla no leyó valores acumulados.",
+      "noParams": "Sin parámetros."
+    },
+    "transactions": {
+      "role": "Papel",
+      "occurredAt": "Fecha",
+      "direction": "Dirección",
+      "instrumentRail": "Instrumento · riel",
+      "amount": "Monto",
+      "counterparty": "Contraparte",
+      "noCounterparty": "Sin contraparte"
+    },
+    "reveal": {
+      "title": "Datos personales",
+      "button": "Revelar",
+      "running": "Revelando…",
+      "hide": "Ocultar",
+      "notice": "Esta consulta quedó registrada en la auditoría.",
+      "party": "Cliente",
+      "name": "Nombre",
+      "identifiers": "Identificadores",
+      "counterparties": "Contrapartes",
+      "account": "Cuenta",
+      "wallet": "Cartera",
+      "identifier": "Identificador",
+      "empty": "No hay datos personales que mostrar."
+    },
+    "party": {
+      "title": "Hallazgos de reglas",
+      "label": "Hallazgos de reglas del cliente",
+      "empty": "Este cliente no tiene hallazgos."
+    },
+    "transaction": {
+      "title": "Hallazgos de esta transacción",
+      "label": "Hallazgos ligados a la transacción",
+      "empty": "Esta transacción no está ligada a ningún hallazgo."
     }
   },
   "forbidden": {
