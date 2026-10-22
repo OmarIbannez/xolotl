@@ -2159,11 +2159,14 @@ def monitoring_replay(
     """Replay a range through the rules in force and compare with stored hits.
 
     One line per rule version in force on the last day, then ``identical`` or
-    ``differs``; the exit status is 1 when the replay differs (spec §13.1). Only
-    ``--dry-run`` exists in SP-04 (plan 4c Deviation 10).
+    ``differs``; the exit status is 1 when the replay differs (spec §13.1). When
+    no rule was compared (none in force, or only cross-party ones) the last line
+    is ``nothing compared`` and the status 3. Only ``--dry-run`` exists in SP-04
+    (plan 4c Deviation 10).
 
     Raises:
-        Exit: With status 2 without ``--dry-run``, 1 when the replay differs.
+        Exit: With status 2 without ``--dry-run``, 1 when the replay differs and
+            3 when nothing was compared.
 
     """
     if not dry_run:
@@ -2179,6 +2182,9 @@ def monitoring_replay(
             )
     for rule in report.rules:
         typer.echo(_replay_line(rule))
+    if report.nothing_compared:
+        typer.echo("nothing compared")
+        raise typer.Exit(code=3)
     typer.echo("identical" if report.identical else "differs")
     if not report.identical:
         raise typer.Exit(code=1)

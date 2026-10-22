@@ -6,7 +6,9 @@ compares the ``(rule_version_id, dedup_key)`` pairs it produces with the
 ``rule_hit`` rows of the same versions whose ``first_occurred_at`` falls in the
 range. A stored hit the replay does not produce is ``missing``; a simulated hit
 the store does not hold is ``extra``. The range is identical when no compared rule
-has either.
+has either. When no rule was compared at all (none in force on the last day, or
+only cross-party ones) the report says ``nothing_compared``: ``identical`` is then
+vacuous, and the CLI prints ``nothing compared`` and exits 3 instead of 0.
 
 Processing evaluates a transaction under the tenant-wide rules plus its own
 product's, so the replay runs the tenant-wide rules over every row and each
@@ -26,6 +28,13 @@ What the comparison cannot see, by construction:
   declaration) is listed with its stored count and not compared: the engine
   replays one party at a time (plan 4b Deviation 12), so a key several parties
   share would diverge from processing.
+- A ``PARTY``-keyed aggregate that a product's own rule shares (same ``agg_id``)
+  with a tenant-wide rule or with another product's rule: processing adds every
+  product's rows of the party to it, a product pass only its own product's rows,
+  so the product rule may show ``missing``. It fails loudly (``differs``), and no
+  Mexico typology on ``main`` triggers it (they key on ``RELATIONSHIP`` or
+  ``ACCOUNT``). The exact replay would apply each row's own rules in one pass per
+  party.
 
 The replay writes nothing: the caller's transaction is made read only first, so
 a write anywhere on the way would be an error rather than a side effect.
@@ -76,6 +85,16 @@ class ReplayReport:
     range_end: date
     rules: tuple[RuleReplay, ...]
     identical: bool
+
+    @property
+    def nothing_compared(self) -> bool:
+        """Tell whether no rule version was compared, so ``identical`` is vacuous.
+
+        Returns:
+            True when no version was in force or every one keys across parties.
+
+        """
+        return not any(rule.compared for rule in self.rules)
 
 
 def _check_range(range_start: date, range_end: date) -> None:

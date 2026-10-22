@@ -789,6 +789,9 @@ class RuleMetrics(BaseModel):
 class CaptureMetrics(BaseModel):
     """A report code's captures for one period that overlaps the month (OPS-504).
 
+    Rows are per period, not per month: a quarterly period shows its whole
+    quarter in each of its three months, so do not sum them across months.
+
     ``captured`` counts the live events (``CAPTURED``, ``INCLUDED``);
     ``reconciled_count`` is what the period close expected, null until every
     capture code of the report code has closed that period; ``discrepancies``

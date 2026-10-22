@@ -175,3 +175,12 @@ def test_the_replay_runs_in_a_read_only_transaction(week: Stage):
         with pytest.raises(DBAPIError, match="read-only transaction"):
             _ = s.execute(update(RuleHit).values(fired_count=RuleHit.fired_count))
         s.rollback()
+
+
+def test_a_range_with_no_rule_in_force_compares_nothing(week: Stage):
+    # The rules are in force from 30 June 2026: in early June nothing is.
+    report = _replay(week, start=date(2026, 6, 1), end=date(2026, 6, 7))
+
+    assert report.rules == ()
+    assert report.nothing_compared
+    assert not _replay(week).nothing_compared

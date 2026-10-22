@@ -7,15 +7,21 @@ if its measurement asks for one. Every read is bounded by the month:
 - ``rule_hit`` by ``created_at`` in the month, optionally one rule version: one
   query for the counts per version and severity, one for the parties and the
   time to hit per version with the month's total (``ROLLUP``). With a version
-  ``ix_rule_hit_rule_period`` serves the range; without one the month's rows of
-  the tenant are scanned once per query (``ix_rule_hit_queue`` leads with the
-  severity), which is the cost to watch on a large tenant.
+  ``ix_rule_hit_rule_period`` serves the range. Without one no index has
+  ``created_at`` right after ``tenant_id``; the queries also name every severity
+  so ``ix_rule_hit_queue`` (``tenant_id, severity, created_at``) can serve four
+  range scans, else the planner scans all the tenant's hits ever stored. A
+  ``(tenant_id, created_at)`` index is an SP-11 candidate.
 - ``capture_period`` rows whose dates overlap the month (a few per capture
   code), then the live ``reportable_event`` rows of those report codes and
   period keys through ``ix_reportable_event_period``.
 - ``txn_decision`` by ``decided_at`` in the month, which prunes to the month's
-  partition and scans it (OPS-502; ``ix_txn_decision_relationship`` does not
-  help a tenant-wide read). Fail-mode rows count in the latencies too.
+  partition and scans and sorts it for the percentiles (OPS-502;
+  ``ix_txn_decision_relationship`` does not help a tenant-wide read; an SP-11
+  candidate at volume). Fail-mode rows count in the latencies too.
+- Captures are per period, not per month: a quarterly period (``2026-Q4``)
+  appears with its whole quarter's figures in each of its three months, so
+  never sum ``captures`` across months.
 - The rules in force on the month's last day (or today, if earlier) for the
   typology coverage: ``rule_assignment`` and their versions.
 
@@ -97,7 +103,12 @@ class _Hits:
         self, s: Session, *, first: date, last: date, rule_version_id: UUID | None
     ) -> None:
         start, end = range_bounds(first, last)
-        where = [RuleHit.created_at >= start, RuleHit.created_at < end]
+        where = [
+            RuleHit.created_at >= start,
+            RuleHit.created_at < end,
+            # Always true; lets ix_rule_hit_queue serve the month (see above).
+            RuleHit.severity.in_([severity.value for severity in Severity]),
+        ]
         if rule_version_id is not None:
             where.append(RuleHit.rule_version_id == rule_version_id)
         self.by_severity: dict[UUID, dict[Severity, int]] = defaultdict(_no_severities)

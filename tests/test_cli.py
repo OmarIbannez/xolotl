@@ -3036,3 +3036,10 @@ def test_monitoring_replay_dry_run_compares_a_week_with_the_stored_hits(
     refused = runner.invoke(app, too_long)
     assert refused.exit_code == 1
     assert refused.stderr.startswith("error: SIMULATION_RANGE_TOO_LONG")
+    # Before 30 June 2026 no rule is in force: nothing is compared, which is
+    # not "identical".
+    june = ["monitoring", "replay", "--tenant", tenant.slug, "--dry-run"]
+    june += ["--from", "2026-06-01", "--to", "2026-06-07"]
+    empty = runner.invoke(app, june)
+    assert empty.exit_code == 3, empty.output
+    assert empty.stdout == "nothing compared\n"

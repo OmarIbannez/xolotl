@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, delete, update
 
-from tests.helpers import system_ctx
+from tests.helpers import new_tenant, system_ctx
 from tests.modules.monitoring.captures.support import events
 from tests.modules.monitoring.captures.test_periods import (
     NEW_YEAR,
@@ -351,3 +351,24 @@ def test_case_rates_are_null_until_sp06(scenario: Scenario):
     dumped = shown.model_dump()
     assert dumped["alert_to_case_rate"] is None
     assert dumped["case_to_report_rate"] is None
+
+
+def test_another_tenant_sees_zeros(scenario: Scenario):
+    with tenant_session(system_ctx(scenario.tenant_id)) as s:
+        row = _decision(
+            scenario.n1,
+            datetime(2026, 12, 10, 18, tzinfo=UTC),
+            12,
+            DecisionMode.FAIL_OPEN,
+        )
+        row.tenant_id = scenario.tenant_id
+        s.add(row)
+    other = new_tenant("bravo", "admin@bravo.mx")
+    assert _metrics(scenario.tenant_id).hits == 2
+
+    shown = _metrics(other.tenant_id)
+
+    assert (shown.hits, shown.parties_hit, shown.rules) == (0, 0, [])
+    assert shown.hits_by_severity == _severities()
+    assert (shown.typology_coverage, shown.captures) == ({}, [])
+    assert (shown.decisions.count, shown.decisions.fail_open) == (0, 0)

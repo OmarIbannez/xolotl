@@ -772,7 +772,8 @@ processed, late, with the same code as the worker.
 `monitoring replay --dry-run` replays the range's processed rows through the rules in
 force on its last day, in memory and in a read-only transaction, and compares the hits
 with the stored `rule_hit` rows: one line per rule version (`simulated`, `stored`,
-`missing`, `extra`), then `identical` (exit 0) or `differs` (exit 1). Windows start
+`missing`, `extra`), then `identical` (exit 0) or `differs` (exit 1), or `nothing
+compared` (exit 3) when no rule in force could be compared. Windows start
 cold at the first day, so start a window early; a rule keyed on a counterparty or a
 device is listed but not compared. Without `--dry-run` it exits 2.
 
@@ -780,7 +781,8 @@ device is listed but not compared. Without `--dry-run` it exits 2.
 effectiveness on read, for staff only: hits, parties hit and hits per severity overall
 and per rule version (with the median and p95 seconds from the transaction to the hit),
 the rules in force per typology tag, the captures of every period overlapping the month
-against the close's reconciled count, and the decide latencies (p50, p95, p99) with the
+against the close's reconciled count (per period: a quarter shows in each of its months,
+so never sum them across months), and the decide latencies (p50, p95, p99) with the
 fail-open and fail-closed counts. `rule_version_id` narrows the hit figures.
 
 A payment rail asks `POST /v1/transactions/decide` before it executes a payment and
