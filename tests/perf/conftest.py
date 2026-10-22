@@ -6,8 +6,9 @@ given names from the hard-negative corpus (the most frequent Mexican given names
 and surnames from ``data/surnames_mx.csv``. List entries go through the library's
 perturbation generator with a ``Draw(SEED)``, so a run reproduces its own data.
 
-``record`` appends one measurement to ``.perf/sp03.json`` (a JSON array, gitignored)
-with the matcher version, the commit and the time it was taken.
+``record`` appends one measurement to ``.perf/sp03.json`` (a JSON array, gitignored),
+or to the file it is given (SP-04's tests pass ``SP04_FILE``), with the matcher
+version, the commit and the time it was taken.
 """
 
 import csv
@@ -22,6 +23,7 @@ from xolotl.modules.screening.matching.idf import surname_shares
 
 ROOT = Path(__file__).resolve().parents[2]
 PERF_FILE = ROOT / ".perf" / "sp03.json"
+SP04_FILE = ROOT / ".perf" / "sp04.json"
 HARD_NEGATIVES = (
     ROOT / "tests" / "modules" / "screening" / "corpus" / "hard_negatives.csv"
 )
@@ -66,10 +68,15 @@ def _head() -> str:
     return "unknown"
 
 
-def record(name: str, **measures: Measure) -> None:
-    """Append one measurement to ``.perf/sp03.json``."""
-    PERF_FILE.parent.mkdir(exist_ok=True)
-    rows: list[object] = json.loads(PERF_FILE.read_text()) if PERF_FILE.exists() else []
+def record(name: str, file: Path = PERF_FILE, /, **measures: Measure) -> None:
+    """Append one measurement to ``file``, ``.perf/sp03.json`` by default.
+
+    ``file`` is positional, so a splatted measure never lands in it.
+    """
+    file.parent.mkdir(exist_ok=True)
+    rows: list[object] = (
+        json.loads(file.read_text(encoding="utf-8")) if file.exists() else []
+    )
     rows.append({
         "name": name,
         "measures": measures,
@@ -77,7 +84,7 @@ def record(name: str, **measures: Measure) -> None:
         "git_head": _head(),
         "recorded_at": datetime.now(UTC).isoformat(),
     })
-    _ = PERF_FILE.write_text(json.dumps(rows, indent=2) + "\n")
+    _ = file.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
 
 
 @cache

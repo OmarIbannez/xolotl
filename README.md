@@ -965,6 +965,33 @@ entries, a list delta and a periodic re-screen of a 10,000-party base) and
 appends the numbers to `.perf/sp03.json`. They carry the `perf` marker, which the
 default run deselects, so they are not in CI; SP-11 gates them under load.
 
+SP-04's measurements (`tests/perf/test_sp04_perf.py`) append to `.perf/sp04.json`:
+- `decide_p99_under_the_budget` (`NFR-TM-001`): 1,000 `decide()` calls after 50
+  warm-ups, over 200 relationships with six months of processed history (12,000
+  transactions) and 121 monthly `transaction` partitions (ten years). `latency_*`
+  is the decision's own `latency_ms` (p50, p95, p99, max), `transaction_*` the whole
+  committed transaction, `db_p95_ms` the read steps, `profile_for_*` and
+  `profile_for_share` the customer profile read's time and its share of the
+  latency, `cold_first_ms` the first decision of the process with the rule set
+  not cached, and `cold_after_cache_*` decisions just after the rule-set cache
+  expired. The budget is raised to 5 s while measuring, so every decision is
+  evaluated; `over_service_budget` counts those over the 80 ms service budget,
+  which would have answered with the rail's fail mode. The test fails only past
+  a p99 of 500 ms.
+- `alert_latency_p95_over_1000_transactions` (`NFR-TM-002`): one 1,000-row batch
+  over 100 relationships with ten planted cash-structuring scenarios, drained by
+  one runner: the time from `received_at` to the last `processed_at`,
+  transactions per second, and the p50 and p95 of `rule_hit.created_at -
+  received_at` (the spec's 5 s p95). The test fails only past a 300 s drain.
+- `counterparty_first_sight_throughput` (spec §11.1): 1,000 counterparties
+  resolved in one minute (5 % carrying an OFAC name) and the first-sight job
+  drained: counterparties screened per second (floor 20/s), the resolve rate,
+  and how many were flagged `PENDING_REVIEW`.
+
+Nothing schedules the partition job during a run: creating a `transaction`
+partition locks `txn_decision` against writes, so never run `make perf` against a
+database whose daily `monitoring.partitions` job is running.
+
 Tests run against a real Postgres 17 container with real commits; set
 `XOLOTL_TEST_DATABASE_ADMIN_URL` to reuse an existing server instead. Point it at
 a scratch database only: the suite bootstraps the app role (resetting its
