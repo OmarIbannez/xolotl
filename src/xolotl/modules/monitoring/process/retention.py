@@ -32,9 +32,9 @@ its own transaction:
    decision was made in the month;
 5. the ``txn_decision`` rows decided in the month;
 6. the ``transaction_parked`` rows, 7. the ``transaction_ref`` rows and 8. the
-   ``transaction`` rows of the month; a relationship whose
-   ``first_processed_at`` fell before the month's end then starts at its
-   earliest processed row left, or None.
+   ``transaction`` rows of the month; 9. then, under each party's processing
+   lock, a relationship whose ``first_processed_at`` fell before the month's end
+   starts at its earliest processed row left, or None.
 
 Every step deletes by month, so a run that stopped half-way is finished by the
 next one. Then, through the admin engine, the month's partitions are detached and
@@ -111,7 +111,10 @@ from sqlalchemy import (
     CursorResult,
     Engine,
     TextClause,
+    Uuid,
     and_,
+    any_,
+    bindparam,
     delete,
     exists,
     func,
@@ -120,6 +123,7 @@ from sqlalchemy import (
     text,
     update,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -129,6 +133,7 @@ from xolotl.modules.monitoring.captures.models import CaptureGroup, ReportableEv
 from xolotl.modules.monitoring.decide.models import TxnDecision
 from xolotl.modules.monitoring.enrich.policy import policy_date
 from xolotl.modules.monitoring.enums import TransactionStatus
+from xolotl.modules.monitoring.process.job import lock_party
 from xolotl.modules.monitoring.rules.models import RuleHit, RuleHitTransaction
 from xolotl.modules.monitoring.txn.models import (
     Transaction,
@@ -650,30 +655,56 @@ def _delete_transactions(s: Session, month: date) -> dict[str, int]:
             )
         )
     )
-    _move_first_processed(s, before=_bounds(month)[1])
     return {"transactions": deleted}
 
 
-def _move_first_processed(s: Session, *, before: datetime) -> None:
-    """Move each relationship's first processed instant to its rows that are left.
+def earliest_processed(s: Session, ids: list[UUID]) -> dict[UUID, datetime]:
+    """Read the earliest processed ``occurred_at`` of each of the relationships.
 
-    A relationship whose instant fell in a retired month starts again at its
-    earliest processed row still kept (a held party's rows are), or at None, as
-    the rules would count it from the rows themselves.
+    The ids travel as one array parameter (``= ANY``), so any number of them stays
+    within the protocol's 65,535 parameters.
+
+    Returns:
+        The instants by relationship; one without a processed row is left out.
+
     """
-    moved = first_processed_before(s, before)
-    if not moved:
-        return
+    array = bindparam("relationship_ids", ids, type_=ARRAY(Uuid()))
     rows = s.execute(
         select(Transaction.relationship_id, func.min(Transaction.occurred_at))
         .where(
-            Transaction.relationship_id.in_(moved),
+            Transaction.relationship_id == any_(array),
             Transaction.status == TransactionStatus.PROCESSED,
         )
         .group_by(Transaction.relationship_id)
     )
-    earliest = dict(rows.all())
-    move_first_processed(s, {item: earliest.get(item) for item in moved})
+    return dict(rows.all())
+
+
+def move_first_processed_after(s: Session, month: date) -> dict[str, int]:
+    """Move each relationship's first processed instant to its rows that are left.
+
+    The step after the month's transactions are deleted and committed, in its own
+    transaction. A relationship whose instant fell before the month's end starts
+    again at its earliest processed row still kept (a held party's rows are), or
+    at None, as the rules would count it from the rows themselves. Each party's
+    processing lock is taken first, in party order: a drain still processing a row
+    of the party commits before the instant is read, so its row counts, and a
+    drain that starts later reads the moved instant. Taking those locks in the
+    delete's transaction instead could deadlock with a drain that holds one and
+    waits for a row the delete removed.
+
+    Returns:
+        No counts: the instant is derived, never audited.
+
+    """
+    tenant_id = bound_context(s).require_tenant_id()
+    moved = first_processed_before(s, _bounds(month)[1])
+    for party_id in dict.fromkeys(party for _, party in moved):
+        _ = lock_party(s, tenant_id, party_id)
+    ids = [relationship_id for relationship_id, _ in moved]
+    earliest = earliest_processed(s, ids) if ids else {}
+    move_first_processed(s, {item: earliest.get(item) for item in ids})
+    return {}
 
 
 def _audit_on(
@@ -733,6 +764,7 @@ def retire_month(s: Session, *, month: date) -> RetiredMonth:
         ("parked", _delete_parked),
         ("refs", _delete_refs),
         ("transactions", _delete_transactions),
+        ("first_processed", move_first_processed_after),
     )
     totals: dict[str, int] = dict.fromkeys(_COUNTS, 0)
     held = False

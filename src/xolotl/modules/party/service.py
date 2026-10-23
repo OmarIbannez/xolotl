@@ -17,7 +17,17 @@ from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import Select, Uuid, any_, bindparam, or_, select, update
+from sqlalchemy import (
+    DateTime,
+    Select,
+    Uuid,
+    any_,
+    bindparam,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
@@ -1064,33 +1074,48 @@ def note_processed(s: Session, relationship: RelationshipRef, *, at: datetime) -
     )
 
 
-def first_processed_before(s: Session, before: datetime) -> list[UUID]:
+def first_processed_before(s: Session, before: datetime) -> list[tuple[UUID, UUID]]:
     """List the relationships whose first processed instant is before ``before``.
 
     Returns:
-        Their ids.
+        Their ids with their parties' ids, ordered by party.
 
     """
-    return list(
-        s.scalars(
-            select(CustomerRelationship.id).where(
-                CustomerRelationship.first_processed_at < before
-            )
-        )
+    rows = s.execute(
+        select(CustomerRelationship.id, CustomerRelationship.party_id)
+        .where(CustomerRelationship.first_processed_at < before)
+        .order_by(CustomerRelationship.party_id, CustomerRelationship.id)
     )
+    return [(relationship_id, party_id) for relationship_id, party_id in rows]
+
+
+_MOVE_FIRST_PROCESSED = text(
+    """
+    UPDATE customer_relationship AS cr
+    SET first_processed_at = moved.first
+    FROM unnest(:ids, :firsts) AS moved(id, first)
+    WHERE cr.id = moved.id
+    """
+).bindparams(
+    bindparam("ids", type_=ARRAY(Uuid())),
+    bindparam("firsts", type_=ARRAY(DateTime(timezone=True))),
+)
 
 
 def move_first_processed(s: Session, firsts: Mapping[UUID, datetime | None]) -> None:
     """Set each relationship's first processed instant, later or None included.
 
     Only retention calls it, once the rows that held the earlier instant are gone.
+    One statement whatever the count: the ids and instants travel as two arrays,
+    so any number stays within the protocol's 65,535 parameters. Row-level
+    security keeps it to the session's tenant.
     """
-    for relationship_id, first in firsts.items():
-        _ = s.execute(
-            update(CustomerRelationship)
-            .where(CustomerRelationship.id == relationship_id)
-            .values(first_processed_at=first)
-        )
+    if not firsts:
+        return
+    _ = s.execute(
+        _MOVE_FIRST_PROCESSED,
+        {"ids": list(firsts), "firsts": list(firsts.values())},
+    )
 
 
 def relationship_by_external_ref(

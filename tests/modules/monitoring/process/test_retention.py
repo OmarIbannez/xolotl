@@ -6,8 +6,9 @@ ITF keeps transactions ten years (2016-11 is due, 2016-12 is not), AVI five
 (2019-03 is due for an AVI tenant only).
 """
 
+import threading
 from collections.abc import Iterator
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, ExitStack
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -16,7 +17,16 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import ColumnElement, Connection, Engine, func, select, text, update
+from sqlalchemy import (
+    ColumnElement,
+    Connection,
+    Engine,
+    event,
+    func,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
@@ -41,6 +51,7 @@ from xolotl.modules.monitoring.decide.enums import DecisionMode, DecisionOutcome
 from xolotl.modules.monitoring.decide.models import TxnDecision
 from xolotl.modules.monitoring.enums import BucketKind, ParkReason, TransactionStatus
 from xolotl.modules.monitoring.process import retention
+from xolotl.modules.monitoring.process.job import lock_party
 from xolotl.modules.monitoring.process.retention import (
     RETENTION_KIND,
     RetentionJob,
@@ -64,6 +75,11 @@ from xolotl.modules.monitoring.txn.models import (
 from xolotl.modules.monitoring.txn.schema import KeyKind, Rail
 from xolotl.modules.party.customer import set_legal_hold
 from xolotl.modules.party.models import CustomerRelationship, Party
+from xolotl.modules.party.service import (
+    move_first_processed,
+    note_processed,
+    relationship_ref,
+)
 from xolotl.modules.screening.catalog.models import PrivateList, PrivateListEntryRow
 from xolotl.modules.screening.counterparty.models import (
     Counterparty,
@@ -692,6 +708,80 @@ def test_retiring_a_month_moves_each_first_processed_instant_to_what_is_left(
     }
 
 
+def test_the_move_waits_for_a_drain_of_the_party_and_sees_its_row(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+):
+    # cust-1's only processed row was in OLD, already deleted; its instant is
+    # still there when a drain processes a later row as the move runs.
+    seeder = Seeder(itf, queue)
+    late = seeder.txn(_at(NEXT, 5))
+    with seeder.session() as s:
+        _ = s.execute(
+            update(CustomerRelationship)
+            .where(CustomerRelationship.id == seeder.relationship_id)
+            .values(first_processed_at=_at(OLD, 3))
+        )
+    moved: list[dict[str, int]] = []
+
+    def move() -> None:
+        with tenant_session(system_ctx(itf.tenant_id, "job:retention")) as s:
+            moved.append(retention.move_first_processed_after(s, OLD))
+
+    with ExitStack() as stack:
+        s = stack.enter_context(tenant_session(system_ctx(itf.tenant_id)))
+        # What process_row does: the party's lock, the ref (the stale instant,
+        # no later than the row, so note_processed writes nothing), the status.
+        _ = lock_party(s, itf.tenant_id, seeder.party_id)
+        stale = relationship_ref(s, seeder.relationship_id)
+        _ = s.execute(
+            update(Transaction)
+            .where(Transaction.id == late.id)
+            .values(status=TransactionStatus.PROCESSED)
+        )
+        note_processed(s, stale, at=late.occurred_at)
+        mover = threading.Thread(target=move)
+        mover.start()
+        mover.join(timeout=1)
+        # The move waits for the party's lock until the drain commits.
+        assert mover.is_alive()
+    mover.join(timeout=30)
+    assert not mover.is_alive()
+    assert moved == [{}]
+    assert _firsts(itf) == {"cust-1": late.occurred_at}
+
+
+def test_the_move_binds_any_number_of_relationships_as_arrays(
+    itf: CreatedTenant, engine: Engine
+):
+    seen: list[tuple[str, int]] = []
+
+    def keep(*args: object) -> None:
+        statement, parameters = args[2], args[3]
+        size = len(parameters) if isinstance(parameters, dict) else -1
+        seen.append((str(statement).split()[0], size))
+
+    def run(size: int) -> list[tuple[str, int]]:
+        ids = [uuid7() for _ in range(size)]
+        seen.clear()
+        event.listen(engine, "before_cursor_execute", keep)
+        try:
+            with tenant_session(system_ctx(itf.tenant_id)) as s:
+                assert retention.earliest_processed(s, ids) == {}
+                move_first_processed(s, dict.fromkeys(ids))
+        finally:
+            event.remove(engine, "before_cursor_execute", keep)
+        return [item for item in seen if item[0] in {"SELECT", "UPDATE"}]
+
+    few = run(3)
+    many = run(70_000)
+    # One SELECT and one UPDATE, each with the same parameters for any count.
+    assert [verb for verb, _ in few][-2:] == ["SELECT", "UPDATE"]
+    assert few == many
+
+
 def test_a_month_with_a_held_party_is_skipped_and_named(
     frozen: datetime,
     itf: CreatedTenant,
@@ -700,9 +790,11 @@ def test_a_month_with_a_held_party_is_skipped_and_named(
     admin_engine: Engine,
 ):
     seeder = Seeder(itf, queue)
-    _ = seeder.month(OLD)
+    month = seeder.month(OLD)
+    _processed(seeder, month.txns[0])
     seeder.hold()
     run_retention(itf)
+    assert _firsts(itf) == {"cust-1": month.txns[0].occurred_at}
     assert count(itf, Transaction) == 2
     assert count(itf, RuleHit) == 1
     assert count(itf, TxnDecision) == 1
@@ -1464,7 +1556,8 @@ def test_a_held_partys_rows_are_never_deleted_even_unlocked(
     # A row that reaches the month after the step locked its parties (a BACKFILL
     # row of an already held party) is still kept by the deletes themselves.
     seeder = Seeder(itf, queue)
-    _ = seeder.month(OLD)
+    month = seeder.month(OLD)
+    _processed(seeder, month.txns[0])
     seeder.hold()
 
     def nobody_held(_s: Session, _month: date) -> int:
@@ -1472,6 +1565,8 @@ def test_a_held_partys_rows_are_never_deleted_even_unlocked(
 
     monkeypatch.setattr(f"{retention.__name__}.held_parties_in", nobody_held)
     run_retention(itf)
+    # The move ran, and the held party's processed row still holds the instant.
+    assert _firsts(itf) == {"cust-1": month.txns[0].occurred_at}
     assert count(itf, Transaction) == 2
     assert count(itf, TransactionRef) == 2
     assert count(itf, TransactionParked) == 1

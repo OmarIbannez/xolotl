@@ -15,8 +15,16 @@ Upgrade adds the nullable column and fills it from the processed rows already
 there. Row-level security is forced on both tables and binds the owner of a
 managed server (neither a superuser nor ``BYPASSRLS``), so the fill runs once per
 tenant with ``app.tenant_id`` set for the transaction; the tenant list is read as
-the platform operator. The fill reads every partition once; run it in a quiet
-window. Downgrade drops the column.
+the platform operator. Downgrade drops the column.
+
+Downtime. ``add_column`` takes ``ACCESS EXCLUSIVE`` on ``customer_relationship`` and
+the whole upgrade runs in one transaction, so the lock is held until every
+tenant's fill is done. The fill aggregates each tenant's processed rows across
+every ``transaction`` partition and rewrites each relationship that has one, so it
+lasts in proportion to ``transaction``. ``serve`` migrates before it listens and
+the old instance is stopped first, so nothing waits on the lock, but the service
+stays down until the fill ends: on a large tenant, allow for it in the deploy's
+start-up and health-check timeouts.
 """
 
 from collections.abc import Sequence
