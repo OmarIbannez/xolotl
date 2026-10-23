@@ -7,7 +7,7 @@
   1 GB persistent disk at `/var/data` for the object store.
 - **`xolotl-db`**, a Render Postgres 17 database (user `xolotl`, database `xolotl`).
 
-Both run in `oregon`, on the smallest paid plans (see [Costs](#costs)). The one value you
+Both run in `oregon`, on paid plans: the web service on 1 CPU / 2 GB, Postgres on the smallest (see [Costs](#costs)). The one value you
 paste is `XOLOTL_MASTER_KEY`; Render generates the rest or reads them from the database.
 
 ## Before you start
@@ -240,18 +240,19 @@ Monthly prices from [render.com/pricing][pricing] on 2026-10-18:
 
 | Item | Plan | Per month |
 | --- | --- | --- |
-| Web service `xolotl` | `0.5c-512mb` (Starter): 0.5 CPU, 512 MB | $7.00 |
+| Web service `xolotl` | `1c-2g` (Standard): 1 CPU, 2 GB | $25.00 |
 | Disk `objects` | 1 GB at $0.25 per GB | $0.25 |
 | Postgres `xolotl-db` | `0.1c-256mb` (Basic-256mb): 0.1 CPU, 256 MB, 100 connections | $6.00 |
 | Postgres storage | 5 GB at $0.30 per GB | $1.50 |
 | Workspace | Hobby | $0 |
-| **Total** | | **$14.75**, plus bandwidth over 5 GB a month ($0.15 per GB) |
+| **Total** | | **$32.75**, plus bandwidth over 5 GB a month ($0.15 per GB) |
 
 The free plans do not fit: a free web service has no persistent disk and no shell and
 sleeps after 15 idle minutes, stopping the worker; a free database expires after 30 days
-and has no backups ([free plans][free]). The next steps up are `1c-2g` for the web
-service ($25: the container idles near 90 MB, and every password check takes about
-64 MB) and `0.5c-1g` for Postgres ($19). Disk and database storage can grow without
+and has no backups ([free plans][free]). The web service needs `1c-2g`: with the real
+sanctions lists loaded, the in-memory screening index takes about 500-800 MB, and the
+512 MB Starter plan was OOM-killed on every start (2026-10-21). The next step up for
+Postgres is `0.5c-1g` ($19). Disk and database storage can grow without
 downtime but never shrink.
 
 ## Render documentation relied on
