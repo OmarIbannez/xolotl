@@ -1724,6 +1724,85 @@ def test_two_dispatchers_keep_a_keys_order_while_its_first_event_retries(
     assert pending_count(tenant_id) == 0
 
 
+def test_a_bus_with_threads_hands_a_batchs_keys_out_side_by_side(
+    engine: Engine, tenant_id: UUID
+):
+    # Each event waits until two more are being handled beside it.
+    together = threading.Barrier(3, timeout=10)
+    seen: list[UUID] = []
+    guard = threading.Lock()
+
+    def handle(_session: Session, event: Event) -> None:
+        _ = together.wait()
+        with guard:
+            seen.append(event.id)
+
+    register_subscriber(PING, handle, consumer="audit")
+    bus = OutboxEventBus(get_sessionmaker(), threads=3)
+    events = [an_event(tenant_id, key=f"case-{n}") for n in range(3)]
+    emit(bus, tenant_id, *events)
+    make_due(tenant_id)
+
+    assert bus.dispatch_pending() == 3
+    assert sorted(seen) == sorted(e.id for e in events)
+    assert {stored(e).status for e in events} == {OutboxStatus.PUBLISHED}
+
+
+def test_a_bus_with_threads_keeps_each_keys_order_and_runs_each_consumer_once(
+    engine: Engine, tenant_id: UUID
+):
+    audit, search = Probe(), Probe()
+    register_subscriber(PING, audit, consumer="audit")
+    register_subscriber(PING, search, consumer="search")
+    bus = OutboxEventBus(get_sessionmaker(), threads=4)
+    events = [an_event(tenant_id, key=f"case-{n % 5}") for n in range(40)]
+    emit(bus, tenant_id, *events)
+    make_due(tenant_id)
+
+    assert drain(bus, tenant_id, deadline=time.monotonic() + 60) == 40
+    for probe in (audit, search):
+        assert len(probe.calls) == 40
+        assert by_key(probe.done) == by_key(events)
+    assert pending_count(tenant_id) == 0
+
+
+def test_a_bookkeeping_error_on_a_dispatch_thread_surfaces_after_the_others(
+    engine: Engine, tenant_id: UUID
+):
+    audit = Probe()
+    register_subscriber(PING, audit, consumer="audit")
+    calls: list[int] = []
+    guard = threading.Lock()
+
+    def flaky_clock() -> datetime:
+        # Read while an event is marked published: the first one hits a blip.
+        with guard:
+            calls.append(1)
+            first = len(calls) == 1
+        if first:
+            msg = "database unreachable"
+            raise RuntimeError(msg)
+        return datetime.now(UTC)
+
+    bus = OutboxEventBus(get_sessionmaker(), threads=2, clock_fn=flaky_clock)
+    events = [an_event(tenant_id, key=f"case-{n}") for n in range(4)]
+    emit(bus, tenant_id, *events)
+    make_due(tenant_id)
+
+    with pytest.raises(RuntimeError, match="database unreachable"):
+        _ = bus.dispatch_pending()
+    # The thread that hit it stopped; the other settled what it took. The failed
+    # event stays leased until its lease runs out, as with one thread.
+    statuses = [stored(e).status for e in events]
+    assert statuses.count(OutboxStatus.PUBLISHED) >= 1
+    assert statuses.count(OutboxStatus.PENDING) >= 1
+
+
+def test_a_bus_refuses_fewer_than_one_thread(engine: Engine):
+    with pytest.raises(ValueError, match="threads"):
+        _ = OutboxEventBus(get_sessionmaker(), threads=0)
+
+
 def test_a_lease_that_expires_during_a_slow_handler_does_not_run_the_consumer_twice(
     bus: OutboxEventBus, tenant_id: UUID, engine: Engine
 ):

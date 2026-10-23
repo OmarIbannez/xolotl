@@ -531,9 +531,10 @@ def _pending_rows(tenant_id: UUID) -> int:
 class LiveWorker:
     """The MVP's worker loop on a thread of its own, as the API embeds it.
 
-    It ticks the outbox dispatcher, the job runner (``run_once()`` with its default
-    limit) and the scheduler, then pauses ``WORKER_TICK_SECONDS``, exactly as
-    ``xolotl.worker.Worker.run`` does in production.
+    It ticks the outbox dispatcher, the job runner and the scheduler, as the
+    platform wires them from the settings (``WORKER_THREADS`` threads, a batch of
+    ``WORKER_JOB_BATCH``), and pauses ``WORKER_TICK_SECONDS`` after an idle tick,
+    exactly as ``xolotl.worker.Worker.run`` does in production.
     """
 
     worker: Worker

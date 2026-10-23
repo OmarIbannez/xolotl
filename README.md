@@ -294,6 +294,9 @@ driver is added.
 | `XOLOTL_SCREENING_RESCREEN_BATCH` | `500` | Parties each periodic, private-list or re-index re-screen job handles in one transaction (1 or more). |
 | `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
 | `XOLOTL_UNITS_FETCH_CRON` | `0 18 * * 1-5` | Daily UDI and FIX fetch, America/Mexico_City. |
+| `XOLOTL_WORKER_JOB_BATCH` | `50` | Jobs of one kind the worker takes per tenant in one tick (1 or more), so one kind's backlog (a burst of `monitoring.process` jobs) leaves room in every tick for the others (`lists.poll`, the sweep, screening). The loop ticks again at once while a tick did work and pauses `XOLOTL_WORKER_TICK_SECONDS` only when one found nothing. |
+| `XOLOTL_WORKER_THREADS` | `4` | Jobs the worker runs at once (1 to 8), each on a thread with sessions of its own, in the same process (no extra container, and the screening index is shared); the outbox dispatcher hands each claimed batch of events out on as many threads, one key's events still in order. A running job holds one or two of the process's 15 pooled connections (SQLAlchemy's 5 plus 10 overflow), which the API shares, hence the cap. Beyond 3 or 4 a 1,000-row burst gains nothing: the process is then bound by Python's global interpreter lock. |
+| `XOLOTL_WORKER_TICK_SECONDS` | `1.0` | The worker's pause after a tick that found nothing to do; refused at 0 in prod. |
 
 ## Data protection
 
@@ -1104,9 +1107,11 @@ SP-04's measurements (`tests/perf/test_sp04_perf.py`) append to `.perf/sp04.json
 - `alert_latency_p95_over_1000_transactions` (`NFR-TM-002`): one 1,000-row batch
   over 100 relationships, ten of them (drawn at random, so anywhere in the queue)
   structuring cash, processed by the MVP's real worker loop (`Worker.run` on a
-  thread: outbox dispatch, `run_once()` with its default limit and the scheduler,
-  then the `WORKER_TICK_SECONDS` pause). The NFR-TM-002 reading is
-  `processed_latency_p95_s`, the p95 of each row's `processed_at - received_at`
+  thread, built from the settings: outbox dispatch and `run_once()` on
+  `XOLOTL_WORKER_THREADS` threads with `XOLOTL_WORKER_JOB_BATCH`, the scheduler,
+  and the `WORKER_TICK_SECONDS` pause only after an idle tick). The NFR-TM-002
+  reading is `processed_latency_p95_s`, the p95 of each row's
+  `processed_at - received_at`
   (every row could raise an alert); `nfr_met` compares it with 5 s. Also recorded:
   the time from `received_at` to the last `processed_at`, transactions per second,
   the worker's ticks, and, as a secondary measure that depends on where the ten

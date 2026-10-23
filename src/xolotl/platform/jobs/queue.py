@@ -252,11 +252,13 @@ class PostgresJobQueue:
         kinds: Sequence[str] | None,
         limit: int,
         lease: timedelta,
+        exclude_kinds: Sequence[str] = (),
     ) -> list[Job]:
         """Lease up to ``limit`` due jobs of one tenant, oldest due first.
 
         Rows another transaction has locked are skipped, so concurrent claimers never
-        wait for each other or receive the same job.
+        wait for each other or receive the same job. ``kinds`` keeps only those
+        kinds and ``exclude_kinds`` leaves those out.
 
         Returns:
             The claimed jobs, each carrying the token of this claim.
@@ -276,6 +278,8 @@ class PostgresJobQueue:
         )
         if kinds is not None:
             due = due.where(JobRow.kind.in_(kinds))
+        if exclude_kinds:
+            due = due.where(JobRow.kind.not_in(exclude_kinds))
         picked = (
             due
             .order_by(JobRow.run_after, JobRow.id)

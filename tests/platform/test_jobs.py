@@ -2,8 +2,10 @@
 
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from typing import override
 from uuid import UUID, uuid4
 
@@ -128,6 +130,22 @@ def test_claim_filters_by_kind(queue: PostgresJobQueue):
     assert [j.id for j in claim(queue, tenant_id, kinds=["wanted.v1"])] == [wanted]
     assert claim(queue, tenant_id, kinds=[]) == []
     assert [j.id for j in claim(queue, tenant_id, kinds=None)] == [other]
+
+
+def test_claim_leaves_out_the_excluded_kinds(queue: PostgresJobQueue):
+    tenant_id = make_tenant("alpha")
+    first = enqueue(queue, tenant_id, kind="full.v1")
+    second = enqueue(queue, tenant_id, kind="open.v1")
+    leased = queue.claim(
+        worker_id="w-1",
+        tenant_id=tenant_id,
+        kinds=None,
+        exclude_kinds=["full.v1"],
+        limit=5,
+        lease=LEASE,
+    )
+    assert [j.id for j in leased] == [second]
+    assert fetch_job(tenant_id, first).status is JobStatus.PENDING
 
 
 def test_claim_takes_the_oldest_due_jobs_first_up_to_the_limit(
@@ -1136,3 +1154,183 @@ def test_complete_clears_the_error_an_earlier_attempt_left(
     assert queue.complete(job) is True
     done = fetch_job(tenant_id, job_id)
     assert (done.status, done.last_error) == (JobStatus.DONE, None)
+
+
+# --- threads: a round runs its jobs side by side -------------------------------------
+
+
+def test_a_runner_with_threads_runs_its_jobs_side_by_side(queue: PostgresJobQueue):
+    tenant_id = make_tenant("alpha")
+    kind = unique_kind()
+    ran: list[UUID] = []
+    guard = threading.Lock()
+    # Each job waits until two more are running beside it: only three threads
+    # running the round at once get every job through.
+    together = threading.Barrier(3, timeout=10)
+
+    def record(session, job):
+        _ = together.wait()
+        with guard:
+            ran.append(job.id)
+
+    register_job_handler(kind, record)
+    expected = {enqueue(queue, tenant_id, kind=kind) for _ in range(6)}
+
+    assert make_runner(queue, threads=3).run_once(limit=6) == 6
+    assert sorted(ran) == sorted(expected)
+    assert {row.status for row in fetch_jobs(tenant_id, kind=kind)} == {JobStatus.DONE}
+
+
+def test_an_idle_round_claims_once_per_tenant_whatever_its_threads(
+    queue: PostgresJobQueue, monkeypatch: pytest.MonkeyPatch
+):
+    tenants = {make_tenant("alpha"), make_tenant("beta")}
+    claimed: list[UUID] = []
+    claim_jobs = queue.claim
+
+    def counting(**options):
+        claimed.append(options["tenant_id"])
+        return claim_jobs(**options)
+
+    monkeypatch.setattr(queue, "claim", counting)
+    assert make_runner(queue, threads=4).run_once() == 0
+    # Helper threads start only once a job turns up, so an idle tick costs one
+    # look per tenant, as with one thread.
+    assert sorted(claimed) == sorted(tenants)
+
+
+@pytest.mark.parametrize("threads", [1, 3])
+def test_a_kinds_backlog_leaves_room_in_the_round_for_other_kinds(
+    queue: PostgresJobQueue, clock: FakeClock, threads: int
+):
+    tenant_id = make_tenant("alpha")
+    backlog, other = register_noop(), register_noop()
+    for _ in range(12):
+        _ = enqueue(queue, tenant_id, kind=backlog)
+    _ = clock.advance(timedelta(minutes=1))
+    # Due after the whole backlog: oldest first alone would run it last.
+    late = enqueue(queue, tenant_id, kind=other)
+
+    assert make_runner(queue, threads=threads).run_once(limit=4) == 5
+    assert fetch_job(tenant_id, late).status is JobStatus.DONE
+    done = [
+        r for r in fetch_jobs(tenant_id, kind=backlog) if r.status is JobStatus.DONE
+    ]
+    assert len(done) == 4
+
+
+@pytest.mark.parametrize("threads", [1, 3])
+def test_run_once_keeps_its_limit_per_tenant_with_threads(
+    queue: PostgresJobQueue, threads: int
+):
+    alpha, beta = make_tenant("alpha"), make_tenant("beta")
+    kind = register_noop()
+    for _ in range(5):
+        _ = enqueue(queue, alpha, kind=kind)
+    beta_job = enqueue(queue, beta, kind=kind)
+
+    # Alpha's backlog takes its two places; beta's job still runs in the round.
+    assert make_runner(queue, threads=threads).run_once(limit=2) == 3
+    assert fetch_job(beta, beta_job).status is JobStatus.DONE
+    statuses = [row.status for row in fetch_jobs(alpha, kind=kind)]
+    assert statuses.count(JobStatus.DONE) == 2
+
+
+def test_a_runner_takes_its_default_limit_from_its_batch(queue: PostgresJobQueue):
+    tenant_id = make_tenant("alpha")
+    kind = register_noop()
+    for _ in range(5):
+        _ = enqueue(queue, tenant_id, kind=kind)
+    assert make_runner(queue, batch=3).run_once() == 3
+
+
+def test_a_stopping_round_claims_no_more_and_waits_for_its_running_jobs(
+    queue: PostgresJobQueue,
+):
+    tenant_id = make_tenant("alpha")
+    kind = unique_kind()
+    stop = threading.Event()
+    both_running = threading.Barrier(2, timeout=10)
+
+    def slow(session, job):
+        _ = both_running.wait()
+        stop.set()
+        time.sleep(0.2)  # still running when the round is asked to stop
+
+    register_job_handler(kind, slow)
+    for _ in range(6):
+        _ = enqueue(queue, tenant_id, kind=kind)
+
+    ran = make_runner(queue, threads=2).run_once(limit=6, stopping=stop.is_set)
+
+    assert ran == 2
+    statuses = [row.status for row in fetch_jobs(tenant_id, kind=kind)]
+    # Both jobs that had started finished before run_once returned.
+    assert sorted(statuses) == sorted([JobStatus.DONE] * 2 + [JobStatus.PENDING] * 4)
+
+
+def test_a_runner_threads_failure_surfaces_once_the_others_have_finished(
+    queue: PostgresJobQueue,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    tenant_id = make_tenant("alpha")
+    kind = unique_kind()
+    first_running = threading.Event()
+
+    def wait_for_the_failure(session, job):
+        first_running.set()
+        time.sleep(0.2)
+
+    register_job_handler(kind, wait_for_the_failure)
+    for _ in range(3):
+        _ = enqueue(queue, tenant_id, kind=kind)
+    claim_jobs = queue.claim
+    calls: list[int] = []
+
+    def flaky(**options):
+        calls.append(1)
+        if len(calls) == 2:
+            _ = first_running.wait(10)
+            msg = "database unreachable"
+            raise RuntimeError(msg)
+        return claim_jobs(**options)
+
+    monkeypatch.setattr(queue, "claim", flaky)
+    caplog.set_level(logging.ERROR, logger="xolotl.platform.jobs.runner")
+    with pytest.raises(RuntimeError, match="database unreachable"):
+        _ = make_runner(queue, threads=2).run_once(limit=3)
+    # The helper's claim failed (the caller's thread was running the first job):
+    # it logged the error itself, through the redacting handler.
+    (logged,) = [r for r in caplog.records if r.name == "xolotl.platform.jobs.runner"]
+    assert logged.getMessage() == "job runner thread failed"
+    assert logged.exc_info is not None
+    statuses = [row.status for row in fetch_jobs(tenant_id, kind=kind)]
+    # The job claimed before the failure was not abandoned mid-run.
+    assert JobStatus.RUNNING not in statuses
+    assert statuses.count(JobStatus.DONE) >= 1
+
+
+def test_a_runner_refuses_fewer_than_one_thread_or_job(queue: PostgresJobQueue):
+    with pytest.raises(ValueError, match="threads"):
+        _ = make_runner(queue, threads=0)
+    with pytest.raises(ValueError, match="batch"):
+        _ = make_runner(queue, batch=0)
+
+
+def test_a_round_takes_its_tenants_in_turn(queue: PostgresJobQueue):
+    alpha, beta = make_tenant("alpha"), make_tenant("beta")
+    kind = unique_kind()
+    order: list[UUID] = []
+
+    def record(session, job):
+        order.append(job.tenant_id)
+
+    register_job_handler(kind, record)
+    for tenant_id in (alpha, beta):
+        for _ in range(3):
+            _ = enqueue(queue, tenant_id, kind=kind)
+
+    assert make_runner(queue).run_once(limit=10) == 6
+    # One tenant's backlog does not hold the other's jobs until it is through.
+    assert all(first != second for first, second in pairwise(order))

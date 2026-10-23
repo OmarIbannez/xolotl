@@ -105,6 +105,15 @@ class Settings(BaseSettings):
     # Pause between ticks of the worker's dispatcher, job and scheduler loops.
     worker_tick_seconds: float = Field(default=1.0, ge=0)
     worker_id: str = Field(default_factory=_default_worker_id, min_length=1)
+    # Jobs the worker runs at once, each on a thread with sessions of its own; the
+    # outbox hands its events out on as many. A running job holds one or two
+    # pooled connections, and the pool (5 plus 10 overflow) serves the API too,
+    # hence the cap.
+    worker_threads: int = Field(default=4, ge=1, le=8)
+    # Jobs of one kind the runner takes per tenant in one tick; the loop ticks
+    # again at once while there is work, so this bounds how long one kind's
+    # backlog keeps the others, the outbox and the scheduler waiting.
+    worker_job_batch: int = Field(default=50, ge=1)
     # The API process runs the worker loop on a thread of its own (one container);
     # false leaves it to a separate `xolotl worker` process.
     embedded_worker: bool = True

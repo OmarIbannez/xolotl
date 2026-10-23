@@ -296,16 +296,21 @@ def test_worker_defaults():
     s = make_settings()
     assert s.worker_tick_seconds == pytest.approx(1.0)
     assert s.worker_id == f"{socket.gethostname()}:{os.getpid()}"
+    assert s.worker_threads == 4
+    assert s.worker_job_batch == 50
 
 
 def test_worker_settings_are_read_from_the_environment(monkeypatch):
     # Settings ignores names it does not know, so a misspelled field would
-    # silently keep its default; setting both through their env names proves them.
+    # silently keep its default; setting them through their env names proves them.
     monkeypatch.setenv("XOLOTL_WORKER_TICK_SECONDS", "0.25")
     monkeypatch.setenv("XOLOTL_WORKER_ID", "worker-7")
+    monkeypatch.setenv("XOLOTL_WORKER_THREADS", "2")
+    monkeypatch.setenv("XOLOTL_WORKER_JOB_BATCH", "25")
     s = make_settings()
     assert s.worker_tick_seconds == pytest.approx(0.25)
     assert s.worker_id == "worker-7"
+    assert (s.worker_threads, s.worker_job_batch) == (2, 25)
 
 
 @pytest.mark.parametrize(
@@ -314,6 +319,9 @@ def test_worker_settings_are_read_from_the_environment(monkeypatch):
         ("XOLOTL_WORKER_TICK_SECONDS", "-1", "worker_tick_seconds"),
         ("XOLOTL_WORKER_TICK_SECONDS", "soon", "worker_tick_seconds"),
         ("XOLOTL_WORKER_ID", "", "worker_id"),
+        ("XOLOTL_WORKER_THREADS", "0", "worker_threads"),
+        ("XOLOTL_WORKER_THREADS", "9", "worker_threads"),
+        ("XOLOTL_WORKER_JOB_BATCH", "0", "worker_job_batch"),
     ],
 )
 def test_worker_settings_reject_nonsense(monkeypatch, name, value, field):
