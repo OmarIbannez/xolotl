@@ -1,7 +1,12 @@
 """Rule assignments by date and product, and the active rule set (plan 4b B6)."""
 
+import contextlib
 import hashlib
+import threading
+from collections import UserDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
+from typing import override
 from uuid import UUID, uuid4
 
 import pytest
@@ -267,3 +272,35 @@ def test_another_workers_activation_is_seen_before_the_ttl(
     with staff_session(tenant.tenant_id, approver, APPROVER_ROLES) as s:
         _ = retire_version(s, version.id)
     assert _codes(tenant, date(2026, 10, 31), None) == [CASH]
+
+
+class _RacingCache(UserDict[object, object]):
+    """A cache whose deletes wait for a second deleter, as two threads might."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.both_sweeping = threading.Barrier(2, timeout=1)
+
+    @override
+    def __delitem__(self, key: object) -> None:
+        with contextlib.suppress(threading.BrokenBarrierError):
+            _ = self.both_sweeping.wait()
+        super().__delitem__(key)
+
+
+def test_two_threads_missing_at_once_sweep_the_cache_safely(
+    tenant: CreatedTenant, monkeypatch: pytest.MonkeyPatch
+):
+    racing = _RacingCache()
+    # An entry that has expired, which every miss sweeps out.
+    racing[uuid4(), date(2026, 1, 1), None, ()] = (-1.0, None)
+    monkeypatch.setattr(assignments, "_cache", racing)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(_codes, tenant, date(2026, 10, day), None) for day in (29, 30)
+        ]
+        # Unsafe, one sweep deletes the key the other already deleted (KeyError).
+        for future in futures:
+            _ = future.result(timeout=10)
+    assert len(racing) == 2  # the two fresh entries, the stale one gone
