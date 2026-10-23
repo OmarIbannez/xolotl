@@ -1,0 +1,3 @@
+[
+  {"external_id": "avi-1210-late", "occurred_at": "2026-12-10T10:00:00-06:00", "customer_ref": "CRYPTO-001", "account_ref": "acct-crypto-001", "direction": "OUT", "rail": "CRYPTO_ONCHAIN", "instrument": "CRYPTO", "amount": "5000.00", "currency": "MXN", "channel": "APP", "crypto": {"network": "bitcoin", "asset_code": "BTC", "asset_qty": "0.004"}}
+]
