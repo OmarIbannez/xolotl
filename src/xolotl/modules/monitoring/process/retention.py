@@ -32,7 +32,9 @@ its own transaction:
    decision was made in the month;
 5. the ``txn_decision`` rows decided in the month;
 6. the ``transaction_parked`` rows, 7. the ``transaction_ref`` rows and 8. the
-   ``transaction`` rows of the month.
+   ``transaction`` rows of the month; a relationship whose
+   ``first_processed_at`` fell before the month's end then starts at its
+   earliest processed row left, or None.
 
 Every step deletes by month, so a run that stopped half-way is finished by the
 next one. Then, through the admin engine, the month's partitions are detached and
@@ -112,6 +114,7 @@ from sqlalchemy import (
     and_,
     delete,
     exists,
+    func,
     or_,
     select,
     text,
@@ -125,12 +128,14 @@ from xolotl.modules.monitoring.aggregates.models import AggDeclaration
 from xolotl.modules.monitoring.captures.models import CaptureGroup, ReportableEvent
 from xolotl.modules.monitoring.decide.models import TxnDecision
 from xolotl.modules.monitoring.enrich.policy import policy_date
+from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.rules.models import RuleHit, RuleHitTransaction
 from xolotl.modules.monitoring.txn.models import (
     Transaction,
     TransactionParked,
     TransactionRef,
 )
+from xolotl.modules.party.service import first_processed_before, move_first_processed
 from xolotl.platform import clock
 from xolotl.platform.audit import AuditEvent, record
 from xolotl.platform.config import get_settings
@@ -645,7 +650,30 @@ def _delete_transactions(s: Session, month: date) -> dict[str, int]:
             )
         )
     )
+    _move_first_processed(s, before=_bounds(month)[1])
     return {"transactions": deleted}
+
+
+def _move_first_processed(s: Session, *, before: datetime) -> None:
+    """Move each relationship's first processed instant to its rows that are left.
+
+    A relationship whose instant fell in a retired month starts again at its
+    earliest processed row still kept (a held party's rows are), or at None, as
+    the rules would count it from the rows themselves.
+    """
+    moved = first_processed_before(s, before)
+    if not moved:
+        return
+    rows = s.execute(
+        select(Transaction.relationship_id, func.min(Transaction.occurred_at))
+        .where(
+            Transaction.relationship_id.in_(moved),
+            Transaction.status == TransactionStatus.PROCESSED,
+        )
+        .group_by(Transaction.relationship_id)
+    )
+    earliest = dict(rows.all())
+    move_first_processed(s, {item: earliest.get(item) for item in moved})
 
 
 def _audit_on(

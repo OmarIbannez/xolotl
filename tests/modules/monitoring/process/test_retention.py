@@ -39,7 +39,7 @@ from xolotl.modules.monitoring.captures.models import (
 )
 from xolotl.modules.monitoring.decide.enums import DecisionMode, DecisionOutcome
 from xolotl.modules.monitoring.decide.models import TxnDecision
-from xolotl.modules.monitoring.enums import BucketKind, ParkReason
+from xolotl.modules.monitoring.enums import BucketKind, ParkReason, TransactionStatus
 from xolotl.modules.monitoring.process import retention
 from xolotl.modules.monitoring.process.retention import (
     RETENTION_KIND,
@@ -63,7 +63,7 @@ from xolotl.modules.monitoring.txn.models import (
 )
 from xolotl.modules.monitoring.txn.schema import KeyKind, Rail
 from xolotl.modules.party.customer import set_legal_hold
-from xolotl.modules.party.models import Party
+from xolotl.modules.party.models import CustomerRelationship, Party
 from xolotl.modules.screening.catalog.models import PrivateList, PrivateListEntryRow
 from xolotl.modules.screening.counterparty.models import (
     Counterparty,
@@ -601,6 +601,94 @@ def test_a_past_month_is_retired_in_dependency_order_and_its_partitions_dropped(
         "skipped": [],
         "counterparties_purged": 0,
         "buckets_pruned": 0,
+    }
+
+
+def _processed(seeder: Seeder, *txns: Txn) -> None:
+    """Mark ``txns`` processed and keep each relationship's earliest, as processing."""
+    with seeder.session() as s:
+        ids = [txn.id for txn in txns]
+        _ = s.execute(
+            update(Transaction)
+            .where(Transaction.id.in_(ids))
+            .values(status=TransactionStatus.PROCESSED)
+        )
+        firsts = s.execute(
+            select(Transaction.relationship_id, func.min(Transaction.occurred_at))
+            .where(Transaction.id.in_(ids))
+            .group_by(Transaction.relationship_id)
+        ).all()
+        for relationship_id, first in firsts:
+            _ = s.execute(
+                update(CustomerRelationship)
+                .where(CustomerRelationship.id == relationship_id)
+                .values(first_processed_at=first)
+            )
+
+
+def _firsts(tenant: CreatedTenant) -> dict[str, datetime | None]:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        rows = s.execute(
+            select(
+                CustomerRelationship.external_ref,
+                CustomerRelationship.first_processed_at,
+            )
+        )
+        return dict(rows.all())
+
+
+def test_retiring_a_month_moves_each_first_processed_instant_to_what_is_left(
+    frozen: datetime,
+    itf: CreatedTenant,
+    queue: PostgresJobQueue,
+    old_partitions: None,
+):
+    seeder = Seeder(itf, queue)
+    _ = add_customer(itf, "cust-2")
+    _ = add_customer(itf, "cust-3")
+    one_old = seeder.txn(_at(OLD, 3))
+    _ = seeder.txn(_at(OLD, 10))
+    one_next = seeder.txn(_at(NEXT, 5))
+    with seeder.session() as s:
+        report = ingest_items(
+            s,
+            [
+                make_item(
+                    external_id="tx-two",
+                    occurred_at=_at(OLD, 7).isoformat(),
+                    customer_ref="cust-2",
+                ),
+                make_item(
+                    external_id="tx-three",
+                    occurred_at=_at(MID, 7).isoformat(),
+                    customer_ref="cust-3",
+                ),
+            ],
+            queue=queue,
+        )
+        two, three = report.transaction_ids
+        rows = {
+            row.id: row
+            for row in s.scalars(
+                select(Transaction).where(Transaction.id.in_([two, three]))
+            )
+        }
+    _processed(
+        seeder,
+        one_old,
+        one_next,
+        Txn(two, rows[two].occurred_at, None),
+        Txn(three, rows[three].occurred_at, None),
+    )
+
+    run_retention(itf)
+
+    # cust-1 starts again at its next processed row (the RECEIVED one went with
+    # the month), cust-2 has nothing processed left, cust-3 is untouched.
+    assert _firsts(itf) == {
+        "cust-1": one_next.occurred_at,
+        "cust-2": None,
+        "cust-3": rows[three].occurred_at,
     }
 
 

@@ -11,7 +11,7 @@ engine only: no person sees them, so it records nothing.
 
 import re
 from collections import defaultdict
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
@@ -1020,6 +1020,9 @@ class RelationshipRef:
     # The declared profile's JSON form (SP-04 §13.3, ``DeclaredProfile``), None
     # until staff or onboarding set it; read with the row, at no extra query.
     declared_profile: dict[str, JsonValue] | None = None
+    # The earliest occurred_at among its processed transactions, None before the
+    # first; the rules count the customer's history months from it.
+    first_processed_at: datetime | None = None
 
 
 def _ref_of(row: CustomerRelationship) -> RelationshipRef:
@@ -1031,7 +1034,63 @@ def _ref_of(row: CustomerRelationship) -> RelationshipRef:
         status=row.status,
         started_at=row.started_at,
         declared_profile=row.declared_profile,
+        first_processed_at=row.first_processed_at,
     )
+
+
+def note_processed(s: Session, relationship: RelationshipRef, *, at: datetime) -> None:
+    """Keep ``at`` as the relationship's first processed instant if it is earlier.
+
+    Processing calls it as it marks a transaction ``PROCESSED``, in the same
+    transaction. ``relationship`` only saves the statement when it already holds an
+    instant no later than ``at``; the update itself keeps the earliest, so a stale
+    reference or an out-of-order row never moves the instant forward. The row is
+    written (and locked) only when the instant changes: the relationship's first
+    processed row, or an earlier one processed late.
+    """
+    known = relationship.first_processed_at
+    if known is not None and known <= at:
+        return
+    _ = s.execute(
+        update(CustomerRelationship)
+        .where(
+            CustomerRelationship.id == relationship.id,
+            or_(
+                CustomerRelationship.first_processed_at.is_(None),
+                CustomerRelationship.first_processed_at > at,
+            ),
+        )
+        .values(first_processed_at=at)
+    )
+
+
+def first_processed_before(s: Session, before: datetime) -> list[UUID]:
+    """List the relationships whose first processed instant is before ``before``.
+
+    Returns:
+        Their ids.
+
+    """
+    return list(
+        s.scalars(
+            select(CustomerRelationship.id).where(
+                CustomerRelationship.first_processed_at < before
+            )
+        )
+    )
+
+
+def move_first_processed(s: Session, firsts: Mapping[UUID, datetime | None]) -> None:
+    """Set each relationship's first processed instant, later or None included.
+
+    Only retention calls it, once the rows that held the earlier instant are gone.
+    """
+    for relationship_id, first in firsts.items():
+        _ = s.execute(
+            update(CustomerRelationship)
+            .where(CustomerRelationship.id == relationship_id)
+            .values(first_processed_at=first)
+        )
 
 
 def relationship_by_external_ref(

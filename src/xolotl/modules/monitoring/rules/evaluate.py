@@ -20,7 +20,6 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from xolotl.modules.monitoring.aggregates.declarations import (
@@ -34,7 +33,6 @@ from xolotl.modules.monitoring.aggregates.store import (
     AggregateValue,
 )
 from xolotl.modules.monitoring.aggregates.windows import MEXICO_CITY_ZONE
-from xolotl.modules.monitoring.enums import TransactionStatus
 from xolotl.modules.monitoring.rules.assignments import LoadedRule, RuleSet
 from xolotl.modules.monitoring.rules.kinds import (
     INCOMPLETE,
@@ -45,9 +43,12 @@ from xolotl.modules.monitoring.rules.kinds import (
     Incomplete,
     evaluate,
 )
-from xolotl.modules.monitoring.txn.models import Transaction
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
-from xolotl.modules.party.service import pep_status_of, relationship_ref
+from xolotl.modules.party.service import (
+    RelationshipRef,
+    pep_status_of,
+    relationship_ref,
+)
 from xolotl.platform.policy import EffectivePolicy
 
 _MONTHS_PER_QUARTER = 3
@@ -164,21 +165,13 @@ def _declared(stored: dict[str, JsonValue] | None) -> DeclaredProfile | None:
     )
 
 
-def profile_with_history(
-    s: Session, txn: EnrichedTransaction, *, history_months: int
+def _profile(
+    s: Session,
+    txn: EnrichedTransaction,
+    relationship: RelationshipRef,
+    *,
+    history_months: int,
 ) -> EvalProfile:
-    """Read the customer's profile at ``txn`` with ``history_months`` given.
-
-    The simulation counts history months from its own stream (plan 4b Deviation
-    13), so it reads everything else here and skips the history query. The
-    declared profile is the relationship's, None until set; processing and
-    simulation both read it here.
-
-    Returns:
-        The profile.
-
-    """
-    relationship = relationship_ref(s, txn.relationship_id)
     status = _screening_status[0](s, txn.party_id) if _screening_status else None
     return EvalProfile(
         tier=relationship.account_tier,
@@ -192,25 +185,42 @@ def profile_with_history(
     )
 
 
-def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile:
-    """Read what the evaluator knows of the transaction's customer.
+def profile_with_history(
+    s: Session, txn: EnrichedTransaction, *, history_months: int
+) -> EvalProfile:
+    """Read the customer's profile at ``txn`` with ``history_months`` given.
 
-    ``history_months`` counts from the relationship's earliest processed
-    transaction; the declared profile is the relationship's, None until set.
+    The simulation counts history months from its own stream (plan 4b Deviation
+    13), so it reads everything else here and leaves the relationship's first
+    processed instant aside. The declared profile is the relationship's, None
+    until set; processing and simulation both read it here.
 
     Returns:
         The profile.
 
     """
-    earliest = s.scalar(
-        select(func.min(Transaction.occurred_at)).where(
-            Transaction.relationship_id == txn.relationship_id,
-            Transaction.status == TransactionStatus.PROCESSED,
-        )
-    )
-    return profile_with_history(
+    relationship = relationship_ref(s, txn.relationship_id)
+    return _profile(s, txn, relationship, history_months=history_months)
+
+
+def profile_for(s: Session, txn: EnrichedTransaction) -> EvalProfile:
+    """Read what the evaluator knows of the transaction's customer.
+
+    ``history_months`` counts from the relationship's earliest processed
+    transaction, which processing keeps on the relationship row
+    (``first_processed_at``), so it is read with the row instead of probing every
+    monthly partition; the declared profile is the relationship's, None until set.
+
+    Returns:
+        The profile.
+
+    """
+    relationship = relationship_ref(s, txn.relationship_id)
+    earliest = relationship.first_processed_at
+    return _profile(
         s,
         txn,
+        relationship,
         history_months=0
         if earliest is None
         else months_between(earliest, txn.occurred_at),
