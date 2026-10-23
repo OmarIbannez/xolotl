@@ -10,12 +10,14 @@ The dispatcher and the runner each work on ``WORKER_THREADS`` threads (see their
 docstrings); the three steps still run one after the other.
 
 A tick that did something (an event handled, a job run or a schedule's job queued) is
-followed at once by the next, so a backlog drains without waiting; the batch limits
-of the dispatcher and the runner bound each tick, so the scheduler and the stop flag
-get their turn every few seconds even then. A tick that did nothing, or whose steps
-failed, is followed by a pause of ``WORKER_TICK_SECONDS``: an idle loop, or one whose
-database is down, does not spin. Each step opens and closes its own short sessions,
-so nothing holds a database connection during the pause.
+followed at once by the next, so a backlog drains without waiting. The jobs step
+claims no job once ``WORKER_JOB_BUDGET_SECONDS`` have passed since it began (nor past
+the runner's batch limits), so the outbox and the scheduler get their turn within
+that budget plus the longest job already running, however long the backlog. A tick
+that did nothing, or whose steps failed, is followed by a pause of
+``WORKER_TICK_SECONDS``: an idle loop, or one whose database is down, does not spin.
+Each step opens and closes its own short sessions, so nothing holds a database
+connection during the pause.
 
 Before its first tick the loop runs its start-up step once, when it has one (the
 composition root gives it one that declares every tenant's platform schedules). A
@@ -61,6 +63,8 @@ STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 EMBEDDED_THREAD_NAME = "xolotl-embedded-worker"
 # How long the API's shutdown waits for the embedded loop to finish its tick.
 STOP_TIMEOUT_SECONDS = 10.0
+# How long the jobs step of a tick goes on claiming jobs.
+JOB_BUDGET_SECONDS = 5.0
 
 
 class Worker:
@@ -74,16 +78,19 @@ class Worker:
         scheduler: Scheduler,
         tick_seconds: float,
         on_start: Callable[[], object] | None = None,
+        job_budget_seconds: float = JOB_BUDGET_SECONDS,
     ) -> None:
         if tick_seconds < 0:
             msg = "tick_seconds must not be negative"
             raise ValueError(msg)
+        if job_budget_seconds <= 0:
+            msg = "job_budget_seconds must be positive"
+            raise ValueError(msg)
         self._on_start: Callable[[], object] | None = on_start
+        self._job_budget_seconds: float = job_budget_seconds
         self._steps: tuple[tuple[str, Callable[[], int]], ...] = (
             ("dispatch", bus.dispatch_pending),
-            # The runner looks at ``stopping`` before each claim, so a stop ends
-            # the tick once the jobs already running have finished.
-            ("jobs", lambda: runner.run_once(stopping=lambda: self.stopping)),
+            ("jobs", lambda: self._run_jobs(runner)),
             ("schedules", scheduler.tick),
         )
         self._tick_seconds: float = tick_seconds
@@ -97,6 +104,15 @@ class Worker:
     def stop(self) -> None:
         """Ask the loop to end after the tick in progress; safe from any thread."""
         self._wake.set()
+
+    def _run_jobs(self, runner: JobRunner) -> int:
+        # The runner looks at this before each claim: a stop ends the tick once the
+        # jobs already running have finished, and so does the end of the budget,
+        # which leaves the rest of the backlog to the next tick.
+        deadline = time.monotonic() + self._job_budget_seconds
+        return runner.run_once(
+            stopping=lambda: self.stopping or time.monotonic() >= deadline
+        )
 
     def tick(self) -> int:
         """Run the three steps once, in order, each whatever the others did.

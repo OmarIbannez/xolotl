@@ -14,6 +14,7 @@ process of its own.
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -449,6 +450,47 @@ def test_a_tick_whose_steps_failed_still_pauses(
     # A database that is down must not turn the loop into a busy spin.
     assert worker.run() == 1
     assert pauses == [1]
+
+
+def test_the_jobs_step_stops_claiming_once_its_budget_is_spent(engine: Engine):
+    tenant_id = make_tenant("alpha")
+    factory = get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    kind = unique_kind("slow")
+    ran: list[str] = []
+
+    def slow(_session: Session, job: Job) -> None:
+        time.sleep(0.2)
+        ran.append(job.kind)
+
+    register_job_handler(kind, slow)
+    for _ in range(10):
+        _ = enqueue(queue, tenant_id, kind)
+    worker = Worker(
+        bus=OutboxEventBus(factory),
+        runner=JobRunner(queue, factory, worker_id="w-test", batch=10),
+        scheduler=Scheduler(queue, factory),
+        tick_seconds=0,
+        job_budget_seconds=0.3,
+    )
+
+    assert worker.run(max_ticks=1) == 1
+    # A batch of ten, but no claim once 0.3 s had passed: the outbox and the
+    # scheduler get their turn, and the next tick takes the rest.
+    assert 1 <= len(ran) <= 3
+    assert job_statuses(tenant_id, kind).count(JobStatus.PENDING) >= 7
+
+
+def test_a_negative_job_budget_is_refused(engine: Engine):
+    bus, runner, scheduler, _ = loop_parts()
+    with pytest.raises(ValueError, match="job_budget_seconds"):
+        _ = Worker(
+            bus=bus,
+            runner=runner,
+            scheduler=scheduler,
+            tick_seconds=0,
+            job_budget_seconds=0,
+        )
 
 
 def test_stop_ends_the_tick_after_the_jobs_already_running(

@@ -307,6 +307,7 @@ def worker_loop(services: PlatformServices, settings: Settings) -> Worker:
         scheduler=services.scheduler,
         tick_seconds=settings.worker_tick_seconds,
         on_start=start_up,
+        job_budget_seconds=settings.worker_job_budget_seconds,
     )
 
 

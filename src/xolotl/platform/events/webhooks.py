@@ -9,7 +9,10 @@ the body (``Content-Type: application/json``): ``id``, ``type``, ``source``,
 never personal data. And four headers:
 
 * ``X-Xolotl-Event-Id``: the event's id. Deliveries are at least once, so a receiver
-  that must act once keeps the ids it has handled.
+  that must act once keeps the ids it has handled. Nor are they ordered: the worker
+  delivers on several threads and retries a failed attempt later, so one endpoint
+  may receive events, even two of one ``key``, in any order; order by ``time`` or
+  read the current state through the API when order matters.
 * ``X-Xolotl-Event-Type``: the event's type, such as ``party.created.v1``.
 * ``X-Xolotl-Timestamp``: when this attempt was signed, in whole Unix seconds. Every
   attempt, a retry included, carries a new one.

@@ -141,6 +141,11 @@ def test_a_tenant_session_that_runs_nothing_takes_no_connection(engine: Engine):
     assert statements == []
 
 
+def test_the_app_engine_pools_for_the_api_and_the_worker_threads(engine: Engine):
+    pool = cast("QueuePool", engine.pool)
+    assert pool.size() == get_settings().database_pool_size
+
+
 def test_gucs_do_not_leak_into_a_fresh_connection(engine: Engine):
     with tenant_session(system_ctx(uuid4())) as s:
         _ = s.execute(text("SELECT 1"))

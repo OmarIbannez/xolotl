@@ -92,12 +92,21 @@ def connect_args() -> dict[str, int]:
     return {"connect_timeout": get_settings().database_connect_timeout_seconds}
 
 
+# Connections the app engine may open beyond its pool, for a moment's peak.
+DATABASE_MAX_OVERFLOW = 10
+
+
 # Both engines hide bound parameters: error text and SQL logs must not carry
 # row values (emails, CURPs, password hashes).
 @lru_cache
 def get_engine() -> Engine:
+    settings = get_settings()
     return create_engine(
-        get_settings().database_url,
+        settings.database_url,
+        # Sized for the API plus the embedded worker's threads; see
+        # Settings.database_pool_size.
+        pool_size=settings.database_pool_size,
+        max_overflow=DATABASE_MAX_OVERFLOW,
         pool_pre_ping=True,
         hide_parameters=True,
         connect_args=connect_args(),

@@ -298,6 +298,7 @@ def test_worker_defaults():
     assert s.worker_id == f"{socket.gethostname()}:{os.getpid()}"
     assert s.worker_threads == 4
     assert s.worker_job_batch == 50
+    assert s.worker_job_budget_seconds == pytest.approx(5.0)
 
 
 def test_worker_settings_are_read_from_the_environment(monkeypatch):
@@ -307,10 +308,12 @@ def test_worker_settings_are_read_from_the_environment(monkeypatch):
     monkeypatch.setenv("XOLOTL_WORKER_ID", "worker-7")
     monkeypatch.setenv("XOLOTL_WORKER_THREADS", "2")
     monkeypatch.setenv("XOLOTL_WORKER_JOB_BATCH", "25")
+    monkeypatch.setenv("XOLOTL_WORKER_JOB_BUDGET_SECONDS", "2.5")
     s = make_settings()
     assert s.worker_tick_seconds == pytest.approx(0.25)
     assert s.worker_id == "worker-7"
     assert (s.worker_threads, s.worker_job_batch) == (2, 25)
+    assert s.worker_job_budget_seconds == pytest.approx(2.5)
 
 
 @pytest.mark.parametrize(
@@ -322,12 +325,20 @@ def test_worker_settings_are_read_from_the_environment(monkeypatch):
         ("XOLOTL_WORKER_THREADS", "0", "worker_threads"),
         ("XOLOTL_WORKER_THREADS", "9", "worker_threads"),
         ("XOLOTL_WORKER_JOB_BATCH", "0", "worker_job_batch"),
+        ("XOLOTL_WORKER_JOB_BUDGET_SECONDS", "0", "worker_job_budget_seconds"),
     ],
 )
 def test_worker_settings_reject_nonsense(monkeypatch, name, value, field):
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError, match=field):
         _ = make_settings()
+
+
+@pytest.mark.parametrize(("threads", "pool"), [("1", 7), ("2", 9), ("4", 13)])
+def test_the_pool_grows_with_the_worker_threads(monkeypatch, threads, pool):
+    # Each running job can hold two connections; the base five stay the API's.
+    monkeypatch.setenv("XOLOTL_WORKER_THREADS", threads)
+    assert make_settings().database_pool_size == pool
 
 
 def test_a_zero_tick_is_allowed_for_tests_that_must_not_wait(monkeypatch):

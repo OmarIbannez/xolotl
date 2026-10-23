@@ -229,6 +229,12 @@ def test_one_instance_on_a_paid_plan_runs_the_worker():
     assert blueprint()["databases"][0]["plan"] != "free"
 
 
+def test_the_embedded_worker_runs_two_job_threads_beside_the_api():
+    # Beyond two, a burst's job threads mostly take time from the API's requests
+    # (and from the /readyz health check) on a single CPU and a 0.1 CPU database.
+    assert env_vars()["XOLOTL_WORKER_THREADS"]["value"] == "2"
+
+
 def test_auto_deploys_wait_for_the_ci_that_runs_on_the_tracked_branch():
     service = web_service()
     assert service["autoDeployTrigger"] in {"commit", "checksPass"}
