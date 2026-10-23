@@ -1135,6 +1135,21 @@ for an API client, a UN delta that alerts only on its added and changed entries 
 suggests delisting the removed one, tenant B seeing nothing of tenant A, the
 four-eyes review, no screening finding on any webhook, and both audit chains intact.
 
+`uv run pytest tests/e2e/test_sp04_exit.py --no-cov` runs the SP-04 exit demo on its
+own (it is part of `make ci`, about ten seconds): tenant A with the ITF pack for
+`EMONEY` and the AVI pack for `CRYPTO`, tenant B with ITF; the typology library
+loaded, seeded and three rules activated through the CLI; the December batch accepted,
+re-sent as duplicates and processed; USD, UDI and UMA amounts with their unit rows for
+staff and `PROCESSED` only for the API client; `CASH_STRUCTURING` once on three
+near-threshold deposits; `ITF_ROR_CASH` at Friday's FIX for a Saturday deposit and the
+AVI accumulation (from 30 November 2026, when the AVI pack comes into force) captured
+whole; a late crypto operation regrouping it without firing anything twice; December
+and Q4 closed with no discrepancy; an N1 decision blocked on the tier limit with one
+webhook; the OFAC-named and OFAC-wallet counterparties waiting for review and a
+confirmed one firing `COUNTERPARTY_TRUE_MATCH`; a tuned rule through four eyes and a
+replay that reproduces the stored hits; tenant B seeing nothing; both audit chains
+intact. The fixtures are in `tests/e2e/fixtures/sp04/` (its README says what each holds).
+
 ## Layout
 
 `src/xolotl/platform/` is the shared kernel (imports nothing from modules);
