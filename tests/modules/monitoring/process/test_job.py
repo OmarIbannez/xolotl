@@ -931,3 +931,124 @@ def test_an_uncontended_drain_reads_the_latest_processed_instant_once_per_page(
     assert not any(
         "SELECT pg_advisory_xact_lock(hashtextextended" in sql for sql in statements
     )
+
+
+def test_a_drain_reads_the_holiday_calendar_once(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    declared: AggregateDeclaration,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Each row converts its amount into several units, each conversion picking its
+    # date from the Banxico calendar: the drain's own copy serves them all.
+    _ = _ingest(
+        tenant,
+        queue,
+        monkeypatch,
+        [_item(n, DAY + timedelta(hours=n)) for n in range(1, 6)],
+    )
+    statements: list[str] = []
+
+    def record(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    engine = get_engine()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        report = _drain(tenant, customer.party_id, queue)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert report == ProcessReport(processed=5, parked=0, stopped_at=None)
+    assert sum("FROM holiday" in sql for sql in statements) == 1
+
+
+def test_a_drain_reads_each_unit_value_once_per_page(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    customer_b: CustomerRelationship,
+    queue: PostgresJobQueue,
+    declared: AggregateDeclaration,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # Rows of one day convert into the same units on the same dates. Each page
+    # reads those values once; the next page reads them again, so a correction
+    # made meanwhile reaches the rest of the drain.
+    items = [_item(n, DAY + timedelta(minutes=n)) for n in range(1, 6)]
+    items.append(_item(6, DAY, customer_ref="cust-2"))
+    _ = _ingest(tenant, queue, monkeypatch, items)
+    settings = get_settings().model_copy(update={"monitoring_process_page": 2})
+
+    def unit_value_reads(party_id: UUID, processed: int) -> int:
+        statements: list[str] = []
+
+        def record(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        engine = get_engine()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            report = _drain(tenant, party_id, queue, settings=settings)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        assert report == ProcessReport(processed=processed, parked=0, stopped_at=None)
+        return sum("FROM unit_value" in sql for sql in statements)
+
+    one_row = unit_value_reads(customer_b.party_id, 1)
+    assert one_row >= 1
+    # Pages of 2, 2 and 1 rows: three pages' reads, not five rows'.
+    assert unit_value_reads(customer.party_id, 5) == 3 * one_row
+
+
+def test_a_runner_with_threads_never_processes_one_party_twice_at_once(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    customer_b: CustomerRelationship,
+    queue: PostgresJobQueue,
+    declared: AggregateDeclaration,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    job = ProcessJob(
+        session_factory=get_sessionmaker(), queue=queue, settings=get_settings()
+    )
+    register_job_handler(PROCESS_KIND, job.run)
+    start = datetime(2026, 1, 20, 7, tzinfo=UTC)
+    items = [_item(n, start + timedelta(minutes=n)) for n in range(1, 121)]
+    items += [
+        _item(n, start + timedelta(minutes=n), customer_ref="cust-2")
+        for n in range(121, 131)
+    ]
+    _ = _ingest(tenant, queue, monkeypatch, items[::-1])
+    # A second, unkeyed job per party (the dedup key cannot stop it), so the
+    # runner's threads can claim two drains of one party side by side: the
+    # party's lock must make them take turns.
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        for party_id in (customer.party_id, customer_b.party_id):
+            _ = queue.enqueue(s, kind=PROCESS_KIND, payload={"party_id": str(party_id)})
+    runner = JobRunner(
+        queue,
+        get_sessionmaker(),
+        worker_id="w-threads",
+        kinds=[PROCESS_KIND],
+        threads=4,
+    )
+
+    ran = 0
+    for _ in range(20):
+        if not (step := runner.run_once()):
+            break
+        ran += step
+    assert ran == 4
+    rows = _rows(tenant)
+    assert {row.status for row in rows} == {TransactionStatus.PROCESSED}
+    for party_id in (customer.party_id, customer_b.party_id):
+        mine = [row for row in rows if row.party_id == party_id]
+        stamps = [row.processed_at for row in mine]
+        assert all(
+            earlier is not None and later is not None and earlier < later
+            for earlier, later in pairwise(stamps)
+        )
+    # Each row was added once: the buckets hold exactly the party's rows.
+    read = _read(tenant, customer.party_id)
+    assert (read.count, read.value) == (120, sum(n * 10_000 for n in range(1, 121)))
+    assert len(_events(tenant, TRANSACTION_PROCESSED)) == 130

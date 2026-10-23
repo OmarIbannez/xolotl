@@ -32,6 +32,7 @@ the new declaration and adds itself to it (A9).
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Select, delete, func, select, text
@@ -81,7 +82,7 @@ from xolotl.platform.enums import HolidayScope
 from xolotl.platform.jobs.queue import Job, PostgresJobQueue
 from xolotl.platform.policy import PolicyNotAssignedError
 from xolotl.platform.tenancy.context import TenantContext
-from xolotl.platform.units import UnitService
+from xolotl.platform.units import UnitRates, UnitService
 
 # A row received more than a day after it occurred is late (spec §8.5 step 2).
 LATE_RECEIPT = timedelta(days=1)
@@ -175,8 +176,9 @@ class DrainState:
 
     ``declarations``, ``complete`` and ``latest`` are read again for each page,
     ``latest`` also after a wait for the party's lock and ``declarations`` also
-    when a row sees their ``version`` changed; the snapshots and the hooks'
-    declarations are kept for the whole drain.
+    when a row sees their ``version`` changed; ``rates``, the unit values the
+    page's conversions read, starts empty with each page. The snapshots, the
+    hooks' declarations and the holiday calendar are kept for the whole drain.
     """
 
     queue: PostgresJobQueue
@@ -187,6 +189,9 @@ class DrainState:
     version: DeclarationsVersion | None = None
     complete: frozenset[str] = frozenset()
     latest: datetime | None = None
+    rates: UnitRates = field(
+        default_factory=dict[tuple[str, date], tuple[int, Decimal]]
+    )
     processed: int = 0
     parked: int = 0
 
@@ -397,6 +402,7 @@ def _page(
         drain.declarations = load_declarations(s)
         drain.complete = backfilled_ids(s)
         drain.latest = latest_processed_at(s, party_id)
+        drain.rates = {}
         # Only the keys: the row itself is read again, locked, in its transaction.
         keys = [
             (occurred_at, row_id)
@@ -464,7 +470,8 @@ def _drain_row(
         # A savepoint, so a park raised after ``add`` (a hook's conversion) takes
         # the row's aggregates back with it.
         with s.begin_nested():
-            _ = process_row(s, row, units=UnitService(s), store=store, drain=drain)
+            units = UnitService(s, holidays=[drain.holidays], rates=drain.rates)
+            _ = process_row(s, row, units=units, store=store, drain=drain)
     except ParkTransactionError as error:
         park_row(
             s,
