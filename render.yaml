@@ -22,9 +22,11 @@ services:
   - type: web
     name: xolotl
     runtime: docker
-    # Starter, 0.5 CPU / 512 MB: the smallest paid plan. A free web service has no
+    # Standard, 1 CPU / 2 GB: the in-memory screening index of the real UN, OFAC, EU,
+    # UK and SAT lists needs ~500-800 MB, so 512 MB was OOM-killed on every start
+    # (2026-10-21). Matches the plan the live service runs. A free web service has no
     # persistent disk and no shell, and sleeps after 15 idle minutes (the worker too).
-    plan: 0.5c-512mb
+    plan: 1c-2g
     region: oregon
     branch: main
     dockerfilePath: ./Dockerfile
