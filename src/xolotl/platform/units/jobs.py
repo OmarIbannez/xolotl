@@ -2,7 +2,10 @@
 
 Each tenant has a ``units.fetch`` schedule (the job system is tenant-scoped); the
 values are shared, and ``upsert_value`` inserts nothing for an unchanged value, so
-the second tenant's run of the day costs one cheap call per unit. A source failure
+the second tenant's run of the day costs one cheap call per unit. Every run first
+takes a transaction-scoped advisory lock, so tenants' runs take turns even when a
+worker runs them on several threads at once: the second reads what the first
+committed instead of inserting the same day again. A source failure
 notifies ADMIN and MLRO and completes the job: the next slot fetches again.
 """
 
@@ -12,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from xolotl.platform import clock
@@ -31,6 +35,7 @@ FETCH_UNITS: tuple[str, ...] = ("UDI", "USD_MXN_FIX")
 BACKFILL_DAYS = 31
 FAILED_TEMPLATE = "units.fetch_failed"
 _NOTIFIED = (Role.ADMIN, Role.MLRO)
+_FETCH_LOCK = text("SELECT pg_advisory_xact_lock(hashtextextended('units.fetch', 0))")
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +122,12 @@ class UnitsFetchJob:
         return None if start > today else (start, today)
 
     def run(self, session: Session, _job: Job) -> None:
-        """Fetch each unit of ``FETCH_UNITS``; a failing one is reported, not raised."""
+        """Fetch each unit of ``FETCH_UNITS``; a failing one is reported, not raised.
+
+        The lock is held until the job's transaction ends, so another tenant's run
+        waits for this one's rows to commit before it works out its window.
+        """
+        _ = session.execute(_FETCH_LOCK)
         for unit_code in FETCH_UNITS:
             window = self.window(session, unit_code)
             if window is None:

@@ -6,9 +6,12 @@ returns, and on a source failure notifies ADMIN and MLRO and completes, so the n
 slot tries again.
 """
 
+import itertools
 import logging
+import time
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from typing import override
 from uuid import UUID
 
 import pytest
@@ -214,3 +217,45 @@ def test_a_failing_source_notifies_admin_and_mlro_and_completes(
     assert len(failures) == 2
     assert all(r.levelno == logging.WARNING for r in failures)
     assert unit_value_count() == 0
+
+
+class SlowFakeSource(FakeSource):
+    """A fake whose fetches take a moment, so two runs would overlap in them."""
+
+    @override
+    def fetch(self, unit_code: str, start: date, end: date) -> list[UnitValue]:
+        time.sleep(0.3)
+        return super().fetch(unit_code, start, end)
+
+
+def test_two_tenants_runs_on_a_threaded_runner_take_turns(
+    engine: Engine, queue: PostgresJobQueue
+):
+    slow = SlowFakeSource()
+    seed_days(slow, "UDI", date(2025, 12, 20), 32)  # up to today
+    seed_days(slow, "USD_MXN_FIX", date(2025, 12, 20), 32)
+    ticks = itertools.count()
+
+    def moving_clock() -> datetime:
+        # Each run stamps its rows apart, so the unique (unit, day, fetched_at)
+        # key cannot hide a second insert of the same day.
+        return NOW + timedelta(microseconds=next(ticks))
+
+    _ = register_units(source=slow, notifier=InAppNotifier(), clock_fn=moving_clock)
+    for name in ("alpha", "beta"):
+        _ = enqueue(queue, make_tenant(name), kind=UNITS_FETCH_KIND)
+
+    runner = make_runner(queue, kinds=[UNITS_FETCH_KIND], threads=2)
+    assert runner.run_once() == 2
+
+    with tenant_session(platform_ctx()) as s:
+        per_day = s.execute(
+            select(UnitValueRow.unit_code, UnitValueRow.valid_from, func.count())
+            .where(UnitValueRow.superseded_by.is_(None))
+            .group_by(UnitValueRow.unit_code, UnitValueRow.valid_from)
+        ).all()
+    assert len(per_day) == 64
+    assert {count for _, _, count in per_day} == {1}
+    # The second run waited for the first and found the store up to date: the
+    # source was asked once per unit.
+    assert [unit for unit, _, _ in slow.windows] == ["UDI", "USD_MXN_FIX"]
