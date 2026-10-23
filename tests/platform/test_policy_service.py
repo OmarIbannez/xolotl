@@ -17,6 +17,7 @@ from xolotl.platform.errors import DomainError, NotFoundError, XolotlError
 from xolotl.platform.ids import uuid7
 from xolotl.platform.policy import (
     PolicyBody,
+    PolicyNotAssignedError,
     PolicySnapshot,
     Quantity,
     TenantOverride,
@@ -28,6 +29,7 @@ from xolotl.platform.policy import (
     get_snapshot,
     merge_packs,
     snapshot_policy,
+    strictest_policy,
 )
 from xolotl.platform.sqltypes import contains_float
 from xolotl.platform.units import ConversionRule
@@ -476,3 +478,56 @@ def test_create_override_without_a_pack_is_404(engine: Engine, february: None):
     with pytest.raises(NotFoundError) as caught:
         _ = _override(tenant, {"committee_required": True})
     assert caught.value.code == "POLICY_NOT_ASSIGNED"
+
+
+def test_the_strictest_policy_merges_every_product_in_force(assigned: CreatedTenant):
+    # SP-03 Decision 14: screening is per party, not per product, so a run takes
+    # the strictest merge across the tenant's products; D21 forbids the tenant-wide
+    # assignment that ``product=None`` alone would find.
+    with staff_session(assigned.tenant_id, assigned.admin_user_id) as s:
+        with pytest.raises(PolicyNotAssignedError):
+            _ = effective_policy(s, on=date(2026, 2, 1), product=None)
+        february = strictest_policy(s, on=date(2026, 2, 1))
+        emoney = effective_policy(s, on=date(2026, 2, 1), product="EMONEY")
+        december = strictest_policy(s, on=date(2026, 12, 1))
+    # ITF on two products is one pack version, merged once.
+    assert february.product is None
+    assert february.pack_codes == [ITF]
+    assert february.model_dump(exclude={"product"}) == emoney.model_dump(
+        exclude={"product"}
+    )
+    assert december.product is None
+    assert december.pack_codes == [ITF, AVI]
+    packs = both_packs()
+    merged = merge_packs([packs[ITF], packs[AVI]])
+    assert december.screening == merged.screening
+    assert december.retention == merged.retention
+
+
+def test_the_strictest_policy_of_a_tenant_wide_tenant_is_its_policy(
+    engine: Engine, installed: dict[str, UUID]
+):
+    tenant = new_tenant()
+    _ = _assign(tenant, installed[ITF], None, date(2026, 1, 1))
+    with staff_session(tenant.tenant_id, tenant.admin_user_id) as s:
+        strictest = strictest_policy(s, on=date(2026, 2, 1))
+        tenant_wide = effective_policy(s, on=date(2026, 2, 1), product=None)
+        assert snapshot_policy(s, strictest) == snapshot_policy(s, tenant_wide)
+    assert strictest == tenant_wide
+
+
+def test_the_strictest_policy_applies_the_override(assigned: CreatedTenant):
+    _ = _override(assigned, {"bands": {"sanctions_alert": "0.60"}})
+    with staff_session(assigned.tenant_id, assigned.admin_user_id) as s:
+        policy = strictest_policy(s, on=date(2026, 2, 1))
+    assert policy.override_version == 1
+    assert policy.screening.bands.sanctions_alert == Decimal("0.60")
+
+
+def test_the_strictest_policy_without_a_pack_is_404(engine: Engine):
+    tenant = new_tenant()
+    with (
+        staff_session(tenant.tenant_id, tenant.admin_user_id) as s,
+        pytest.raises(PolicyNotAssignedError),
+    ):
+        _ = strictest_policy(s, on=date(2026, 2, 1))

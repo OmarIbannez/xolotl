@@ -42,6 +42,7 @@ from xolotl.platform.policy.resolver import (
     EffectivePolicy,
     effective_policy,
     merge_packs,
+    strictest_policy,
 )
 from xolotl.platform.policy.schema import (
     Capture,
@@ -119,6 +120,7 @@ __all__ = [
     "merge_packs",
     "pack_files",
     "snapshot_policy",
+    "strictest_policy",
     "unverified_paths",
     "validate_against",
 ]

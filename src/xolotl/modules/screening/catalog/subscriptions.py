@@ -38,7 +38,7 @@ from xolotl.platform.ids import uuid7
 from xolotl.platform.policy import (
     PolicyNotAssignedError,
     ScreeningPolicy,
-    effective_policy,
+    strictest_policy,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ def _screening_policy(
     s: Session, today: date, *, log: bool = True
 ) -> ScreeningPolicy | None:
     try:
-        return effective_policy(s, on=today, product=None).screening
+        return strictest_policy(s, on=today).screening
     except PolicyNotAssignedError:
         if log:
             logger.info("lists poll: no policy")

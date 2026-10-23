@@ -1,10 +1,13 @@
 """The policy a screening run resolves (spec Decision 14).
 
 "Today" for policy resolution is the calendar day in Mexico City, whatever the
-server's zone. A run or a disposition resolves the tenant-wide policy of that day
-(``product=None``) and stores its snapshot. The bands a hit is cut with depend on its
-list's kind (spec §8.3): the sanctions bands for every kind but ``PEP``, whose review
-band sits ``PEP_REVIEW_OFFSET`` below its alert band (spec Decision 6).
+server's zone. A run or a disposition resolves the strictest merge of every pack in
+force for the tenant that day, whatever its product (``strictest_policy``), and stores
+its snapshot: screening is per party, not per product (Decision 14), and D21 leaves a
+tenant whose packs are assigned per product without a ``product=None`` policy. The
+bands a hit is cut with depend on its list's kind (spec §8.3): the sanctions bands for
+every kind but ``PEP``, whose review band sits ``PEP_REVIEW_OFFSET`` below its alert
+band (spec Decision 6).
 """
 
 from dataclasses import dataclass
@@ -22,8 +25,8 @@ from xolotl.platform.calendar.deadlines import MEXICO_CITY
 from xolotl.platform.policy import (
     EffectivePolicy,
     ScreeningBands,
-    effective_policy,
     snapshot_policy,
+    strictest_policy,
 )
 
 PEP_REVIEW_OFFSET = Decimal("0.15")
@@ -52,7 +55,7 @@ class ScreeningPolicyView:
 
 
 def policy_for_run(s: Session) -> ScreeningPolicyView:
-    """Resolve today's tenant-wide policy, snapshot it and derive the matcher config.
+    """Resolve today's policy across products, snapshot it and derive the config.
 
     A tenant without a pack in force today gets ``POLICY_NOT_ASSIGNED``.
 
@@ -60,7 +63,7 @@ def policy_for_run(s: Session) -> ScreeningPolicyView:
         The snapshot id, the effective policy and the scoring configuration.
 
     """
-    effective = effective_policy(s, on=today_mx(), product=None)
+    effective = strictest_policy(s, on=today_mx())
     return ScreeningPolicyView(
         snapshot_id=snapshot_policy(s, effective),
         effective=effective,
