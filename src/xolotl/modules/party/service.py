@@ -11,13 +11,23 @@ engine only: no person sees them, so it records nothing.
 
 import re
 from collections import defaultdict
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import JsonValue
-from sqlalchemy import Select, Uuid, any_, bindparam, or_, select, update
+from sqlalchemy import (
+    DateTime,
+    Select,
+    Uuid,
+    any_,
+    bindparam,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
@@ -1020,6 +1030,9 @@ class RelationshipRef:
     # The declared profile's JSON form (SP-04 §13.3, ``DeclaredProfile``), None
     # until staff or onboarding set it; read with the row, at no extra query.
     declared_profile: dict[str, JsonValue] | None = None
+    # The earliest occurred_at among its processed transactions, None before the
+    # first; the rules count the customer's history months from it.
+    first_processed_at: datetime | None = None
 
 
 def _ref_of(row: CustomerRelationship) -> RelationshipRef:
@@ -1031,6 +1044,77 @@ def _ref_of(row: CustomerRelationship) -> RelationshipRef:
         status=row.status,
         started_at=row.started_at,
         declared_profile=row.declared_profile,
+        first_processed_at=row.first_processed_at,
+    )
+
+
+def note_processed(s: Session, relationship: RelationshipRef, *, at: datetime) -> None:
+    """Keep ``at`` as the relationship's first processed instant if it is earlier.
+
+    Processing calls it as it marks a transaction ``PROCESSED``, in the same
+    transaction. ``relationship`` only saves the statement when it already holds an
+    instant no later than ``at``; the update itself keeps the earliest, so a stale
+    reference or an out-of-order row never moves the instant forward. The row is
+    written (and locked) only when the instant changes: the relationship's first
+    processed row, or an earlier one processed late.
+    """
+    known = relationship.first_processed_at
+    if known is not None and known <= at:
+        return
+    _ = s.execute(
+        update(CustomerRelationship)
+        .where(
+            CustomerRelationship.id == relationship.id,
+            or_(
+                CustomerRelationship.first_processed_at.is_(None),
+                CustomerRelationship.first_processed_at > at,
+            ),
+        )
+        .values(first_processed_at=at)
+    )
+
+
+def first_processed_before(s: Session, before: datetime) -> list[tuple[UUID, UUID]]:
+    """List the relationships whose first processed instant is before ``before``.
+
+    Returns:
+        Their ids with their parties' ids, ordered by party.
+
+    """
+    rows = s.execute(
+        select(CustomerRelationship.id, CustomerRelationship.party_id)
+        .where(CustomerRelationship.first_processed_at < before)
+        .order_by(CustomerRelationship.party_id, CustomerRelationship.id)
+    )
+    return [(relationship_id, party_id) for relationship_id, party_id in rows]
+
+
+_MOVE_FIRST_PROCESSED = text(
+    """
+    UPDATE customer_relationship AS cr
+    SET first_processed_at = moved.first
+    FROM unnest(:ids, :firsts) AS moved(id, first)
+    WHERE cr.id = moved.id
+    """
+).bindparams(
+    bindparam("ids", type_=ARRAY(Uuid())),
+    bindparam("firsts", type_=ARRAY(DateTime(timezone=True))),
+)
+
+
+def move_first_processed(s: Session, firsts: Mapping[UUID, datetime | None]) -> None:
+    """Set each relationship's first processed instant, later or None included.
+
+    Only retention calls it, once the rows that held the earlier instant are gone.
+    One statement whatever the count: the ids and instants travel as two arrays,
+    so any number stays within the protocol's 65,535 parameters. Row-level
+    security keeps it to the session's tenant.
+    """
+    if not firsts:
+        return
+    _ = s.execute(
+        _MOVE_FIRST_PROCESSED,
+        {"ids": list(firsts), "firsts": list(firsts.values())},
     )
 
 

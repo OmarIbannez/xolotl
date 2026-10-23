@@ -359,6 +359,70 @@ def test_a_late_row_is_flagged_and_an_out_of_order_row_too(
     assert late == {"tx-1": False, "tx-2": True, "tx-3": True}
 
 
+def _first_processed(tenant: CreatedTenant, relationship_id: UUID) -> datetime | None:
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        return s.scalar(
+            select(CustomerRelationship.first_processed_at).where(
+                CustomerRelationship.id == relationship_id
+            )
+        )
+
+
+def _earliest_processed(tenant: CreatedTenant, relationship_id: UUID) -> datetime:
+    # What profile_for used to scan every partition for.
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        earliest = s.scalar(
+            select(func.min(Transaction.occurred_at)).where(
+                Transaction.relationship_id == relationship_id,
+                Transaction.status == TransactionStatus.PROCESSED,
+            )
+        )
+    assert earliest is not None
+    return earliest
+
+
+def test_processing_keeps_the_relationships_earliest_processed_instant(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    itf_tenant: UUID,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    assert _first_processed(tenant, customer.id) is None
+    _ = _ingest(tenant, queue, monkeypatch, [_item(1, DAY + timedelta(hours=6))])
+    _ = _drain(tenant, customer.party_id, queue)
+    assert _first_processed(tenant, customer.id) == DAY + timedelta(hours=6)
+    # An out-of-order row lowers it; a later one leaves it alone.
+    _ = _ingest(
+        tenant,
+        queue,
+        monkeypatch,
+        [_item(2, DAY + timedelta(hours=1)), _item(3, DAY + timedelta(hours=9))],
+    )
+    _ = _drain(tenant, customer.party_id, queue)
+    assert {row.status for row in _rows(tenant)} == {TransactionStatus.PROCESSED}
+    first = _first_processed(tenant, customer.id)
+    assert first == DAY + timedelta(hours=1)
+    assert first == _earliest_processed(tenant, customer.id)
+
+
+def test_a_parked_row_is_not_a_processed_one(
+    tenant: CreatedTenant,
+    customer: CustomerRelationship,
+    queue: PostgresJobQueue,
+    itf_tenant: UUID,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    # The pack is assigned from 2026-01-01; this is 31 December in Mexico City.
+    before = datetime(2026, 1, 1, 2, tzinfo=UTC)
+    _ = _ingest(
+        tenant, queue, monkeypatch, [_item(1, before)], now=before + timedelta(hours=1)
+    )
+    _ = _drain(tenant, customer.party_id, queue)
+    assert [row.status for row in _rows(tenant)] == [TransactionStatus.PARKED]
+    assert _first_processed(tenant, customer.id) is None
+
+
 def test_a_row_received_over_a_day_late_is_late_with_nothing_processed_before(
     tenant: CreatedTenant,
     customer: CustomerRelationship,

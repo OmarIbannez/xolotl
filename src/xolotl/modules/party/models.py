@@ -287,3 +287,7 @@ class CustomerRelationship(TenantTableMixin, Base):
     # "expected_countries", "expected_instruments"}; staff set it until onboarding
     # does (SP-04 spec Decision 10; migration 0014).
     declared_profile: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    # The earliest occurred_at among the relationship's processed transactions,
+    # which processing keeps (earliest wins) and retention moves forward, so the
+    # rules read the history's start with the row (migration 0015).
+    first_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
