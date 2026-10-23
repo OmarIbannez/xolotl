@@ -1,12 +1,13 @@
 """The processing side of the evaluator: the aggregate reader and the profile (B7)."""
 
+import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import Engine, event, update
 
 from tests.helpers import staff_session, system_ctx
 from tests.modules.monitoring.rules.conftest import OCCURRED, enriched
@@ -31,6 +32,7 @@ from xolotl.modules.monitoring.rules.kinds import INCOMPLETE
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction, KeyKind
 from xolotl.modules.party.enums import PepStatus
 from xolotl.modules.party.models import CustomerRelationship, Person
+from xolotl.modules.party.service import note_processed, relationship_ref
 from xolotl.modules.tenants.service import CreatedTenant
 from xolotl.platform.db import tenant_session
 
@@ -207,3 +209,48 @@ def test_history_months_count_whole_months_since_the_first_processed_row():
     assert months_between(first, datetime(2026, 7, 15, 12, tzinfo=UTC)) == 1
     assert months_between(first, datetime(2026, 9, 14, 12, tzinfo=UTC)) == 2
     assert months_between(first, datetime(2026, 12, 20, tzinfo=UTC)) == 6
+
+
+@pytest.mark.usefixtures("no_screening_reader")
+def test_history_months_count_from_the_relationships_first_processed_date(
+    tenant: CreatedTenant, customer: CustomerRelationship, engine: Engine
+):
+    first = datetime(2026, 6, 15, 12, tzinfo=UTC)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        note_processed(s, relationship_ref(s, customer.id), at=first)
+    txn = enriched(
+        party_id=customer.party_id,
+        relationship_id=customer.id,
+        occurred_at=OCCURRED,
+    )
+    statements: list[str] = []
+
+    def keep(*args: object) -> None:
+        statements.append(str(args[2]))
+
+    event.listen(engine, "before_cursor_execute", keep)
+    try:
+        with tenant_session(system_ctx(tenant.tenant_id)) as s:
+            profile = profile_for(s, txn)
+    finally:
+        event.remove(engine, "before_cursor_execute", keep)
+    assert profile.history_months == months_between(first, OCCURRED) == 5
+    # Read with the relationship: no statement probes the transaction partitions.
+    touching = [st for st in statements if re.search(r"\btransaction\b", st)]
+    assert touching == []
+
+
+def test_the_earliest_processed_instant_wins_even_from_a_stale_reference(
+    tenant: CreatedTenant, customer: CustomerRelationship
+):
+    middle = datetime(2026, 6, 15, 12, tzinfo=UTC)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        stale = relationship_ref(s, customer.id)
+    assert stale.first_processed_at is None
+    for at in (middle, middle + timedelta(days=40), middle - timedelta(days=3)):
+        with tenant_session(system_ctx(tenant.tenant_id)) as s:
+            # A reference read before the earlier instant was kept.
+            note_processed(s, stale, at=at)
+    with tenant_session(system_ctx(tenant.tenant_id)) as s:
+        kept = relationship_ref(s, customer.id).first_processed_at
+    assert kept == middle - timedelta(days=3)

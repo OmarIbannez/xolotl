@@ -22,6 +22,7 @@ CHAIN = [
     "0012_transactions",
     "0013_rules_captures",
     "0014_decide_profiles",
+    "0015_first_processed",
 ]
 
 

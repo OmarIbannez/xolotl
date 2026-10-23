@@ -72,7 +72,7 @@ from xolotl.modules.monitoring.process.hooks import (
 )
 from xolotl.modules.monitoring.txn.models import Transaction, TransactionParked
 from xolotl.modules.monitoring.txn.schema import EnrichedTransaction
-from xolotl.modules.party.service import relationship_ref
+from xolotl.modules.party.service import note_processed, relationship_ref
 from xolotl.platform import clock
 from xolotl.platform.calendar import Holidays, load_holidays
 from xolotl.platform.config import Settings
@@ -288,6 +288,7 @@ def process_row(
         hook.evaluate(session, txn, context)
     row.status = TransactionStatus.PROCESSED
     row.processed_at = clock.now()
+    note_processed(session, relationship, at=row.occurred_at)
     _ = publish_monitoring_event(
         session,
         TRANSACTION_PROCESSED,

@@ -99,8 +99,8 @@ def database(admin_engine: Engine) -> Generator[Engine]:
         migrate.upgrade()
 
 
-def test_the_chain_ends_at_0014():
-    assert CHAIN[-1] == REVISION
+def test_0014_follows_0013_in_the_chain():
+    assert CHAIN[CHAIN.index(REVISION) - 1] == BEFORE
     script = ScriptDirectory.from_config(migrate.alembic_config())
     revision = script.get_revision(REVISION)
     assert revision is not None
