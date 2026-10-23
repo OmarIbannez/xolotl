@@ -156,12 +156,16 @@ def bound_context(session: Session) -> TenantContext:
 def apply_context(session: Session, ctx: TenantContext) -> None:
     """Bind ``ctx`` to the session and set the GUCs in the current transaction.
 
-    Works mid-transaction too: ``set_config(..., true)`` overrides the values for
-    the rest of the transaction, which is how login switches from the platform
-    scope to the tenant it just resolved.
+    A session that has not begun a transaction yet sets them when it begins one
+    (``_set_context_on_begin`` reads the bound context), so a fresh session costs
+    no statement and takes no connection until it is used. Mid-transaction,
+    ``set_config(..., true)`` overrides the values for the rest of the transaction,
+    which is how login switches from the platform scope to the tenant it just
+    resolved.
     """
     session.info[CONTEXT_KEY] = ctx
-    _ = session.execute(SET_CONTEXT_SQL, context_params(ctx))
+    if session.in_transaction():
+        _ = session.execute(SET_CONTEXT_SQL, context_params(ctx))
 
 
 def _set_context_on_begin(
