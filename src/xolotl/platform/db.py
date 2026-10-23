@@ -92,12 +92,21 @@ def connect_args() -> dict[str, int]:
     return {"connect_timeout": get_settings().database_connect_timeout_seconds}
 
 
+# Connections the app engine may open beyond its pool, for a moment's peak.
+DATABASE_MAX_OVERFLOW = 10
+
+
 # Both engines hide bound parameters: error text and SQL logs must not carry
 # row values (emails, CURPs, password hashes).
 @lru_cache
 def get_engine() -> Engine:
+    settings = get_settings()
     return create_engine(
-        get_settings().database_url,
+        settings.database_url,
+        # Sized for the API plus the embedded worker's threads; see
+        # Settings.database_pool_size.
+        pool_size=settings.database_pool_size,
+        max_overflow=DATABASE_MAX_OVERFLOW,
         pool_pre_ping=True,
         hide_parameters=True,
         connect_args=connect_args(),
@@ -156,12 +165,16 @@ def bound_context(session: Session) -> TenantContext:
 def apply_context(session: Session, ctx: TenantContext) -> None:
     """Bind ``ctx`` to the session and set the GUCs in the current transaction.
 
-    Works mid-transaction too: ``set_config(..., true)`` overrides the values for
-    the rest of the transaction, which is how login switches from the platform
-    scope to the tenant it just resolved.
+    A session that has not begun a transaction yet sets them when it begins one
+    (``_set_context_on_begin`` reads the bound context), so a fresh session costs
+    no statement and takes no connection until it is used. Mid-transaction,
+    ``set_config(..., true)`` overrides the values for the rest of the transaction,
+    which is how login switches from the platform scope to the tenant it just
+    resolved.
     """
     session.info[CONTEXT_KEY] = ctx
-    _ = session.execute(SET_CONTEXT_SQL, context_params(ctx))
+    if session.in_transaction():
+        _ = session.execute(SET_CONTEXT_SQL, context_params(ctx))
 
 
 def _set_context_on_begin(

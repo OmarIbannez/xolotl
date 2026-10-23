@@ -19,7 +19,12 @@ from xolotl.platform.units.jobs import (
 from xolotl.platform.units.models import UnitValueRow
 from xolotl.platform.units.quantity import Quantity
 from xolotl.platform.units.rules import ConversionRule
-from xolotl.platform.units.service import Conversion, UnitService, resolve_date
+from xolotl.platform.units.service import (
+    Conversion,
+    UnitRates,
+    UnitService,
+    resolve_date,
+)
 from xolotl.platform.units.sources import (
     SeedFileSource,
     UnitValue,
@@ -46,6 +51,7 @@ __all__ = [
     "FetchReport",
     "Quantity",
     "SeedFileSource",
+    "UnitRates",
     "UnitService",
     "UnitSourceAuthError",
     "UnitSourceError",

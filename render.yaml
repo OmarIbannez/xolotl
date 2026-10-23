@@ -74,5 +74,12 @@ services:
         value: LIVE
       - key: XOLOTL_EMBEDDED_WORKER
         value: "true"
+      # Two job threads, not the code's four: four only paid off on a 12-core laptop
+      # and are bound by Python's GIL. On this instance (one CPU at most) and a
+      # 0.1 CPU database more would take time from the API's requests and from
+      # the /readyz health check during a burst. The pool is sized from this (5
+      # for the API plus 2 per thread, overflow 10). Measure before raising it.
+      - key: XOLOTL_WORKER_THREADS
+        value: "2"
       - key: XOLOTL_LOG_LEVEL
         value: INFO

@@ -1,17 +1,20 @@
 """The worker loop, its thread inside the API process, and the platform wiring.
 
 A tick hands out due events, runs due jobs, then enqueues due schedules, each step on
-its own: one that fails is logged and the others still run. Between ticks the loop
-pauses ``WORKER_TICK_SECONDS`` holding no database connection, and ``stop()`` or a
-SIGTERM/SIGINT ends it after the tick in progress. ``serve`` runs the loop on a
-daemon thread of the API (``XOLOTL_EMBEDDED_WORKER``, on by default; the suite turns
-it off and these tests turn it back on), sharing the API's session factory and its
-platform services; ``xolotl worker`` runs the same loop in a process of its own.
+its own: one that fails is logged and the others still run. A tick that did work is
+followed at once by the next; after an idle one the loop pauses
+``WORKER_TICK_SECONDS`` holding no database connection, and ``stop()`` or a
+SIGTERM/SIGINT ends it after the tick in progress, whose runner claims nothing more.
+``serve`` runs the loop on a daemon thread of the API (``XOLOTL_EMBEDDED_WORKER``, on
+by default; the suite turns it off and these tests turn it back on), sharing the API's
+session factory and its platform services; ``xolotl worker`` runs the same loop in a
+process of its own.
 """
 
 import logging
 import signal
 import threading
+import time
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -321,7 +324,7 @@ def test_a_failing_step_is_logged_and_the_others_still_run(
     _ = enqueue(queue, tenant_id, direct)
     due_schedule(queue, tenant_id, scheduled)
 
-    def unreachable() -> int:
+    def unreachable(**_options: object) -> int:
         msg = "database unreachable"
         raise RuntimeError(msg)
 
@@ -383,7 +386,144 @@ def test_the_loop_holds_no_database_connection_while_it_pauses(
     monkeypatch.setattr(worker, "_pause", counting_pause)
     assert worker.run(max_ticks=3) == 3
     assert ran == [kind]  # the ticks did use the database
-    assert held == [0, 0]
+    # The first tick did work, so the second followed without a pause; the idle
+    # second tick paused before the third.
+    assert held == [0]
+
+
+def test_a_tick_that_did_work_is_followed_at_once_by_the_next(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    tenant_id = make_tenant("alpha")
+    factory = get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    kind = unique_kind("backlog")
+    ran: list[str] = []
+    register_job_handler(kind, recorder(ran))
+    for _ in range(3):
+        _ = enqueue(queue, tenant_id, kind)
+    runner = JobRunner(queue, factory, worker_id="w-test", batch=1)
+    worker = Worker(
+        bus=OutboxEventBus(factory),
+        runner=runner,
+        scheduler=Scheduler(queue, factory),
+        tick_seconds=3600,
+    )
+    pause = _pause_of(worker)
+    paused_after: list[int] = []
+
+    def recording_pause() -> None:
+        paused_after.append(len(ran))
+        worker.stop()  # an hour's pause would outlast the test
+        pause()
+
+    monkeypatch.setattr(worker, "_pause", recording_pause)
+    # One job a tick: three busy ticks back to back, then an idle one that pauses.
+    assert worker.run() == 4
+    assert ran == [kind] * 3
+    assert paused_after == [3]
+
+
+def test_a_tick_whose_steps_failed_still_pauses(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    bus, runner, scheduler, _ = loop_parts()
+
+    def unreachable(**_options: object) -> int:
+        msg = "database unreachable"
+        raise RuntimeError(msg)
+
+    for owner, method in (
+        (bus, "dispatch_pending"),
+        (runner, "run_once"),
+        (scheduler, "tick"),
+    ):
+        monkeypatch.setattr(owner, method, unreachable)
+    worker = Worker(bus=bus, runner=runner, scheduler=scheduler, tick_seconds=3600)
+    pauses: list[int] = []
+
+    def recording_pause() -> None:
+        pauses.append(1)
+        worker.stop()
+
+    monkeypatch.setattr(worker, "_pause", recording_pause)
+    # A database that is down must not turn the loop into a busy spin.
+    assert worker.run() == 1
+    assert pauses == [1]
+
+
+def test_the_jobs_step_stops_claiming_once_its_budget_is_spent(engine: Engine):
+    tenant_id = make_tenant("alpha")
+    factory = get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    kind = unique_kind("slow")
+    ran: list[str] = []
+
+    def slow(_session: Session, job: Job) -> None:
+        time.sleep(0.2)
+        ran.append(job.kind)
+
+    register_job_handler(kind, slow)
+    for _ in range(10):
+        _ = enqueue(queue, tenant_id, kind)
+    worker = Worker(
+        bus=OutboxEventBus(factory),
+        runner=JobRunner(queue, factory, worker_id="w-test", batch=10),
+        scheduler=Scheduler(queue, factory),
+        tick_seconds=0,
+        job_budget_seconds=0.3,
+    )
+
+    assert worker.run(max_ticks=1) == 1
+    # A batch of ten, but no claim once 0.3 s had passed: the outbox and the
+    # scheduler get their turn, and the next tick takes the rest.
+    assert 1 <= len(ran) <= 3
+    assert job_statuses(tenant_id, kind).count(JobStatus.PENDING) >= 7
+
+
+def test_a_negative_job_budget_is_refused(engine: Engine):
+    bus, runner, scheduler, _ = loop_parts()
+    with pytest.raises(ValueError, match="job_budget_seconds"):
+        _ = Worker(
+            bus=bus,
+            runner=runner,
+            scheduler=scheduler,
+            tick_seconds=0,
+            job_budget_seconds=0,
+        )
+
+
+def test_stop_ends_the_tick_after_the_jobs_already_running(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    tenant_id = make_tenant("alpha")
+    factory = get_sessionmaker()
+    queue = PostgresJobQueue(factory)
+    kind = unique_kind("slow")
+    finished: list[str] = []
+    both_running = threading.Barrier(2, timeout=10)
+    worker: Worker | None = None
+
+    def slow(_session: Session, job: Job) -> None:
+        _ = both_running.wait()
+        assert worker is not None
+        worker.stop()
+        finished.append(job.kind)
+
+    register_job_handler(kind, slow)
+    for _ in range(5):
+        _ = enqueue(queue, tenant_id, kind)
+    worker = Worker(
+        bus=OutboxEventBus(factory),
+        runner=JobRunner(queue, factory, worker_id="w-test", threads=2, batch=5),
+        scheduler=Scheduler(queue, factory),
+        tick_seconds=3600,
+    )
+    assert worker.run() == 1
+    # The two jobs running when stop() came finished; no thread claimed another.
+    assert finished == [kind, kind]
+    statuses = job_statuses(tenant_id, kind)
+    assert sorted(statuses) == sorted([JobStatus.DONE] * 2 + [JobStatus.PENDING] * 3)
 
 
 def test_stop_ends_the_pause_without_waiting_out_the_tick(
@@ -447,9 +587,11 @@ def test_a_stop_signal_ends_the_loop_after_the_tick_it_arrives_in(
         ticks = worker.run(max_ticks=5)
 
     assert ticks == 1
-    # The signal came while events were handed out. The rest of that tick still ran:
-    # the due job, then the schedule, whose job waits for a tick that never came.
-    assert ran == [direct]
+    # The signal came while events were handed out. The rest of that tick still ran,
+    # but a stopping runner claims nothing: the due job waits, like the schedule's
+    # job, for a tick that never came.
+    assert ran == []
+    assert job_statuses(tenant_id, direct) == [JobStatus.PENDING]
     assert job_statuses(tenant_id, scheduled) == [JobStatus.PENDING]
     assert fallback.caught == []  # the worker's handler took it
     assert signal.getsignal(number) == fallback.handler  # and is gone again
@@ -641,6 +783,60 @@ def test_the_platform_is_wired_with_its_job_handlers(engine: Engine):
         assert isinstance(getattr(job_handler(kind), "__self__", None), handler)
     assert job_handler(SIMULATE_KIND) is handle_simulate
     assert job_handler(PERIOD_CLOSE_KIND) is handle_period_close
+
+
+@pytest.fixture
+def three_threads_batch_of_three() -> Generator[None]:
+    yield from _settings_from(
+        XOLOTL_WORKER_TICK_SECONDS="0",
+        XOLOTL_WORKER_THREADS="3",
+        XOLOTL_WORKER_JOB_BATCH="3",
+    )
+
+
+def test_the_built_worker_runs_its_settings_threads_and_batch(
+    engine: Engine, three_threads_batch_of_three: None
+):
+    tenant_id = make_tenant("alpha")
+    queue = PostgresJobQueue(get_sessionmaker())
+    kind = unique_kind("side-by-side")
+    ran: list[str] = []
+    # Three jobs pass only together: one thread or a smaller batch would stall.
+    together = threading.Barrier(3, timeout=10)
+
+    def wait_for_two_more(_session: Session, job: Job) -> None:
+        _ = together.wait()
+        ran.append(job.kind)
+
+    register_job_handler(kind, wait_for_two_more)
+    for _ in range(4):
+        _ = enqueue(queue, tenant_id, kind)
+
+    assert build_worker().run(max_ticks=1) == 1
+    # A batch of three: the fourth job waits for the next tick.
+    assert ran == [kind] * 3
+    assert sorted(job_statuses(tenant_id, kind)) == sorted(
+        [JobStatus.DONE] * 3 + [JobStatus.PENDING]
+    )
+
+
+def test_the_built_worker_hands_events_out_on_its_settings_threads(
+    engine: Engine, three_threads_batch_of_three: None
+):
+    tenant_id = make_tenant("alpha")
+    together = threading.Barrier(3, timeout=10)
+    received: list[str] = []
+
+    def wait_for_two_more(_session: Session, event: Event) -> None:
+        _ = together.wait()
+        received.append(event.key)
+
+    register_subscriber(WORKER_EVENT, wait_for_two_more, consumer="test-threads")
+    for key in ("a", "b", "c"):
+        _ = publish_due(tenant_id, key=key)
+
+    assert build_worker().run(max_ticks=1) == 1
+    assert sorted(received) == ["a", "b", "c"]
 
 
 def test_the_api_keeps_one_set_of_platform_services(engine: Engine):

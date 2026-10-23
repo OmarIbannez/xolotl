@@ -61,6 +61,10 @@ def _with_psycopg_driver(url: str) -> str:
     return url
 
 
+# Connections of the app engine's pool kept for the API's requests.
+_API_POOL = 5
+
+
 def _default_worker_id() -> str:
     # Stable for the life of one process and distinct across hosts and processes,
     # which is what makes ``job.locked_by`` traceable to a worker.
@@ -105,6 +109,17 @@ class Settings(BaseSettings):
     # Pause between ticks of the worker's dispatcher, job and scheduler loops.
     worker_tick_seconds: float = Field(default=1.0, ge=0)
     worker_id: str = Field(default_factory=_default_worker_id, min_length=1)
+    # Jobs the worker runs at once, each on a thread with sessions of its own; the
+    # outbox hands its events out on as many. The app engine's pool grows with it
+    # (database_pool_size), so the API keeps its own connections.
+    worker_threads: int = Field(default=4, ge=1, le=8)
+    # Jobs of one kind the runner takes per tenant in one tick, so one kind's
+    # backlog leaves room for the others; the loop ticks again at once while
+    # there is work.
+    worker_job_batch: int = Field(default=50, ge=1)
+    # Seconds the jobs step of a tick goes on claiming jobs; then the outbox and
+    # the scheduler run, and the next tick takes up the backlog.
+    worker_job_budget_seconds: float = Field(default=5.0, gt=0)
     # The API process runs the worker loop on a thread of its own (one container);
     # false leaves it to a separate `xolotl worker` process.
     embedded_worker: bool = True
@@ -323,6 +338,20 @@ class Settings(BaseSettings):
         if self.lists_fetch_enabled is None:
             return self.env == "prod"
         return self.lists_fetch_enabled
+
+    @property
+    def database_pool_size(self) -> int:
+        """Connections the app engine keeps: five for the API, two per job thread.
+
+        A running job can hold two at once (its handler's and a key or row
+        session's), and the API's requests, the ``/readyz`` health check among
+        them, must still find one. The engine's overflow of ten stays on top.
+
+        Returns:
+            ``5 + 2 * worker_threads``.
+
+        """
+        return _API_POOL + 2 * self.worker_threads
 
     @property
     def master_key_bytes(self) -> bytes:

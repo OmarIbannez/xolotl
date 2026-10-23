@@ -203,7 +203,8 @@ def wire_platform(
 
     """
     queue = PostgresJobQueue(session_factory)
-    bus = OutboxEventBus(session_factory)
+    # The worker hands each claimed batch of events out on its job threads too.
+    bus = OutboxEventBus(session_factory, threads=settings.worker_threads)
     workflows = PostgresWorkflowRunner(session_factory, queue)
     # workflow.advance, workflow.timer and the hourly workflow.sweep.
     workflows.register_job_handlers()
@@ -267,7 +268,13 @@ def wire_platform(
         session_factory=session_factory,
         bus=bus,
         queue=queue,
-        job_runner=JobRunner(queue, session_factory, worker_id=settings.worker_id),
+        job_runner=JobRunner(
+            queue,
+            session_factory,
+            worker_id=settings.worker_id,
+            threads=settings.worker_threads,
+            batch=settings.worker_job_batch,
+        ),
         scheduler=Scheduler(queue, session_factory),
         workflows=workflows,
         notifier=InAppNotifier(),
@@ -300,6 +307,7 @@ def worker_loop(services: PlatformServices, settings: Settings) -> Worker:
         scheduler=services.scheduler,
         tick_seconds=settings.worker_tick_seconds,
         on_start=start_up,
+        job_budget_seconds=settings.worker_job_budget_seconds,
     )
 
 

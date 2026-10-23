@@ -15,6 +15,7 @@ this process's activations clear the cache at once.
 """
 
 import hashlib
+import threading
 from dataclasses import dataclass
 from datetime import date
 from time import monotonic
@@ -210,6 +211,9 @@ def _load(s: Session, *, on: date, product: str | None) -> RuleSet:
 
 type _Key = tuple[UUID, date, str | None, tuple[object, ...]]
 _cache: dict[_Key, tuple[float, RuleSet]] = {}
+# The worker's job threads and the API's request threads share the cache: every
+# read, sweep and write of the dict holds this lock (never the rule set's load).
+_cache_lock = threading.Lock()
 
 
 def _stamp(s: Session) -> tuple[object, ...]:
@@ -238,16 +242,19 @@ def active_rules(s: Session, *, on: date, product: str | None) -> RuleSet:
         return _load(s, on=on, product=product)
     key: _Key = (bound_context(s).require_tenant_id(), on, product, _stamp(s))
     now = monotonic()
-    cached = _cache.get(key)
-    if cached is not None and cached[0] > now:
-        return cached[1]
-    for stale in [k for k, (expires, _) in _cache.items() if expires <= now]:
-        del _cache[stale]
+    with _cache_lock:
+        cached = _cache.get(key)
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        for stale in [k for k, (expires, _) in _cache.items() if expires <= now]:
+            del _cache[stale]
     ruleset = _load(s, on=on, product=product)
-    _cache[key] = (now + ttl, ruleset)
+    with _cache_lock:
+        _cache[key] = (now + ttl, ruleset)
     return ruleset
 
 
 def clear_rule_cache() -> None:
     """Forget every cached rule set of this process."""
-    _cache.clear()
+    with _cache_lock:
+        _cache.clear()

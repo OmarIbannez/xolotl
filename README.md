@@ -294,6 +294,10 @@ driver is added.
 | `XOLOTL_SCREENING_RESCREEN_BATCH` | `500` | Parties each periodic, private-list or re-index re-screen job handles in one transaction (1 or more). |
 | `XOLOTL_STATIC_DIR` | `src/xolotl/static` | Directory of the built console. When it holds an `index.html` the API serves it at `/`, with a single-page fallback, after all of its own routes; the Docker image puts the build there. |
 | `XOLOTL_UNITS_FETCH_CRON` | `0 18 * * 1-5` | Daily UDI and FIX fetch, America/Mexico_City. |
+| `XOLOTL_WORKER_JOB_BATCH` | `50` | Jobs of one kind the worker takes per tenant in one tick (1 or more), so one kind's backlog (a burst of `monitoring.process` jobs) leaves room in every tick for the others (`lists.poll`, the sweep, screening). The loop ticks again at once while a tick did work and pauses `XOLOTL_WORKER_TICK_SECONDS` only when one found nothing. |
+| `XOLOTL_WORKER_JOB_BUDGET_SECONDS` | `5.0` | How long the jobs step of a tick goes on claiming jobs (above 0). Past it the jobs already running finish and the outbox and the scheduler run, so they get a turn within this budget plus the longest running job, however long the backlog; the next tick takes the backlog up again. |
+| `XOLOTL_WORKER_THREADS` | `4` | Jobs the worker runs at once (1 to 8), each on a thread with sessions of its own, in the same process (no extra container, and the screening index is shared); the outbox dispatcher hands each claimed batch of events out on as many threads, one key's events still in order. The app engine's pool is sized from it, 5 connections for the API plus 2 per thread (a running job can hold two), with an overflow of 10, so the API's requests and the `/readyz` health check still find a connection during a burst. Beyond 3 or 4 a 1,000-row burst gains nothing on a 12-core laptop: the process is then bound by Python's global interpreter lock. The Render blueprint sets 2, for a one-CPU instance beside a 0.1 CPU database. |
+| `XOLOTL_WORKER_TICK_SECONDS` | `1.0` | The worker's pause after a tick that found nothing to do; refused at 0 in prod. |
 
 ## Data protection
 
@@ -1104,16 +1108,23 @@ SP-04's measurements (`tests/perf/test_sp04_perf.py`) append to `.perf/sp04.json
 - `alert_latency_p95_over_1000_transactions` (`NFR-TM-002`): one 1,000-row batch
   over 100 relationships, ten of them (drawn at random, so anywhere in the queue)
   structuring cash, processed by the MVP's real worker loop (`Worker.run` on a
-  thread: outbox dispatch, `run_once()` with its default limit and the scheduler,
-  then the `WORKER_TICK_SECONDS` pause). The NFR-TM-002 reading is
-  `processed_latency_p95_s`, the p95 of each row's `processed_at - received_at`
+  thread, built from the settings: outbox dispatch and `run_once()` on
+  `XOLOTL_WORKER_THREADS` threads with `XOLOTL_WORKER_JOB_BATCH`, the scheduler,
+  and the `WORKER_TICK_SECONDS` pause only after an idle tick). The NFR-TM-002
+  reading is `processed_latency_p95_s`, the p95 of each row's
+  `processed_at - received_at`
   (every row could raise an alert); `nfr_met` compares it with 5 s. Also recorded:
   the time from `received_at` to the last `processed_at`, transactions per second,
   the worker's ticks, and, as a secondary measure that depends on where the ten
   structuring customers fall in the queue, `rule_hit.created_at - received_at`.
   **NFR-TM-002 (alert p95 <= 5 s) is not met for a 1,000-row burst on the single
-  embedded runner** (see the PR of plan 4c C10 for the numbers); SP-11 gates it
-  under load. The test fails only past a 300 s drain.
+  embedded worker**: on a shared 12-core laptop with Postgres in Docker, p95 went
+  from 34.7 s (one thread, a 1 s pause between ticks of ten jobs) to 9.7 s, and
+  27 to 100 transactions per second, once the loop stopped pausing while busy and
+  ran four threads. The process is then bound by Python's global interpreter
+  lock (about 30 statements and their ORM work per row, and the 2.5 s `POST`
+  itself counts towards every row's latency); SP-11 gates it under load. The
+  test fails only past a 300 s drain.
 - `counterparty_first_sight_throughput` (spec §11.1): 1,000 counterparties
   resolved in one minute (5 % carrying an OFAC name) and the first-sight job
   drained: counterparties screened per second (floor 20/s), the resolve rate,

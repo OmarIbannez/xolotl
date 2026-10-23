@@ -36,6 +36,7 @@ each due row to its subscribers:
 """
 
 import logging
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -77,6 +78,7 @@ DISPATCHER = "dispatcher"  # the SYSTEM actor id of dispatch and of its handlers
 REPLAYER = "replay"  # the SYSTEM actor id of replayed handlers
 GRACE = timedelta(seconds=1)  # an event is due once it is older than this
 LEASE = timedelta(seconds=60)  # how long a claim keeps other dispatchers away
+DISPATCH_THREAD_PREFIX = "outbox-dispatch"
 MAX_BACKOFF_SECONDS = 60
 MAX_ERROR_LENGTH = 1000  # ``outbox.last_error`` never holds more than this
 
@@ -238,10 +240,15 @@ class OutboxEventBus:
         *,
         max_attempts: int = 10,
         clock_fn: Callable[[], datetime] = clock.now,
+        threads: int = 1,
     ) -> None:
+        if threads < 1:
+            msg = "threads must be at least 1"
+            raise ValueError(msg)
         self._session_factory: SessionFactory = session_factory
         self._max_attempts: int = max_attempts
         self._clock_fn: Callable[[], datetime] = clock_fn
+        self._threads: int = threads
 
     # ---- publish ----------------------------------------------------------------
 
@@ -278,6 +285,13 @@ class OutboxEventBus:
         anything else, such as a database error while bookkeeping, propagates and
         leaves the claimed events leased until the lease expires.
 
+        A bus with several ``threads`` hands a claimed batch out on that many
+        threads, each event's consumers and settlement on one of them. A batch
+        holds at most one event per key (only a key's oldest pending event can be
+        claimed), so each key's events still reach each consumer one at a time in
+        publication order. A thread that runs into an error stops the batch: the
+        others finish the event in hand, and the error is raised.
+
         Returns:
             The number of events handled: published, scheduled for retry or dead.
 
@@ -285,10 +299,57 @@ class OutboxEventBus:
         handled = 0
         for tenant_id in tenant_ids(self._session_factory, actor_id=DISPATCHER):
             ctx = TenantContext.system(tenant_id, DISPATCHER)
-            for claimed in self._claim(ctx, batch):
-                self._settle(ctx, claimed.id, self._consume(ctx, claimed))
-                handled += 1
+            handled += self._hand_out(ctx, self._claim(ctx, batch))
         return handled
+
+    def _hand_out(self, ctx: TenantContext, claimed: list[_Claimed]) -> int:
+        """Consume and settle the batch, on up to ``threads`` threads.
+
+        The first error a thread runs into is raised once the others are done; a
+        helper thread logs it too, since nothing above that thread would.
+
+        Returns:
+            How many of the batch's events were handled.
+
+        """
+        pending = iter(claimed)
+        lock = threading.Lock()
+        handled: list[UUID] = []
+        failures: list[Exception] = []
+
+        def work(*, helper: bool = False) -> None:
+            while True:
+                with lock:
+                    if failures or (item := next(pending, None)) is None:
+                        return
+                try:
+                    self._settle(ctx, item.id, self._consume(ctx, item))
+                except Exception as error:
+                    with lock:
+                        failures.append(error)
+                    if helper:
+                        logger.exception("outbox dispatch thread failed")
+                    return
+                with lock:
+                    handled.append(item.id)
+
+        helpers = [
+            threading.Thread(
+                target=work,
+                kwargs={"helper": True},
+                name=f"{DISPATCH_THREAD_PREFIX}-{n}",
+                daemon=True,
+            )
+            for n in range(1, min(self._threads, len(claimed)))
+        ]
+        for helper in helpers:
+            helper.start()
+        work()
+        for helper in helpers:
+            helper.join()
+        if failures:
+            raise failures[0]
+        return len(handled)
 
     def _claim(self, ctx: TenantContext, batch: int) -> list[_Claimed]:
         tenant_id = ctx.require_tenant_id()

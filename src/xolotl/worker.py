@@ -6,8 +6,18 @@ A tick runs the outbox dispatcher (``OutboxEventBus.dispatch_pending``), the job
 handlers queue runs in the same tick; schedules go last, so the jobs they queue run in
 the next one. A step that raises is logged and the tick carries on with the next step:
 a database blip in one of the three must stop neither the others nor the next tick.
-Between ticks the loop pauses ``WORKER_TICK_SECONDS``. Each step opens and closes its
-own short sessions, so nothing holds a database connection during the pause.
+The dispatcher and the runner each work on ``WORKER_THREADS`` threads (see their
+docstrings); the three steps still run one after the other.
+
+A tick that did something (an event handled, a job run or a schedule's job queued) is
+followed at once by the next, so a backlog drains without waiting. The jobs step
+claims no job once ``WORKER_JOB_BUDGET_SECONDS`` have passed since it began (nor past
+the runner's batch limits), so the outbox and the scheduler get their turn within
+that budget plus the longest job already running, however long the backlog. A tick
+that did nothing, or whose steps failed, is followed by a pause of
+``WORKER_TICK_SECONDS``: an idle loop, or one whose database is down, does not spin.
+Each step opens and closes its own short sessions, so nothing holds a database
+connection during the pause.
 
 Before its first tick the loop runs its start-up step once, when it has one (the
 composition root gives it one that declares every tenant's platform schedules). A
@@ -15,9 +25,11 @@ start-up step that fails is logged, and the loop runs all the same.
 
 The loop ends after the tick in progress when ``stop()`` is called, from any thread
 (the API does that on shutdown, see ``EmbeddedWorker``), or inside
-``handle_signals()`` on SIGTERM or SIGINT (``xolotl worker``). A job that is running
-then finishes, its heartbeat keeping its lease. Jobs are claimed one at a time, so no
-job is ever claimed and left waiting, and there is nothing to release on the way out.
+``handle_signals()`` on SIGTERM or SIGINT (``xolotl worker``). The runner claims no
+job once the loop is stopping; the jobs already running then finish, their heartbeats
+keeping their leases, and the tick waits for them. Jobs are claimed one at a time, so
+no job is ever claimed and left waiting, and there is nothing to release on the way
+out.
 A second signal does not wait for the tick: it raises ``SystemExit`` at once, which
 nothing in the loop catches, so ``xolotl worker`` exits. It unwinds whatever was
 running and rolls its transaction back; the leases of what that held then run out,
@@ -51,6 +63,8 @@ STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 EMBEDDED_THREAD_NAME = "xolotl-embedded-worker"
 # How long the API's shutdown waits for the embedded loop to finish its tick.
 STOP_TIMEOUT_SECONDS = 10.0
+# How long the jobs step of a tick goes on claiming jobs.
+JOB_BUDGET_SECONDS = 5.0
 
 
 class Worker:
@@ -64,14 +78,19 @@ class Worker:
         scheduler: Scheduler,
         tick_seconds: float,
         on_start: Callable[[], object] | None = None,
+        job_budget_seconds: float = JOB_BUDGET_SECONDS,
     ) -> None:
         if tick_seconds < 0:
             msg = "tick_seconds must not be negative"
             raise ValueError(msg)
+        if job_budget_seconds <= 0:
+            msg = "job_budget_seconds must be positive"
+            raise ValueError(msg)
         self._on_start: Callable[[], object] | None = on_start
+        self._job_budget_seconds: float = job_budget_seconds
         self._steps: tuple[tuple[str, Callable[[], int]], ...] = (
             ("dispatch", bus.dispatch_pending),
-            ("jobs", runner.run_once),
+            ("jobs", lambda: self._run_jobs(runner)),
             ("schedules", scheduler.tick),
         )
         self._tick_seconds: float = tick_seconds
@@ -86,13 +105,30 @@ class Worker:
         """Ask the loop to end after the tick in progress; safe from any thread."""
         self._wake.set()
 
-    def tick(self) -> None:
-        """Run the three steps once, in order, each whatever the others did."""
+    def _run_jobs(self, runner: JobRunner) -> int:
+        # The runner looks at this before each claim: a stop ends the tick once the
+        # jobs already running have finished, and so does the end of the budget,
+        # which leaves the rest of the backlog to the next tick.
+        deadline = time.monotonic() + self._job_budget_seconds
+        return runner.run_once(
+            stopping=lambda: self.stopping or time.monotonic() >= deadline
+        )
+
+    def tick(self) -> int:
+        """Run the three steps once, in order, each whatever the others did.
+
+        Returns:
+            How much the steps did: events handled, jobs run and jobs scheduled. A
+            step that failed counts nothing.
+
+        """
+        done = 0
         for name, step in self._steps:
             try:
-                _ = step()
+                done += step()
             except Exception:
                 logger.exception("worker step failed", extra={"worker_step": name})
+        return done
 
     def run(self, max_ticks: int | None = None) -> int:
         """Run the start-up step, then tick until stopped or ``max_ticks`` ticks ran.
@@ -117,11 +153,12 @@ class Worker:
                 logger.exception("worker start-up step failed")
         ticks = 0
         while not self.stopping and (max_ticks is None or ticks < max_ticks):
-            self.tick()
+            busy = self.tick() > 0
             ticks += 1
             if max_ticks is not None and ticks >= max_ticks:
                 break
-            self._pause()
+            if not busy:
+                self._pause()
         stopped_by = None if self._signal is None else signal.Signals(self._signal).name
         logger.info("worker stopped", extra={"ticks": ticks, "signal": stopped_by})
         return ticks

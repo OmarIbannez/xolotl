@@ -2,6 +2,7 @@ import base64
 import traceback
 from collections.abc import Generator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import pytest
@@ -29,6 +30,9 @@ from xolotl.platform.tenancy.context import (
     current_context,
     require_context,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.pool import QueuePool
 
 GUCS = text(
     (
@@ -115,6 +119,31 @@ def test_gucs_are_set_on_every_transaction(engine: Engine):
         assert s.scalar(text("SELECT current_setting('app.tenant_id', true)")) == str(
             tenant_id
         )
+
+
+def test_a_tenant_session_sets_its_context_once_per_transaction(engine: Engine):
+    with (
+        recorded_statements(engine) as statements,
+        tenant_session(system_ctx(uuid4())) as s,
+    ):
+        _ = s.execute(text("SELECT 1"))
+    settings = [stmt for stmt in statements if "set_config" in stmt]
+    # The transaction's begin sets the GUCs; nothing sets them a second time.
+    assert len(settings) == 1
+
+
+def test_a_tenant_session_that_runs_nothing_takes_no_connection(engine: Engine):
+    pool = cast("QueuePool", engine.pool)
+    before = pool.checkedout()
+    with recorded_statements(engine) as statements, tenant_session(system_ctx(uuid4())):
+        # A job handler that opens its own sessions leaves the runner's unused.
+        assert pool.checkedout() == before
+    assert statements == []
+
+
+def test_the_app_engine_pools_for_the_api_and_the_worker_threads(engine: Engine):
+    pool = cast("QueuePool", engine.pool)
+    assert pool.size() == get_settings().database_pool_size
 
 
 def test_gucs_do_not_leak_into_a_fresh_connection(engine: Engine):

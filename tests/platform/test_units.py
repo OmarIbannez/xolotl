@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 import yaml
-from sqlalchemy import Engine, func, select
+from sqlalchemy import Engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from tests.helpers import platform_ctx
@@ -19,7 +19,7 @@ from tests.platform.units_support import (
     load_unit_values,
     seed_mx_holidays,
 )
-from xolotl.platform.calendar import Holidays
+from xolotl.platform.calendar import Holidays, load_holidays
 from xolotl.platform.db import tenant_session
 from xolotl.platform.enums import Confidence, HolidayScope
 from xolotl.platform.errors import ValidationFailedError, XolotlError
@@ -28,6 +28,7 @@ from xolotl.platform.units import (
     ConversionRule,
     Quantity,
     SeedFileSource,
+    UnitRates,
     UnitService,
     UnitValue,
     UnitValueRow,
@@ -107,6 +108,100 @@ def test_conversion_goldens(case: dict[str, Any], loaded: Ids, engine: Engine):
     assert conv.unit_value_id == (loaded[row[0], row[1]] if row else None)
     assert conv.rule is rule
     assert conv.on == case["on"]
+
+
+@contextmanager
+def _holiday_reads(engine: Engine) -> Generator[list[str]]:
+    reads: list[str] = []
+
+    def keep(conn, cursor, statement, parameters, context, executemany) -> None:
+        if "FROM holiday" in statement:
+            reads.append(statement)
+
+    event.listen(engine, "before_cursor_execute", keep)
+    try:
+        yield reads
+    finally:
+        event.remove(engine, "before_cursor_execute", keep)
+
+
+def _two_prior_banking_day_conversions(service: UnitService) -> list[date]:
+    usd = Quantity(amount=Decimal(5000), unit="USD")
+    return [
+        service.threshold_in_ccy(
+            usd, "MXN", on, ConversionRule.PRIOR_BANKING_DAY
+        ).resolved_date
+        for on in (date(2025, 12, 15), date(2025, 12, 16))
+    ]
+
+
+def test_a_unit_service_reads_each_calendar_once(loaded: Ids, engine: Engine):
+    with _session(engine) as s, _holiday_reads(engine) as reads:
+        resolved = _two_prior_banking_day_conversions(UnitService(s))
+    # 12 December is a bank holiday: the calendar was read, once for both.
+    assert resolved == [date(2025, 12, 11), date(2025, 12, 15)]
+    assert len(reads) == 1
+
+
+def test_a_unit_service_given_the_calendar_reads_none(loaded: Ids, engine: Engine):
+    with _session(engine) as s:
+        banxico = load_holidays(s, country="MX", scope=HolidayScope.BANXICO)
+    with _session(engine) as s, _holiday_reads(engine) as reads:
+        resolved = _two_prior_banking_day_conversions(
+            UnitService(s, holidays=[banxico])
+        )
+    assert resolved == [date(2025, 12, 11), date(2025, 12, 15)]
+    assert reads == []
+
+
+@contextmanager
+def _unit_value_reads(engine: Engine) -> Generator[list[str]]:
+    reads: list[str] = []
+
+    def keep(conn, cursor, statement, parameters, context, executemany) -> None:
+        if "FROM unit_value" in statement:
+            reads.append(statement)
+
+    event.listen(engine, "before_cursor_execute", keep)
+    try:
+        yield reads
+    finally:
+        event.remove(engine, "before_cursor_execute", keep)
+
+
+def test_unit_services_sharing_rates_read_each_value_once(loaded: Ids, engine: Engine):
+    rates: UnitRates = {}
+    usd = Quantity(amount=Decimal(5000), unit="USD")
+    on = date(2025, 12, 16)
+    with _unit_value_reads(engine) as reads:
+        conversions = []
+        for _ in range(2):  # two rows, each in a transaction of its own
+            with _session(engine) as s:
+                service = UnitService(s, rates=rates)
+                conversions.append(
+                    service.threshold_in_ccy(
+                        usd, "MXN", on, ConversionRule.PRIOR_BANKING_DAY
+                    )
+                )
+    assert len(reads) == 1
+    first, second = conversions
+    assert first == second
+    assert first.unit_value_id == loaded["USD_MXN_FIX", date(2025, 12, 15)]
+    assert first.amount == Decimal("92000.00")
+
+
+def test_a_missing_value_is_not_remembered(loaded: Ids, engine: Engine):
+    rates: UnitRates = {}
+    usd = Quantity(amount=Decimal(5000), unit="USD")
+    far = date(2030, 1, 15)
+    with _session(engine) as s, _unit_value_reads(engine) as reads:
+        service = UnitService(s, rates=rates)
+        for _ in range(2):
+            with pytest.raises(XolotlError):
+                _ = service.threshold_in_ccy(usd, "MXN", far, ConversionRule.SAME_DAY)
+    # Asked again, the store is read again: a value loaded meanwhile is used.
+    assert len(reads) == 2
+    assert rates == {}
 
 
 def _fix(valid_from: date, value: str) -> UnitValue:
