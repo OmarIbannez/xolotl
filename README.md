@@ -1117,8 +1117,13 @@ SP-04's measurements (`tests/perf/test_sp04_perf.py`) append to `.perf/sp04.json
   the worker's ticks, and, as a secondary measure that depends on where the ten
   structuring customers fall in the queue, `rule_hit.created_at - received_at`.
   **NFR-TM-002 (alert p95 <= 5 s) is not met for a 1,000-row burst on the single
-  embedded runner** (see the PR of plan 4c C10 for the numbers); SP-11 gates it
-  under load. The test fails only past a 300 s drain.
+  embedded worker**: on a shared 12-core laptop with Postgres in Docker, p95 went
+  from 34.7 s (one thread, a 1 s pause between ticks of ten jobs) to 9.7 s, and
+  27 to 100 transactions per second, once the loop stopped pausing while busy and
+  ran four threads. The process is then bound by Python's global interpreter
+  lock (about 30 statements and their ORM work per row, and the 2.5 s `POST`
+  itself counts towards every row's latency); SP-11 gates it under load. The
+  test fails only past a 300 s drain.
 - `counterparty_first_sight_throughput` (spec §11.1): 1,000 counterparties
   resolved in one minute (5 % carrying an OFAC name) and the first-sight job
   drained: counterparties screened per second (floor 20/s), the resolve rate,
